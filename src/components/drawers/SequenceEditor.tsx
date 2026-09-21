@@ -13,6 +13,7 @@ interface Props {
 export const SequenceEditor: React.FC<Props> = ({ data, onChange, offerHeadline, businessType }) => {
   const [activeStepIdx, setActiveStepIdx] = useState(0);
   const [loadingAI, setLoadingAI] = useState(false);
+  const [editorTab, setEditorTab] = useState<'settings' | 'preview'>('settings');
 
   const steps = data.steps || [];
   const currentStep = steps[activeStepIdx] || steps[0];
@@ -64,7 +65,136 @@ export const SequenceEditor: React.FC<Props> = ({ data, onChange, offerHeadline,
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Tab Switcher */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          backgroundColor: 'rgba(0, 0, 0, 0.35)',
+          padding: '4px',
+          borderRadius: '8px',
+          border: '1px solid rgba(255, 255, 255, 0.08)'
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setEditorTab('settings')}
+          style={{
+            flex: 1,
+            padding: '6px 12px',
+            borderRadius: '6px',
+            fontSize: '12px',
+            fontWeight: 700,
+            border: 'none',
+            cursor: 'pointer',
+            backgroundColor: editorTab === 'settings' ? '#6366F1' : 'transparent',
+            color: editorTab === 'settings' ? '#FFFFFF' : '#94A3B8',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          Drip Sequence Editor
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditorTab('preview')}
+          style={{
+            flex: 1,
+            padding: '6px 12px',
+            borderRadius: '6px',
+            fontSize: '12px',
+            fontWeight: 700,
+            border: 'none',
+            cursor: 'pointer',
+            backgroundColor: editorTab === 'preview' ? '#6366F1' : 'transparent',
+            color: editorTab === 'preview' ? '#FFFFFF' : '#94A3B8',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          Live Inbox Preview
+        </button>
+      </div>
+
+      {editorTab === 'preview' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* Step Selector for Preview */}
+          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
+            {steps.map((step, idx) => (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => setActiveStepIdx(idx)}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  border: '1px solid',
+                  borderColor: activeStepIdx === idx ? '#6366F1' : 'rgba(255, 255, 255, 0.08)',
+                  backgroundColor: activeStepIdx === idx ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
+                  color: activeStepIdx === idx ? '#FFFFFF' : '#94A3B8',
+                  cursor: 'pointer'
+                }}
+              >
+                Email #{idx + 1} ({step.delay})
+              </button>
+            ))}
+          </div>
+
+          {/* Email Inbox Shell */}
+          <div
+            style={{
+              backgroundColor: '#0F172A',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: '12px',
+              padding: '16px',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#6366F1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '13px', color: '#FFFFFF' }}>
+                  J
+                </div>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#FFFFFF' }}>Jourvance Concierge</div>
+                  <div style={{ fontSize: '10px', color: '#64748B' }}>to sarah@prospect.com</div>
+                </div>
+              </div>
+              <span style={{ fontSize: '10px', color: '#818CF8', fontWeight: 700, backgroundColor: 'rgba(99, 102, 241, 0.15)', padding: '2px 8px', borderRadius: '4px' }}>
+                Trigger: {currentStep?.delay || 'Day 0'}
+              </span>
+            </div>
+
+            <div style={{ fontSize: '14px', fontWeight: 800, color: '#FFFFFF', marginBottom: '8px' }}>
+              {currentStep?.subject || 'Subject line preview'}
+            </div>
+
+            <div style={{ fontSize: '11px', color: '#64748B', fontStyle: 'italic', marginBottom: '14px' }}>
+              Snippet: {currentStep?.previewText || 'Quick preview text for the mobile lock screen...'}
+            </div>
+
+            <div
+              style={{
+                fontSize: '12px',
+                color: '#E2E8F0',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+                backgroundColor: 'rgba(0, 0, 0, 0.25)',
+                padding: '14px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.06)'
+              }}
+            >
+              {(currentStep?.body || '')
+                .replace(/\[First Name\]/g, 'Sarah')
+                .replace(/\[Phone\]/g, '(555) 234-5678')}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Sequence Header */}
       <div>
         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
@@ -248,6 +378,8 @@ export const SequenceEditor: React.FC<Props> = ({ data, onChange, offerHeadline,
             />
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe } from 'lucide-react';
+import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download } from 'lucide-react';
 import type { JourneyProject } from '../../types/journey';
 
 interface Props {
@@ -7,6 +7,7 @@ interface Props {
   onUpdateProjectName: (name: string) => void;
   onSave: () => void;
   onTestJourney: () => void;
+  onExportAssets?: () => void;
   onAddNode: (type: 'ad-source' | 'landing-page' | 'lead-form' | 'follow-up-sequence') => void;
   onOpenWebsite?: () => void;
   user?: any;
@@ -23,6 +24,7 @@ export const CanvasHeader: React.FC<Props> = ({
   onUpdateProjectName,
   onSave,
   onTestJourney,
+  onExportAssets,
   onAddNode,
   onOpenWebsite,
   user,
@@ -259,6 +261,32 @@ export const CanvasHeader: React.FC<Props> = ({
           <Play size={13} fill="#38BDF8" />
           <span>Test Lead Flow</span>
         </button>
+
+        {/* Export Assets Button */}
+        {onExportAssets && (
+          <button
+            onClick={onExportAssets}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '7px 14px',
+              borderRadius: '8px',
+              background: 'rgba(255, 255, 255, 0.06)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              color: '#F1F5F9',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)')}
+          >
+            <Download size={13} color="#818CF8" />
+            <span>Export Assets</span>
+          </button>
+        )}
 
         {/* Save & Deploy Button */}
         <button

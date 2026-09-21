@@ -15,6 +15,7 @@ import { ContactPage } from './components/public/ContactPage';
 import { AuthModal } from './components/auth/AuthModal';
 import { BillingModal } from './components/billing/BillingModal';
 import { OperatorDashboard } from './components/admin/OperatorDashboard';
+import { ExportAssetsModal } from './components/export/ExportAssetsModal';
 import { auth, onAuthStateChanged, logOut, type User } from './lib/firebase';
 
 export const App: React.FC = () => {
@@ -28,6 +29,7 @@ export const App: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [showOperatorDashboard, setShowOperatorDashboard] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   
   const [saving, setSaving] = useState(false);
   const [savedRecently, setSavedRecently] = useState(false);
@@ -196,6 +198,7 @@ export const App: React.FC = () => {
             onUpdateProjectName={handleUpdateProjectName}
             onSave={handleSave}
             onTestJourney={() => setShowLiveModal(true)}
+            onExportAssets={() => setShowExportModal(true)}
             onAddNode={handleAddNode}
             onOpenWebsite={() => setActivePage('home')}
             user={user}
@@ -301,6 +304,14 @@ export const App: React.FC = () => {
           }}
         />
       )}
+
+      {/* Production Assets Export Modal */}
+      <ExportAssetsModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        nodes={project.nodes as any}
+        journeyTitle={project.name}
+      />
     </div>
   );
 };
