@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="jv-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6" />
+      <stop offset="50%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#8B5CF6" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#0F172A" />
+  <!-- Journey curve trajectory -->
+  <path d="M16 44 C 20 20, 44 20, 48 44" stroke="url(#jv-grad)" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 1" />
+  <!-- Nodes along journey -->
+  <circle cx="16" cy="44" r="5" fill="#3B82F6" />
+  <circle cx="32" cy="24" r="6" fill="#6366F1" stroke="#0F172A" stroke-width="2" />
+  <circle cx="48" cy="44" r="5" fill="#8B5CF6" />
+  <path d="M32 20 L35 24 L32 28 Z" fill="#FFFFFF" />
+</svg>
