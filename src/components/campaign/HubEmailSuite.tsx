@@ -6,7 +6,7 @@ import {
   ShieldCheck, Play
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
-import type { Workspace, AudienceSegment, DripSequence, DripEnrollment } from '../../types/journey';
+import type { Workspace, AudienceSegment, DripSequence, DripEnrollment, ShopifyAbandonedCheckout } from '../../types/journey';
 
 interface FlowStep {
   type: string;
@@ -81,6 +81,9 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   const [dripTickMsg, setDripTickMsg] = useState<string | null>(null);
   const [enrollingTestLead, setEnrollingTestLead] = useState(false);
 
+  // Wave 8: Abandoned Checkouts state
+  const [abandonedCheckouts, setAbandonedCheckouts] = useState<ShopifyAbandonedCheckout[]>([]);
+
   // New Broadcast state
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [broadcastSubject, setBroadcastSubject] = useState('');
@@ -137,14 +140,16 @@ ${unsub}`;
     setLoading(true);
     try {
       const headers = await authHeaders();
-      const [fRes, bRes, aRes, sRes, segRes, dSeqRes, dEnrRes] = await Promise.all([
+      const wsId = workspace?.id || 'default';
+      const [fRes, bRes, aRes, sRes, segRes, dSeqRes, dEnrRes, chkRes] = await Promise.all([
         fetch('/api/email/flows', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/broadcasts', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/analytics', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/audience', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/segments', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/drips/sequences', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/drips/enrollments', { headers }).then(r => r.json()).catch(() => ({}))
+        fetch('/api/drips/enrollments', { headers }).then(r => r.json()).catch(() => ({})),
+        fetch(`/api/workspace/${wsId}/shopify/abandoned-checkouts`, { headers }).then(r => r.json()).catch(() => ({}))
       ]);
 
       if (fRes?.success && Array.isArray(fRes.flows)) setFlows(fRes.flows);
@@ -154,6 +159,7 @@ ${unsub}`;
       if (segRes?.success && Array.isArray(segRes.segments)) setSegments(segRes.segments);
       if (dSeqRes?.success && Array.isArray(dSeqRes.sequences)) setDripSequences(dSeqRes.sequences);
       if (dEnrRes?.success && Array.isArray(dEnrRes.enrollments)) setDripEnrollments(dEnrRes.enrollments);
+      if (chkRes?.success && Array.isArray(chkRes.checkouts)) setAbandonedCheckouts(chkRes.checkouts);
     } finally {
       setLoading(false);
     }
@@ -733,6 +739,104 @@ ${unsub}`;
                 </div>
               </div>
             ))}
+
+            {/* Wave 8: Abandoned Checkouts Recovery Queue */}
+            {abandonedCheckouts.length > 0 && (
+              <div
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '14px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#F472B6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <ShoppingBag size={14} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#F8FAFC' }}>
+                        Shopify Abandoned Checkouts Queue
+                      </h3>
+                      <div style={{ fontSize: '11px', color: '#94A3B8' }}>
+                        Live cart drop-offs captured via Shopify checkout webhooks with 1-click recovery permalinks.
+                      </div>
+                    </div>
+                  </div>
+
+                  <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#34D399' }}>
+                    {abandonedCheckouts.filter(c => c.recoveryStatus === 'recovered').length} Recovered
+                  </span>
+                </div>
+
+                <div style={{
+                  overflowX: 'auto',
+                  backgroundColor: 'rgba(0, 0, 0, 0.25)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.04)'
+                }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                    <thead>
+                      <tr style={{ color: '#64748B', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <th style={{ padding: '8px 12px' }}>Customer Email</th>
+                        <th style={{ padding: '8px 12px' }}>Cart Value</th>
+                        <th style={{ padding: '8px 12px' }}>Items</th>
+                        <th style={{ padding: '8px 12px' }}>Status</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Recovery Link</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {abandonedCheckouts.map(chk => (
+                        <tr key={chk.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.03)' }}>
+                          <td style={{ padding: '8px 12px', color: '#E2E8F0', fontWeight: 500 }}>
+                            {chk.customerEmail}
+                          </td>
+                          <td style={{ padding: '8px 12px', color: '#34D399', fontWeight: 700 }}>
+                            ${chk.totalPrice.toFixed(2)}
+                          </td>
+                          <td style={{ padding: '8px 12px', color: '#94A3B8' }}>
+                            {chk.lineItems.map(li => li.title).join(', ') || 'Cart Items'}
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <span style={{
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              backgroundColor: chk.recoveryStatus === 'recovered' ? 'rgba(16, 185, 129, 0.2)' : chk.recoveryStatus === 'email_sent' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(234, 179, 8, 0.2)',
+                              color: chk.recoveryStatus === 'recovered' ? '#34D399' : chk.recoveryStatus === 'email_sent' ? '#60A5FA' : '#FACC15'
+                            }}>
+                              {chk.recoveryStatus === 'recovered' ? 'Recovered ($' + chk.totalPrice.toFixed(2) + ')' : chk.recoveryStatus === 'email_sent' ? 'Email Sent' : 'Pending 45m'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                            <a
+                              href={chk.abandonedCheckoutUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{
+                                color: '#F472B6',
+                                textDecoration: 'none',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                            >
+                              <span>Open Cart</span>
+                              <ExternalLink size={10} />
+                            </a>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Flows Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(460px, 1fr))', gap: '16px' }}>

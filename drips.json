@@ -37,13 +37,98 @@
       ],
       "activeEnrollments": 4,
       "totalCompleted": 14,
-      "totalExitedPurchased": 10,
-      "attributedSales": 1202,
+      "totalExitedPurchased": 11,
+      "attributedSales": 1291,
       "createdAt": "2026-09-09T18:22:01.986Z",
       "updatedAt": "2026-09-23T18:22:01.986Z"
+    },
+    {
+      "id": "drip_seq_cart_recovery",
+      "name": "Shopify Abandoned Cart & Checkout Recovery",
+      "description": "Recovers shoppers who entered their details at checkout but dropped off before completing payment.",
+      "triggerType": "checkout_abandonment",
+      "smartExitOnPurchase": true,
+      "steps": [
+        {
+          "id": "cart_step_1",
+          "stepNumber": 1,
+          "delayHours": 1,
+          "subject": "Did you leave something behind? Your cart is reserved",
+          "previewText": "We held your order and preference allocations for the next 24 hours",
+          "body": "Hey {{first_name}},\n\nWe noticed you didn't finish checking out. We have saved your cart and reserved your order.\n\nClick below to resume your checkout with one click:\n{{abandoned_checkout_url}}",
+          "discountVoucher": ""
+        },
+        {
+          "id": "cart_step_2",
+          "stepNumber": 2,
+          "delayHours": 24,
+          "subject": "Final Notice: Your reserved order & priority dispatch expire today",
+          "previewText": "Complete your order before inventory resets to open allocation",
+          "body": "Hey {{first_name}},\n\nThis is your final notice regarding your reserved items. We can only hold your items for a few more hours before returning them to general inventory.\n\nComplete your order here:\n{{abandoned_checkout_url}}",
+          "discountVoucher": ""
+        }
+      ],
+      "activeEnrollments": 3,
+      "totalCompleted": 6,
+      "totalExitedPurchased": 6,
+      "attributedSales": 584,
+      "createdAt": "2026-09-13T22:01:25.927Z",
+      "updatedAt": "2026-09-23T22:01:25.927Z"
     }
   ],
   "enrollments": [
+    {
+      "id": "enr_1790201056902_d0kg",
+      "sequenceId": "drip_seq_default",
+      "customerEmail": "lead_1790201056524@growthbrand.io",
+      "customerName": "Jordan Miller",
+      "sourceSlug": "saas-growth-funnel",
+      "currentStepIndex": 2,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-23T22:04:16.902Z",
+      "nextStepDueAt": "2026-09-23T22:03:16.921Z",
+      "lastStepSentAt": "2026-09-23T22:04:16.913Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-23T22:04:16.902Z",
+          "status": "delivered"
+        },
+        {
+          "stepNumber": 2,
+          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
+          "sentAt": "2026-09-23T22:04:16.913Z",
+          "status": "delivered"
+        }
+      ],
+      "convertedAt": "2026-09-23T22:04:16.918Z"
+    },
+    {
+      "id": "enr_1790201013839_9pzq",
+      "sequenceId": "drip_seq_cart_recovery",
+      "customerEmail": "shopper_3839@example.com",
+      "customerName": "Alex Shopper",
+      "sourceSlug": "simulated_checkout",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-23T22:03:33.839Z",
+      "nextStepDueAt": "2026-09-23T23:03:33.839Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790201013823_ify9",
+      "sequenceId": "drip_seq_cart_recovery",
+      "customerEmail": "prospect_1790201013821@acmecommerce.com",
+      "customerName": "Alex Vance",
+      "sourceSlug": "cart_recovery",
+      "currentStepIndex": 0,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-23T22:03:33.823Z",
+      "nextStepDueAt": "2026-09-23T23:03:33.823Z",
+      "history": [],
+      "convertedAt": "2026-09-23T22:03:33.835Z"
+    },
     {
       "id": "enr_1790189532403_uv9g",
       "sequenceId": "drip_seq_default",

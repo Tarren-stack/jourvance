@@ -427,3 +427,30 @@ export interface AttributionReport {
   }>;
 }
 
+export interface ShopifyDiscountRule {
+  id: string;
+  code: string;
+  discountType: 'percentage' | 'fixed_amount';
+  value: number;
+  usageLimit?: number | null;
+  isUniquePerLead: boolean;
+  shopifyPriceRuleId?: string;
+  createdAt: string;
+  status: 'active' | 'expired';
+}
+
+export interface ShopifyAbandonedCheckout {
+  id: string;
+  token: string;
+  customerEmail: string;
+  customerName?: string;
+  totalPrice: number;
+  currency: string;
+  lineItems: Array<{ title: string; quantity: number; price: number }>;
+  abandonedCheckoutUrl: string;
+  abandonedAt: string;
+  recoveryStatus: 'pending' | 'email_sent' | 'recovered' | 'expired';
+  recoveryEmailSentAt?: string;
+  recoveredAt?: string;
+  recoveredOrderId?: string;
+}

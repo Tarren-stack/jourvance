@@ -7,6 +7,7 @@ import {
 import type { PageNodeData, PageVariantData, Workspace, ShopifyProduct } from '../../types/journey';
 import { requestAICopy } from '../../lib/hubClient';
 import { fetchShopifyProducts, buildCheckoutPermalink, buildMultiItemCheckoutPermalink, verifyCustomDomain } from '../../lib/shopifyClient';
+import { authHeaders } from '../../lib/firebase';
 
 interface Props {
   data: PageNodeData;
@@ -28,6 +29,8 @@ export const PageEditor: React.FC<Props> = ({
   const [loadingAI, setLoadingAI] = useState(false);
   const [editorTab, setEditorTab] = useState<'settings' | 'preview'>('settings');
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
+  const [syncingDisc, setSyncingDisc] = useState(false);
+  const [discSyncedMsg, setDiscSyncedMsg] = useState<string | null>(null);
   const [previewBumpChecked, setPreviewBumpChecked] = useState(false);
   const [previewViewMode, setPreviewViewMode] = useState<'page' | 'modal'>('page');
   const [activeVariantTab, setActiveVariantTab] = useState<'a' | 'b'>('a');
@@ -1047,7 +1050,58 @@ export const PageEditor: React.FC<Props> = ({
                     outline: 'none'
                   }}
                 />
+                {data.discountCode && (
+                  <button
+                    type="button"
+                    disabled={syncingDisc}
+                    onClick={async () => {
+                      setSyncingDisc(true);
+                      setDiscSyncedMsg(null);
+                      try {
+                        const headers = await authHeaders();
+                        const wsId = workspace?.id || 'default';
+                        const res = await fetch(`/api/workspace/${wsId}/shopify/create-discount`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', ...headers },
+                          body: JSON.stringify({ code: data.discountCode, discountType: 'percentage', value: 20 })
+                        });
+                        const json = await res.json().catch(() => ({}));
+                        if (json?.success) {
+                          setDiscSyncedMsg(`Synced ${data.discountCode} in Shopify!`);
+                          setTimeout(() => setDiscSyncedMsg(null), 3000);
+                        }
+                      } catch (err) {
+                        console.error('Failed syncing discount:', err);
+                      } finally {
+                        setSyncingDisc(false);
+                      }
+                    }}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: 'rgba(236, 72, 153, 0.15)',
+                      border: '1px solid rgba(236, 72, 153, 0.3)',
+                      color: '#f472b6',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: syncingDisc ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    title="Provision this code directly in connected Shopify Admin"
+                  >
+                    <Zap size={11} />
+                    <span>{syncingDisc ? 'Syncing...' : 'Sync to Shopify'}</span>
+                  </button>
+                )}
               </div>
+              {discSyncedMsg && (
+                <div style={{ marginTop: '4px', fontSize: '11px', color: '#34d399', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <CheckCircle2 size={12} /> <span>{discSyncedMsg}</span>
+                </div>
+              )}
             </div>
 
             {/* Live Permalink Preview */}

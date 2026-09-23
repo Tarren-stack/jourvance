@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X, ShoppingBag, Zap, Copy, Check, RefreshCw, CheckCircle2,
-  DollarSign, ArrowRight, ShieldCheck, Activity, Users, Send
+  DollarSign, ArrowRight, ShieldCheck, Activity, Users, Send,
+  Tag, AlertCircle, ExternalLink, Clock, Plus
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
-import type { JourneyNode, Workspace } from '../../types/journey';
+import type { JourneyNode, Workspace, ShopifyDiscountRule, ShopifyAbandonedCheckout } from '../../types/journey';
 
 interface Props {
   isOpen: boolean;
@@ -21,6 +22,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
   nodes,
   onOrderSimulated
 }) => {
+  const [activeTab, setActiveTab] = useState<'webhooks' | 'discounts' | 'abandoned'>('webhooks');
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [syncingOrders, setSyncingOrders] = useState(false);
   const [ordersSyncResult, setOrdersSyncResult] = useState<string | null>(null);
@@ -35,11 +37,62 @@ export const ShopifySyncModal: React.FC<Props> = ({
   const [simulating, setSimulating] = useState(false);
   const [simSuccess, setSimSuccess] = useState<any | null>(null);
 
-  if (!isOpen) return null;
+  // Discounts state
+  const [discounts, setDiscounts] = useState<ShopifyDiscountRule[]>([]);
+  const [discCode, setDiscCode] = useState('GROWTH20');
+  const [discType, setDiscType] = useState<'percentage' | 'fixed_amount'>('percentage');
+  const [discValue, setDiscValue] = useState('20');
+  const [discUnique, setDiscUnique] = useState(false);
+  const [creatingDiscount, setCreatingDiscount] = useState(false);
+  const [discountSuccess, setDiscountSuccess] = useState<string | null>(null);
+
+  // Abandoned checkouts state
+  const [checkouts, setCheckouts] = useState<ShopifyAbandonedCheckout[]>([]);
+  const [loadingCheckouts, setLoadingCheckouts] = useState(false);
+  const [simulatingCheckout, setSimulatingCheckout] = useState(false);
+  const [simCheckoutSuccess, setSimCheckoutSuccess] = useState<string | null>(null);
 
   const currentHost = typeof window !== 'undefined' ? window.location.origin : 'https://jourvance.com';
   const ordersWebhookUrl = `${currentHost}/api/webhooks/shopify/orders-create`;
   const customersWebhookUrl = `${currentHost}/api/webhooks/shopify/customers-create`;
+  const checkoutsWebhookUrl = `${currentHost}/api/webhooks/shopify/checkouts-create`;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    loadDiscounts();
+    loadAbandonedCheckouts();
+  }, [isOpen, workspace?.id]);
+
+  const loadDiscounts = async () => {
+    try {
+      const headers = await authHeaders();
+      const wsId = workspace?.id || 'default';
+      const res = await fetch(`/api/workspace/${wsId}/shopify/discounts`, { headers });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success && Array.isArray(data.discounts)) {
+        setDiscounts(data.discounts);
+      }
+    } catch (err) {
+      console.error('Failed loading discounts:', err);
+    }
+  };
+
+  const loadAbandonedCheckouts = async () => {
+    setLoadingCheckouts(true);
+    try {
+      const headers = await authHeaders();
+      const wsId = workspace?.id || 'default';
+      const res = await fetch(`/api/workspace/${wsId}/shopify/abandoned-checkouts`, { headers });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success && Array.isArray(data.checkouts)) {
+        setCheckouts(data.checkouts);
+      }
+    } catch (err) {
+      console.error('Failed loading checkouts:', err);
+    } finally {
+      setLoadingCheckouts(false);
+    }
+  };
 
   const handleCopy = (url: string, key: string) => {
     navigator.clipboard.writeText(url);
@@ -95,6 +148,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
       if (data?.success) {
         setSimSuccess(data);
         if (onOrderSimulated) onOrderSimulated(data);
+        loadAbandonedCheckouts();
       }
     } catch (err) {
       console.error('Order simulation failed:', err);
@@ -102,6 +156,67 @@ export const ShopifySyncModal: React.FC<Props> = ({
       setSimulating(false);
     }
   };
+
+  const handleCreateDiscount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!discCode.trim()) return;
+    setCreatingDiscount(true);
+    setDiscountSuccess(null);
+    try {
+      const headers = await authHeaders();
+      const wsId = workspace?.id || 'default';
+      const res = await fetch(`/api/workspace/${wsId}/shopify/create-discount`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({
+          code: discCode.trim().toUpperCase(),
+          discountType: discType,
+          value: parseFloat(discValue) || 20,
+          isUniquePerLead: discUnique
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setDiscountSuccess(`Code ${data.discount.code} created & active in Shopify Admin.`);
+        loadDiscounts();
+        setTimeout(() => setDiscountSuccess(null), 4000);
+      }
+    } catch (err) {
+      console.error('Failed creating discount:', err);
+    } finally {
+      setCreatingDiscount(false);
+    }
+  };
+
+  const handleSimulateAbandonedCheckout = async () => {
+    setSimulatingCheckout(true);
+    setSimCheckoutSuccess(null);
+    try {
+      const headers = await authHeaders();
+      const wsId = workspace?.id || 'default';
+      const res = await fetch(`/api/workspace/${wsId}/shopify/simulate-abandoned-checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({
+          customerEmail: `shopper_${Date.now().toString().slice(-4)}@venture.io`,
+          customerName: 'Marcus Shopper',
+          amount: 87.00
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setSimCheckoutSuccess(`Simulated checkout created for ${data.checkout.customerEmail}. Recovery drip enqueued.`);
+        loadAbandonedCheckouts();
+        setTimeout(() => setSimCheckoutSuccess(null), 4000);
+      }
+    } catch (err) {
+      console.error('Failed simulating checkout:', err);
+    } finally {
+      setSimulatingCheckout(false);
+    }
+  };
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -121,7 +236,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
       <div
         style={{
           width: '100%',
-          maxWidth: '720px',
+          maxWidth: '780px',
           maxHeight: '90vh',
           overflowY: 'auto',
           backgroundColor: '#12141C',
@@ -139,13 +254,13 @@ export const ShopifySyncModal: React.FC<Props> = ({
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '16px' }}>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(236, 72, 153, 0.12)', border: '1px solid rgba(236, 72, 153, 0.25)', color: '#F472B6', padding: '3px 10px', borderRadius: '9999px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
-              <Activity size={13} /> Closed-Loop Attribution Engine
+              <Activity size={13} /> Shopify Full Integration Engine
             </div>
             <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#FFFFFF' }}>
-              Shopify Order Sync & Real-Time ROAS
+              Shopify Automation & Attribution Hub
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#94A3B8', lineHeight: 1.5 }}>
-              Connect real customer purchases on Shopify back to your visual funnel nodes with $0 third-party app cost.
+              Manage closed-loop webhooks, native Shopify discount rules, order tagging, and cart abandonment recovery.
             </p>
           </div>
           <button
@@ -156,221 +271,568 @@ export const ShopifySyncModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* SECTION 1: LIVE SHOPIFY WEBHOOK CONNECTORS */}
-        <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34D399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <ShoppingBag size={15} />
-              </div>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: '#F8FAFC' }}>Native Shopify Webhooks</div>
-                <div style={{ fontSize: '11px', color: '#94A3B8' }}>Add these in Shopify Admin → Settings → Notifications → Webhooks</div>
-              </div>
-            </div>
+        {/* Tab Switcher */}
+        <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('webhooks')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '8px',
+              border: 'none',
+              background: activeTab === 'webhooks' ? '#EC4899' : 'rgba(255, 255, 255, 0.05)',
+              color: activeTab === 'webhooks' ? '#FFFFFF' : '#94A3B8',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Zap size={14} /> <span>Orders & Webhooks</span>
+          </button>
 
-            <button
-              onClick={handleSyncOrders}
-              disabled={syncingOrders}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                color: '#E2E8F0',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: syncingOrders ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              <RefreshCw size={12} className={syncingOrders ? 'animate-spin' : ''} />
-              <span>{syncingOrders ? 'Syncing...' : 'Sync Recent Orders'}</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('discounts')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '8px',
+              border: 'none',
+              background: activeTab === 'discounts' ? '#EC4899' : 'rgba(255, 255, 255, 0.05)',
+              color: activeTab === 'discounts' ? '#FFFFFF' : '#94A3B8',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Tag size={14} /> <span>Discounts & Tagging</span>
+          </button>
 
-          {ordersSyncResult && (
-            <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <CheckCircle2 size={14} /> <span>{ordersSyncResult}</span>
-            </div>
-          )}
-
-          {/* Orders Webhook Box */}
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
-              Event: <span style={{ color: '#F8FAFC' }}>Order creation (orders/create)</span>
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="text"
-                readOnly
-                value={ordersWebhookUrl}
-                style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#CBD5E1', fontSize: '12px', fontFamily: 'monospace' }}
-              />
-              <button
-                type="button"
-                onClick={() => handleCopy(ordersWebhookUrl, 'orders')}
-                style={{ padding: '8px 14px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#F472B6', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-              >
-                {copiedUrl === 'orders' ? <Check size={14} /> : <Copy size={14} />}
-                <span>{copiedUrl === 'orders' ? 'Copied' : 'Copy'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Customers Webhook Box */}
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
-              Event: <span style={{ color: '#F8FAFC' }}>Customer creation (customers/create)</span>
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="text"
-                readOnly
-                value={customersWebhookUrl}
-                style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#CBD5E1', fontSize: '12px', fontFamily: 'monospace' }}
-              />
-              <button
-                type="button"
-                onClick={() => handleCopy(customersWebhookUrl, 'customers')}
-                style={{ padding: '8px 14px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#F472B6', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-              >
-                {copiedUrl === 'customers' ? <Check size={14} /> : <Copy size={14} />}
-                <span>{copiedUrl === 'customers' ? 'Copied' : 'Copy'}</span>
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('abandoned')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '8px',
+              border: 'none',
+              background: activeTab === 'abandoned' ? '#EC4899' : 'rgba(255, 255, 255, 0.05)',
+              color: activeTab === 'abandoned' ? '#FFFFFF' : '#94A3B8',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <ShoppingBag size={14} /> <span>Abandoned Checkouts ({checkouts.length})</span>
+          </button>
         </div>
 
-        {/* SECTION 2: 1-CLICK TEST ORDER SIMULATOR */}
-        <div style={{ backgroundColor: 'rgba(236, 72, 153, 0.04)', border: '1px solid rgba(236, 72, 153, 0.25)', borderRadius: '14px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.2)', border: '1px solid rgba(236, 72, 153, 0.4)', color: '#F472B6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Zap size={15} />
-            </div>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: '#F8FAFC' }}>Interactive Order Simulator</div>
-              <div style={{ fontSize: '11px', color: '#94A3B8' }}>Fire a test order to immediately see your canvas ROAS and CRM update in real time.</div>
-            </div>
-          </div>
+        {/* TAB 1: WEBHOOKS & SIMULATOR */}
+        {activeTab === 'webhooks' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34D399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <ShoppingBag size={15} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#F8FAFC' }}>Native Shopify Webhook Endpoints</div>
+                    <div style={{ fontSize: '11px', color: '#94A3B8' }}>Shopify Admin → Settings → Notifications → Webhooks</div>
+                  </div>
+                </div>
 
-          {simSuccess && (
-            <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.35)', color: '#34D399', fontSize: '12px' }}>
-              <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <CheckCircle2 size={15} /> {simSuccess.message || 'Simulated Order Processed!'}
-              </div>
-              <div style={{ marginTop: '4px', color: '#CBD5E1', fontSize: '11px' }}>
-                Attributed to Funnel Node: <strong>{simSuccess.attributedSlug || simSuccess.attributedNodeId}</strong> • Total: ${simSuccess.totalRevenue}
-              </div>
-            </div>
-          )}
-
-          <form onSubmit={handleSimulateOrder} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
-                  Target Funnel Page Node
-                </label>
-                <select
-                  value={selectedNodeId}
-                  onChange={e => setSelectedNodeId(e.target.value)}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
+                <button
+                  onClick={handleSyncOrders}
+                  disabled={syncingOrders}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#E2E8F0',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: syncingOrders ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
                 >
-                  {landingPages.map(lp => (
-                    <option key={lp.id} value={lp.id} style={{ background: '#16161D' }}>
-                      {(lp.data as any)?.label || 'Landing Page'} ({(lp.data as any)?.slug || lp.id.slice(0, 6)})
-                    </option>
+                  <RefreshCw size={12} className={syncingOrders ? 'animate-spin' : ''} />
+                  <span>{syncingOrders ? 'Syncing...' : 'Sync Recent Orders'}</span>
+                </button>
+              </div>
+
+              {ordersSyncResult && (
+                <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckCircle2 size={14} /> <span>{ordersSyncResult}</span>
+                </div>
+              )}
+
+              {/* Orders Webhook Box */}
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
+                  Event: <span style={{ color: '#F8FAFC' }}>Order creation (orders/create)</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    readOnly
+                    value={ordersWebhookUrl}
+                    style={{ flex: 1, padding: '7px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#CBD5E1', fontSize: '11px', fontFamily: 'monospace' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(ordersWebhookUrl, 'orders')}
+                    style={{ padding: '7px 12px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#F472B6', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    {copiedUrl === 'orders' ? <Check size={13} /> : <Copy size={13} />}
+                    <span>{copiedUrl === 'orders' ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Checkout Webhook Box */}
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
+                  Event: <span style={{ color: '#F8FAFC' }}>Checkout creation / update (checkouts/create)</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    readOnly
+                    value={checkoutsWebhookUrl}
+                    style={{ flex: 1, padding: '7px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#CBD5E1', fontSize: '11px', fontFamily: 'monospace' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(checkoutsWebhookUrl, 'checkouts')}
+                    style={{ padding: '7px 12px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#F472B6', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    {copiedUrl === 'checkouts' ? <Check size={13} /> : <Copy size={13} />}
+                    <span>{copiedUrl === 'checkouts' ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 1-Click Order Simulator */}
+            <div style={{ backgroundColor: 'rgba(236, 72, 153, 0.04)', border: '1px solid rgba(236, 72, 153, 0.25)', borderRadius: '14px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.2)', border: '1px solid rgba(236, 72, 153, 0.4)', color: '#F472B6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Zap size={15} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#F8FAFC' }}>Interactive Order Simulator</div>
+                  <div style={{ fontSize: '11px', color: '#94A3B8' }}>Fire a test order to immediately see your canvas ROAS, tags, and CRM update in real time.</div>
+                </div>
+              </div>
+
+              {simSuccess && (
+                <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.35)', color: '#34D399', fontSize: '12px' }}>
+                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <CheckCircle2 size={15} /> {simSuccess.message || 'Simulated Order Processed!'}
+                  </div>
+                  <div style={{ marginTop: '4px', color: '#CBD5E1', fontSize: '11px' }}>
+                    Attributed to: <strong>{simSuccess.attributedSlug || simSuccess.attributedNodeId}</strong> • Tags Applied: {simSuccess.shopifyTagsApplied?.join(', ')}
+                  </div>
+                </div>
+              )}
+
+              <form onSubmit={handleSimulateOrder} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      Target Funnel Page Node
+                    </label>
+                    <select
+                      value={selectedNodeId}
+                      onChange={e => setSelectedNodeId(e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
+                    >
+                      {landingPages.map(lp => (
+                        <option key={lp.id} value={lp.id} style={{ background: '#16161D' }}>
+                          {(lp.data as any)?.label || 'Landing Page'} ({(lp.data as any)?.slug || lp.id.slice(0, 6)})
+                        </option>
+                      ))}
+                      {landingPages.length === 0 && (
+                        <option value="demo" style={{ background: '#16161D' }}>Demo Offer Funnel</option>
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      Total Order Amount ($)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={simAmount}
+                      onChange={e => setSimAmount(e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      Customer Name
+                    </label>
+                    <input
+                      type="text"
+                      value={simName}
+                      onChange={e => setSimName(e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      Customer Email
+                    </label>
+                    <input
+                      type="email"
+                      value={simEmail}
+                      onChange={e => setSimEmail(e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: '#E2E8F0', padding: '2px 0' }}>
+                  <input
+                    type="checkbox"
+                    checked={simBump}
+                    onChange={e => setSimBump(e.target.checked)}
+                    style={{ width: '15px', height: '15px', accentColor: '#EC4899', cursor: 'pointer' }}
+                  />
+                  <span>Include Order Bump Add-on (+$16.00 AOV Booster)</span>
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={simulating}
+                  style={{
+                    marginTop: '4px',
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #EC4899, #DB2777)',
+                    color: '#FFFFFF',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: simulating ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  {simulating ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
+                  <span>{simulating ? 'Processing Webhook...' : '⚡ Simulate Shopify Order'}</span>
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: DISCOUNTS & ORDER TAGGING */}
+        {activeTab === 'discounts' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Automatic Order Tagging Card */}
+            <div style={{ padding: '14px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+              <ShieldCheck size={20} style={{ color: '#34D399', flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#34D399' }}>Automatic Shopify Order Tagging Active</div>
+                <div style={{ fontSize: '12px', color: '#CBD5E1', marginTop: '3px', lineHeight: 1.5 }}>
+                  Every purchase generated through a Jourvance funnel is automatically tagged in your Shopify Admin with:
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ padding: '2px 8px', borderRadius: '9999px', background: 'rgba(255, 255, 255, 0.1)', fontSize: '11px', fontFamily: 'monospace', color: '#FFFFFF' }}>Jourvance Funnel</span>
+                    <span style={{ padding: '2px 8px', borderRadius: '9999px', background: 'rgba(255, 255, 255, 0.1)', fontSize: '11px', fontFamily: 'monospace', color: '#FFFFFF' }}>Funnel: [slug]</span>
+                    <span style={{ padding: '2px 8px', borderRadius: '9999px', background: 'rgba(255, 255, 255, 0.1)', fontSize: '11px', fontFamily: 'monospace', color: '#FFFFFF' }}>Order-Bump-Accepted</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Discount Provisioning Form */}
+            <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '14px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.15)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#F472B6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Tag size={15} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#F8FAFC' }}>Native Shopify Discount Provisioning</div>
+                  <div style={{ fontSize: '11px', color: '#94A3B8' }}>Pushes discount rules directly to Shopify Price Rules API with 1 click.</div>
+                </div>
+              </div>
+
+              {discountSuccess && (
+                <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckCircle2 size={14} /> <span>{discountSuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleCreateDiscount} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      Discount Code
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. WELCOME20"
+                      value={discCode}
+                      onChange={e => setDiscCode(e.target.value.toUpperCase())}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', fontFamily: 'monospace', outline: 'none' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      Type
+                    </label>
+                    <select
+                      value={discType}
+                      onChange={e => setDiscType(e.target.value as any)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
+                    >
+                      <option value="percentage">Percentage (%)</option>
+                      <option value="fixed_amount">Fixed Amount ($)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                      Value ({discType === 'percentage' ? '%' : '$'})
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={discValue}
+                      onChange={e => setDiscValue(e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Architecture Choice: Shared Standard Code vs Unique 1-Time per Lead */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#F8FAFC' }}>
+                      {discUnique ? 'Mode: Unique 1-Time Code per Lead' : 'Mode: Shared Standard Promo Code (Recommended)'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '2px' }}>
+                      {discUnique
+                        ? 'Generates single-use codes (usage_limit: 1) to eliminate coupon scraping on Honey & RetailMeNot.'
+                        : 'Universal code for all ad funnels, emails, and permalinks with zero setup friction.'}
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={discUnique}
+                      onChange={e => setDiscUnique(e.target.checked)}
+                      style={{ width: '15px', height: '15px', accentColor: '#EC4899', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '11px', color: '#CBD5E1' }}>1-Time Only</span>
+                  </label>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={creatingDiscount}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #EC4899, #DB2777)',
+                    color: '#FFFFFF',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: creatingDiscount ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {creatingDiscount ? <RefreshCw size={13} className="animate-spin" /> : <Tag size={13} />}
+                  <span>{creatingDiscount ? 'Pushing to Shopify...' : '⚡ Push Discount to Shopify Admin'}</span>
+                </button>
+              </form>
+            </div>
+
+            {/* Active Provisioned Discounts Table */}
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '8px' }}>
+                Active Provisioned Discounts ({discounts.length})
+              </div>
+              <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(255, 255, 255, 0.03)', textAlign: 'left', color: '#94A3B8' }}>
+                      <th style={{ padding: '8px 12px' }}>Code</th>
+                      <th style={{ padding: '8px 12px' }}>Discount</th>
+                      <th style={{ padding: '8px 12px' }}>Usage Mode</th>
+                      <th style={{ padding: '8px 12px' }}>Shopify Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {discounts.map(d => (
+                      <tr key={d.id} style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <td style={{ padding: '8px 12px', fontWeight: 700, fontFamily: 'monospace', color: '#F472B6' }}>{d.code}</td>
+                        <td style={{ padding: '8px 12px', color: '#F8FAFC' }}>
+                          {d.discountType === 'percentage' ? `${d.value}% Off` : `$${d.value.toFixed(2)} Off`}
+                        </td>
+                        <td style={{ padding: '8px 12px', color: '#94A3B8' }}>
+                          {d.isUniquePerLead ? '1-Time Single Use' : 'Standard Shared'}
+                        </td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399' }}>
+                            <Check size={11} /> Active
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: ABANDONED CHECKOUTS */}
+        {activeTab === 'abandoned' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#F8FAFC' }}>Shopify Abandoned Checkouts</div>
+                <div style={{ fontSize: '11px', color: '#94A3B8' }}>Shoppers who started checkout on Shopify but dropped off before paying.</div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSimulateAbandonedCheckout}
+                disabled={simulatingCheckout}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  background: 'rgba(236, 72, 153, 0.15)',
+                  border: '1px solid rgba(236, 72, 153, 0.3)',
+                  color: '#F472B6',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: simulatingCheckout ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {simulatingCheckout ? <RefreshCw size={12} className="animate-spin" /> : <Plus size={12} />}
+                <span>{simulatingCheckout ? 'Simulating...' : '+ Simulate Abandoned Checkout'}</span>
+              </button>
+            </div>
+
+            {simCheckoutSuccess && (
+              <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <CheckCircle2 size={14} /> <span>{simCheckoutSuccess}</span>
+              </div>
+            )}
+
+            {/* Checkouts Table */}
+            <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(255, 255, 255, 0.03)', textAlign: 'left', color: '#94A3B8' }}>
+                    <th style={{ padding: '8px 12px' }}>Customer Email</th>
+                    <th style={{ padding: '8px 12px' }}>Cart Value</th>
+                    <th style={{ padding: '8px 12px' }}>Items</th>
+                    <th style={{ padding: '8px 12px' }}>Recovery Status</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {checkouts.map(c => (
+                    <tr key={c.id} style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                      <td style={{ padding: '8px 12px', color: '#F8FAFC', fontWeight: 600 }}>
+                        {c.customerEmail}
+                        <div style={{ fontSize: '10px', color: '#94A3B8' }}>{new Date(c.abandonedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#34D399', fontWeight: 700 }}>
+                        ${c.totalPrice.toFixed(2)}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#CBD5E1', maxWidth: '180px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {c.lineItems.map(li => li.title).join(', ') || '1 Product'}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {c.recoveryStatus === 'recovered' ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399' }}>
+                            <CheckCircle2 size={11} /> Recovered (${c.totalPrice.toFixed(2)})
+                          </span>
+                        ) : c.recoveryStatus === 'email_sent' ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(59, 130, 246, 0.15)', color: '#60A5FA' }}>
+                            <Send size={11} /> Email Sent
+                          </span>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(234, 179, 8, 0.15)', color: '#FACC15' }}>
+                            <Clock size={11} /> Pending (45m Window)
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        <a
+                          href={c.abandonedCheckoutUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            background: 'rgba(255, 255, 255, 0.08)',
+                            color: '#F8FAFC',
+                            fontSize: '11px',
+                            textDecoration: 'none',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <span>Checkout</span>
+                          <ExternalLink size={10} />
+                        </a>
+                      </td>
+                    </tr>
                   ))}
-                  {landingPages.length === 0 && (
-                    <option value="demo" style={{ background: '#16161D' }}>Demo Offer Funnel</option>
+                  {checkouts.length === 0 && (
+                    <tr>
+                      <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#94A3B8' }}>
+                        No abandoned checkouts recorded yet.
+                      </td>
+                    </tr>
                   )}
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
-                  Total Order Amount ($)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={simAmount}
-                  onChange={e => setSimAmount(e.target.value)}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
-                />
-              </div>
+                </tbody>
+              </table>
             </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
-                  Customer Name
-                </label>
-                <input
-                  type="text"
-                  value={simName}
-                  onChange={e => setSimName(e.target.value)}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
-                  Customer Email
-                </label>
-                <input
-                  type="email"
-                  value={simEmail}
-                  onChange={e => setSimEmail(e.target.value)}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
-                />
-              </div>
-            </div>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: '#E2E8F0', padding: '4px 0' }}>
-              <input
-                type="checkbox"
-                checked={simBump}
-                onChange={e => setSimBump(e.target.checked)}
-                style={{ width: '15px', height: '15px', accentColor: '#EC4899', cursor: 'pointer' }}
-              />
-              <span>Include Order Bump Add-on (+$16.00 AOV Booster)</span>
-            </label>
-
-            <button
-              type="submit"
-              disabled={simulating}
-              style={{
-                marginTop: '4px',
-                padding: '11px 18px',
-                borderRadius: '10px',
-                border: 'none',
-                background: 'linear-gradient(135deg, #EC4899, #DB2777)',
-                color: '#FFFFFF',
-                fontSize: '13px',
-                fontWeight: 700,
-                cursor: simulating ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                boxShadow: '0 8px 20px rgba(236, 72, 153, 0.35)'
-              }}
-            >
-              {simulating ? <RefreshCw size={15} className="animate-spin" /> : <Zap size={15} />}
-              <span>{simulating ? 'Processing Simulated Webhook...' : '⚡ Simulate Shopify Order'}</span>
-            </button>
-          </form>
-        </div>
+          </div>
+        )}
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
           <button
             type="button"
             onClick={onClose}
-            style={{ padding: '9px 18px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#CBD5E1', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '8px 18px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#CBD5E1', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
           >
             Done
           </button>

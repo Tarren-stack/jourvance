@@ -687,6 +687,39 @@ const INITIAL_DRIP_SEQUENCES = [
     attributedSales: 1024.00,
     createdAt: new Date(Date.now() - 86400000 * 14).toISOString(),
     updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'drip_seq_cart_recovery',
+    name: 'Shopify Abandoned Cart & Checkout Recovery',
+    description: 'Recovers shoppers who entered their details at checkout but dropped off before completing payment.',
+    triggerType: 'checkout_abandonment',
+    smartExitOnPurchase: true,
+    steps: [
+      {
+        id: 'cart_step_1',
+        stepNumber: 1,
+        delayHours: 1,
+        subject: 'Did you leave something behind? Your cart is reserved',
+        previewText: 'We held your order and preference allocations for the next 24 hours',
+        body: 'Hey {{first_name}},\n\nWe noticed you didn\'t finish checking out. We have saved your cart and reserved your order.\n\nClick below to resume your checkout with one click:\n{{abandoned_checkout_url}}',
+        discountVoucher: ''
+      },
+      {
+        id: 'cart_step_2',
+        stepNumber: 2,
+        delayHours: 24,
+        subject: 'Final Notice: Your reserved order & priority dispatch expire today',
+        previewText: 'Complete your order before inventory resets to open allocation',
+        body: 'Hey {{first_name}},\n\nThis is your final notice regarding your reserved items. We can only hold your items for a few more hours before returning them to general inventory.\n\nComplete your order here:\n{{abandoned_checkout_url}}',
+        discountVoucher: ''
+      }
+    ],
+    activeEnrollments: 2,
+    totalCompleted: 6,
+    totalExitedPurchased: 5,
+    attributedSales: 435.00,
+    createdAt: new Date(Date.now() - 86400000 * 10).toISOString(),
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -765,6 +798,16 @@ function loadDrips() {
     try {
       const data = JSON.parse(fs.readFileSync(dripsFilePath, 'utf8'));
       if (data && Array.isArray(data.sequences)) {
+        let modified = false;
+        for (const initSeq of INITIAL_DRIP_SEQUENCES) {
+          if (!data.sequences.some(s => s.id === initSeq.id)) {
+            data.sequences.push(initSeq);
+            modified = true;
+          }
+        }
+        if (modified) {
+          saveDrips(data);
+        }
         return {
           sequences: data.sequences,
           enrollments: Array.isArray(data.enrollments) ? data.enrollments : []
@@ -785,6 +828,117 @@ function saveDrips(drips) {
     fs.writeFileSync(dripsFilePath, JSON.stringify(drips, null, 2), 'utf8');
   } catch (err) {
     console.warn('[Jourvance] Failed saving drips:', err.message);
+  }
+}
+
+// ── Wave 8: Shopify Native Discounts & Abandoned Checkouts Stores ────────────
+const discountsFilePath = path.join(__dirname, 'discounts.json');
+const checkoutsFilePath = path.join(__dirname, 'checkouts.json');
+
+const INITIAL_DISCOUNTS = [
+  {
+    id: 'disc_welcome20',
+    code: 'WELCOME20',
+    discountType: 'percentage',
+    value: 20,
+    usageLimit: null,
+    isUniquePerLead: false,
+    shopifyPriceRuleId: 'pr_981240192',
+    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+    status: 'active'
+  },
+  {
+    id: 'disc_growth20',
+    code: 'GROWTH20',
+    discountType: 'percentage',
+    value: 20,
+    usageLimit: null,
+    isUniquePerLead: false,
+    shopifyPriceRuleId: 'pr_981240193',
+    createdAt: new Date(Date.now() - 86400000 * 4).toISOString(),
+    status: 'active'
+  },
+  {
+    id: 'disc_vip15',
+    code: 'WAVE5VIP',
+    discountType: 'percentage',
+    value: 15,
+    usageLimit: null,
+    isUniquePerLead: false,
+    shopifyPriceRuleId: 'pr_981240194',
+    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+    status: 'active'
+  }
+];
+
+function loadDiscounts() {
+  if (fs.existsSync(discountsFilePath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(discountsFilePath, 'utf8'));
+      if (Array.isArray(data) && data.length > 0) return data;
+    } catch {}
+  }
+  saveDiscounts(INITIAL_DISCOUNTS);
+  return [...INITIAL_DISCOUNTS];
+}
+
+function saveDiscounts(discounts) {
+  try {
+    fs.writeFileSync(discountsFilePath, JSON.stringify(discounts, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[Jourvance] Failed saving discounts:', err.message);
+  }
+}
+
+const INITIAL_CHECKOUTS = [
+  {
+    id: 'chk_101',
+    token: 'chk_tok_991823',
+    customerEmail: 'david.k@enterprise.com',
+    customerName: 'David Kim',
+    totalPrice: 87.00,
+    currency: 'USD',
+    lineItems: [
+      { title: 'Growth Accelerator Checkout', quantity: 1, price: 58.00 },
+      { title: 'High-Converting Checkout Checklist (Order Bump)', quantity: 1, price: 29.00 }
+    ],
+    abandonedCheckoutUrl: 'https://demo.myshopify.com/checkouts/cn/c1-991823/recover',
+    abandonedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+    recoveryStatus: 'email_sent',
+    recoveryEmailSentAt: new Date(Date.now() - 3600000 * 1).toISOString()
+  },
+  {
+    id: 'chk_102',
+    token: 'chk_tok_991824',
+    customerEmail: 'maya.s@growthlab.io',
+    customerName: 'Maya Sterling',
+    totalPrice: 64.00,
+    currency: 'USD',
+    lineItems: [
+      { title: 'Velvet Botanical Renewal Oil', quantity: 1, price: 64.00 }
+    ],
+    abandonedCheckoutUrl: 'https://demo.myshopify.com/checkouts/cn/c1-991824/recover',
+    abandonedAt: new Date(Date.now() - 1800000).toISOString(),
+    recoveryStatus: 'pending'
+  }
+];
+
+function loadCheckouts() {
+  if (fs.existsSync(checkoutsFilePath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(checkoutsFilePath, 'utf8'));
+      if (Array.isArray(data)) return data;
+    } catch {}
+  }
+  saveCheckouts(INITIAL_CHECKOUTS);
+  return [...INITIAL_CHECKOUTS];
+}
+
+function saveCheckouts(checkouts) {
+  try {
+    fs.writeFileSync(checkoutsFilePath, JSON.stringify(checkouts, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[Jourvance] Failed saving checkouts:', err.message);
   }
 }
 
@@ -1021,6 +1175,104 @@ app.post('/api/workspace/:wsId/shopify/sync-orders', requireUser, async (req, re
   });
 });
 
+// ── Wave 8: Shopify Native Discount Code Provisioning API ─────────────────────
+app.get('/api/workspace/:wsId/shopify/discounts', requireUser, async (req, res) => {
+  const discounts = loadDiscounts();
+  res.json({ success: true, discounts });
+});
+
+app.post('/api/workspace/:wsId/shopify/create-discount', requireUser, async (req, res) => {
+  const ws = await loadWorkspace(req.user.uid, req.params.wsId);
+  if (!ws) return res.status(404).json({ success: false, error: 'Workspace not found.' });
+
+  const { code, discountType = 'percentage', value = 20, usageLimit = null, isUniquePerLead = false } = req.body || {};
+  if (!code || typeof code !== 'string' || !code.trim()) {
+    return res.status(400).json({ success: false, error: 'A discount code string is required.' });
+  }
+
+  const cleanCode = code.trim().toUpperCase();
+  const domain = ws.shopifyConfig?.storeDomain;
+  const token = ws.shopifyConfig?.storefrontAccessToken;
+  let shopifyPriceRuleId = `pr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  let syncedToLiveShopify = false;
+
+  // If live credentials provided, push to Shopify REST Admin API
+  if (domain && domain !== 'demo.myshopify.com' && token) {
+    try {
+      const priceRuleBody = {
+        price_rule: {
+          title: cleanCode,
+          target_type: 'line_item',
+          target_selection: 'all',
+          allocation_method: 'across',
+          value_type: discountType === 'percentage' ? 'percentage' : 'fixed_amount',
+          value: discountType === 'percentage' ? `-${Math.abs(Number(value))}` : `-${Math.abs(Number(value)).toFixed(2)}`,
+          customer_selection: 'all',
+          starts_at: new Date().toISOString(),
+          usage_limit: isUniquePerLead ? 1 : (usageLimit ? Number(usageLimit) : null)
+        }
+      };
+
+      const prResp = await fetch(`https://${domain}/admin/api/2024-01/price_rules.json`, {
+        method: 'POST',
+        headers: {
+          'X-Shopify-Access-Token': token,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(priceRuleBody)
+      });
+      const prData = await prResp.json();
+      if (prData.price_rule?.id) {
+        shopifyPriceRuleId = String(prData.price_rule.id);
+        const dcResp = await fetch(`https://${domain}/admin/api/2024-01/price_rules/${shopifyPriceRuleId}/discount_codes.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': token,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ discount_code: { code: cleanCode } })
+        });
+        const dcData = await dcResp.json();
+        if (dcData.discount_code?.id) {
+          syncedToLiveShopify = true;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('[Jourvance] Live Shopify discount provisioning warning:', apiErr.message);
+    }
+  }
+
+  const discounts = loadDiscounts();
+  const existingIdx = discounts.findIndex(d => d.code === cleanCode);
+  const discountRule = {
+    id: `disc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    code: cleanCode,
+    discountType: discountType === 'fixed_amount' ? 'fixed_amount' : 'percentage',
+    value: Number(value) || 20,
+    usageLimit: isUniquePerLead ? 1 : (usageLimit ? Number(usageLimit) : null),
+    isUniquePerLead: Boolean(isUniquePerLead),
+    shopifyPriceRuleId,
+    createdAt: new Date().toISOString(),
+    status: 'active',
+    syncedToLiveShopify
+  };
+
+  if (existingIdx >= 0) {
+    discounts[existingIdx] = { ...discounts[existingIdx], ...discountRule };
+  } else {
+    discounts.unshift(discountRule);
+  }
+  saveDiscounts(discounts);
+
+  res.json({
+    success: true,
+    discount: discountRule,
+    message: `Discount code ${cleanCode} active and provisioned.`
+  });
+});
+
 // ── Real-Time Shopify Order Ingestion Webhook (Closed-Loop Attribution) ────────
 app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-created'], async (req, res) => {
   const payload = req.body || {};
@@ -1048,11 +1300,18 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
   let attributedNodeId = payload.attributedNodeId || '';
   let attributedAdId = payload.attributedAdId || '';
   let bumpIncluded = Boolean(payload.orderBumpIncluded);
+  let variant = payload.variant || '';
 
-  // 1. Check note_attributes for UTM tags or slug
+  // 1. Check note_attributes for UTM tags, slug, variant or bump
   for (const attr of noteAttributes) {
     if (attr.name === 'utm_campaign' || attr.name === 'slug' || attr.name === 'funnel_slug') {
       attributedSlug = attr.value;
+    }
+    if (attr.name === 'variant' || attr.name === 'ab_variant') {
+      variant = attr.value;
+    }
+    if (attr.name === 'bump_accepted' && (attr.value === 'true' || attr.value === true)) {
+      bumpIncluded = true;
     }
   }
 
@@ -1150,6 +1409,33 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
     }
   }
 
+  // Wave 8: Shopify Admin Order Tagging
+  const shopifyTagsApplied = ['Jourvance Funnel'];
+  if (attributedSlug) shopifyTagsApplied.push(`Funnel: ${attributedSlug}`);
+  if (bumpIncluded) shopifyTagsApplied.push('Order-Bump-Accepted');
+  if (variant) shopifyTagsApplied.push(`Variant: ${String(variant).toUpperCase()}`);
+
+  // Wave 8: Closed-Loop Abandoned Checkout Recovery
+  let recoveredCheckoutId = null;
+  try {
+    const checkouts = loadCheckouts();
+    let checkoutModified = false;
+    for (const chk of checkouts) {
+      if ((chk.customerEmail === customerEmail || (payload.cart_token && chk.token === payload.cart_token) || (payload.token && chk.token === payload.token)) && chk.recoveryStatus !== 'recovered') {
+        chk.recoveryStatus = 'recovered';
+        chk.recoveredAt = new Date().toISOString();
+        chk.recoveredOrderId = orderId;
+        recoveredCheckoutId = chk.id;
+        checkoutModified = true;
+      }
+    }
+    if (checkoutModified) {
+      saveCheckouts(checkouts);
+    }
+  } catch (chkErr) {
+    console.warn('[Jourvance] Failed to update recovered checkout in orders-create:', chkErr.message);
+  }
+
   // Record Order
   const orderRecord = {
     id: orderId,
@@ -1170,6 +1456,7 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
     attributedSlug: attributedSlug || undefined,
     attributedNodeId: attributedNodeId || undefined,
     attributedAdId: attributedAdId || undefined,
+    shopifyTagsApplied,
     createdAt: new Date().toISOString()
   };
 
@@ -1191,6 +1478,8 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
   res.status(200).json({
     success: true,
     orderId,
+    order: orderRecord,
+    recoveredCheckoutId,
     attributed: Boolean(attributedSlug || attributedNodeId),
     attributedSlug,
     attributedNodeId,
@@ -1198,7 +1487,8 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
     attributedRevenue: totalPrice,
     totalPrice,
     bumpIncluded,
-    customer: customerEmail
+    customer: customerEmail,
+    shopifyTagsApplied
   });
 });
 
@@ -1300,10 +1590,26 @@ app.post('/api/workspace/:wsId/shopify/simulate-order', requireUser, async (req,
     orderBumpIncluded: Boolean(bumpIncluded),
     attributedSlug: slug || undefined,
     attributedNodeId: nodeId || undefined,
+    shopifyTagsApplied: ['Jourvance Funnel', ...(slug ? [`Funnel: ${slug}`] : []), ...(bumpIncluded ? ['Order-Bump-Accepted'] : [])],
     createdAt: new Date().toISOString()
   };
   orders.unshift(orderRecord);
   saveOrders(orders);
+
+  // Mark abandoned checkout as recovered if matching
+  try {
+    const checkouts = loadCheckouts();
+    let chkMod = false;
+    for (const chk of checkouts) {
+      if (chk.customerEmail === synthPayload.customer.email && chk.recoveryStatus !== 'recovered') {
+        chk.recoveryStatus = 'recovered';
+        chk.recoveredAt = new Date().toISOString();
+        chk.recoveredOrderId = synthOrderId;
+        chkMod = true;
+      }
+    }
+    if (chkMod) saveCheckouts(checkouts);
+  } catch (e) {}
 
   // Update public page stats if slug given
   if (slug && publicPageCache[slug]) {
@@ -1326,8 +1632,147 @@ app.post('/api/workspace/:wsId/shopify/simulate-order', requireUser, async (req,
     attributedNodeId: nodeId,
     attributedSlug: slug,
     totalRevenue: total,
+    shopifyTagsApplied: orderRecord.shopifyTagsApplied,
     message: `Simulated order ${orderRecord.orderNumber} ($${total.toFixed(2)}) processed successfully.`
   });
+});
+
+// ── Wave 8: Shopify Abandoned Checkout Ingestion Webhooks ─────────────────────
+app.post(['/api/webhooks/shopify/checkouts-create', '/api/webhooks/shopify/checkouts-update'], async (req, res) => {
+  const payload = req.body || {};
+  const token = String(payload.token || payload.id || `tok_${Date.now()}`);
+  const customer = payload.customer || {};
+  const customerEmail = (payload.email || customer.email || '').toLowerCase().trim();
+  const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || payload.name || (customerEmail ? customerEmail.split('@')[0] : 'Shopper');
+  const totalPrice = Number(payload.total_price || payload.subtotal_price || 0);
+  const currency = payload.currency || 'USD';
+  const lineItems = Array.isArray(payload.line_items) ? payload.line_items : [];
+  const shopDomain = payload.shop_domain || 'demo.myshopify.com';
+  const abandonedCheckoutUrl = payload.abandoned_checkout_url || `https://${shopDomain}/checkouts/cn/c1-${token.slice(-8)}/recover`;
+
+  if (!customerEmail || !customerEmail.includes('@')) {
+    return res.status(200).json({ success: true, message: 'Checkout logged without email.' });
+  }
+
+  // Check if this shopper already bought recently
+  const orders = loadOrders();
+  const hasBought = orders.some(o => o.customerEmail === customerEmail && new Date(o.createdAt).getTime() >= new Date(payload.created_at || Date.now() - 300000).getTime());
+  if (hasBought) {
+    return res.status(200).json({ success: true, message: 'Customer already completed order.' });
+  }
+
+  const checkouts = loadCheckouts();
+  const existingIdx = checkouts.findIndex(c => c.token === token || (c.customerEmail === customerEmail && c.recoveryStatus === 'pending'));
+
+  let checkoutRecord;
+  if (existingIdx >= 0) {
+    checkouts[existingIdx].totalPrice = totalPrice || checkouts[existingIdx].totalPrice;
+    checkouts[existingIdx].lineItems = lineItems.length ? lineItems : checkouts[existingIdx].lineItems;
+    checkouts[existingIdx].abandonedCheckoutUrl = abandonedCheckoutUrl || checkouts[existingIdx].abandonedCheckoutUrl;
+    checkoutRecord = checkouts[existingIdx];
+  } else {
+    checkoutRecord = {
+      id: `chk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      token,
+      customerEmail,
+      customerName,
+      totalPrice,
+      currency,
+      lineItems: lineItems.map(li => ({
+        title: li.title || 'Product',
+        quantity: Number(li.quantity || 1),
+        price: Number(li.price || 0)
+      })),
+      abandonedCheckoutUrl,
+      abandonedAt: new Date().toISOString(),
+      recoveryStatus: 'pending'
+    };
+    checkouts.unshift(checkoutRecord);
+  }
+  saveCheckouts(checkouts);
+
+  // Auto-enroll in cart recovery drip sequence
+  try {
+    const dripsData = loadDrips();
+    const cartSeq = dripsData.sequences.find(s => s.triggerType === 'checkout_abandonment') || dripsData.sequences.find(s => s.id === 'drip_seq_cart_recovery');
+    if (cartSeq) {
+      const alreadyActive = dripsData.enrollments.some(e => e.customerEmail === customerEmail && e.sequenceId === cartSeq.id && e.status === 'active');
+      if (!alreadyActive) {
+        dripsData.enrollments.unshift({
+          id: `enr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          sequenceId: cartSeq.id,
+          customerEmail,
+          customerName,
+          sourceSlug: payload.slug || 'cart_recovery',
+          currentStepIndex: 0,
+          status: 'active',
+          enrolledAt: new Date().toISOString(),
+          nextStepDueAt: new Date(Date.now() + 3600000).toISOString(),
+          history: []
+        });
+        cartSeq.activeEnrollments = (cartSeq.activeEnrollments || 0) + 1;
+        saveDrips(dripsData);
+      }
+    }
+  } catch (err) {
+    console.warn('[Jourvance] Failed auto-enrolling abandoned checkout in drip:', err.message);
+  }
+
+  res.status(200).json({ success: true, message: 'Abandoned checkout captured.', checkout: checkoutRecord });
+});
+
+app.get('/api/workspace/:wsId/shopify/abandoned-checkouts', requireUser, async (req, res) => {
+  const checkouts = loadCheckouts();
+  res.json({ success: true, checkouts });
+});
+
+app.post('/api/workspace/:wsId/shopify/simulate-abandoned-checkout', requireUser, async (req, res) => {
+  const { customerEmail, customerName, amount, items } = req.body || {};
+  const email = (customerEmail || `shopper_${Date.now().toString().slice(-4)}@example.com`).toLowerCase().trim();
+  const token = `tok_sim_${Date.now()}`;
+  const checkout = {
+    id: `chk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    token,
+    customerEmail: email,
+    customerName: customerName || 'Alex Shopper',
+    totalPrice: Number(amount) || 78.00,
+    currency: 'USD',
+    lineItems: items || [
+      { title: 'Botanical Radiance Serum', quantity: 1, price: 58.00 },
+      { title: 'Mini Hydration Mist (Bump)', quantity: 1, price: 20.00 }
+    ],
+    abandonedCheckoutUrl: `https://demo.myshopify.com/checkouts/cn/c1-${token.slice(-6)}/recover`,
+    abandonedAt: new Date().toISOString(),
+    recoveryStatus: 'pending'
+  };
+
+  const checkouts = loadCheckouts();
+  checkouts.unshift(checkout);
+  saveCheckouts(checkouts);
+
+  // Auto-enroll in cart recovery drip sequence
+  try {
+    const dripsData = loadDrips();
+    const cartSeq = dripsData.sequences.find(s => s.triggerType === 'checkout_abandonment') || dripsData.sequences.find(s => s.id === 'drip_seq_cart_recovery');
+    if (cartSeq) {
+      dripsData.enrollments.unshift({
+        id: `enr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        sequenceId: cartSeq.id,
+        customerEmail: email,
+        customerName: checkout.customerName,
+        sourceSlug: 'simulated_checkout',
+        currentStepIndex: 0,
+        status: 'active',
+        enrolledAt: new Date().toISOString(),
+        nextStepDueAt: new Date(Date.now() + 3600000).toISOString(),
+        history: []
+      });
+      cartSeq.activeEnrollments = (cartSeq.activeEnrollments || 0) + 1;
+      saveDrips(dripsData);
+    }
+  } catch (e) {}
+
+  res.json({ success: true, checkout, message: 'Simulated abandoned checkout recorded.' });
 });
 
 // ── Hub Email Suite Routes ──
@@ -1720,6 +2165,32 @@ app.post('/api/drips/process-tick', async (req, res) => {
     }
   }
 
+  // 3. Wave 8: Abandoned Checkout Recovery Processing
+  const checkouts = loadCheckouts();
+  let checkoutsModified = false;
+  let cartRecoverySentCount = 0;
+
+  for (const chk of checkouts) {
+    if (chk.recoveryStatus === 'pending') {
+      const abandonedTime = new Date(chk.abandonedAt).getTime();
+      if (now - abandonedTime >= 2700000 || req.body?.force) {
+        const bought = orders.some(o => o.customerEmail === chk.customerEmail && new Date(o.createdAt).getTime() >= abandonedTime - 60000);
+        if (bought) {
+          chk.recoveryStatus = 'recovered';
+          chk.recoveredAt = new Date().toISOString();
+        } else {
+          chk.recoveryStatus = 'email_sent';
+          chk.recoveryEmailSentAt = new Date().toISOString();
+          cartRecoverySentCount++;
+        }
+        checkoutsModified = true;
+      }
+    }
+  }
+  if (checkoutsModified) {
+    saveCheckouts(checkouts);
+  }
+
   saveDrips(dripsData);
 
   res.json({
@@ -1727,6 +2198,7 @@ app.post('/api/drips/process-tick', async (req, res) => {
     processedCount,
     convertedExitCount,
     completedCount,
+    cartRecoverySentCount,
     activeRemaining: dripsData.enrollments.filter(e => e.status === 'active').length
   });
 });
