@@ -27,6 +27,9 @@ export interface ShopifyConfig {
   currency?: string;
   connectedAt?: string;
   status: 'connected' | 'disconnected' | 'error';
+  customerCount?: number;
+  ordersCount?: number;
+  lastSyncedAt?: string;
 }
 
 export interface Workspace {
@@ -126,7 +129,7 @@ export interface PageNodeData extends Record<string, unknown> {
   exitIntentDiscountCode?: string;
   exitIntentButtonText?: string;
   exitIntentBadge?: string;
-  // Metrics & Financials (Wave 3)
+  // Metrics & Financials (Wave 3 & Wave 6 Live Closed Loop)
   visitors: number;
   conversions: number;
   conversionRate: number;
@@ -135,6 +138,9 @@ export interface PageNodeData extends Record<string, unknown> {
   orderBumpTakes?: number;
   bumpTakeRate?: number;
   aov?: number;
+  liveRevenue?: number;
+  liveOrders?: number;
+  liveBumpOrders?: number;
 }
 
 export interface PageVariantData {
@@ -254,5 +260,70 @@ export interface JourneyProject {
   nodes: JourneyNode[];
   edges: JourneyEdge[];
   updatedAt: string;
+}
+
+// ── Wave 6: Unified Customer, Order & Campaign CRM Models ──────────────────────
+
+export interface CustomerRecord {
+  id: string;
+  email: string;
+  name?: string;
+  phone?: string;
+  totalSpent: number;
+  ordersCount: number;
+  acceptsMarketing: boolean;
+  tags: string[];
+  source?: string;
+  firstSeenAt?: string;
+  lastOrderAt?: string;
+  shopifyCustomerId?: string;
+}
+
+export interface ShopifyOrderItem {
+  title: string;
+  variantId?: string;
+  quantity: number;
+  price: number;
+}
+
+export interface ShopifyOrder {
+  id: string;
+  orderNumber?: string;
+  totalPrice: number;
+  subtotalPrice?: number;
+  currency: string;
+  customerEmail: string;
+  customerName?: string;
+  discountCode?: string;
+  lineItems: ShopifyOrderItem[];
+  orderBumpIncluded?: boolean;
+  attributedNodeId?: string;
+  attributedSlug?: string;
+  attributedAdId?: string;
+  createdAt: string;
+}
+
+export interface AudienceSegment {
+  id: string;
+  name: string;
+  description: string;
+  count: number;
+  filterKey: 'all' | 'buyers' | 'vip' | 'repeat' | 'leads' | 'exit_rescue';
+}
+
+export interface EmailCampaign {
+  id: string;
+  subject: string;
+  previewText?: string;
+  body: string;
+  segment: string;
+  segmentName: string;
+  recipients: number;
+  sentAt: string;
+  openRate: number;
+  clickRate: number;
+  attributedSales: number;
+  sendMode: 'direct' | 'shopify_push';
+  shopifyTagApplied?: string;
 }
 

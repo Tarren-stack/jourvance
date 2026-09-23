@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign } from 'lucide-react';
+import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign, Zap } from 'lucide-react';
 import type { JourneyProject, Workspace, CanvasViewMode, NodeType } from '../../types/journey';
 import { WorkspaceSelector } from './WorkspaceSelector';
 
@@ -31,6 +31,7 @@ interface Props {
   onOpenBlueprints?: () => void;
   canvasViewMode?: CanvasViewMode;
   onToggleCanvasViewMode?: (mode: CanvasViewMode) => void;
+  onOpenShopifySync?: () => void;
 }
 
 export const CanvasHeader: React.FC<Props> = ({
@@ -59,7 +60,8 @@ export const CanvasHeader: React.FC<Props> = ({
   onSelectView,
   onOpenBlueprints,
   canvasViewMode = 'edit',
-  onToggleCanvasViewMode
+  onToggleCanvasViewMode,
+  onOpenShopifySync
 }) => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -422,6 +424,33 @@ export const CanvasHeader: React.FC<Props> = ({
           >
             <Sparkles size={13} color="#F472B6" />
             <span>Blueprints</span>
+          </button>
+        )}
+
+        {/* Shopify Live Attribution & Sync Modal */}
+        {onOpenShopifySync && (
+          <button
+            onClick={onOpenShopifySync}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '7px 12px',
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.15))',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              color: '#34D399',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            title="Shopify Attribution, Webhooks & 1-Click Order Simulator"
+            onMouseEnter={e => (e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(59, 130, 246, 0.25))')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.15))')}
+          >
+            <Zap size={13} color="#34D399" />
+            <span>Shopify Sync</span>
           </button>
         )}
 

@@ -17,6 +17,7 @@ import { BillingModal } from './components/billing/BillingModal';
 import { OperatorDashboard } from './components/admin/OperatorDashboard';
 import { ExportAssetsModal } from './components/export/ExportAssetsModal';
 import { ShopifyConnectModal } from './components/shopify/ShopifyConnectModal';
+import { ShopifySyncModal } from './components/modals/ShopifySyncModal';
 import { HubEmailSuite } from './components/campaign/HubEmailSuite';
 import { PublishModal, type PublishedPageInfo } from './components/preview/PublishModal';
 import { BlueprintModal } from './components/modals/BlueprintModal';
@@ -33,6 +34,7 @@ export const App: React.FC = () => {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
   const [showShopifyModal, setShowShopifyModal] = useState(false);
+  const [showShopifySyncModal, setShowShopifySyncModal] = useState(false);
   const [activeView, setActiveView] = useState<'canvas' | 'email-studio'>('canvas');
   const [canvasViewMode, setCanvasViewMode] = useState<CanvasViewMode>('edit');
 
@@ -451,6 +453,7 @@ export const App: React.FC = () => {
             onOpenBlueprints={() => setShowBlueprintModal(true)}
             canvasViewMode={canvasViewMode}
             onToggleCanvasViewMode={setCanvasViewMode}
+            onOpenShopifySync={() => setShowShopifySyncModal(true)}
           />
 
           {/* Main Area: Funnel Canvas OR Email Studio */}
@@ -542,6 +545,36 @@ export const App: React.FC = () => {
           setWorkspaces(prev => prev.map(w => (w.id === updated.id ? updated : w)));
         }}
         onOpenBilling={() => setShowBillingModal(true)}
+      />
+
+      {/* Shopify Live Attribution & Order Simulator Modal */}
+      <ShopifySyncModal
+        isOpen={showShopifySyncModal}
+        onClose={() => setShowShopifySyncModal(false)}
+        workspace={currentWorkspace}
+        nodes={project.nodes}
+        onOrderSimulated={result => {
+          if (result && result.nodeId) {
+            setProject(prev => ({
+              ...prev,
+              nodes: prev.nodes.map(n => {
+                if (n.id === result.nodeId) {
+                  const data = n.data as any;
+                  return {
+                    ...n,
+                    data: {
+                      ...data,
+                      liveRevenue: (data.liveRevenue || 0) + (result.amount || 0),
+                      liveOrders: (data.liveOrders || 0) + 1,
+                      liveBumpOrders: (data.liveBumpOrders || 0) + (result.bumpIncluded ? 1 : 0)
+                    }
+                  };
+                }
+                return n;
+              })
+            }));
+          }
+        }}
       />
 
       {/* User Auth Modal */}

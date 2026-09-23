@@ -6,6 +6,10 @@ dist
 journeys.json
 contacts.json
 public_pages.json
+orders.json
+campaigns.json
+workspaces.json
+scratch/
 .jourvance_cache/
 .agent/
 .autoclaw/

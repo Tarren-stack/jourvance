@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import {
   Mail, Send, Users, TrendingUp, Sparkles, Plus, CheckCircle2,
   Clock, ArrowUpRight, Copy, Check, RefreshCw, AlertCircle, ShoppingBag, Eye,
-  ExternalLink, Zap, Terminal, X
+  ExternalLink, Zap, Terminal, X, Filter, Search, Tag, DollarSign, ArrowRight, Layers
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
-import type { Workspace } from '../../types/journey';
+import type { Workspace, AudienceSegment } from '../../types/journey';
 
 interface FlowStep {
   type: string;
@@ -26,17 +26,26 @@ interface HubFlow {
 interface Broadcast {
   id: string;
   subject: string;
+  previewText?: string;
+  segment?: string;
+  segmentName?: string;
   sentAt: string;
   recipients: number;
   openRate: number;
   clickRate: number;
+  attributedSales?: number;
+  sendMode?: 'direct' | 'shopify_push';
+  shopifyTagApplied?: string;
 }
 
 interface Subscriber {
   email: string;
   name: string;
+  phone?: string;
   status: string;
   tags: string[];
+  totalSpent?: number;
+  ordersCount?: number;
   joinedAt: string;
 }
 
@@ -55,10 +64,11 @@ interface Props {
 }
 
 export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect, onReturnToCanvas }) => {
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'flows' | 'audience' | 'analytics'>('flows');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'flows' | 'audience' | 'analytics'>('campaigns');
   const [flows, setFlows] = useState<HubFlow[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [segments, setSegments] = useState<AudienceSegment[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedFlowId, setCopiedFlowId] = useState<string | null>(null);
@@ -66,9 +76,19 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   // New Broadcast state
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [broadcastSubject, setBroadcastSubject] = useState('');
+  const [broadcastPreviewText, setBroadcastPreviewText] = useState('');
   const [broadcastBody, setBroadcastBody] = useState('');
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string>('all');
+  const [sendMode, setSendMode] = useState<'direct' | 'shopify_push'>('direct');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
   const [broadcastSuccess, setBroadcastSuccess] = useState(false);
+  const [broadcastFeedback, setBroadcastFeedback] = useState<string>('');
+
+  // Audience Sync & Filtering state
+  const [syncingShopify, setSyncingShopify] = useState(false);
+  const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
+  const [audienceFilter, setAudienceFilter] = useState<string>('all');
+  const [audienceSearch, setAudienceSearch] = useState<string>('');
 
   // Klaviyo & Shopify Email 1-Click Export state
   const [exportModalFlow, setExportModalFlow] = useState<HubFlow | null>(null);
@@ -109,17 +129,19 @@ ${unsub}`;
     setLoading(true);
     try {
       const headers = await authHeaders();
-      const [fRes, bRes, aRes, sRes] = await Promise.all([
+      const [fRes, bRes, aRes, sRes, segRes] = await Promise.all([
         fetch('/api/email/flows', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/broadcasts', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/analytics', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/email/audience', { headers }).then(r => r.json()).catch(() => ({}))
+        fetch('/api/email/audience', { headers }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/email/segments', { headers }).then(r => r.json()).catch(() => ({}))
       ]);
 
       if (fRes?.success && Array.isArray(fRes.flows)) setFlows(fRes.flows);
       if (bRes?.success && Array.isArray(bRes.broadcasts)) setBroadcasts(bRes.broadcasts);
       if (aRes?.success && aRes.analytics) setAnalytics(aRes.analytics);
       if (sRes?.success && Array.isArray(sRes.subscribers)) setSubscribers(sRes.subscribers);
+      if (segRes?.success && Array.isArray(segRes.segments)) setSegments(segRes.segments);
     } finally {
       setLoading(false);
     }
@@ -128,6 +150,29 @@ ${unsub}`;
   useEffect(() => {
     loadData();
   }, []);
+
+  const handleSyncShopifyCustomers = async () => {
+    setSyncingShopify(true);
+    setSyncSuccessMsg(null);
+    try {
+      const headers = await authHeaders();
+      const wsId = workspace?.id || 'default';
+      const res = await fetch(`/api/workspace/${wsId}/shopify/sync-customers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setSyncSuccessMsg(`Synced ${data.syncedCount || 0} customer profiles from Shopify (${data.totalCustomers} total contacts in CRM).`);
+        setTimeout(() => setSyncSuccessMsg(null), 4000);
+        await loadData();
+      }
+    } catch (err) {
+      console.error('Failed syncing Shopify customers:', err);
+    } finally {
+      setSyncingShopify(false);
+    }
+  };
 
   const handleCopyForKlaviyo = (flow: HubFlow) => {
     const text = flow.steps
@@ -145,26 +190,33 @@ ${unsub}`;
     e.preventDefault();
     if (!broadcastSubject.trim() || !broadcastBody.trim()) return;
     setSendingBroadcast(true);
+    setBroadcastFeedback('');
     try {
-      const res = await fetch('/api/email/send', {
+      const res = await fetch('/api/email/campaign/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({
           subject: broadcastSubject,
-          html: `<p>${broadcastBody.replace(/\n/g, '<br/>')}</p>`,
-          segment: 'all'
+          previewText: broadcastPreviewText,
+          body: broadcastBody,
+          segmentId: selectedSegmentId,
+          sendMode,
+          workspaceId: workspace?.id
         })
       });
       const data = await res.json().catch(() => ({}));
       if (data?.success) {
         setBroadcastSuccess(true);
+        setBroadcastFeedback(data.message || 'Campaign processed successfully!');
         setTimeout(() => {
           setShowBroadcastModal(false);
           setBroadcastSuccess(false);
+          setBroadcastFeedback('');
           setBroadcastSubject('');
+          setBroadcastPreviewText('');
           setBroadcastBody('');
           loadData();
-        }, 1500);
+        }, 1800);
       }
     } finally {
       setSendingBroadcast(false);
@@ -548,22 +600,22 @@ ${unsub}`;
         {/* TAB 2: CAMPAIGNS (BROADCASTS) */}
         {activeTab === 'campaigns' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
-                  Broadcasts & Product Drops
+                  Campaign Broadcasts & Offers
                 </h2>
                 <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                  One-time newsletter emails, flash sales, and product announcement letters.
+                  Targeted product announcements, flash discounts, and replenishment emails with direct delivery or 1-click Shopify Email sync.
                 </p>
               </div>
 
               <button
                 onClick={() => setShowBroadcastModal(true)}
                 style={{
-                  padding: '9px 16px',
-                  borderRadius: '8px',
-                  backgroundColor: '#ec4899',
+                  padding: '9px 18px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #ec4899, #db2777)',
                   border: 'none',
                   color: '#ffffff',
                   fontSize: '13px',
@@ -572,11 +624,11 @@ ${unsub}`;
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  boxShadow: '0 4px 14px rgba(236, 72, 153, 0.3)'
+                  boxShadow: '0 4px 14px rgba(236, 72, 153, 0.35)'
                 }}
               >
                 <Plus size={16} />
-                <span>New Broadcast</span>
+                <span>New Campaign</span>
               </button>
             </div>
 
@@ -592,7 +644,7 @@ ${unsub}`;
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
+                  gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 1fr',
                   padding: '12px 20px',
                   borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
                   fontSize: '11px',
@@ -601,16 +653,17 @@ ${unsub}`;
                   textTransform: 'uppercase'
                 }}
               >
-                <div>Subject & Campaign</div>
+                <div>Campaign & Segment</div>
+                <div>Send Mode</div>
                 <div>Sent Date</div>
                 <div>Recipients</div>
-                <div>Open Rate</div>
-                <div>Click Rate</div>
+                <div>Performance</div>
+                <div>Attributed Sales</div>
               </div>
 
               {broadcasts.length === 0 ? (
-                <div style={{ padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
-                  No broadcasts sent yet. Click "New Broadcast" to send your first email announcement.
+                <div style={{ padding: '36px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
+                  No broadcasts dispatched yet. Click "New Campaign" to send your first targeted broadcast.
                 </div>
               ) : (
                 broadcasts.map(b => (
@@ -618,18 +671,62 @@ ${unsub}`;
                     key={b.id}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
+                      gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 1fr',
                       padding: '14px 20px',
                       borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
                       fontSize: '13px',
                       alignItems: 'center'
                     }}
                   >
-                    <div style={{ fontWeight: 500, color: '#f3f4f6' }}>{b.subject}</div>
+                    <div>
+                      <div style={{ fontWeight: 500, color: '#f3f4f6' }}>{b.subject}</div>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' }}>
+                        <span
+                          style={{
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            backgroundColor: 'rgba(236, 72, 153, 0.12)',
+                            color: '#f472b6',
+                            border: '1px solid rgba(236, 72, 153, 0.25)'
+                          }}
+                        >
+                          {b.segmentName || b.segment || 'All Subscribers'}
+                        </span>
+                        {b.previewText && (
+                          <span style={{ fontSize: '11px', color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                            "{b.previewText}"
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          backgroundColor: b.sendMode === 'shopify_push' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                          color: b.sendMode === 'shopify_push' ? '#60a5fa' : '#34d399'
+                        }}
+                      >
+                        {b.sendMode === 'shopify_push' ? 'Shopify Push' : 'Direct Delivery'}
+                      </span>
+                    </div>
+
                     <div style={{ color: '#9ca3af', fontSize: '12px' }}>{new Date(b.sentAt).toLocaleDateString()}</div>
-                    <div style={{ color: '#d1d5db' }}>{b.recipients.toLocaleString()}</div>
-                    <div style={{ color: '#34d399', fontWeight: 600 }}>{b.openRate}%</div>
-                    <div style={{ color: '#60a5fa', fontWeight: 600 }}>{b.clickRate}%</div>
+                    <div style={{ color: '#d1d5db', fontWeight: 500 }}>{b.recipients.toLocaleString()}</div>
+                    <div>
+                      <span style={{ color: '#34d399', fontWeight: 600 }}>{b.openRate}%</span>
+                      <span style={{ color: '#6b7280', margin: '0 4px' }}>/</span>
+                      <span style={{ color: '#60a5fa', fontWeight: 600 }}>{b.clickRate}%</span>
+                    </div>
+                    <div style={{ color: '#fbbf24', fontWeight: 700 }}>
+                      ${(b.attributedSales || 0).toFixed(2)}
+                    </div>
                   </div>
                 ))
               )}
@@ -637,18 +734,149 @@ ${unsub}`;
           </div>
         )}
 
-        {/* TAB 3: AUDIENCE & LEADS */}
+        {/* TAB 3: AUDIENCE & CRM */}
         {activeTab === 'audience' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
-                Subscribers & Lead Capture Contacts
-              </h2>
-              <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                Contacts collected across Jourvance landing pages and 2-step discount vouchers.
-              </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
+                  Unified Customer CRM & Subscribers
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
+                  Real-time sync between your Shopify customers, captured funnel leads, and exit-intent rescued shoppers.
+                </p>
+              </div>
+
+              <button
+                onClick={handleSyncShopifyCustomers}
+                disabled={syncingShopify}
+                style={{
+                  padding: '9px 16px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#ffffff',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: syncingShopify ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <RefreshCw size={15} className={syncingShopify ? 'animate-spin' : ''} />
+                <span>{syncingShopify ? 'Syncing Shopify...' : 'Sync Shopify Customers'}</span>
+              </button>
             </div>
 
+            {syncSuccessMsg && (
+              <div
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  color: '#34d399',
+                  fontSize: '13px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <CheckCircle2 size={16} />
+                <span>{syncSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Audience Stats Ribbon */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+              <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div style={{ fontSize: '11px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: 600 }}>Total Contacts</div>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: '#ffffff', marginTop: '4px' }}>
+                  {subscribers.length.toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#34d399', marginTop: '2px' }}>Unified CRM Audience</div>
+              </div>
+
+              <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div style={{ fontSize: '11px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: 600 }}>Shopify Verified Buyers</div>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: '#ec4899', marginTop: '4px' }}>
+                  {subscribers.filter(s => (s.ordersCount || 0) > 0).length.toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>Past checkout buyers</div>
+              </div>
+
+              <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div style={{ fontSize: '11px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: 600 }}>Total Customer LTV</div>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: '#10b981', marginTop: '4px' }}>
+                  ${subscribers.reduce((sum, s) => sum + (s.totalSpent || 0), 0).toFixed(2)}
+                </div>
+                <div style={{ fontSize: '11px', color: '#34d399', marginTop: '2px' }}>Attributed Customer Spend</div>
+              </div>
+
+              <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div style={{ fontSize: '11px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: 600 }}>Marketing Consented</div>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: '#60a5fa', marginTop: '4px' }}>
+                  {subscribers.filter(s => s.status === 'active').length.toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>Compliant for broadcasts</div>
+              </div>
+            </div>
+
+            {/* Filter Pills & Search */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {[
+                  { id: 'all', label: `All (${subscribers.length})` },
+                  { id: 'buyers', label: `Verified Buyers (${subscribers.filter(s => (s.ordersCount || 0) > 0).length})` },
+                  { id: 'vip', label: `VIPs $100+ (${subscribers.filter(s => (s.totalSpent || 0) >= 100).length})` },
+                  { id: 'repeat', label: `Repeat Buyers (${subscribers.filter(s => (s.ordersCount || 0) >= 2).length})` },
+                  { id: 'leads', label: `Funnel Leads (${subscribers.filter(s => (s.ordersCount || 0) === 0).length})` },
+                  { id: 'exit_rescue', label: `Exit Rescues (${subscribers.filter(s => (s.tags || []).includes('Exit-Intent-Rescue')).length})` }
+                ].map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setAudienceFilter(p.id)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      border: audienceFilter === p.id ? '1px solid #ec4899' : '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: audienceFilter === p.id ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      color: audienceFilter === p.id ? '#ffffff' : '#9ca3af',
+                      fontSize: '12px',
+                      fontWeight: audienceFilter === p.id ? 600 : 500,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ position: 'relative', width: '220px' }}>
+                <Search size={14} style={{ position: 'absolute', left: '10px', top: '10px', color: '#6b7280' }} />
+                <input
+                  type="text"
+                  placeholder="Search contacts..."
+                  value={audienceSearch}
+                  onChange={e => setAudienceSearch(e.target.value)}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '8px 12px 8px 32px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* CRM Customer Table */}
             <div
               style={{
                 backgroundColor: '#121217',
@@ -660,7 +888,7 @@ ${unsub}`;
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1.5fr 1.5fr 1fr 2fr',
+                  gridTemplateColumns: '1.4fr 1.6fr 1fr 1fr 2fr',
                   padding: '12px 20px',
                   borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
                   fontSize: '11px',
@@ -669,59 +897,107 @@ ${unsub}`;
                   textTransform: 'uppercase'
                 }}
               >
-                <div>Subscriber</div>
-                <div>Email</div>
-                <div>Status</div>
+                <div>Customer Name</div>
+                <div>Email & Phone</div>
+                <div>Orders & Spend</div>
+                <div>Marketing</div>
                 <div>Tags & Source</div>
               </div>
 
-              {subscribers.map((sub, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1.5fr 1.5fr 1fr 2fr',
-                    padding: '14px 20px',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
-                    fontSize: '13px',
-                    alignItems: 'center'
-                  }}
-                >
-                  <div style={{ fontWeight: 500, color: '#f3f4f6' }}>{sub.name}</div>
-                  <div style={{ color: '#9ca3af' }}>{sub.email}</div>
-                  <div>
-                    <span
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        backgroundColor: 'rgba(16, 185, 129, 0.15)',
-                        color: '#34d399'
-                      }}
-                    >
-                      {sub.status}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {sub.tags.map((tag, tIdx) => (
+              {subscribers
+                .filter(sub => {
+                  if (audienceFilter === 'buyers') return (sub.ordersCount || 0) > 0;
+                  if (audienceFilter === 'vip') return (sub.totalSpent || 0) >= 100;
+                  if (audienceFilter === 'repeat') return (sub.ordersCount || 0) >= 2;
+                  if (audienceFilter === 'leads') return (sub.ordersCount || 0) === 0;
+                  if (audienceFilter === 'exit_rescue') return (sub.tags || []).includes('Exit-Intent-Rescue');
+                  return true;
+                })
+                .filter(sub => {
+                  if (!audienceSearch) return true;
+                  const q = audienceSearch.toLowerCase();
+                  return (
+                    sub.name.toLowerCase().includes(q) ||
+                    sub.email.toLowerCase().includes(q) ||
+                    (sub.phone && sub.phone.includes(q)) ||
+                    sub.tags.some(t => t.toLowerCase().includes(q))
+                  );
+                })
+                .map((sub, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1.4fr 1.6fr 1fr 1fr 2fr',
+                      padding: '14px 20px',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+                      fontSize: '13px',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#f3f4f6' }}>{sub.name || 'Anonymous Customer'}</div>
+                      <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                        Joined {new Date(sub.joinedAt).toLocaleDateString()}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ color: '#e2e8f0', fontSize: '12px' }}>{sub.email}</div>
+                      {sub.phone && <div style={{ color: '#94a3b8', fontSize: '11px' }}>{sub.phone}</div>}
+                    </div>
+
+                    <div>
+                      <div style={{ color: '#ffffff', fontWeight: 600 }}>
+                        ${(sub.totalSpent || 0).toFixed(2)}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#9ca3af' }}>
+                        {sub.ordersCount || 0} {(sub.ordersCount || 0) === 1 ? 'order' : 'orders'}
+                      </div>
+                    </div>
+
+                    <div>
                       <span
-                        key={tIdx}
                         style={{
                           padding: '2px 8px',
                           borderRadius: '4px',
                           fontSize: '11px',
-                          backgroundColor: 'rgba(236, 72, 153, 0.12)',
-                          color: '#f472b6',
-                          border: '1px solid rgba(236, 72, 153, 0.25)'
+                          fontWeight: 600,
+                          backgroundColor: sub.status === 'active' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                          color: sub.status === 'active' ? '#34d399' : '#f87171'
                         }}
                       >
-                        {tag}
+                        {sub.status === 'active' ? 'Subscribed' : 'Unsubscribed'}
                       </span>
-                    ))}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {sub.tags.map((tag, tIdx) => (
+                        <span
+                          key={tIdx}
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            backgroundColor: tag.includes('VIP')
+                              ? 'rgba(236, 72, 153, 0.15)'
+                              : tag.includes('Buyer')
+                              ? 'rgba(16, 185, 129, 0.12)'
+                              : 'rgba(255, 255, 255, 0.06)',
+                            color: tag.includes('VIP')
+                              ? '#f472b6'
+                              : tag.includes('Buyer')
+                              ? '#34d399'
+                              : '#d1d5db',
+                            border: '1px solid rgba(255, 255, 255, 0.1)'
+                          }}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
             </div>
           </div>
         )}
@@ -781,7 +1057,7 @@ ${unsub}`;
           style={{
             position: 'fixed',
             inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
             backdropFilter: 'blur(8px)',
             zIndex: 9999,
             display: 'flex',
@@ -793,7 +1069,7 @@ ${unsub}`;
           <div
             style={{
               width: '100%',
-              maxWidth: '560px',
+              maxWidth: '620px',
               backgroundColor: '#16161d',
               borderRadius: '16px',
               border: '1px solid rgba(255, 255, 255, 0.12)',
@@ -805,12 +1081,17 @@ ${unsub}`;
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
-                New Campaign Broadcast
-              </h3>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
+                  Create Segmented Campaign Broadcast
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
+                  Target by customer psychology with direct delivery or 1-click Shopify Email sync.
+                </p>
+              </div>
               <button
                 onClick={() => setShowBroadcastModal(false)}
-                style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}
+                style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: '18px' }}
               >
                 ✕
               </button>
@@ -829,13 +1110,97 @@ ${unsub}`;
                   gap: '8px'
                 }}
               >
-                <CheckCircle2 size={16} /> Broadcast queued and sent to subscribers!
+                <CheckCircle2 size={16} /> <span>{broadcastFeedback || 'Campaign broadcast processed successfully!'}</span>
               </div>
             )}
 
             <form onSubmit={handleSendBroadcast} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* Delivery Mode Tabs */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#e5e7eb', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  Delivery Method
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setSendMode('direct')}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: sendMode === 'direct' ? '1px solid #10b981' : '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: sendMode === 'direct' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                      color: sendMode === 'direct' ? '#ffffff' : '#9ca3af',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: sendMode === 'direct' ? '#34d399' : '#9ca3af' }}>
+                      <Zap size={14} /> Direct Dispatch ($0 Cost)
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>Send via configured mail transport</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSendMode('shopify_push')}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: sendMode === 'shopify_push' ? '1px solid #3b82f6' : '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: sendMode === 'shopify_push' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                      color: sendMode === 'shopify_push' ? '#ffffff' : '#9ca3af',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: sendMode === 'shopify_push' ? '#60a5fa' : '#9ca3af' }}>
+                      <ShoppingBag size={14} /> Push to Shopify Email
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>Tags customer segment in Shopify Admin</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Target Segment */}
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  Target Customer Segment
+                </label>
+                <select
+                  value={selectedSegmentId}
+                  onChange={e => setSelectedSegmentId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {segments.map(seg => (
+                    <option key={seg.id} value={seg.id} style={{ backgroundColor: '#1a1a24', color: '#ffffff' }}>
+                      {seg.name} ({seg.count} contacts) — {seg.description}
+                    </option>
+                  ))}
+                  {segments.length === 0 && (
+                    <option value="all" style={{ backgroundColor: '#1a1a24' }}>
+                      All Active Subscribers ({subscribers.length} contacts)
+                    </option>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
                   Email Subject Line
                 </label>
                 <input
@@ -843,6 +1208,7 @@ ${unsub}`;
                   placeholder="e.g. VIP Access: 20% Off Our New Serum"
                   value={broadcastSubject}
                   onChange={e => setBroadcastSubject(e.target.value)}
+                  required
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
@@ -858,14 +1224,38 @@ ${unsub}`;
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#e5e7eb', marginBottom: '6px' }}>
-                  Letter Content
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  Preview Pre-header Text (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Small-batch private batch reserved for the next 24 hours"
+                  value={broadcastPreviewText}
+                  onChange={e => setBroadcastPreviewText(e.target.value)}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  Letter & Offer Content
                 </label>
                 <textarea
                   rows={6}
-                  placeholder="Write your email announcement or offer details..."
+                  placeholder="Write your email announcement or special offer details..."
                   value={broadcastBody}
                   onChange={e => setBroadcastBody(e.target.value)}
+                  required
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
@@ -886,7 +1276,7 @@ ${unsub}`;
                   type="button"
                   onClick={() => setShowBroadcastModal(false)}
                   style={{
-                    padding: '9px 14px',
+                    padding: '10px 16px',
                     backgroundColor: 'transparent',
                     border: '1px solid rgba(255, 255, 255, 0.1)',
                     color: '#9ca3af',
@@ -901,8 +1291,8 @@ ${unsub}`;
                   type="submit"
                   disabled={sendingBroadcast}
                   style={{
-                    padding: '9px 18px',
-                    backgroundColor: '#ec4899',
+                    padding: '10px 20px',
+                    backgroundColor: sendMode === 'shopify_push' ? '#2563eb' : '#ec4899',
                     border: 'none',
                     color: '#ffffff',
                     borderRadius: '8px',
@@ -911,11 +1301,18 @@ ${unsub}`;
                     cursor: sendingBroadcast ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px'
+                    gap: '6px',
+                    boxShadow: sendMode === 'shopify_push' ? '0 4px 14px rgba(37, 99, 235, 0.35)' : '0 4px 14px rgba(236, 72, 153, 0.35)'
                   }}
                 >
                   {sendingBroadcast ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
-                  <span>{sendingBroadcast ? 'Sending...' : 'Send Broadcast'}</span>
+                  <span>
+                    {sendingBroadcast
+                      ? 'Processing...'
+                      : sendMode === 'shopify_push'
+                      ? 'Tag & Push to Shopify Email'
+                      : 'Send Direct Broadcast'}
+                  </span>
                 </button>
               </div>
             </form>
