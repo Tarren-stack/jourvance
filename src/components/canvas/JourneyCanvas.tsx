@@ -14,7 +14,7 @@ import {
   type NodeTypes,
   type EdgeTypes
 } from '@xyflow/react';
-import type { JourneyNode, JourneyEdge, JourneyNodeData } from '../../types/journey';
+import type { JourneyNode, JourneyEdge, JourneyNodeData, CanvasViewMode } from '../../types/journey';
 import { AdNode } from './nodes/AdNode';
 import { PageNode } from './nodes/PageNode';
 import { FormNode } from './nodes/FormNode';
@@ -28,6 +28,7 @@ interface Props {
   onEdgesChange: (edges: JourneyEdge[]) => void;
   selectedNodeId: string | null;
   onSelectNode: (node: JourneyNode | null) => void;
+  canvasViewMode?: CanvasViewMode;
 }
 
 export const JourneyCanvas: React.FC<Props> = ({
@@ -36,7 +37,8 @@ export const JourneyCanvas: React.FC<Props> = ({
   onNodesChange,
   onEdgesChange,
   selectedNodeId,
-  onSelectNode
+  onSelectNode,
+  canvasViewMode = 'edit'
 }) => {
   const nodeTypes: NodeTypes = useMemo(() => ({
     'ad-source': AdNode,
@@ -56,9 +58,13 @@ export const JourneyCanvas: React.FC<Props> = ({
   React.useEffect(() => {
     setRfNodes(nodes.map(n => ({
       ...n,
-      selected: n.id === selectedNodeId
+      selected: n.id === selectedNodeId,
+      data: {
+        ...n.data,
+        canvasViewMode
+      }
     })));
-  }, [nodes, selectedNodeId, setRfNodes]);
+  }, [nodes, selectedNodeId, canvasViewMode, setRfNodes]);
 
   React.useEffect(() => {
     setRfEdges(edges);

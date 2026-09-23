@@ -44,3 +44,18 @@ export {
   onAuthStateChanged,
   type User
 };
+
+/**
+ * Authorization header for this spoke's own API. Every journey route verifies the ID
+ * token server-side and derives the owner from it, so a call without this header is a
+ * 401 rather than a save into a uid the caller typed.
+ */
+export const authHeaders = async (): Promise<Record<string, string>> => {
+  const u = auth.currentUser;
+  if (!u) return {};
+  try {
+    return { Authorization: `Bearer ${await u.getIdToken()}` };
+  } catch {
+    return {};
+  }
+};

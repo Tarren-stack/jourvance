@@ -4,3 +4,9 @@ dist
 .DS_Store
 *.log
 journeys.json
+contacts.json
+public_pages.json
+.jourvance_cache/
+.agent/
+.autoclaw/
+.claude/

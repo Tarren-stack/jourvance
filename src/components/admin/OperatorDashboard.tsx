@@ -15,6 +15,7 @@ import {
   Lock
 } from 'lucide-react';
 import type { JourneyProject } from '../../types/journey';
+import { authHeaders } from '../../lib/firebase';
 
 interface OperatorDashboardProps {
   currentProject: JourneyProject;
@@ -41,7 +42,8 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
   ]);
 
   useEffect(() => {
-    fetch('/api/journeys')
+    authHeaders()
+      .then(headers => fetch('/api/admin/journeys', { headers }))
       .then(res => res.json())
       .then(data => {
         if (data.success && data.journeys) {
@@ -408,7 +410,7 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
                   <div style={{ fontSize: '0.85rem', color: '#94A3B8', lineHeight: 1.6 }}>
                     <p>Endpoint: <code style={{ color: '#818CF8' }}>https://zeluslabs.dev</code></p>
                     <p>App ID: <code style={{ color: '#818CF8' }}>jourvance</code></p>
-                    <p>Spoke API Key: <code style={{ color: '#818CF8' }}>zlk_jourvance__ElVHu-kI3dFfC9yJth_XbtsNgMYYjhs</code></p>
+                    <p>Spoke API Key: <code style={{ color: '#818CF8' }}>zlk_jourvance_*</code> (value lives only in the server's HUB_API_KEY env, never in this bundle)</p>
                     <p>Brain RAG Access: <span style={{ color: '#10B981', fontWeight: 700 }}>Online & Verified</span></p>
                   </div>
                 </div>

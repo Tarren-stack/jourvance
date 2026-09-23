@@ -191,75 +191,126 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
                   ))}
                 </div>
 
-                {/* Lead Form Box */}
-                <form
-                  onSubmit={handleSubmitForm}
-                  style={{
-                    padding: '20px',
-                    borderRadius: '10px',
-                    background: '#1E293B',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '12px'
-                  }}
-                >
-                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFF', marginBottom: '4px' }}>
-                    {formNode?.formTitle || 'Where should we send your invitation details?'}
-                  </div>
-
-                  {formNode?.fields?.filter(f => f.enabled).map(f => (
-                    <div key={f.id}>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#94A3B8', marginBottom: '4px' }}>
-                        {f.label} {f.required && <span style={{ color: '#EF4444' }}>*</span>}
-                      </label>
-                      {f.type === 'textarea' ? (
-                        <textarea
-                          rows={2}
-                          required={f.required}
-                          value={(formData as any)[f.id === 'f_notes' ? 'note' : 'name']}
-                          onChange={e => setFormData({ ...formData, note: e.target.value })}
-                          placeholder={f.placeholder}
-                          style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: '#0F172A', border: '1px solid rgba(255, 255, 255, 0.15)', color: '#FFF', fontSize: '12px', outline: 'none' }}
-                        />
-                      ) : (
-                        <input
-                          type={f.type}
-                          required={f.required}
-                          value={(formData as any)[f.id === 'f_name' ? 'name' : f.id === 'f_email' ? 'email' : 'phone']}
-                          onChange={e => {
-                            const key = f.id === 'f_name' ? 'name' : f.id === 'f_email' ? 'email' : 'phone';
-                            setFormData({ ...formData, [key]: e.target.value });
-                          }}
-                          placeholder={f.placeholder}
-                          style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: '#0F172A', border: '1px solid rgba(255, 255, 255, 0.15)', color: '#FFF', fontSize: '12px', outline: 'none' }}
-                        />
-                      )}
-                    </div>
-                  ))}
-
-                  <button
-                    type="submit"
+                {/* Shopify Direct-to-Checkout vs Lead Gate */}
+                {pageNode?.checkoutMode !== 'lead-gate' ? (
+                  <div
                     style={{
-                      marginTop: '8px',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      background: '#6366F1',
-                      border: 'none',
-                      color: '#FFF',
-                      fontSize: '13px',
-                      fontWeight: 700,
-                      cursor: 'pointer',
+                      padding: '20px',
+                      borderRadius: '10px',
+                      background: '#1E293B',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
                       display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px'
+                      flexDirection: 'column',
+                      gap: '12px'
                     }}
                   >
-                    <span>{formNode?.submitButtonText || 'Submit & Lock In My Spot'}</span>
-                    <ArrowRight size={14} />
-                  </button>
-                </form>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFF' }}>
+                        {pageNode?.shopifyProductTitle || 'Direct Product Checkout'}
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#34d399' }}>
+                        {pageNode?.shopifyProductPrice || '$58.00'}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#9ca3af' }}>
+                      1-Click accelerated checkout with discount code auto-applied. Zero form friction.
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep('submitted')}
+                      style={{
+                        marginTop: '8px',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        border: 'none',
+                        color: '#FFF',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
+                      }}
+                    >
+                      <span>{pageNode?.buttonText || 'Buy Now — Direct to Shopify Checkout'}</span>
+                      <ArrowRight size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  /* Lead Form Box */
+                  <form
+                    onSubmit={handleSubmitForm}
+                    style={{
+                      padding: '20px',
+                      borderRadius: '10px',
+                      background: '#1E293B',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px'
+                    }}
+                  >
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFF', marginBottom: '4px' }}>
+                      {formNode?.formTitle || 'Where should we send your discount code?'}
+                    </div>
+
+                    {formNode?.fields?.filter(f => f.enabled).map(f => (
+                      <div key={f.id}>
+                        <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#94A3B8', marginBottom: '4px' }}>
+                          {f.label} {f.required && <span style={{ color: '#EF4444' }}>*</span>}
+                        </label>
+                        {f.type === 'textarea' ? (
+                          <textarea
+                            rows={2}
+                            required={f.required}
+                            value={(formData as any)[f.id === 'f_notes' ? 'note' : 'name']}
+                            onChange={e => setFormData({ ...formData, note: e.target.value })}
+                            placeholder={f.placeholder}
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: '#0F172A', border: '1px solid rgba(255, 255, 255, 0.15)', color: '#FFF', fontSize: '12px', outline: 'none' }}
+                          />
+                        ) : (
+                          <input
+                            type={f.type}
+                            required={f.required}
+                            value={(formData as any)[f.id === 'f_name' ? 'name' : f.id === 'f_email' ? 'email' : 'phone']}
+                            onChange={e => {
+                              const key = f.id === 'f_name' ? 'name' : f.id === 'f_email' ? 'email' : 'phone';
+                              setFormData({ ...formData, [key]: e.target.value });
+                            }}
+                            placeholder={f.placeholder}
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: '#0F172A', border: '1px solid rgba(255, 255, 255, 0.15)', color: '#FFF', fontSize: '12px', outline: 'none' }}
+                          />
+                        )}
+                      </div>
+                    ))}
+
+                    <button
+                      type="submit"
+                      style={{
+                        marginTop: '8px',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        background: '#ec4899',
+                        border: 'none',
+                        color: '#FFF',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <span>{formNode?.submitButtonText || 'Claim Voucher & Continue to Checkout'}</span>
+                      <ArrowRight size={14} />
+                    </button>
+                  </form>
+                )}
               </div>
             </div>
           )}

@@ -1,3 +1,5 @@
+import { authHeaders } from './firebase';
+
 export interface AICopyRequest {
   nodeType: 'ad' | 'page' | 'email';
   businessType?: string;
@@ -9,7 +11,7 @@ export async function requestAICopy(req: AICopyRequest): Promise<any> {
   try {
     const res = await fetch('/api/ai/copy', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify(req)
     });
     const data = await res.json();
@@ -29,7 +31,7 @@ export async function requestAICopy(req: AICopyRequest): Promise<any> {
     };
   } else if (req.nodeType === 'page') {
     return {
-      headline: `Get ${req.offerHeadline} — Guaranteed`,
+      headline: `Get ${req.offerHeadline} without the guesswork`,
       subhead: `Designed for busy businesses who demand excellence and clarity. Transparent, dependable, and high-impact.`,
       cta: 'Claim Your Spot Now'
     };

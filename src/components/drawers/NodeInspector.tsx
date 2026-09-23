@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Layers, Trash2 } from 'lucide-react';
-import type { JourneyNode, JourneyNodeData } from '../../types/journey';
+import type { JourneyNode, JourneyNodeData, Workspace } from '../../types/journey';
 import { AdEditor } from './AdEditor';
 import { PageEditor } from './PageEditor';
 import { FormEditor } from './FormEditor';
@@ -13,6 +13,8 @@ interface Props {
   onDeleteNode?: (nodeId: string) => void;
   offerHeadline: string;
   businessType: string;
+  workspace?: Workspace | null;
+  onOpenShopifyConnect?: () => void;
 }
 
 export const NodeInspector: React.FC<Props> = ({
@@ -21,7 +23,9 @@ export const NodeInspector: React.FC<Props> = ({
   onUpdateNode,
   onDeleteNode,
   offerHeadline,
-  businessType
+  businessType,
+  workspace,
+  onOpenShopifyConnect
 }) => {
   if (!node) return null;
 
@@ -127,6 +131,8 @@ export const NodeInspector: React.FC<Props> = ({
             onChange={updated => onUpdateNode(node.id, updated)}
             offerHeadline={offerHeadline}
             businessType={businessType}
+            workspace={workspace}
+            onOpenShopifyConnect={onOpenShopifyConnect}
           />
         )}
         {data.type === 'lead-form' && (
@@ -141,6 +147,7 @@ export const NodeInspector: React.FC<Props> = ({
             onChange={updated => onUpdateNode(node.id, updated)}
             offerHeadline={offerHeadline}
             businessType={businessType}
+            workspace={workspace}
           />
         )}
       </div>
