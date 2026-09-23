@@ -1,0 +1,183 @@
+{
+  "sequences": [
+    {
+      "id": "drip_seq_default",
+      "name": "High-Converting SaaS & E-Commerce Lead Nurture",
+      "description": "Paces new subscribers through value delivery, social proof case studies, and urgency deadlines.",
+      "triggerType": "lead_capture",
+      "smartExitOnPurchase": true,
+      "steps": [
+        {
+          "id": "step_1",
+          "stepNumber": 1,
+          "delayHours": 0,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "previewText": "Your exclusive member voucher and onboarding framework inside",
+          "body": "Hey {{first_name}},\n\nWelcome! Here is your exclusive access voucher: WELCOME20. We built Jourvance to eliminate friction, scale conversions, and help you launch high-performing funnels in minutes.",
+          "discountVoucher": "WELCOME20"
+        },
+        {
+          "id": "step_2",
+          "stepNumber": 2,
+          "delayHours": 24,
+          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
+          "previewText": "The exact frictionless offer architecture tested across 50,000+ sessions",
+          "body": "Hey {{first_name}},\n\nYesterday we shared your activation gift. Today, take a look at the exact funnel framework that transformed customer acquisition for our members without increasing ad spend.",
+          "discountVoucher": ""
+        },
+        {
+          "id": "step_3",
+          "stepNumber": 3,
+          "delayHours": 48,
+          "subject": "Final Notice: Your 20% savings voucher expires tonight ⏳",
+          "previewText": "Lock in your preferential rate before allocation resets",
+          "body": "Hey {{first_name}},\n\nYour 20% activation voucher (WELCOME20) is about to expire. Complete your order today to lock in your pricing and priority benefits.",
+          "discountVoucher": "WELCOME20"
+        }
+      ],
+      "activeEnrollments": 4,
+      "totalCompleted": 14,
+      "totalExitedPurchased": 10,
+      "attributedSales": 1202,
+      "createdAt": "2026-09-09T18:22:01.986Z",
+      "updatedAt": "2026-09-23T18:22:01.986Z"
+    }
+  ],
+  "enrollments": [
+    {
+      "id": "enr_1790189532403_uv9g",
+      "sequenceId": "drip_seq_default",
+      "customerEmail": "serena@botanicalglow.com",
+      "customerName": "",
+      "sourceSlug": "wave4-elixir",
+      "currentStepIndex": 1,
+      "status": "active",
+      "enrolledAt": "2026-09-23T18:52:12.403Z",
+      "nextStepDueAt": "2026-09-24T18:52:12.403Z",
+      "lastStepSentAt": "2026-09-23T18:52:12.403Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-23T18:52:12.403Z",
+          "status": "delivered"
+        }
+      ]
+    },
+    {
+      "id": "enr_1790189246897_5nra",
+      "sequenceId": "drip_seq_default",
+      "customerEmail": "lead_1790189246376@growthbrand.io",
+      "customerName": "Jordan Miller",
+      "sourceSlug": "saas-growth-funnel",
+      "currentStepIndex": 2,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-23T18:47:26.897Z",
+      "nextStepDueAt": "2026-09-23T18:46:26.912Z",
+      "lastStepSentAt": "2026-09-23T18:47:26.905Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-23T18:47:26.897Z",
+          "status": "delivered"
+        },
+        {
+          "stepNumber": 2,
+          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
+          "sentAt": "2026-09-23T18:47:26.905Z",
+          "status": "delivered"
+        }
+      ],
+      "convertedAt": "2026-09-23T18:47:26.909Z"
+    },
+    {
+      "id": "enr_1790188739227_tb62",
+      "sequenceId": "drip_seq_default",
+      "customerEmail": "lead_1790188738559@growthbrand.io",
+      "customerName": "Jordan Miller",
+      "sourceSlug": "saas-growth-funnel",
+      "currentStepIndex": 1,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-23T18:38:59.227Z",
+      "nextStepDueAt": "2026-09-23T18:37:59.271Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-23T18:38:59.257Z",
+          "status": "delivered"
+        }
+      ],
+      "lastStepSentAt": "2026-09-23T18:38:59.257Z",
+      "convertedAt": "2026-09-23T18:38:59.265Z"
+    },
+    {
+      "id": "enr_101",
+      "sequenceId": "drip_seq_default",
+      "customerEmail": "alex.lead@venture.co",
+      "customerName": "Alex Venture",
+      "sourceSlug": "saas-growth-funnel",
+      "currentStepIndex": 1,
+      "status": "active",
+      "enrolledAt": "2026-09-22T22:22:01.986Z",
+      "nextStepDueAt": "2026-09-23T22:22:01.986Z",
+      "lastStepSentAt": "2026-09-22T22:22:01.986Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-22T22:22:01.986Z",
+          "status": "delivered"
+        }
+      ]
+    },
+    {
+      "id": "enr_102",
+      "sequenceId": "drip_seq_default",
+      "customerEmail": "claire@vipbeauty.com",
+      "customerName": "Claire Beauchamp",
+      "sourceSlug": "wave5-elixir",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-23T16:22:01.986Z",
+      "nextStepDueAt": "2026-09-24T16:22:01.986Z",
+      "lastStepSentAt": "2026-09-23T16:22:01.986Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-23T16:22:01.986Z",
+          "status": "delivered"
+        }
+      ]
+    },
+    {
+      "id": "enr_103",
+      "sequenceId": "drip_seq_default",
+      "customerEmail": "charlotte.v@example.com",
+      "customerName": "Charlotte Vance",
+      "sourceSlug": "saas-growth-funnel",
+      "currentStepIndex": 2,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-19T18:22:01.986Z",
+      "nextStepDueAt": "2026-09-20T18:22:01.986Z",
+      "lastStepSentAt": "2026-09-20T06:22:01.986Z",
+      "convertedAt": "2026-09-20T18:22:01.986Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-19T18:22:01.986Z",
+          "status": "delivered"
+        },
+        {
+          "stepNumber": 2,
+          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
+          "sentAt": "2026-09-20T06:22:01.986Z",
+          "status": "delivered"
+        }
+      ]
+    }
+  ]
+}

@@ -327,3 +327,103 @@ export interface EmailCampaign {
   shopifyTagApplied?: string;
 }
 
+// ── Wave 7: Automated Lead Nurture Drips & Multi-Channel Attribution Models ──
+
+export type ActiveAppView = 'canvas' | 'email-studio' | 'attribution';
+
+export interface DripStep {
+  id: string;
+  stepNumber: number;
+  delayHours: number; // e.g. 0 (immediate), 24, 48, 72
+  subject: string;
+  previewText?: string;
+  body: string;
+  discountVoucher?: string;
+}
+
+export interface DripSequence {
+  id: string;
+  name: string;
+  description: string;
+  triggerType: 'lead_capture' | 'exit_intent' | 'abandoned_cart' | 'manual';
+  smartExitOnPurchase: boolean; // exits automatically when order is attributed
+  steps: DripStep[];
+  activeEnrollments: number;
+  totalCompleted: number;
+  totalExitedPurchased: number;
+  attributedSales: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DripEnrollment {
+  id: string;
+  sequenceId: string;
+  customerEmail: string;
+  customerName?: string;
+  sourceSlug?: string;
+  currentStepIndex: number;
+  status: 'active' | 'completed' | 'converted_exit';
+  enrolledAt: string;
+  nextStepDueAt: string;
+  lastStepSentAt?: string;
+  convertedAt?: string;
+  history: Array<{
+    stepNumber: number;
+    subject: string;
+    sentAt: string;
+    status: 'delivered' | 'bounced';
+  }>;
+}
+
+export type AttributionModelType = 'first_touch' | 'last_touch' | 'linear';
+
+export interface ChannelAttribution {
+  channelId: string;
+  channelName: string;
+  iconName: 'meta' | 'google' | 'tiktok' | 'email' | 'direct';
+  spend: number;
+  clicks: number;
+  leads: number;
+  orders: number;
+  revenue: number;
+  roas: number;
+  cac: number;
+  conversionRate: number;
+}
+
+export interface FunnelDropoffStep {
+  id: string;
+  name: string;
+  count: number;
+  percentage: number;
+  dropoffRate: number;
+}
+
+export interface AttributionReport {
+  timeframe: '7d' | '30d' | 'all';
+  model: AttributionModelType;
+  summary: {
+    totalRevenue: number;
+    totalSpend: number;
+    blendedRoas: number;
+    blendedCac: number;
+    blendedAov: number;
+    totalOrders: number;
+    totalLeads: number;
+    repeatBuyerRate: number;
+    netProfit: number;
+  };
+  channels: ChannelAttribution[];
+  funnelSteps: FunnelDropoffStep[];
+  recentAttributions: Array<{
+    orderId: string;
+    orderNumber: string;
+    amount: number;
+    customerEmail: string;
+    channel: string;
+    touchpointCount: number;
+    createdAt: string;
+  }>;
+}
+

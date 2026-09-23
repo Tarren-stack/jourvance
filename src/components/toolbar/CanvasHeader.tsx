@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign, Zap } from 'lucide-react';
-import type { JourneyProject, Workspace, CanvasViewMode, NodeType } from '../../types/journey';
+import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign, Zap, BarChart3 } from 'lucide-react';
+import type { JourneyProject, Workspace, CanvasViewMode, NodeType, ActiveAppView } from '../../types/journey';
 import { WorkspaceSelector } from './WorkspaceSelector';
 
 interface Props {
@@ -26,8 +26,8 @@ interface Props {
   onSelectWorkspace?: (ws: Workspace) => void;
   onOpenShopifyConnect?: () => void;
   onCreateWorkspace?: () => void;
-  activeView?: 'canvas' | 'email-studio';
-  onSelectView?: (view: 'canvas' | 'email-studio') => void;
+  activeView?: ActiveAppView;
+  onSelectView?: (view: ActiveAppView) => void;
   onOpenBlueprints?: () => void;
   canvasViewMode?: CanvasViewMode;
   onToggleCanvasViewMode?: (mode: CanvasViewMode) => void;
@@ -240,6 +240,27 @@ export const CanvasHeader: React.FC<Props> = ({
             >
               <Mail size={13} />
               <span>Email Studio</span>
+            </button>
+
+            <button
+              onClick={() => onSelectView('attribution')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '5px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                backgroundColor: activeView === 'attribution' ? '#6366f1' : 'transparent',
+                color: activeView === 'attribution' ? '#ffffff' : '#9ca3af',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <BarChart3 size={13} />
+              <span>Attribution</span>
             </button>
           </div>
         )}

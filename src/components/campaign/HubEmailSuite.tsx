@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {
   Mail, Send, Users, TrendingUp, Sparkles, Plus, CheckCircle2,
   Clock, ArrowUpRight, Copy, Check, RefreshCw, AlertCircle, ShoppingBag, Eye,
-  ExternalLink, Zap, Terminal, X, Filter, Search, Tag, DollarSign, ArrowRight, Layers
+  ExternalLink, Zap, Terminal, X, Filter, Search, Tag, DollarSign, ArrowRight, Layers,
+  ShieldCheck, Play
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
-import type { Workspace, AudienceSegment } from '../../types/journey';
+import type { Workspace, AudienceSegment, DripSequence, DripEnrollment } from '../../types/journey';
 
 interface FlowStep {
   type: string;
@@ -73,6 +74,13 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   const [loading, setLoading] = useState(false);
   const [copiedFlowId, setCopiedFlowId] = useState<string | null>(null);
 
+  // Wave 7: Automated Drips state
+  const [dripSequences, setDripSequences] = useState<DripSequence[]>([]);
+  const [dripEnrollments, setDripEnrollments] = useState<DripEnrollment[]>([]);
+  const [processingDripTick, setProcessingDripTick] = useState(false);
+  const [dripTickMsg, setDripTickMsg] = useState<string | null>(null);
+  const [enrollingTestLead, setEnrollingTestLead] = useState(false);
+
   // New Broadcast state
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [broadcastSubject, setBroadcastSubject] = useState('');
@@ -129,12 +137,14 @@ ${unsub}`;
     setLoading(true);
     try {
       const headers = await authHeaders();
-      const [fRes, bRes, aRes, sRes, segRes] = await Promise.all([
+      const [fRes, bRes, aRes, sRes, segRes, dSeqRes, dEnrRes] = await Promise.all([
         fetch('/api/email/flows', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/broadcasts', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/analytics', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/audience', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/email/segments', { headers }).then(r => r.json()).catch(() => ({}))
+        fetch('/api/email/segments', { headers }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/drips/sequences', { headers }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/drips/enrollments', { headers }).then(r => r.json()).catch(() => ({}))
       ]);
 
       if (fRes?.success && Array.isArray(fRes.flows)) setFlows(fRes.flows);
@@ -142,8 +152,54 @@ ${unsub}`;
       if (aRes?.success && aRes.analytics) setAnalytics(aRes.analytics);
       if (sRes?.success && Array.isArray(sRes.subscribers)) setSubscribers(sRes.subscribers);
       if (segRes?.success && Array.isArray(segRes.segments)) setSegments(segRes.segments);
+      if (dSeqRes?.success && Array.isArray(dSeqRes.sequences)) setDripSequences(dSeqRes.sequences);
+      if (dEnrRes?.success && Array.isArray(dEnrRes.enrollments)) setDripEnrollments(dEnrRes.enrollments);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRunDripTick = async () => {
+    setProcessingDripTick(true);
+    setDripTickMsg(null);
+    try {
+      const res = await fetch('/api/drips/process-tick', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setDripTickMsg(`Processed ${data.processedCount} due steps • Exited ${data.convertedExitCount} converted buyers (${data.activeRemaining} active)`);
+        loadData();
+      }
+    } catch (err) {
+      console.warn('Drip tick failed:', err);
+    } finally {
+      setProcessingDripTick(false);
+    }
+  };
+
+  const handleEnrollTestLead = async () => {
+    setEnrollingTestLead(true);
+    try {
+      const headers = await authHeaders();
+      const testEmail = `subscriber_${Date.now().toString().slice(-4)}@example.com`;
+      const res = await fetch('/api/drips/enroll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({
+          sequenceId: dripSequences[0]?.id || 'drip_seq_default',
+          customerEmail: testEmail,
+          customerName: 'Test Subscriber',
+          sourceSlug: 'growth-funnel'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDripTickMsg(`Enrolled test lead (${testEmail}) into Step 1!`);
+        loadData();
+      }
+    } catch (err) {
+      console.warn('Enroll test lead failed:', err);
+    } finally {
+      setEnrollingTestLead(false);
     }
   };
 
@@ -378,20 +434,66 @@ ${unsub}`;
 
       {/* Main Tab Content */}
       <div style={{ padding: '24px 32px', flex: 1 }}>
-        {/* TAB 1: FLOWS */}
+        {/* TAB 1: FLOWS & DRIPS */}
         {activeTab === 'flows' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
-                  E-Commerce Conversion Flows
+                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#f3f4f6' }}>
+                  Automated Lead Nurture Drips & Sequences
                 </h2>
                 <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                  Pre-built sequences for new leads, voucher claims, and post-optin checkouts.
+                  Paces captured leads through welcome vouchers, proof case studies, and scarcity deadlines with automatic exit on purchase.
                 </p>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={handleEnrollTestLead}
+                  disabled={enrollingTestLead}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                    border: '1px solid rgba(99, 102, 241, 0.35)',
+                    color: '#818CF8',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Simulate a new lead opting in and enrolling into Step 1"
+                >
+                  <Plus size={13} />
+                  <span>{enrollingTestLead ? 'Enrolling...' : '+ Test Lead'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRunDripTick}
+                  disabled={processingDripTick}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(99, 102, 241, 0.2))',
+                    border: '1px solid rgba(16, 185, 129, 0.4)',
+                    color: '#34D399',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Run queue tick: dispatches due emails and exits converted buyers"
+                >
+                  <Play size={13} />
+                  <span>{processingDripTick ? 'Processing Queue...' : 'Run Queue Tick'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setShowWebhookGuide(true)}
@@ -410,8 +512,9 @@ ${unsub}`;
                   }}
                 >
                   <Zap size={13} />
-                  <span>Outbound Webhook Relay</span>
+                  <span>Webhooks</span>
                 </button>
+
                 <button
                   onClick={loadData}
                   style={{
@@ -432,6 +535,204 @@ ${unsub}`;
                 </button>
               </div>
             </div>
+
+            {/* Notification message */}
+            {dripTickMsg && (
+              <div style={{
+                padding: '10px 16px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                color: '#34D399',
+                fontSize: '12px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <CheckCircle2 size={15} />
+                <span>{dripTickMsg}</span>
+              </div>
+            )}
+
+            {/* Active Drip Sequence Cards */}
+            {dripSequences.map(seq => (
+              <div
+                key={seq.id}
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#F8FAFC' }}>
+                      {seq.name}
+                    </h3>
+                    <span style={{
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                      color: '#818CF8'
+                    }}>
+                      Trigger: {seq.triggerType.replace('_', ' ')}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      color: '#34D399',
+                      fontSize: '11px',
+                      fontWeight: 700
+                    }}>
+                      <ShieldCheck size={14} />
+                      <span>Smart Exit on Purchase Active</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sequence Metrics Ribbon */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  padding: '10px 16px',
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <span style={{ color: '#94A3B8' }}>Active Enrolled:</span>
+                    <strong style={{ color: '#818CF8' }}>{seq.activeEnrollments}</strong>
+                  </div>
+                  <span style={{ color: '#475569' }}>•</span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <span style={{ color: '#94A3B8' }}>Exited on Purchase:</span>
+                    <strong style={{ color: '#34D399' }}>{seq.totalExitedPurchased}</strong>
+                  </div>
+                  <span style={{ color: '#475569' }}>•</span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <span style={{ color: '#94A3B8' }}>Completed 3-Steps:</span>
+                    <strong style={{ color: '#E2E8F0' }}>{seq.totalCompleted}</strong>
+                  </div>
+                  <span style={{ color: '#475569' }}>•</span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <span style={{ color: '#94A3B8' }}>Attributed Revenue:</span>
+                    <strong style={{ color: '#34D399' }}>${seq.attributedSales.toLocaleString()}</strong>
+                  </div>
+                </div>
+
+                {/* Step Progression Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+                  {seq.steps.map(step => (
+                    <div
+                      key={step.id}
+                      style={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
+                        borderRadius: '10px',
+                        padding: '14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: '#EC4899',
+                          textTransform: 'uppercase'
+                        }}>
+                          Step {step.stepNumber} • {step.delayHours === 0 ? 'Immediate' : `+${step.delayHours}h`}
+                        </span>
+                        {step.discountVoucher && (
+                          <span style={{
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(244, 114, 182, 0.15)',
+                            color: '#F472B6'
+                          }}>
+                            {step.discountVoucher}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#F1F5F9' }}>
+                        {step.subject}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#94A3B8', lineClamp: 2, display: '-webkit-box', WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        {step.previewText || step.body}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Recent Enrollments Stream */}
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#CBD5E1', marginBottom: '8px' }}>
+                    Active Subscriber Enrollments ({dripEnrollments.length})
+                  </div>
+                  <div style={{
+                    maxHeight: '160px',
+                    overflowY: 'auto',
+                    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.04)'
+                  }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                      <thead>
+                        <tr style={{ color: '#64748B', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                          <th style={{ padding: '8px 12px' }}>Email</th>
+                          <th style={{ padding: '8px 12px' }}>Step</th>
+                          <th style={{ padding: '8px 12px' }}>Status</th>
+                          <th style={{ padding: '8px 12px' }}>History</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dripEnrollments.map(enr => (
+                          <tr key={enr.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.03)' }}>
+                            <td style={{ padding: '8px 12px', color: '#E2E8F0', fontWeight: 500 }}>{enr.customerEmail}</td>
+                            <td style={{ padding: '8px 12px', color: '#94A3B8' }}>Step {enr.currentStepIndex + 1} of 3</td>
+                            <td style={{ padding: '8px 12px' }}>
+                              <span style={{
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                backgroundColor: enr.status === 'converted_exit' ? 'rgba(16, 185, 129, 0.2)' : enr.status === 'completed' ? 'rgba(100, 116, 139, 0.2)' : 'rgba(99, 102, 241, 0.2)',
+                                color: enr.status === 'converted_exit' ? '#34D399' : enr.status === 'completed' ? '#94A3B8' : '#818CF8'
+                              }}>
+                                {enr.status === 'converted_exit' ? 'Converted & Exited 🛒' : enr.status === 'completed' ? 'Completed' : 'Active Pacing'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px 12px', color: '#64748B' }}>
+                              {enr.history?.length || 0} sent
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ))}
 
             {/* Flows Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(460px, 1fr))', gap: '16px' }}>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
-import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, NodeType, Workspace, CanvasViewMode } from './types/journey';
+import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, NodeType, Workspace, CanvasViewMode, ActiveAppView } from './types/journey';
 import { loadCurrentJourney, saveCurrentJourney } from './lib/journeyStorage';
 import { CanvasHeader } from './components/toolbar/CanvasHeader';
 import { JourneyCanvas } from './components/canvas/JourneyCanvas';
@@ -19,6 +19,7 @@ import { ExportAssetsModal } from './components/export/ExportAssetsModal';
 import { ShopifyConnectModal } from './components/shopify/ShopifyConnectModal';
 import { ShopifySyncModal } from './components/modals/ShopifySyncModal';
 import { HubEmailSuite } from './components/campaign/HubEmailSuite';
+import { AttributionReports } from './components/analytics/AttributionReports';
 import { PublishModal, type PublishedPageInfo } from './components/preview/PublishModal';
 import { BlueprintModal } from './components/modals/BlueprintModal';
 import { fetchWorkspaces, createWorkspace } from './lib/shopifyClient';
@@ -35,7 +36,7 @@ export const App: React.FC = () => {
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
   const [showShopifyModal, setShowShopifyModal] = useState(false);
   const [showShopifySyncModal, setShowShopifySyncModal] = useState(false);
-  const [activeView, setActiveView] = useState<'canvas' | 'email-studio'>('canvas');
+  const [activeView, setActiveView] = useState<ActiveAppView>('canvas');
   const [canvasViewMode, setCanvasViewMode] = useState<CanvasViewMode>('edit');
 
   // Modals & Authentication
@@ -456,12 +457,18 @@ export const App: React.FC = () => {
             onOpenShopifySync={() => setShowShopifySyncModal(true)}
           />
 
-          {/* Main Area: Funnel Canvas OR Email Studio */}
+          {/* Main Area: Funnel Canvas, Email Studio, OR Attribution Reports */}
           {activeView === 'email-studio' ? (
             <HubEmailSuite
               workspace={currentWorkspace}
               onOpenShopifyConnect={() => setShowShopifyModal(true)}
               onReturnToCanvas={() => setActiveView('canvas')}
+            />
+          ) : activeView === 'attribution' ? (
+            <AttributionReports
+              workspace={currentWorkspace}
+              nodes={project.nodes}
+              onOpenShopifySync={() => setShowShopifySyncModal(true)}
             />
           ) : (
             <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
