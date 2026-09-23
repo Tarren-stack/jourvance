@@ -801,6 +801,15 @@ async function loadPublicPage(identifier) {
     } catch {}
   }
 
+  // Sync from disk if not yet in cache
+  if (!publicPageCache[cleanId] && !publicPageCache[`domain:${cleanId}`]) {
+    try {
+      if (fs.existsSync(publicPagesFile)) {
+        publicPageCache = JSON.parse(fs.readFileSync(publicPagesFile, 'utf8'));
+      }
+    } catch {}
+  }
+
   // Direct slug match
   if (publicPageCache[cleanId]) {
     if (typeof publicPageCache[cleanId] === 'string') {
@@ -1864,8 +1873,419 @@ function renderPublicFunnelHtml(page, req, res) {
           }
         });
       }
+
+      // Exit-Intent Trigger Engine (Wave 5)
+      (function() {
+        var exitDismissedKey = 'jv_exit_dismissed_' + slug;
+        var overlay = document.getElementById('jv-exit-overlay');
+        if (!overlay) return;
+
+        var closeBtn = document.getElementById('jv-exit-close');
+        var submitBtn = document.getElementById('jv-exit-submit-btn');
+        var emailInput = document.getElementById('jv-exit-email');
+        var formState = document.getElementById('jv-exit-form-state');
+        var successState = document.getElementById('jv-exit-success-state');
+        var continueBtn = document.getElementById('jv-exit-continue-btn');
+        var hasTriggered = false;
+
+        function showExitModal() {
+          if (hasTriggered || sessionStorage.getItem(exitDismissedKey)) return;
+          hasTriggered = true;
+          overlay.style.display = 'flex';
+        }
+
+        function closeExitModal() {
+          overlay.style.display = 'none';
+          sessionStorage.setItem(exitDismissedKey, '1');
+        }
+
+        if (closeBtn) closeBtn.addEventListener('click', closeExitModal);
+        overlay.addEventListener('click', function(e) {
+          if (e.target === overlay) closeExitModal();
+        });
+
+        // Desktop mouseout trigger (user moves cursor above viewport)
+        document.addEventListener('mouseleave', function(e) {
+          if (e.clientY <= 0) {
+            showExitModal();
+          }
+        });
+
+        // Mobile fallback scroll trigger
+        var scrollTriggered = false;
+        window.addEventListener('scroll', function() {
+          var scrolled = (window.scrollY + window.innerHeight) / (document.documentElement.scrollHeight || 1);
+          if (scrolled > 0.4 && !scrollTriggered) {
+            scrollTriggered = true;
+          }
+        });
+
+        setTimeout(function() {
+          if (window.innerWidth < 768 && scrollTriggered) {
+            showExitModal();
+          }
+        }, 25000);
+
+        if (submitBtn && emailInput) {
+          submitBtn.addEventListener('click', async function() {
+            var val = (emailInput.value || '').trim();
+            if (!val || !val.includes('@')) {
+              emailInput.style.borderColor = '#EF4444';
+              return;
+            }
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Securing VIP Code…';
+
+            try {
+              var exitCode = "${escapeHtml(data.exitIntentDiscountCode || data.discountCode || 'VIP15')}";
+              var exitResp = await fetch('/api/public/lead', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  slug: slug,
+                  email: val,
+                  variant: activeVariant,
+                  exit_intent: true,
+                  utm_source: utm_source,
+                  utm_campaign: utm_campaign,
+                  fbclid: fbclid,
+                  ttclid: ttclid,
+                  gclid: gclid
+                })
+              });
+              var exitData = await exitResp.json();
+              if (exitData && exitData.discountCode) {
+                exitCode = exitData.discountCode;
+                var codeDisplay = document.getElementById('jv-exit-code-display');
+                if (codeDisplay) codeDisplay.textContent = exitCode;
+              }
+
+              formState.style.display = 'none';
+              successState.style.display = 'block';
+
+              if (continueBtn) {
+                continueBtn.addEventListener('click', function() {
+                  var checkoutUrl = (exitData && exitData.checkoutUrl) ? exitData.checkoutUrl : buildCheckoutUrl();
+                  window.location.href = checkoutUrl;
+                });
+              }
+            } catch(e) {
+              console.error('Exit lead submission error:', e);
+              formState.style.display = 'none';
+              successState.style.display = 'block';
+            }
+          });
+        }
+      })();
     })();
   </script>
+
+  ${data.exitIntentEnabled ? `
+  <!-- Exit-Intent Conversion Rescue Modal (Wave 5) -->
+  <div id="jv-exit-overlay" style="display:none; position:fixed; inset:0; background:rgba(10, 14, 26, 0.85); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center; padding:20px;">
+    <div id="jv-exit-card" style="position:relative; width:100%; max-width:480px; background:linear-gradient(145deg, rgba(26, 18, 34, 0.98), rgba(15, 23, 42, 0.99)); border:1px solid rgba(236, 72, 153, 0.35); border-radius:20px; padding:32px 28px; box-shadow:0 30px 80px rgba(0, 0, 0, 0.8), 0 0 50px rgba(236, 72, 153, 0.15); text-align:center; color:#FFFFFF;">
+      <button id="jv-exit-close" aria-label="Close" style="position:absolute; top:14px; right:16px; background:none; border:none; color:#94A3B8; font-size:26px; cursor:pointer; padding:4px 8px; line-height:1; border-radius:8px;">&times;</button>
+      
+      <div style="display:inline-flex; align-items:center; gap:6px; background:rgba(236, 72, 153, 0.15); border:1px solid rgba(236, 72, 153, 0.3); color:#F472B6; padding:4px 12px; border-radius:9999px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px;">
+        <span>✨</span> ${escapeHtml(data.exitIntentBadge || 'Wait — VIP Formulation Privilege')}
+      </div>
+
+      <h3 style="font-size:22px; font-weight:800; line-height:1.3; margin:0 0 10px; color:#F8FAFC;">
+        ${escapeHtml(data.exitIntentHeadline || 'Before You Go: Save Your 15% VIP Formulation Voucher')}
+      </h3>
+
+      <p style="font-size:13px; color:#CBD5E1; line-height:1.5; margin:0 0 22px;">
+        ${escapeHtml(data.exitIntentSubhead || 'Reserve your private batch discount code now before this small-batch allocation sells out.')}
+      </p>
+
+      <div id="jv-exit-form-state">
+        <input type="email" id="jv-exit-email" placeholder="Enter your best email address" style="width:100%; box-sizing:border-box; padding:14px 16px; border-radius:10px; border:1px solid rgba(255, 255, 255, 0.18); background:rgba(15, 23, 42, 0.8); color:#FFFFFF; font-size:14px; margin-bottom:12px; outline:none;" />
+        <button id="jv-exit-submit-btn" style="width:100%; padding:14px 20px; border-radius:10px; border:none; background:linear-gradient(135deg, #EC4899, #DB2777); color:#FFFFFF; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 10px 25px rgba(236, 72, 153, 0.35);">
+          ${escapeHtml(data.exitIntentButtonText || 'Claim My 15% VIP Voucher')}
+        </button>
+      </div>
+
+      <div id="jv-exit-success-state" style="display:none; text-align:center; padding:6px 0;">
+        <div style="background:rgba(236, 72, 153, 0.12); border:1px dashed rgba(236, 72, 153, 0.4); border-radius:12px; padding:16px; margin-bottom:18px;">
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#F472B6; font-weight:700; margin-bottom:4px;">VIP Code Unlocked</div>
+          <div id="jv-exit-code-display" style="font-size:22px; font-weight:800; color:#FFFFFF; letter-spacing:0.08em; font-family:monospace;">${escapeHtml(data.exitIntentDiscountCode || data.discountCode || 'VIP15')}</div>
+          <div style="font-size:11px; color:#94A3B8; margin-top:4px;">Code will be automatically applied at checkout</div>
+        </div>
+        <button id="jv-exit-continue-btn" style="width:100%; padding:14px 20px; border-radius:10px; border:none; background:linear-gradient(135deg, #10B981, #059669); color:#FFFFFF; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 10px 25px rgba(16, 185, 129, 0.35);">
+          Continue to Checkout with Code Auto-Applied →
+        </button>
+      </div>
+
+      <div style="margin-top:14px; font-size:11px; color:#64748B;">
+        🔒 Private & confidential. No spam. You can unsubscribe anytime.
+      </div>
+    </div>
+  </div>
+  ` : ''}
+</body>
+</html>`;
+}
+
+// Wave 5: Post-Purchase / Thank You VIP Portal SSR
+function renderPublicThankYouHtml(page, req, res) {
+  const d = page.data || {};
+  const shopify = page.shopifyConfig || {};
+  const storeDomain = shopify.storeDomain || 'demo.myshopify.com';
+  const headline = d.thankYouHeadline || 'Your VIP Allocation & Order is Confirmed';
+  const subhead = d.thankYouSubhead || 'Thank you for choosing our bioactive formulation ritual. Your parcel is currently being prepared with care.';
+  const badge = d.thankYouBadge || 'VIP Member Privilege';
+  const bounceCode = d.bounceBackDiscountCode || 'VIPRETURN';
+  const bounceText = d.bounceBackDiscountText || '$15 Off Your Next Renewal Formulation';
+  const ritualTitle = d.usageGuideTitle || 'The 3-Step Botanical Ritual Guide';
+  const steps = Array.isArray(d.usageGuideSteps) && d.usageGuideSteps.length ? d.usageGuideSteps : [
+    'Cleanse with warm botanical water to prime the cellular barrier.',
+    'Warm 3–4 drops between fingertips to activate bioactive peptides.',
+    'Press gently into face, neck, and decolletage morning and evening.'
+  ];
+  const communityUrl = d.communityInviteUrl || 'https://instagram.com';
+  const communityText = d.communityInviteText || 'Join The Private VIP Beauty Circle';
+  const storeUrl = d.storeReturnUrl || `https://${storeDomain}`;
+  const storeText = d.storeReturnText || 'Browse Complimentary Formulations';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(headline)} — VIP Confirmation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0B0F19;
+      color: #F8FAFC;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      line-height: 1.6;
+    }
+    .container {
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .card {
+      background: linear-gradient(145deg, rgba(26, 18, 34, 0.7), rgba(15, 23, 42, 0.85));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 32px 28px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .hero-header {
+      text-align: center;
+      padding: 10px 0 10px;
+    }
+    .check-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05));
+      border: 1.5px solid #10B981;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      color: #10B981;
+      box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
+      margin-bottom: 20px;
+    }
+    .vip-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(236, 72, 153, 0.15);
+      border: 1px solid rgba(236, 72, 153, 0.3);
+      color: #F472B6;
+      padding: 4px 14px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.3;
+      color: #FFFFFF;
+      margin-bottom: 12px;
+    }
+    .subhead {
+      font-size: 14px;
+      color: #94A3B8;
+      max-width: 520px;
+      margin: 0 auto;
+    }
+    .voucher-card {
+      border: 1px dashed rgba(236, 72, 153, 0.45);
+      background: linear-gradient(135deg, rgba(236, 72, 153, 0.1), rgba(15, 23, 42, 0.6));
+      border-radius: 16px;
+      padding: 24px;
+      text-align: center;
+    }
+    .voucher-code-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 10px 20px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      margin: 14px 0;
+    }
+    .code-text {
+      font-family: monospace;
+      font-size: 22px;
+      font-weight: 800;
+      color: #FFFFFF;
+      letter-spacing: 0.1em;
+    }
+    .copy-btn {
+      background: rgba(236, 72, 153, 0.25);
+      border: 1px solid rgba(236, 72, 153, 0.5);
+      color: #F472B6;
+      font-weight: 700;
+      font-size: 11px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .copy-btn:hover {
+      background: rgba(236, 72, 153, 0.4);
+      color: #FFFFFF;
+    }
+    .ritual-step {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .ritual-step:last-child {
+      border-bottom: none;
+    }
+    .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: rgba(236, 72, 153, 0.15);
+      border: 1px solid rgba(236, 72, 153, 0.3);
+      color: #F472B6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 600px) {
+      .actions-grid { grid-template-columns: 1fr; }
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px 20px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #EC4899, #DB2777);
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 13px;
+      text-decoration: none;
+      box-shadow: 0 10px 25px rgba(236, 72, 153, 0.35);
+      transition: transform 0.15s ease;
+      text-align: center;
+    }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px 20px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #F1F5F9;
+      font-weight: 600;
+      font-size: 13px;
+      text-decoration: none;
+      transition: background 0.15s ease;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card hero-header">
+      <div class="check-icon">✓</div>
+      <br>
+      <div class="vip-pill">✨ ${escapeHtml(badge)}</div>
+      <h1>${escapeHtml(headline)}</h1>
+      <p class="subhead">${escapeHtml(subhead)}</p>
+    </div>
+
+    <!-- Next-Order Bounce-Back Voucher -->
+    <div class="card voucher-card">
+      <div style="font-size:12px; font-weight:700; color:#F472B6; text-transform:uppercase; letter-spacing:0.06em;">Exclusive VIP Bounce-Back Perk</div>
+      <div style="font-size:16px; font-weight:700; color:#FFFFFF; margin-top:4px;">${escapeHtml(bounceText)}</div>
+      <div class="voucher-code-wrap">
+        <span class="code-text" id="jv-code-val">${escapeHtml(bounceCode)}</span>
+        <button class="copy-btn" id="jv-copy-btn" onclick="navigator.clipboard.writeText('${escapeHtml(bounceCode)}'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy', 2000);">Copy</button>
+      </div>
+      <div style="font-size:11px; color:#94A3B8;">Apply at checkout on your next replenishment order.</div>
+    </div>
+
+    <!-- Usage Ritual Guide -->
+    <div class="card">
+      <h3 style="font-size:16px; font-weight:700; color:#F8FAFC; margin-bottom:14px; display:flex; align-items:center; gap:8px;">
+        <span style="color:#F472B6;">✦</span> ${escapeHtml(ritualTitle)}
+      </h3>
+      <div>
+        ${steps.map((st, i) => `
+          <div class="ritual-step">
+            <div class="step-num">${String(i + 1).padStart(2, '0')}</div>
+            <div style="font-size:13px; color:#E2E8F0; line-height:1.5;">${escapeHtml(st)}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <!-- Actions / Links -->
+    <div class="actions-grid">
+      <a href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener" class="btn-primary">
+        ${escapeHtml(storeText)} →
+      </a>
+      <a href="${escapeHtml(communityUrl)}" target="_blank" rel="noopener" class="btn-secondary">
+        ${escapeHtml(communityText)}
+      </a>
+    </div>
+
+    <div style="text-align:center; padding:10px 0; font-size:11px; color:#64748B;">
+      Powered by Jourvance Customer Journey Engine • Questions? Contact concierge support.
+    </div>
+  </div>
 </body>
 </html>`;
 }
@@ -1980,9 +2400,13 @@ app.post('/api/public/lead', async (req, res) => {
     ? page.data.variantB.discountCode
     : (page?.data?.discountCode || '');
 
+  const exitIntent = Boolean(req.body?.exit_intent || req.body?.exitIntent);
   const tags = ['Jourvance Lead', slug, discountCode ? `Promo-${discountCode}` : 'VIP', `Variant-${activeVariant.toUpperCase()}`];
   if (bumpSelected) {
     tags.push('Order Bump Taker');
+  }
+  if (exitIntent) {
+    tags.push('Exit-Intent-Rescue');
   }
 
   const contact = {
@@ -1991,6 +2415,7 @@ app.post('/api/public/lead', async (req, res) => {
     phone: (phone || '').trim(),
     sourceSlug: slug,
     variant: activeVariant,
+    exitIntent,
     tags,
     orderBumpSelected: bumpSelected,
     utm_source: utm_source || 'jourvance',
@@ -2068,6 +2493,7 @@ app.post('/api/public/lead', async (req, res) => {
         phone: contact.phone,
         pageSlug: slug,
         variant: activeVariant,
+        exitIntent,
         bumpAccepted: Boolean(bumpSelected),
         bumpProductTitle: bumpSelected ? bumpTitle : null,
         cartUrl: checkoutUrl,
@@ -2078,6 +2504,7 @@ app.post('/api/public/lead', async (req, res) => {
           variant: activeVariant,
           slug,
           email: contact.email,
+          exitIntent,
           discountCode,
           orderBumpSelected: bumpSelected
         },
@@ -2095,6 +2522,7 @@ app.post('/api/public/lead', async (req, res) => {
     checkoutUrl,
     discountCode,
     variant: activeVariant,
+    exitIntent,
     orderBumpIncluded: bumpSelected && Boolean(bumpVariantId),
     contact
   });
@@ -2151,6 +2579,11 @@ app.use(async (req, res, next) => {
   // Check if incoming host is mapped to a published page
   const page = await loadPublicPage(host);
   if (page && page.data) {
+    if (req.path === '/thank-you' || req.path === `/${page.slug}/thank-you`) {
+      const html = renderPublicThankYouHtml(page, req, res);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(html);
+    }
     if (req.path === '/' || req.path === `/${page.slug}` || req.path.startsWith('/p/')) {
       const html = renderPublicFunnelHtml(page, req, res);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -2158,6 +2591,18 @@ app.use(async (req, res, next) => {
     }
   }
   next();
+});
+
+// Public Thank-You / VIP Onboarding Portal SSR Route (Wave 5)
+app.get(['/p/:slug/thank-you', '/p/:wsId/:slug/thank-you'], async (req, res) => {
+  const slug = (req.params.slug || '').toLowerCase();
+  const page = await loadPublicPage(slug);
+  if (!page || !page.data) {
+    return res.status(404).send(render404Html(slug));
+  }
+  const html = renderPublicThankYouHtml(page, req, res);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
 });
 
 // Public Landing Page SSR Route (must be before catch-all static handler)

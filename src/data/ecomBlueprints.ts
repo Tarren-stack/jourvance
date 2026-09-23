@@ -102,11 +102,37 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
             }
           ]
         }
+      },
+      {
+        id: 'bp1-ty',
+        type: 'thank-you',
+        position: { x: 800, y: 360 },
+        data: {
+          type: 'thank-you',
+          label: 'VIP Order Confirmation',
+          slug: 'flash-radiance-drop',
+          headline: 'Your VIP Allocation & Order is Confirmed',
+          subhead: 'Your small-batch Vitamin C formulation is in preparation. Here is your ritual usage guide.',
+          badgeText: 'VIP Member Privilege',
+          bounceBackDiscountCode: 'VIPRETURN',
+          bounceBackDiscountText: '$15 Off Your Next Renewal Formulation',
+          usageGuideTitle: 'The 3-Step Radiance Ritual',
+          usageGuideSteps: [
+            'Cleanse with warm water to prime cellular absorption.',
+            'Warm 3-4 drops between palms and press gently into face & neck.',
+            'Follow with moisturizer to seal active bio-actives for 48 hours.'
+          ],
+          storeReturnText: 'Browse Complimentary Formulations',
+          communityInviteText: 'Join The Private VIP Beauty Circle',
+          pageViews: 108,
+          bounceBackClaims: 18
+        }
       }
     ],
     edges: [
       { id: 'e-bp1-1', source: 'bp1-ad', target: 'bp1-page', data: { sourceThroughput: 680, targetCount: 680, rate: 100 } },
-      { id: 'e-bp1-2', source: 'bp1-page', target: 'bp1-seq', data: { sourceThroughput: 680, targetCount: 108, rate: 15.9 } }
+      { id: 'e-bp1-2', source: 'bp1-page', target: 'bp1-seq', data: { sourceThroughput: 680, targetCount: 108, rate: 15.9 } },
+      { id: 'e-bp1-3', source: 'bp1-page', target: 'bp1-ty', data: { sourceThroughput: 680, targetCount: 108, rate: 15.9 } }
     ]
   },
   {
@@ -207,11 +233,37 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
             }
           ]
         }
+      },
+      {
+        id: 'bp2-ty',
+        type: 'thank-you',
+        position: { x: 800, y: 360 },
+        data: {
+          type: 'thank-you',
+          label: 'VIP Voucher Confirmation',
+          slug: 'vip-welcome-offer',
+          headline: 'Your VIP 15% Pass Has Been Activated',
+          subhead: 'Welcome to our inner beauty collective. Your voucher has been generated and your ritual is ready.',
+          badgeText: 'VIP Member Perk',
+          bounceBackDiscountCode: 'VIPRETURN',
+          bounceBackDiscountText: '$15 Off Your Next Renewal Formulation',
+          usageGuideTitle: 'The 3-Step Radiance Ritual',
+          usageGuideSteps: [
+            'Cleanse with warm water to prime cellular absorption.',
+            'Warm 3-4 drops between palms and press gently into face & neck.',
+            'Follow with moisturizer to seal active bio-actives for 48 hours.'
+          ],
+          storeReturnText: 'Browse Complimentary Formulations',
+          communityInviteText: 'Join The Private VIP Beauty Circle',
+          pageViews: 340,
+          bounceBackClaims: 52
+        }
       }
     ],
     edges: [
       { id: 'e-bp2-1', source: 'bp2-ad', target: 'bp2-page', data: { sourceThroughput: 980, targetCount: 980, rate: 100 } },
-      { id: 'e-bp2-2', source: 'bp2-page', target: 'bp2-seq', data: { sourceThroughput: 980, targetCount: 340, rate: 34.7 } }
+      { id: 'e-bp2-2', source: 'bp2-page', target: 'bp2-seq', data: { sourceThroughput: 980, targetCount: 340, rate: 34.7 } },
+      { id: 'e-bp2-3', source: 'bp2-page', target: 'bp2-ty', data: { sourceThroughput: 980, targetCount: 340, rate: 34.7 } }
     ]
   },
   {
@@ -312,11 +364,37 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
             }
           ]
         }
+      },
+      {
+        id: 'bp3-ty',
+        type: 'thank-you',
+        position: { x: 800, y: 360 },
+        data: {
+          type: 'thank-you',
+          label: 'Ritual Duo Confirmation',
+          slug: 'duo-radiance-upgrade',
+          headline: 'Your Complete Ritual Duo is Confirmed',
+          subhead: 'Your small-batch Vitamin C Serum and Velvet Renewal Oil are being hand-blended and packaged with care.',
+          badgeText: 'VIP Member Privilege',
+          bounceBackDiscountCode: 'VIPRETURN',
+          bounceBackDiscountText: '$15 Off Your Next Renewal Formulation',
+          usageGuideTitle: 'The Complete AM / PM Layering Ritual',
+          usageGuideSteps: [
+            'AM: Cleanse gently, then pat 3 drops of Vitamin C Serum into damp skin before SPF.',
+            'PM: After serum, press 2-3 drops of Velvet Renewal Oil into cheeks to lock in active ceramides.',
+            'Weekly: Focus extra drops on dry zones or decolletage for intense cellular recovery.'
+          ],
+          storeReturnText: 'Browse Complimentary Formulations',
+          communityInviteText: 'Join The Private VIP Beauty Circle',
+          pageViews: 142,
+          bounceBackClaims: 28
+        }
       }
     ],
     edges: [
       { id: 'e-bp3-1', source: 'bp3-ad', target: 'bp3-page', data: { sourceThroughput: 740, targetCount: 740, rate: 100 } },
-      { id: 'e-bp3-2', source: 'bp3-page', target: 'bp3-seq', data: { sourceThroughput: 740, targetCount: 142, rate: 19.2 } }
+      { id: 'e-bp3-2', source: 'bp3-page', target: 'bp3-seq', data: { sourceThroughput: 740, targetCount: 142, rate: 19.2 } },
+      { id: 'e-bp3-3', source: 'bp3-page', target: 'bp3-ty', data: { sourceThroughput: 740, targetCount: 142, rate: 19.2 } }
     ]
   }
 ];

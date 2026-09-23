@@ -1,6 +1,6 @@
 import type { Node, Edge } from '@xyflow/react';
 
-export type NodeType = 'ad-source' | 'landing-page' | 'lead-form' | 'follow-up-sequence';
+export type NodeType = 'ad-source' | 'landing-page' | 'lead-form' | 'follow-up-sequence' | 'thank-you';
 
 export interface AdNodeData extends Record<string, unknown> {
   type: 'ad-source';
@@ -119,6 +119,13 @@ export interface PageNodeData extends Record<string, unknown> {
   scarcityBatchText?: string;
   // Wave 4: Post-Submit Experience
   postSubmitExperience?: 'direct_checkout' | 'vip_voucher_modal';
+  // Wave 5: Exit-Intent Conversion Rescue
+  exitIntentEnabled?: boolean;
+  exitIntentHeadline?: string;
+  exitIntentSubhead?: string;
+  exitIntentDiscountCode?: string;
+  exitIntentButtonText?: string;
+  exitIntentBadge?: string;
   // Metrics & Financials (Wave 3)
   visitors: number;
   conversions: number;
@@ -203,7 +210,27 @@ export interface SequenceNodeData extends Record<string, unknown> {
   avgClickRate: number;
 }
 
-export type JourneyNodeData = AdNodeData | PageNodeData | FormNodeData | SequenceNodeData;
+export interface ThankYouNodeData extends Record<string, unknown> {
+  type: 'thank-you';
+  label: string;
+  slug?: string;
+  headline: string;
+  subhead: string;
+  badgeText?: string;
+  bounceBackDiscountCode?: string;
+  bounceBackDiscountText?: string;
+  usageGuideTitle?: string;
+  usageGuideSteps?: string[];
+  communityInviteUrl?: string;
+  communityInviteText?: string;
+  storeReturnUrl?: string;
+  storeReturnText?: string;
+  // Metrics
+  pageViews?: number;
+  bounceBackClaims?: number;
+}
+
+export type JourneyNodeData = AdNodeData | PageNodeData | FormNodeData | SequenceNodeData | ThankYouNodeData;
 
 export type JourneyNode = Node<JourneyNodeData, NodeType>;
 

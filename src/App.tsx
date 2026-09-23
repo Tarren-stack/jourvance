@@ -213,6 +213,28 @@ export const App: React.FC = () => {
           ]
         };
         break;
+      case 'thank-you':
+        newNodeData = {
+          type: 'thank-you',
+          label: 'VIP Order Confirmation',
+          slug: 'thank-you',
+          headline: 'Your VIP Allocation & Order is Confirmed',
+          subhead: 'Thank you for choosing our bioactive formulation ritual. Your parcel is currently being prepared with care.',
+          badgeText: 'VIP Member Privilege',
+          bounceBackDiscountCode: 'VIPRETURN',
+          bounceBackDiscountText: '$15 Off Your Next Renewal Formulation',
+          usageGuideTitle: 'The 3-Step Botanical Ritual Guide',
+          usageGuideSteps: [
+            'Cleanse with warm botanical water to prime cellular barrier.',
+            'Warm 3–4 drops between fingertips to activate bioactive peptides.',
+            'Press gently into face, neck, and decolletage morning and evening.'
+          ],
+          storeReturnText: 'Browse Complimentary Formulations',
+          communityInviteText: 'Join The Private VIP Beauty Circle',
+          pageViews: 18,
+          bounceBackClaims: 4
+        };
+        break;
     }
 
     const newNode: JourneyNode = {

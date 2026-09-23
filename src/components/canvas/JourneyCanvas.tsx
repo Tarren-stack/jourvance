@@ -19,6 +19,7 @@ import { AdNode } from './nodes/AdNode';
 import { PageNode } from './nodes/PageNode';
 import { FormNode } from './nodes/FormNode';
 import { SequenceNode } from './nodes/SequenceNode';
+import { ThankYouNode } from './nodes/ThankYouNode';
 import { ConversionEdge } from './edges/ConversionEdge';
 
 interface Props {
@@ -44,7 +45,8 @@ export const JourneyCanvas: React.FC<Props> = ({
     'ad-source': AdNode,
     'landing-page': PageNode,
     'lead-form': FormNode,
-    'follow-up-sequence': SequenceNode
+    'follow-up-sequence': SequenceNode,
+    'thank-you': ThankYouNode
   }), []);
 
   const edgeTypes: EdgeTypes = useMemo(() => ({

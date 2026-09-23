@@ -5,6 +5,7 @@ import { AdEditor } from './AdEditor';
 import { PageEditor } from './PageEditor';
 import { FormEditor } from './FormEditor';
 import { SequenceEditor } from './SequenceEditor';
+import { ThankYouEditor } from './ThankYouEditor';
 
 interface Props {
   node: JourneyNode | null;
@@ -37,6 +38,7 @@ export const NodeInspector: React.FC<Props> = ({
       case 'landing-page': return 'Landing Page Editor';
       case 'lead-form': return 'Lead Capture Form';
       case 'follow-up-sequence': return 'Follow-up Nurture Flow';
+      case 'thank-you': return 'VIP Thank-You Portal';
       default: return 'Node Configuration';
     }
   };
@@ -147,6 +149,13 @@ export const NodeInspector: React.FC<Props> = ({
             onChange={updated => onUpdateNode(node.id, updated)}
             offerHeadline={offerHeadline}
             businessType={businessType}
+            workspace={workspace}
+          />
+        )}
+        {data.type === 'thank-you' && (
+          <ThankYouEditor
+            data={data}
+            onChange={updated => onUpdateNode(node.id, updated)}
             workspace={workspace}
           />
         )}

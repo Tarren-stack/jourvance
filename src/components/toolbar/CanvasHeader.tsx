@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign } from 'lucide-react';
-import type { JourneyProject, Workspace, CanvasViewMode } from '../../types/journey';
+import type { JourneyProject, Workspace, CanvasViewMode, NodeType } from '../../types/journey';
 import { WorkspaceSelector } from './WorkspaceSelector';
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
   onSave: () => void;
   onTestJourney: () => void;
   onExportAssets?: () => void;
-  onAddNode: (type: 'ad-source' | 'landing-page' | 'lead-form' | 'follow-up-sequence') => void;
+  onAddNode: (type: NodeType) => void;
   onOpenWebsite?: () => void;
   user?: any;
   onOpenAuth?: () => void;
@@ -495,6 +495,15 @@ export const CanvasHeader: React.FC<Props> = ({
               >
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#F59E0B' }} />
                 <span>+ Follow-Up Sequence</span>
+              </button>
+              <button
+                onClick={() => { onAddNode('thank-you'); setShowAddMenu(false); }}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#EC4899' }} />
+                <span>+ VIP Thank-You Portal</span>
               </button>
             </div>
           )}

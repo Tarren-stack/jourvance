@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Sparkles, RefreshCw, Plus, Trash2, Globe, ExternalLink,
   ShoppingBag, Link2, CheckCircle2, Copy, Check, Tag,
-  Activity, Eye, Share2, Zap, GitFork, Clock
+  Activity, Eye, Share2, Zap, GitFork, Clock, ShieldAlert
 } from 'lucide-react';
 import type { PageNodeData, PageVariantData, Workspace, ShopifyProduct } from '../../types/journey';
 import { requestAICopy } from '../../lib/hubClient';
@@ -1530,6 +1530,135 @@ export const PageEditor: React.FC<Props> = ({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* SECTION 1.8: EXIT-INTENT CONVERSION RESCUE */}
+          <div
+            style={{
+              padding: '14px',
+              borderRadius: '10px',
+              backgroundColor: data.exitIntentEnabled ? 'rgba(236, 72, 153, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+              border: data.exitIntentEnabled ? '1px solid rgba(236, 72, 153, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldAlert size={16} style={{ color: '#ec4899' }} />
+                <div>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6' }}>
+                    Exit-Intent Conversion Rescue
+                  </span>
+                  <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                    Luxury slide-over to recover abandoning shoppers with a VIP formulation code
+                  </div>
+                </div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '6px' }}>
+                <input
+                  type="checkbox"
+                  checked={data.exitIntentEnabled || false}
+                  onChange={e => handleFieldChange('exitIntentEnabled', e.target.checked)}
+                  style={{ width: '16px', height: '16px', accentColor: '#ec4899', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: data.exitIntentEnabled ? '#ec4899' : '#64748b' }}>
+                  {data.exitIntentEnabled ? 'Active' : 'Off'}
+                </span>
+              </label>
+            </div>
+
+            {data.exitIntentEnabled && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#94a3b8', marginBottom: '4px' }}>
+                      Rescue Badge:
+                    </label>
+                    <input
+                      type="text"
+                      value={data.exitIntentBadge || 'Wait — VIP Privilege'}
+                      onChange={e => handleFieldChange('exitIntentBadge', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        background: '#0a0a0f',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        color: '#ffffff',
+                        fontSize: '12px'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10px', color: '#94a3b8', marginBottom: '4px' }}>
+                      VIP Discount Code:
+                    </label>
+                    <input
+                      type="text"
+                      value={data.exitIntentDiscountCode || data.discountCode || 'VIP15'}
+                      onChange={e => handleFieldChange('exitIntentDiscountCode', e.target.value.toUpperCase())}
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        background: '#0a0a0f',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        color: '#ffffff',
+                        fontSize: '12px',
+                        fontFamily: 'monospace'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '10px', color: '#94a3b8', marginBottom: '4px' }}>
+                    Headline:
+                  </label>
+                  <input
+                    type="text"
+                    value={data.exitIntentHeadline || 'Before You Go: Save Your 15% VIP Formulation Voucher'}
+                    onChange={e => handleFieldChange('exitIntentHeadline', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      background: '#0a0a0f',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '12px'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '10px', color: '#94a3b8', marginBottom: '4px' }}>
+                    Subhead Description:
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={data.exitIntentSubhead || 'Reserve your private batch discount code now before this allocation sells out.'}
+                    onChange={e => handleFieldChange('exitIntentSubhead', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      background: '#0a0a0f',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '12px'
+                    }}
+                  />
+                </div>
+
+                <div style={{ padding: '8px 10px', borderRadius: '6px', background: 'rgba(0, 0, 0, 0.3)', border: '1px dashed rgba(236, 72, 153, 0.3)', fontSize: '11px', color: '#fbcfe8' }}>
+                  💡 <strong>Smart Triggering</strong>: Triggered on desktop cursor exit and mobile upward scroll. Frequency capped in <code>sessionStorage</code> so it never annoys repeat shoppers.
+                </div>
+              </div>
+            )}
           </div>
 
           {/* SECTION 2: LIVE PUBLIC HOSTING & STATUS */}
