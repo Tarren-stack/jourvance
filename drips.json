@@ -37,8 +37,8 @@
       ],
       "activeEnrollments": 4,
       "totalCompleted": 14,
-      "totalExitedPurchased": 11,
-      "attributedSales": 1291,
+      "totalExitedPurchased": 12,
+      "attributedSales": 1380,
       "createdAt": "2026-09-09T18:22:01.986Z",
       "updatedAt": "2026-09-23T18:22:01.986Z"
     },
@@ -68,15 +68,67 @@
           "discountVoucher": ""
         }
       ],
-      "activeEnrollments": 3,
+      "activeEnrollments": 4,
       "totalCompleted": 6,
-      "totalExitedPurchased": 6,
-      "attributedSales": 584,
+      "totalExitedPurchased": 7,
+      "attributedSales": 733,
       "createdAt": "2026-09-13T22:01:25.927Z",
       "updatedAt": "2026-09-23T22:01:25.927Z"
     }
   ],
   "enrollments": [
+    {
+      "id": "enr_1790203323042_ax8w",
+      "sequenceId": "drip_seq_default",
+      "customerEmail": "lead_1790203322424@growthbrand.io",
+      "customerName": "Jordan Miller",
+      "sourceSlug": "saas-growth-funnel",
+      "currentStepIndex": 2,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-23T22:42:03.042Z",
+      "nextStepDueAt": "2026-09-23T22:41:03.065Z",
+      "lastStepSentAt": "2026-09-23T22:42:03.054Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-23T22:42:03.042Z",
+          "status": "delivered"
+        },
+        {
+          "stepNumber": 2,
+          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
+          "sentAt": "2026-09-23T22:42:03.054Z",
+          "status": "delivered"
+        }
+      ],
+      "convertedAt": "2026-09-23T22:42:03.061Z"
+    },
+    {
+      "id": "enr_1790203233935_hz4u",
+      "sequenceId": "drip_seq_cart_recovery",
+      "customerEmail": "shopper_3934@example.com",
+      "customerName": "Alex Shopper",
+      "sourceSlug": "simulated_checkout",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-23T22:40:33.935Z",
+      "nextStepDueAt": "2026-09-23T23:40:33.935Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790203233920_38m1",
+      "sequenceId": "drip_seq_cart_recovery",
+      "customerEmail": "prospect_1790203233917@acmecommerce.com",
+      "customerName": "Alex Vance",
+      "sourceSlug": "cart_recovery",
+      "currentStepIndex": 0,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-23T22:40:33.920Z",
+      "nextStepDueAt": "2026-09-23T23:40:33.920Z",
+      "history": [],
+      "convertedAt": "2026-09-23T22:40:33.930Z"
+    },
     {
       "id": "enr_1790201056902_d0kg",
       "sequenceId": "drip_seq_default",
@@ -203,16 +255,22 @@
       "customerEmail": "alex.lead@venture.co",
       "customerName": "Alex Venture",
       "sourceSlug": "saas-growth-funnel",
-      "currentStepIndex": 1,
+      "currentStepIndex": 2,
       "status": "active",
       "enrolledAt": "2026-09-22T22:22:01.986Z",
-      "nextStepDueAt": "2026-09-23T22:22:01.986Z",
-      "lastStepSentAt": "2026-09-22T22:22:01.986Z",
+      "nextStepDueAt": "2026-09-25T22:40:33.925Z",
+      "lastStepSentAt": "2026-09-23T22:40:33.925Z",
       "history": [
         {
           "stepNumber": 1,
           "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
           "sentAt": "2026-09-22T22:22:01.986Z",
+          "status": "delivered"
+        },
+        {
+          "stepNumber": 2,
+          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
+          "sentAt": "2026-09-23T22:40:33.925Z",
           "status": "delivered"
         }
       ]

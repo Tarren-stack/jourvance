@@ -20,6 +20,7 @@ import { PageNode } from './nodes/PageNode';
 import { FormNode } from './nodes/FormNode';
 import { SequenceNode } from './nodes/SequenceNode';
 import { ThankYouNode } from './nodes/ThankYouNode';
+import { UpsellNode } from './nodes/UpsellNode';
 import { ConversionEdge } from './edges/ConversionEdge';
 
 interface Props {
@@ -46,7 +47,8 @@ export const JourneyCanvas: React.FC<Props> = ({
     'landing-page': PageNode,
     'lead-form': FormNode,
     'follow-up-sequence': SequenceNode,
-    'thank-you': ThankYouNode
+    'thank-you': ThankYouNode,
+    'upsell': UpsellNode
   }), []);
 
   const edgeTypes: EdgeTypes = useMemo(() => ({

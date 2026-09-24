@@ -6,6 +6,7 @@ import { PageEditor } from './PageEditor';
 import { FormEditor } from './FormEditor';
 import { SequenceEditor } from './SequenceEditor';
 import { ThankYouEditor } from './ThankYouEditor';
+import { UpsellEditor } from './UpsellEditor';
 
 interface Props {
   node: JourneyNode | null;
@@ -154,6 +155,13 @@ export const NodeInspector: React.FC<Props> = ({
         )}
         {data.type === 'thank-you' && (
           <ThankYouEditor
+            data={data}
+            onChange={updated => onUpdateNode(node.id, updated)}
+            workspace={workspace}
+          />
+        )}
+        {data.type === 'upsell' && (
+          <UpsellEditor
             data={data}
             onChange={updated => onUpdateNode(node.id, updated)}
             workspace={workspace}

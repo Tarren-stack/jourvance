@@ -2667,11 +2667,7 @@ async function loadPublicPage(identifier) {
 
   // Sync from disk if not yet in cache
   if (!publicPageCache[cleanId] && !publicPageCache[`domain:${cleanId}`]) {
-    try {
-      if (fs.existsSync(publicPagesFile)) {
-        publicPageCache = JSON.parse(fs.readFileSync(publicPagesFile, 'utf8'));
-      }
-    } catch {}
+    reloadPublicPageCache();
   }
 
   // Direct slug match
@@ -4154,6 +4150,354 @@ function renderPublicThankYouHtml(page, req, res) {
 </html>`;
 }
 
+// Wave 9: SSR Post-Purchase Upsell & Downsell Engine
+function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
+  const d = page.data || {};
+  const upsell = isDownsell ? (d.downsell || {}) : (d.upsell || {});
+  const shopify = page.shopifyConfig || {};
+  const storeDomain = shopify.storeDomain || 'demo.myshopify.com';
+  const slug = page.slug || req.params.slug || 'offer';
+
+  const headline = upsell.headline || (isDownsell ? (d.downsellHeadline || 'Wait! Try The Mini Replenishment at 50% Off') : (d.upsellHeadline || 'Special VIP Allocation: Complete Your Routine with 40% Off'));
+  const subhead = upsell.subhead || (isDownsell ? (d.downsellSubhead || 'Before your parcel ships, claim our deluxe travel-size formulation at half price.') : (d.upsellSubhead || 'Your initial parcel is reserved! Add our triple-action replenishment reserve before order dispatch.'));
+  const badge = upsell.badgeText || (isDownsell ? (d.downsellBadge || 'SAVE 50% DOWNSELL') : (d.upsellBadge || 'SAVE 40% VIP OFFER'));
+  const urgencyMins = upsell.urgencyMinutes || d.upsellUrgencyMinutes || 5;
+  const productTitle = upsell.productTitle || (isDownsell ? (d.downsellProductTitle || 'Deluxe Travel Ritual Duo') : (d.upsellProductTitle || 'Bioactive Triple Barrier Replenishment Reserve'));
+  const productPrice = upsell.productPrice || (isDownsell ? (d.downsellProductPrice || '$24.00') : (d.upsellProductPrice || '$38.00'));
+  const regularPrice = upsell.regularPrice || (isDownsell ? (d.downsellRegularPrice || '$48.00') : (d.upsellRegularPrice || '$64.00'));
+  const discountCode = upsell.discountCode || (isDownsell ? (d.downsellDiscountCode || 'VIPDOWN50') : (d.upsellDiscountCode || 'VIPOTO40'));
+  const productImage = upsell.productImage || (isDownsell ? (d.downsellProductImage || 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=600&q=80') : (d.upsellProductImage || 'https://images.unsplash.com/photo-1601049541289-9b1b7bbbfe19?auto=format&fit=crop&w=600&q=80'));
+  const benefits = (Array.isArray(upsell.benefits) && upsell.benefits.length) ? upsell.benefits : (Array.isArray(d.upsellBenefits) && d.upsellBenefits.length ? d.upsellBenefits : [
+    'Direct batch allocation from master cosmetic formulation',
+    'Full 90-day cellular barrier replenishment reserve',
+    'Complimentary priority dispatch included'
+  ]);
+  const acceptText = upsell.acceptButtonText || (isDownsell ? '⚡ Yes, Add This Travel Mini (1-Tap Checkout)' : '⚡ Yes, Upgrade My Order (1-Tap Checkout)');
+  const declineText = upsell.declineButtonText || (isDownsell ? 'No thanks, continue to my order confirmation' : 'No thanks, skip this offer');
+  const variantId = upsell.shopifyVariantId || d.upsellVariantId || '42109840192';
+
+  const accentColor = isDownsell ? '#F59E0B' : '#10B981';
+  const accentGradient = isDownsell ? 'linear-gradient(135deg, #F59E0B, #D97706)' : 'linear-gradient(135deg, #10B981, #059669)';
+  const badgeBg = isDownsell ? 'rgba(245, 158, 11, 0.18)' : 'rgba(16, 185, 129, 0.18)';
+  const badgeBorder = isDownsell ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)';
+
+  const nextDeclineUrl = (!isDownsell && (d.hasDownsell || d.downsell)) ? `/p/${slug}/downsell` : `/p/${slug}/thank-you`;
+  const checkoutUrl = `https://${storeDomain}/cart/${variantId}:1?discount=${encodeURIComponent(discountCode)}`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(headline)} — ${isDownsell ? 'Downsell Offer' : 'One-Time Offer'}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0B0F19;
+      color: #F8FAFC;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      line-height: 1.6;
+    }
+    .container {
+      width: 100%;
+      max-width: 620px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .reassurance-banner {
+      background: rgba(234, 179, 8, 0.12);
+      border: 1px solid rgba(234, 179, 8, 0.3);
+      border-radius: 12px;
+      padding: 12px 16px;
+      text-align: center;
+      font-size: 13px;
+      color: #FACC15;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .card {
+      background: linear-gradient(145deg, rgba(26, 18, 34, 0.7), rgba(15, 23, 42, 0.85));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 32px 28px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .badge-pill {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      background: ${badgeBg};
+      border: 1px solid ${badgeBorder};
+      color: ${accentColor};
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 26px;
+      line-height: 1.3;
+      color: #FFFFFF;
+      margin-bottom: 10px;
+    }
+    p.subhead {
+      font-size: 14px;
+      color: #94A3B8;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .product-box {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .product-img {
+      width: 90px;
+      height: 90px;
+      border-radius: 10px;
+      object-fit: cover;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .product-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .product-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #F8FAFC;
+      margin-bottom: 6px;
+    }
+    .pricing-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .price-special {
+      font-size: 22px;
+      font-weight: 800;
+      color: ${accentColor};
+    }
+    .price-reg {
+      font-size: 14px;
+      color: #64748B;
+      text-decoration: line-through;
+    }
+    .benefits-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 26px;
+    }
+    .benefit-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: #CBD5E1;
+    }
+    .benefit-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34D399;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .btn-accept {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 16px 24px;
+      border-radius: 12px;
+      background: ${accentGradient};
+      color: #FFFFFF;
+      font-size: 15px;
+      font-weight: 800;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 10px 25px rgba(16, 185, 129, 0.35);
+      transition: all 0.2s ease;
+    }
+    .btn-accept:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 30px rgba(16, 185, 129, 0.45);
+    }
+    .decline-link {
+      display: block;
+      text-align: center;
+      margin-top: 14px;
+      font-size: 12px;
+      color: #94A3B8;
+      text-decoration: underline;
+      cursor: pointer;
+      background: transparent;
+      border: none;
+    }
+    .decline-link:hover {
+      color: #CBD5E1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Reassurance & Timer Banner -->
+    <div class="reassurance-banner">
+      <span>⏱️</span>
+      <span>
+        <strong>Wait! Your main order is confirmed & being prepped.</strong>
+        This private one-time offer expires in <span id="jv-timer">0${urgencyMins}:00</span>.
+      </span>
+    </div>
+
+    <!-- Main Presentation Card -->
+    <div class="card">
+      <div style="text-align:center;">
+        <span class="badge-pill">${escapeHtml(badge)}</span>
+        <h1>${escapeHtml(headline)}</h1>
+        <p class="subhead">${escapeHtml(subhead)}</p>
+      </div>
+
+      <!-- Product Box -->
+      <div class="product-box">
+        <img src="${escapeHtml(productImage)}" alt="${escapeHtml(productTitle)}" class="product-img" />
+        <div class="product-info">
+          <div class="product-title">${escapeHtml(productTitle)}</div>
+          <div class="pricing-row">
+            <span class="price-special">${escapeHtml(productPrice)}</span>
+            <span class="price-reg">${escapeHtml(regularPrice)}</span>
+          </div>
+          <div style="font-size:11px; color:#34D399; font-weight:600;">
+            ✓ VIP Special Voucher Applied • 1-Tap Checkout
+          </div>
+        </div>
+      </div>
+
+      <!-- Benefit Bullets -->
+      <div class="benefits-list">
+        ${benefits.map(b => `
+          <div class="benefit-item">
+            <div class="benefit-icon">✓</div>
+            <div>${escapeHtml(b)}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- Accept CTA -->
+      <a
+        id="jv-accept-btn"
+        href="${escapeHtml(checkoutUrl)}"
+        class="btn-accept"
+      >
+        ${escapeHtml(acceptText)}
+      </a>
+
+      <!-- Decline Option -->
+      <a
+        id="jv-decline-btn"
+        href="${escapeHtml(nextDeclineUrl)}"
+        class="decline-link"
+      >
+        ${escapeHtml(declineText)}
+      </a>
+    </div>
+
+    <div style="text-align:center; font-size:11px; color:#64748B;">
+      Secured by Jourvance E-Commerce Infrastructure • 100% Satisfaction Guarantee
+    </div>
+  </div>
+
+  <script>
+    // Record view telemetry
+    try {
+      fetch('/api/public/upsell-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug: ${JSON.stringify(slug)},
+          action: 'view',
+          offerType: ${JSON.stringify(isDownsell ? 'downsell' : 'upsell')}
+        })
+      }).catch(function(){});
+    } catch(e) {}
+
+    // Countdown Timer (persisted in sessionStorage)
+    (function() {
+      var key = 'jv_timer_${slug}_${isDownsell ? 'down' : 'up'}';
+      var duration = ${urgencyMins} * 60;
+      var now = Math.floor(Date.now() / 1000);
+      var endTime = sessionStorage.getItem(key);
+      if (!endTime) {
+        endTime = now + duration;
+        sessionStorage.setItem(key, endTime);
+      } else {
+        endTime = parseInt(endTime, 10);
+      }
+
+      function update() {
+        var current = Math.floor(Date.now() / 1000);
+        var rem = Math.max(0, endTime - current);
+        var m = Math.floor(rem / 60);
+        var s = rem % 60;
+        var el = document.getElementById('jv-timer');
+        if (el) {
+          el.textContent = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+        }
+      }
+      setInterval(update, 1000);
+      update();
+    })();
+
+    // Track accept action
+    document.getElementById('jv-accept-btn').addEventListener('click', function(e) {
+      try {
+        fetch('/api/public/upsell-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            slug: ${JSON.stringify(slug)},
+            action: 'accept',
+            offerType: ${JSON.stringify(isDownsell ? 'downsell' : 'upsell')},
+            amount: ${parseFloat(productPrice.replace(/[^0-9.]/g, '')) || (isDownsell ? 24 : 38)}
+          })
+        }).catch(function(){});
+      } catch(err) {}
+    });
+  </script>
+</body>
+</html>`;
+}
+
 // ── Funnel Publishing Routes ──────────────────────────────────────────────────
 
 app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
@@ -4165,7 +4509,8 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
   const shopifyConfig = ws?.shopifyConfig || { storeDomain: 'demo.myshopify.com', status: 'connected' };
 
   const publishedPages = [];
-  const nodes = journey.nodes || [];
+  const upsellNodes = nodes.filter(n => n.type === 'upsell');
+  const thankYouNodes = nodes.filter(n => n.type === 'thank-you');
 
   for (const node of nodes) {
     if (node.type === 'landing-page') {
@@ -4182,13 +4527,21 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
         .replace(/^https?:\/\//, '')
         .replace(/\/.*$/, '');
 
+      const upsellNode = upsellNodes.find(u => u.data?.offerType !== 'downsell');
+      const downsellNode = upsellNodes.find(u => u.data?.offerType === 'downsell');
+      const thankYouNode = thankYouNodes[0];
+
       node.data = {
         ...d,
         slug: cleanSlug,
         customDomain: customDomain || undefined,
         published: true,
         publishedAt: new Date().toISOString(),
-        publishedUrl: pubUrl
+        publishedUrl: pubUrl,
+        upsell: upsellNode?.data ? { ...upsellNode.data } : d.upsell,
+        downsell: downsellNode?.data ? { ...downsellNode.data } : d.downsell,
+        hasDownsell: Boolean(downsellNode?.data || d.downsell),
+        thankYou: thankYouNode?.data ? { ...thankYouNode.data } : d.thankYou
       };
 
       const publicRecord = {
@@ -4215,6 +4568,35 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
         productTitle: d.shopifyProductTitle,
         checkoutMode: d.checkoutMode || 'direct'
       });
+    } else if (node.type === 'upsell') {
+      const d = node.data || {};
+      const cleanSlug = (d.slug || `${node.id}-upsell`)
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '-')
+        .replace(/^-+|-+$/g, '');
+      const pubUrl = `/p/${cleanSlug}`;
+      node.data = {
+        ...d,
+        slug: cleanSlug,
+        published: true,
+        publishedAt: new Date().toISOString(),
+        publishedUrl: pubUrl
+      };
+      const publicRecord = {
+        slug: cleanSlug,
+        journeyId: journey.id,
+        workspaceId: wsId || 'default',
+        userId: req.user.uid,
+        nodeId: node.id,
+        publishedAt: new Date().toISOString(),
+        data: {
+          ...node.data,
+          upsell: d.offerType !== 'downsell' ? node.data : undefined,
+          downsell: d.offerType === 'downsell' ? node.data : undefined
+        },
+        shopifyConfig
+      };
+      await savePublicPage(cleanSlug, publicRecord);
     }
   }
 
@@ -4499,6 +4881,16 @@ app.use(async (req, res, next) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(html);
     }
+    if (req.path === '/upsell' || req.path === `/${page.slug}/upsell`) {
+      const html = renderPublicUpsellHtml(page, req, res, false);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(html);
+    }
+    if (req.path === '/downsell' || req.path === `/${page.slug}/downsell`) {
+      const html = renderPublicUpsellHtml(page, req, res, true);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(html);
+    }
     if (req.path === '/' || req.path === `/${page.slug}` || req.path.startsWith('/p/')) {
       const html = renderPublicFunnelHtml(page, req, res);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -4506,6 +4898,70 @@ app.use(async (req, res, next) => {
     }
   }
   next();
+});
+
+// Public Upsell / Downsell SSR Routes (Wave 9)
+app.get(['/p/:slug/upsell', '/p/:wsId/:slug/upsell'], async (req, res) => {
+  const slug = (req.params.slug || '').toLowerCase();
+  const page = await loadPublicPage(slug);
+  if (!page || !page.data) {
+    return res.status(404).send(render404Html(slug));
+  }
+  const html = renderPublicUpsellHtml(page, req, res, false);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+});
+
+app.get(['/p/:slug/downsell', '/p/:wsId/:slug/downsell'], async (req, res) => {
+  const slug = (req.params.slug || '').toLowerCase();
+  const page = await loadPublicPage(slug);
+  if (!page || !page.data) {
+    return res.status(404).send(render404Html(slug));
+  }
+  const html = renderPublicUpsellHtml(page, req, res, true);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+});
+
+// Wave 9: Upsell Action & Telemetry API
+app.post('/api/public/upsell-action', async (req, res) => {
+  const { slug, action, offerType, amount, customerEmail } = req.body || {};
+  const isDownsell = offerType === 'downsell';
+  const pages = reloadPublicPageCache();
+  const page = slug ? pages[slug] : null;
+
+  if (page && page.data) {
+    const targetObj = isDownsell ? (page.data.downsell = page.data.downsell || {}) : (page.data.upsell = page.data.upsell || {});
+    if (action === 'view') {
+      targetObj.views = (targetObj.views || 0) + 1;
+    } else if (action === 'accept') {
+      targetObj.takes = (targetObj.takes || 0) + 1;
+      const addedRevenue = Number(amount || (isDownsell ? 24 : 38));
+      targetObj.attributedRevenue = Number(((targetObj.attributedRevenue || 0) + addedRevenue).toFixed(2));
+      page.data.liveRevenue = Number(((page.data.liveRevenue || page.data.grossRevenue || 0) + addedRevenue).toFixed(2));
+      savePublicPage(slug, page);
+    }
+  }
+
+  // Tag customer if email provided
+  if (customerEmail && action === 'accept') {
+    try {
+      const contacts = loadContacts();
+      const contact = contacts.find(c => c.email.toLowerCase() === customerEmail.toLowerCase());
+      if (contact) {
+        if (!contact.tags) contact.tags = [];
+        const tagName = isDownsell ? 'Downsell-Accepted' : 'Upsell-Accepted';
+        if (!contact.tags.includes(tagName)) contact.tags.push(tagName);
+        const addedRevenue = Number(amount || (isDownsell ? 24 : 38));
+        contact.totalSpent = Number(((contact.totalSpent || 0) + addedRevenue).toFixed(2));
+        saveContacts(contacts);
+      }
+    } catch (e) {
+      console.warn('[Jourvance] Upsell customer tagging error:', e.message);
+    }
+  }
+
+  res.status(200).json({ success: true, action, offerType });
 });
 
 // Public Thank-You / VIP Onboarding Portal SSR Route (Wave 5)

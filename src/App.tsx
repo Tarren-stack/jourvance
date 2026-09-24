@@ -238,6 +238,34 @@ export const App: React.FC = () => {
           bounceBackClaims: 4
         };
         break;
+      case 'upsell':
+        newNodeData = {
+          type: 'upsell',
+          label: 'Post-Purchase Upsell (OTO)',
+          offerType: 'upsell',
+          headline: 'Special VIP Allocation: Complete Your Routine with 40% Off',
+          subhead: 'Your initial parcel is reserved! Add our triple-action replenishment reserve before order dispatch.',
+          badgeText: 'SAVE 40% VIP OFFER',
+          urgencyMinutes: 5,
+          productTitle: 'Bioactive Triple Barrier Replenishment Reserve',
+          productPrice: '$38.00',
+          regularPrice: '$64.00',
+          discountPercentage: 40,
+          discountCode: 'VIPOTO40',
+          productImage: 'https://images.unsplash.com/photo-1601049541289-9b1b7bbbfe19?auto=format&fit=crop&w=600&q=80',
+          benefits: [
+            'Direct batch allocation from master cosmetic formulation',
+            'Full 90-day cellular renewal supply',
+            'Includes free complimentary expedited priority shipping'
+          ],
+          acceptButtonText: '⚡ Yes, Upgrade My Order (1-Tap Checkout)',
+          declineButtonText: 'No thanks, continue to my order confirmation',
+          views: 184,
+          takes: 46,
+          conversionRate: 25.0,
+          attributedRevenue: 1748.00
+        };
+        break;
     }
 
     const newNode: JourneyNode = {

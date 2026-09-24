@@ -1,25 +1,25 @@
 [
   {
-    "id": "disc_1790201013813_zz97",
+    "id": "disc_1790203233909_6fex",
     "code": "LEAD-W8-FIXED",
     "discountType": "fixed_amount",
     "value": 20,
     "usageLimit": 1,
     "isUniquePerLead": true,
-    "shopifyPriceRuleId": "pr_1790201013813_wqr1",
-    "createdAt": "2026-09-23T22:03:33.813Z",
+    "shopifyPriceRuleId": "pr_1790203233909_5ovc",
+    "createdAt": "2026-09-23T22:40:33.909Z",
     "status": "active",
     "syncedToLiveShopify": false
   },
   {
-    "id": "disc_1790201013393_ui7g",
+    "id": "disc_1790203233615_ni0f",
     "code": "GROWTH25",
     "discountType": "percentage",
     "value": 25,
     "usageLimit": null,
     "isUniquePerLead": false,
-    "shopifyPriceRuleId": "pr_1790201013392_gkuj",
-    "createdAt": "2026-09-23T22:03:33.393Z",
+    "shopifyPriceRuleId": "pr_1790203233615_cjz3",
+    "createdAt": "2026-09-23T22:40:33.615Z",
     "status": "active",
     "syncedToLiveShopify": false
   },

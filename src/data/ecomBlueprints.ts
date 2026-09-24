@@ -396,5 +396,162 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       { id: 'e-bp3-2', source: 'bp3-page', target: 'bp3-seq', data: { sourceThroughput: 740, targetCount: 142, rate: 19.2 } },
       { id: 'e-bp3-3', source: 'bp3-page', target: 'bp3-ty', data: { sourceThroughput: 740, targetCount: 142, rate: 19.2 } }
     ]
+  },
+  {
+    id: 'oto-upsell-funnel-system',
+    title: 'Post-Purchase Upsell & Downsell Branch',
+    tagline: 'Landing Page → 1-Click Upsell (OTO) → Downsell → VIP Portal',
+    category: 'aov-booster',
+    badge: 'Max AOV Engine',
+    expectedAovLift: '+48% Incremental Margin',
+    description: 'The industry-standard high-ticket funnel architecture. After initial checkout, buyers are presented with an exclusive 1-click replenishment reserve (OTO). If declined, it branches to a lower-friction travel downsell before landing on the VIP confirmation portal.',
+    nodes: [
+      {
+        id: 'bp4-ad',
+        type: 'ad-source',
+        position: { x: 50, y: 150 },
+        data: {
+          type: 'ad-source',
+          label: 'Meta Ad • Core Offer',
+          platform: 'meta',
+          headline: 'Unlock Clinical Grade Cellular Radiance',
+          body: 'Formulated with 15% pure Vitamin C and barrier-restoring botanical peptides. Clinically proven results in 7 days.',
+          ctaText: 'Claim Special Offer',
+          imageUrl: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=800&q=80',
+          utmCampaign: 'oto-radiance-meta',
+          impressions: 24000,
+          clicks: 1100,
+          ctr: 4.6,
+          spend: 520
+        }
+      },
+      {
+        id: 'bp4-page',
+        type: 'landing-page',
+        position: { x: 400, y: 140 },
+        data: {
+          type: 'landing-page',
+          label: 'Core Offer Landing Page',
+          slug: 'oto-radiance-offer',
+          headline: 'Experience Luminous Vitamin C Radiance',
+          subhead: 'Formulated with active ethyl-ascorbic acid and lipid-barrier peptides for instant plumping and long-lasting glow.',
+          bullets: [
+            'Noticeable radiance and tone balance in 7 days',
+            'Clinically stable 15% Vitamin C formulation',
+            'Backed by 30-day money-back satisfaction guarantee'
+          ],
+          trustBadge: 'Rated 4.9/5 stars by over 2,400+ verified beauty clients',
+          buttonText: 'Claim 15% VIP Voucher & Checkout',
+          discountCode: 'WELCOME15',
+          checkoutMode: 'direct',
+          shopifyProductId: 'gid://shopify/Product/84920194821',
+          shopifyVariantId: '42109840192',
+          shopifyProductTitle: 'Luminous Vitamin C Radiance Serum',
+          shopifyProductPrice: '$58.00',
+          shopifyProductImage: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=800&q=80',
+          visitors: 1100,
+          conversions: 240,
+          conversionRate: 21.8
+        }
+      },
+      {
+        id: 'bp4-upsell',
+        type: 'upsell',
+        position: { x: 750, y: 80 },
+        data: {
+          type: 'upsell',
+          label: '1-Click Upsell (OTO)',
+          slug: 'oto-radiance-offer',
+          offerType: 'upsell',
+          headline: 'Wait! Add Our 90-Day Replenishment Reserve for 40% Off',
+          subhead: 'Your initial parcel is being prepped. Lock in your private laboratory batch allocation before dispatch.',
+          badgeText: 'SAVE 40% VIP OFFER',
+          urgencyMinutes: 5,
+          productTitle: 'Bioactive Triple Barrier Replenishment Reserve (90-Day Supply)',
+          productPrice: '$38.00',
+          regularPrice: '$64.00',
+          discountPercentage: 40,
+          discountCode: 'VIPOTO40',
+          productImage: 'https://images.unsplash.com/photo-1601049541289-9b1b7bbbfe19?auto=format&fit=crop&w=600&q=80',
+          benefits: [
+            'Direct batch allocation from master cosmetic formulation',
+            'Full 90-day cellular barrier replenishment supply',
+            'Includes complimentary priority expedited shipping'
+          ],
+          acceptButtonText: '⚡ Yes, Upgrade My Order (1-Tap Checkout)',
+          declineButtonText: 'No thanks, skip this offer',
+          downsellSlug: 'downsell',
+          views: 240,
+          takes: 62,
+          conversionRate: 25.8,
+          attributedRevenue: 2356.00
+        }
+      },
+      {
+        id: 'bp4-downsell',
+        type: 'upsell',
+        position: { x: 750, y: 350 },
+        data: {
+          type: 'upsell',
+          label: 'Downsell Step',
+          slug: 'oto-radiance-offer',
+          offerType: 'downsell',
+          headline: 'Wait! Try The Deluxe Travel Mini for Just $24',
+          subhead: 'Before your parcel leaves our fulfillment lab, claim our bestselling travel duo at half off.',
+          badgeText: 'SAVE 50% DOWNSELL',
+          urgencyMinutes: 3,
+          productTitle: 'Deluxe Travel Ritual Duo (Serum + Barrier Balm Mini)',
+          productPrice: '$24.00',
+          regularPrice: '$48.00',
+          discountPercentage: 50,
+          discountCode: 'VIPDOWN50',
+          productImage: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=600&q=80',
+          benefits: [
+            'Handy travel size perfect for carry-on luggage',
+            'Includes trial size Barrier Recovery Balm',
+            'Ships inside your existing parcel at zero extra shipping cost'
+          ],
+          acceptButtonText: '⚡ Yes, Add The Travel Mini ($24)',
+          declineButtonText: 'No thanks, continue to my order confirmation',
+          views: 178,
+          takes: 38,
+          conversionRate: 21.3,
+          attributedRevenue: 912.00
+        }
+      },
+      {
+        id: 'bp4-ty',
+        type: 'thank-you',
+        position: { x: 1100, y: 200 },
+        data: {
+          type: 'thank-you',
+          label: 'VIP Order Confirmation',
+          slug: 'oto-radiance-offer',
+          headline: 'Your VIP Order & Allocation is Confirmed',
+          subhead: 'Thank you for choosing our bioactive formulation ritual. Your parcel is in preparation.',
+          badgeText: 'VIP Member Privilege',
+          bounceBackDiscountCode: 'VIPRETURN',
+          bounceBackDiscountText: '$15 Off Your Next Renewal Formulation',
+          usageGuideTitle: 'The 3-Step Radiance Ritual',
+          usageGuideSteps: [
+            'Cleanse with warm water to prime cellular absorption.',
+            'Warm 3-4 drops between palms and press gently into face & neck.',
+            'Follow with barrier formulation to lock in bio-actives for 48 hours.'
+          ],
+          storeReturnText: 'Browse Complimentary Formulations',
+          communityInviteText: 'Join The Private VIP Beauty Circle',
+          pageViews: 240,
+          bounceBackClaims: 44
+        }
+      }
+    ],
+    edges: [
+      { id: 'e-bp4-1', source: 'bp4-ad', target: 'bp4-page', data: { sourceThroughput: 1100, targetCount: 1100, rate: 100 } },
+      { id: 'e-bp4-2', source: 'bp4-page', target: 'bp4-upsell', data: { sourceThroughput: 1100, targetCount: 240, rate: 21.8 } },
+      { id: 'e-bp4-3', source: 'bp4-upsell', target: 'bp4-ty', sourceHandle: 'accepted', data: { sourceThroughput: 240, targetCount: 62, rate: 25.8 } },
+      { id: 'e-bp4-4', source: 'bp4-upsell', target: 'bp4-downsell', sourceHandle: 'declined', data: { sourceThroughput: 240, targetCount: 178, rate: 74.2 } },
+      { id: 'e-bp4-5', source: 'bp4-downsell', target: 'bp4-ty', data: { sourceThroughput: 178, targetCount: 178, rate: 100 } }
+    ]
   }
 ];
+

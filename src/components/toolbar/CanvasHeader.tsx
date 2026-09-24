@@ -555,6 +555,15 @@ export const CanvasHeader: React.FC<Props> = ({
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#EC4899' }} />
                 <span>+ VIP Thank-You Portal</span>
               </button>
+              <button
+                onClick={() => { onAddNode('upsell'); setShowAddMenu(false); }}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10B981' }} />
+                <span>+ Post-Purchase Upsell (OTO)</span>
+              </button>
             </div>
           )}
         </div>

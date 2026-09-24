@@ -1,6 +1,6 @@
 import type { Node, Edge } from '@xyflow/react';
 
-export type NodeType = 'ad-source' | 'landing-page' | 'lead-form' | 'follow-up-sequence' | 'thank-you';
+export type NodeType = 'ad-source' | 'landing-page' | 'lead-form' | 'follow-up-sequence' | 'thank-you' | 'upsell';
 
 export interface AdNodeData extends Record<string, unknown> {
   type: 'ad-source';
@@ -236,7 +236,37 @@ export interface ThankYouNodeData extends Record<string, unknown> {
   bounceBackClaims?: number;
 }
 
-export type JourneyNodeData = AdNodeData | PageNodeData | FormNodeData | SequenceNodeData | ThankYouNodeData;
+export interface UpsellNodeData extends Record<string, unknown> {
+  type: 'upsell';
+  label: string;
+  slug?: string;
+  offerType: 'upsell' | 'downsell';
+  headline: string;
+  subhead: string;
+  badgeText?: string;
+  urgencyMinutes?: number;
+  // Product info
+  shopifyProductId?: string;
+  shopifyVariantId?: string;
+  productTitle?: string;
+  productPrice?: string;
+  regularPrice?: string;
+  discountPercentage?: number;
+  discountCode?: string;
+  productImage?: string;
+  benefits?: string[];
+  // Actions
+  acceptButtonText?: string;
+  declineButtonText?: string;
+  downsellSlug?: string;
+  // Telemetry
+  views?: number;
+  takes?: number;
+  conversionRate?: number;
+  attributedRevenue?: number;
+}
+
+export type JourneyNodeData = AdNodeData | PageNodeData | FormNodeData | SequenceNodeData | ThankYouNodeData | UpsellNodeData;
 
 export type JourneyNode = Node<JourneyNodeData, NodeType>;
 
