@@ -32,6 +32,7 @@ interface Props {
   canvasViewMode?: CanvasViewMode;
   onToggleCanvasViewMode?: (mode: CanvasViewMode) => void;
   onOpenShopifySync?: () => void;
+  onOpenSimulator?: () => void;
 }
 
 export const CanvasHeader: React.FC<Props> = ({
@@ -61,7 +62,8 @@ export const CanvasHeader: React.FC<Props> = ({
   onOpenBlueprints,
   canvasViewMode = 'edit',
   onToggleCanvasViewMode,
-  onOpenShopifySync
+  onOpenShopifySync,
+  onOpenSimulator
 }) => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -472,6 +474,42 @@ export const CanvasHeader: React.FC<Props> = ({
           >
             <Zap size={13} color="#34D399" />
             <span>Shopify Sync</span>
+          </button>
+        )}
+
+        {/* ROAS Forecaster & Financial Simulator (Wave 10) */}
+        {onOpenSimulator && (
+          <button
+            onClick={onOpenSimulator}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '7px 12px',
+              borderRadius: '8px',
+              background: project.forecast
+                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(20, 184, 166, 0.2))'
+                : 'rgba(255, 255, 255, 0.05)',
+              border: project.forecast
+                ? '1px solid rgba(16, 185, 129, 0.45)'
+                : '1px solid rgba(255, 255, 255, 0.12)',
+              color: project.forecast ? '#34D399' : '#CBD5E1',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            title="Interactive Funnel Financial Simulator & ROAS Forecaster"
+            onMouseEnter={e => (e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(20, 184, 166, 0.25))')}
+            onMouseLeave={e => (e.currentTarget.style.background = project.forecast ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(20, 184, 166, 0.2))' : 'rgba(255, 255, 255, 0.05)')}
+          >
+            <TrendingUp size={13} color={project.forecast ? '#34D399' : '#10B981'} />
+            <span>ROAS Forecaster</span>
+            {project.forecast && (
+              <span style={{ fontSize: '10px', background: 'rgba(16, 185, 129, 0.25)', color: '#34D399', padding: '1px 5px', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.4)' }}>
+                Target {(project.forecast.corePrice / Math.max(0.1, project.forecast.cpc)).toFixed(1)}x
+              </span>
+            )}
           </button>
         )}
 

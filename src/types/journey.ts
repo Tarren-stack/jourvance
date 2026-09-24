@@ -290,6 +290,47 @@ export interface JourneyProject {
   nodes: JourneyNode[];
   edges: JourneyEdge[];
   updatedAt: string;
+  forecast?: FunnelForecast;
+}
+
+// ── Wave 10: Interactive Funnel Financial Simulator & ROAS Forecaster ───────────
+
+export interface FunnelForecast {
+  monthlyAdSpend: number;
+  cpc: number;
+  conversionRate: number; // percentage (e.g. 2.8)
+  corePrice: number;
+  cogsPercentage: number; // percentage (e.g. 20)
+  bumpTakeRate: number; // percentage (e.g. 28)
+  bumpPrice: number;
+  upsellTakeRate: number; // percentage (e.g. 22)
+  upsellPrice: number;
+  savedAt?: string;
+}
+
+export interface FunnelSimulationResults {
+  totalClicks: number;
+  frontEndOrders: number;
+  bumpSales: number;
+  upsellSales: number;
+  coreRevenue: number;
+  bumpRevenue: number;
+  upsellRevenue: number;
+  grossRevenue: number;
+  effectiveAov: number;
+  baseAov: number;
+  aovLift: number;
+  estimatedCogs: number;
+  netProfit: number;
+  blendedRoas: number;
+  breakevenCac: number;
+  projectedCac: number;
+  profitBuffer: number;
+  breakevenCvr: number;
+  cvrBuffer: number;
+  isProfitable: boolean;
+  leverage5PctUpsellRevenue: number;
+  leverage5PctUpsellProfit: number;
 }
 
 // ── Wave 6: Unified Customer, Order & Campaign CRM Models ──────────────────────

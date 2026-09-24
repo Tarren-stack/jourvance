@@ -1,5 +1,49 @@
 [
   {
+    "id": "chk_1790270016311_18n3",
+    "token": "tok_sim_1790270016311",
+    "customerEmail": "shopper_6311@example.com",
+    "customerName": "Alex Shopper",
+    "totalPrice": 78,
+    "currency": "USD",
+    "lineItems": [
+      {
+        "title": "Botanical Radiance Serum",
+        "quantity": 1,
+        "price": 58
+      },
+      {
+        "title": "Mini Hydration Mist (Bump)",
+        "quantity": 1,
+        "price": 20
+      }
+    ],
+    "abandonedCheckoutUrl": "https://demo.myshopify.com/checkouts/cn/c1-016311/recover",
+    "abandonedAt": "2026-09-24T17:13:36.311Z",
+    "recoveryStatus": "pending"
+  },
+  {
+    "id": "chk_1790270016294_i8zn",
+    "token": "chk_token_1790270016292",
+    "customerEmail": "prospect_1790270016292@acmecommerce.com",
+    "customerName": "Alex Vance",
+    "totalPrice": 149,
+    "currency": "USD",
+    "lineItems": [
+      {
+        "title": "Full Funnel Optimization Suite",
+        "quantity": 1,
+        "price": 149
+      }
+    ],
+    "abandonedCheckoutUrl": "https://store.myshopify.com/checkouts/ac/chk_token_1790270016292/recover",
+    "abandonedAt": "2026-09-24T17:13:36.294Z",
+    "recoveryStatus": "recovered",
+    "recoveryEmailSentAt": "2026-09-24T17:13:36.301Z",
+    "recoveredAt": "2026-09-24T17:13:36.307Z",
+    "recoveredOrderId": "ord_recovered_1790270016305"
+  },
+  {
     "id": "chk_1790203233934_c4ze",
     "token": "tok_sim_1790203233934",
     "customerEmail": "shopper_3934@example.com",
@@ -20,7 +64,8 @@
     ],
     "abandonedCheckoutUrl": "https://demo.myshopify.com/checkouts/cn/c1-233934/recover",
     "abandonedAt": "2026-09-23T22:40:33.934Z",
-    "recoveryStatus": "pending"
+    "recoveryStatus": "email_sent",
+    "recoveryEmailSentAt": "2026-09-24T17:13:36.301Z"
   },
   {
     "id": "chk_1790203233919_fcys",

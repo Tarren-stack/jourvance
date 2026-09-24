@@ -22,9 +22,10 @@ import { HubEmailSuite } from './components/campaign/HubEmailSuite';
 import { AttributionReports } from './components/analytics/AttributionReports';
 import { PublishModal, type PublishedPageInfo } from './components/preview/PublishModal';
 import { BlueprintModal } from './components/modals/BlueprintModal';
+import { FinancialSimulatorDrawer } from './components/drawers/FinancialSimulatorDrawer';
 import { fetchWorkspaces, createWorkspace } from './lib/shopifyClient';
 import { auth, onAuthStateChanged, logOut, authHeaders, type User } from './lib/firebase';
-import type { PageNodeData } from './types/journey';
+import type { PageNodeData, FunnelForecast } from './types/journey';
 
 export const App: React.FC = () => {
   const [project, setProject] = useState<JourneyProject>(() => loadCurrentJourney());
@@ -48,6 +49,7 @@ export const App: React.FC = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showBlueprintModal, setShowBlueprintModal] = useState(false);
+  const [showSimulatorDrawer, setShowSimulatorDrawer] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishedPages, setPublishedPages] = useState<PublishedPageInfo[]>([]);
   const [unpublishing, setUnpublishing] = useState(false);
@@ -483,6 +485,7 @@ export const App: React.FC = () => {
             canvasViewMode={canvasViewMode}
             onToggleCanvasViewMode={setCanvasViewMode}
             onOpenShopifySync={() => setShowShopifySyncModal(true)}
+            onOpenSimulator={() => setShowSimulatorDrawer(true)}
           />
 
           {/* Main Area: Funnel Canvas, Email Studio, OR Attribution Reports */}
@@ -664,6 +667,21 @@ export const App: React.FC = () => {
         onLoadBlueprint={handleLoadBlueprint}
         workspace={currentWorkspace}
         currentJourneyName={project.name}
+      />
+
+      {/* Funnel Financial Simulator & ROAS Forecaster (Wave 10) */}
+      <FinancialSimulatorDrawer
+        isOpen={showSimulatorDrawer}
+        onClose={() => setShowSimulatorDrawer(false)}
+        nodes={project.nodes}
+        initialForecast={project.forecast}
+        onSaveForecast={(forecast: FunnelForecast) => {
+          setProject(prev => {
+            const updated = { ...prev, forecast, updatedAt: new Date().toISOString() };
+            saveCurrentJourney(updated);
+            return updated;
+          });
+        }}
       />
     </div>
   );

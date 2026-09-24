@@ -37,8 +37,8 @@
       ],
       "activeEnrollments": 4,
       "totalCompleted": 14,
-      "totalExitedPurchased": 12,
-      "attributedSales": 1380,
+      "totalExitedPurchased": 13,
+      "attributedSales": 1469,
       "createdAt": "2026-09-09T18:22:01.986Z",
       "updatedAt": "2026-09-23T18:22:01.986Z"
     },
@@ -68,15 +68,67 @@
           "discountVoucher": ""
         }
       ],
-      "activeEnrollments": 4,
+      "activeEnrollments": 5,
       "totalCompleted": 6,
-      "totalExitedPurchased": 7,
-      "attributedSales": 733,
+      "totalExitedPurchased": 8,
+      "attributedSales": 882,
       "createdAt": "2026-09-13T22:01:25.927Z",
       "updatedAt": "2026-09-23T22:01:25.927Z"
     }
   ],
   "enrollments": [
+    {
+      "id": "enr_1790270347221_0y5b",
+      "sequenceId": "drip_seq_default",
+      "customerEmail": "lead_1790270346786@growthbrand.io",
+      "customerName": "Jordan Miller",
+      "sourceSlug": "saas-growth-funnel",
+      "currentStepIndex": 2,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-24T17:19:07.221Z",
+      "nextStepDueAt": "2026-09-24T17:18:07.244Z",
+      "lastStepSentAt": "2026-09-24T17:19:07.234Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-24T17:19:07.221Z",
+          "status": "delivered"
+        },
+        {
+          "stepNumber": 2,
+          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
+          "sentAt": "2026-09-24T17:19:07.234Z",
+          "status": "delivered"
+        }
+      ],
+      "convertedAt": "2026-09-24T17:19:07.240Z"
+    },
+    {
+      "id": "enr_1790270016312_f2zs",
+      "sequenceId": "drip_seq_cart_recovery",
+      "customerEmail": "shopper_6311@example.com",
+      "customerName": "Alex Shopper",
+      "sourceSlug": "simulated_checkout",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-24T17:13:36.312Z",
+      "nextStepDueAt": "2026-09-24T18:13:36.312Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790270016295_7bol",
+      "sequenceId": "drip_seq_cart_recovery",
+      "customerEmail": "prospect_1790270016292@acmecommerce.com",
+      "customerName": "Alex Vance",
+      "sourceSlug": "cart_recovery",
+      "currentStepIndex": 0,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-24T17:13:36.295Z",
+      "nextStepDueAt": "2026-09-24T18:13:36.295Z",
+      "history": [],
+      "convertedAt": "2026-09-24T17:13:36.307Z"
+    },
     {
       "id": "enr_1790203323042_ax8w",
       "sequenceId": "drip_seq_default",
@@ -110,11 +162,19 @@
       "customerEmail": "shopper_3934@example.com",
       "customerName": "Alex Shopper",
       "sourceSlug": "simulated_checkout",
-      "currentStepIndex": 0,
+      "currentStepIndex": 1,
       "status": "active",
       "enrolledAt": "2026-09-23T22:40:33.935Z",
-      "nextStepDueAt": "2026-09-23T23:40:33.935Z",
-      "history": []
+      "nextStepDueAt": "2026-09-25T17:13:36.301Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Did you leave something behind? Your cart is reserved",
+          "sentAt": "2026-09-24T17:13:36.301Z",
+          "status": "delivered"
+        }
+      ],
+      "lastStepSentAt": "2026-09-24T17:13:36.301Z"
     },
     {
       "id": "enr_1790203233920_38m1",
@@ -162,11 +222,19 @@
       "customerEmail": "shopper_3839@example.com",
       "customerName": "Alex Shopper",
       "sourceSlug": "simulated_checkout",
-      "currentStepIndex": 0,
+      "currentStepIndex": 1,
       "status": "active",
       "enrolledAt": "2026-09-23T22:03:33.839Z",
-      "nextStepDueAt": "2026-09-23T23:03:33.839Z",
-      "history": []
+      "nextStepDueAt": "2026-09-25T17:13:36.301Z",
+      "history": [
+        {
+          "stepNumber": 1,
+          "subject": "Did you leave something behind? Your cart is reserved",
+          "sentAt": "2026-09-24T17:13:36.301Z",
+          "status": "delivered"
+        }
+      ],
+      "lastStepSentAt": "2026-09-24T17:13:36.301Z"
     },
     {
       "id": "enr_1790201013823_ify9",
@@ -281,16 +349,22 @@
       "customerEmail": "claire@vipbeauty.com",
       "customerName": "Claire Beauchamp",
       "sourceSlug": "wave5-elixir",
-      "currentStepIndex": 0,
+      "currentStepIndex": 1,
       "status": "active",
       "enrolledAt": "2026-09-23T16:22:01.986Z",
-      "nextStepDueAt": "2026-09-24T16:22:01.986Z",
-      "lastStepSentAt": "2026-09-23T16:22:01.986Z",
+      "nextStepDueAt": "2026-09-25T17:13:36.301Z",
+      "lastStepSentAt": "2026-09-24T17:13:36.301Z",
       "history": [
         {
           "stepNumber": 1,
           "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
           "sentAt": "2026-09-23T16:22:01.986Z",
+          "status": "delivered"
+        },
+        {
+          "stepNumber": 1,
+          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
+          "sentAt": "2026-09-24T17:13:36.301Z",
           "status": "delivered"
         }
       ]
