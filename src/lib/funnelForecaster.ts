@@ -21,7 +21,7 @@ export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', 
   conservative: {
     name: 'Conservative / Testing',
     badge: 'Safe Baseline',
-    description: 'High CPC traffic with unoptimized cold conversion rates.',
+    description: 'Sample rates with a higher cost per click and a lower conversion rate.',
     values: {
       monthlyAdSpend: 2500,
       cpc: 2.40,
@@ -32,9 +32,9 @@ export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', 
     }
   },
   target: {
-    name: 'Target / Industry Average',
-    badge: 'Expected Sweet Spot',
-    description: 'Proven e-commerce benchmark with calibrated order bumps & OTOs.',
+    name: 'Example: middle assumptions',
+    badge: 'Example',
+    description: 'Sample rates you can replace. These are not measured results.',
     values: {
       monthlyAdSpend: 3500,
       cpc: 1.80,
@@ -47,7 +47,7 @@ export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', 
   aggressive: {
     name: 'High-Growth Scale',
     badge: 'Scale Optimization',
-    description: 'Winning creative hook, high-converting offer, and optimized AOV flywheel.',
+    description: 'Sample rates with a lower cost per click and a higher conversion rate.',
     values: {
       monthlyAdSpend: 7500,
       cpc: 1.25,

@@ -2,8 +2,8 @@
   "sequences": [
     {
       "id": "drip_seq_default",
-      "name": "High-Converting SaaS & E-Commerce Lead Nurture",
-      "description": "Paces new subscribers through value delivery, social proof case studies, and urgency deadlines.",
+      "name": "Welcome sequence",
+      "description": "Starts when someone joins the list. Replace each note before anyone receives it.",
       "triggerType": "lead_capture",
       "smartExitOnPurchase": true,
       "steps": [
@@ -11,34 +11,34 @@
           "id": "step_1",
           "stepNumber": 1,
           "delayHours": 0,
-          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
-          "previewText": "Your exclusive member voucher and onboarding framework inside",
-          "body": "Hey {{first_name}},\n\nWelcome! Here is your exclusive access voucher: WELCOME20. We built Jourvance to eliminate friction, scale conversions, and help you launch high-performing funnels in minutes.",
-          "discountVoucher": "WELCOME20"
+          "subject": "You are on the list",
+          "previewText": "We saved your place",
+          "body": "Hey {{first_name}},\n\nThanks for signing up. Replace this note with the real next step for your offer before anyone receives it.",
+          "discountVoucher": ""
         },
         {
           "id": "step_2",
           "stepNumber": 2,
           "delayHours": 24,
-          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
-          "previewText": "The exact frictionless offer architecture tested across 50,000+ sessions",
-          "body": "Hey {{first_name}},\n\nYesterday we shared your activation gift. Today, take a look at the exact funnel framework that transformed customer acquisition for our members without increasing ad spend.",
+          "subject": "What happens after you opt in",
+          "previewText": "Replace this with something true about your offer",
+          "body": "Hey {{first_name}},\n\nThis is a follow-up in the sequence. Replace it with a real detail about your offer before anyone receives it.",
           "discountVoucher": ""
         },
         {
           "id": "step_3",
           "stepNumber": 3,
           "delayHours": 48,
-          "subject": "Final Notice: Your 20% savings voucher expires tonight ⏳",
-          "previewText": "Lock in your preferential rate before allocation resets",
-          "body": "Hey {{first_name}},\n\nYour 20% activation voucher (WELCOME20) is about to expire. Complete your order today to lock in your pricing and priority benefits.",
-          "discountVoucher": "WELCOME20"
+          "subject": "You are on the list",
+          "previewText": "We saved your place",
+          "body": "Hey {{first_name}},\n\nThanks for signing up. Replace this note with the real next step for your offer before anyone receives it.",
+          "discountVoucher": ""
         }
       ],
-      "activeEnrollments": 4,
-      "totalCompleted": 14,
-      "totalExitedPurchased": 13,
-      "attributedSales": 1469,
+      "activeEnrollments": 1,
+      "totalCompleted": 0,
+      "totalExitedPurchased": 5,
+      "attributedSales": null,
       "createdAt": "2026-09-09T18:22:01.986Z",
       "updatedAt": "2026-09-23T18:22:01.986Z"
     },
@@ -53,25 +53,25 @@
           "id": "cart_step_1",
           "stepNumber": 1,
           "delayHours": 1,
-          "subject": "Did you leave something behind? Your cart is reserved",
-          "previewText": "We held your order and preference allocations for the next 24 hours",
-          "body": "Hey {{first_name}},\n\nWe noticed you didn't finish checking out. We have saved your cart and reserved your order.\n\nClick below to resume your checkout with one click:\n{{abandoned_checkout_url}}",
+          "subject": "Your checkout is still open",
+          "previewText": "You can pick up where you left off",
+          "body": "Hey {{first_name}},\n\nYou started a checkout and did not finish it. The items were not held aside.\n\nYou can return to the checkout here:\n{{abandoned_checkout_url}}",
           "discountVoucher": ""
         },
         {
           "id": "cart_step_2",
           "stepNumber": 2,
           "delayHours": 24,
-          "subject": "Final Notice: Your reserved order & priority dispatch expire today",
-          "previewText": "Complete your order before inventory resets to open allocation",
-          "body": "Hey {{first_name}},\n\nThis is your final notice regarding your reserved items. We can only hold your items for a few more hours before returning them to general inventory.\n\nComplete your order here:\n{{abandoned_checkout_url}}",
+          "subject": "Your checkout is still open",
+          "previewText": "You can pick up where you left off",
+          "body": "Hey {{first_name}},\n\nYou started a checkout and did not finish it. The items were not held aside.\n\nYou can return to the checkout here:\n{{abandoned_checkout_url}}",
           "discountVoucher": ""
         }
       ],
-      "activeEnrollments": 5,
-      "totalCompleted": 6,
-      "totalExitedPurchased": 8,
-      "attributedSales": 882,
+      "activeEnrollments": 3,
+      "totalCompleted": 0,
+      "totalExitedPurchased": 3,
+      "attributedSales": null,
       "createdAt": "2026-09-13T22:01:25.927Z",
       "updatedAt": "2026-09-23T22:01:25.927Z"
     }
@@ -102,7 +102,8 @@
           "status": "delivered"
         }
       ],
-      "convertedAt": "2026-09-24T17:19:07.240Z"
+      "convertedAt": "2026-09-24T17:19:07.240Z",
+      "userId": "dev-test-user-id"
     },
     {
       "id": "enr_1790270016312_f2zs",
@@ -154,7 +155,8 @@
           "status": "delivered"
         }
       ],
-      "convertedAt": "2026-09-23T22:42:03.061Z"
+      "convertedAt": "2026-09-23T22:42:03.061Z",
+      "userId": "dev-test-user-id"
     },
     {
       "id": "enr_1790203233935_hz4u",
@@ -214,7 +216,8 @@
           "status": "delivered"
         }
       ],
-      "convertedAt": "2026-09-23T22:04:16.918Z"
+      "convertedAt": "2026-09-23T22:04:16.918Z",
+      "userId": "dev-test-user-id"
     },
     {
       "id": "enr_1790201013839_9pzq",
@@ -267,7 +270,8 @@
           "sentAt": "2026-09-23T18:52:12.403Z",
           "status": "delivered"
         }
-      ]
+      ],
+      "userId": "usr_wave4_operator"
     },
     {
       "id": "enr_1790189246897_5nra",
@@ -294,7 +298,8 @@
           "status": "delivered"
         }
       ],
-      "convertedAt": "2026-09-23T18:47:26.909Z"
+      "convertedAt": "2026-09-23T18:47:26.909Z",
+      "userId": "dev-test-user-id"
     },
     {
       "id": "enr_1790188739227_tb62",
@@ -315,86 +320,8 @@
         }
       ],
       "lastStepSentAt": "2026-09-23T18:38:59.257Z",
-      "convertedAt": "2026-09-23T18:38:59.265Z"
-    },
-    {
-      "id": "enr_101",
-      "sequenceId": "drip_seq_default",
-      "customerEmail": "alex.lead@venture.co",
-      "customerName": "Alex Venture",
-      "sourceSlug": "saas-growth-funnel",
-      "currentStepIndex": 2,
-      "status": "active",
-      "enrolledAt": "2026-09-22T22:22:01.986Z",
-      "nextStepDueAt": "2026-09-25T22:40:33.925Z",
-      "lastStepSentAt": "2026-09-23T22:40:33.925Z",
-      "history": [
-        {
-          "stepNumber": 1,
-          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
-          "sentAt": "2026-09-22T22:22:01.986Z",
-          "status": "delivered"
-        },
-        {
-          "stepNumber": 2,
-          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
-          "sentAt": "2026-09-23T22:40:33.925Z",
-          "status": "delivered"
-        }
-      ]
-    },
-    {
-      "id": "enr_102",
-      "sequenceId": "drip_seq_default",
-      "customerEmail": "claire@vipbeauty.com",
-      "customerName": "Claire Beauchamp",
-      "sourceSlug": "wave5-elixir",
-      "currentStepIndex": 1,
-      "status": "active",
-      "enrolledAt": "2026-09-23T16:22:01.986Z",
-      "nextStepDueAt": "2026-09-25T17:13:36.301Z",
-      "lastStepSentAt": "2026-09-24T17:13:36.301Z",
-      "history": [
-        {
-          "stepNumber": 1,
-          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
-          "sentAt": "2026-09-23T16:22:01.986Z",
-          "status": "delivered"
-        },
-        {
-          "stepNumber": 1,
-          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
-          "sentAt": "2026-09-24T17:13:36.301Z",
-          "status": "delivered"
-        }
-      ]
-    },
-    {
-      "id": "enr_103",
-      "sequenceId": "drip_seq_default",
-      "customerEmail": "charlotte.v@example.com",
-      "customerName": "Charlotte Vance",
-      "sourceSlug": "saas-growth-funnel",
-      "currentStepIndex": 2,
-      "status": "converted_exit",
-      "enrolledAt": "2026-09-19T18:22:01.986Z",
-      "nextStepDueAt": "2026-09-20T18:22:01.986Z",
-      "lastStepSentAt": "2026-09-20T06:22:01.986Z",
-      "convertedAt": "2026-09-20T18:22:01.986Z",
-      "history": [
-        {
-          "stepNumber": 1,
-          "subject": "Welcome to the Inner Circle + Your Activation Gift 🎁",
-          "sentAt": "2026-09-19T18:22:01.986Z",
-          "status": "delivered"
-        },
-        {
-          "stepNumber": 2,
-          "subject": "Case Study: How 1,400+ operators increased checkout conversion by 38%",
-          "sentAt": "2026-09-20T06:22:01.986Z",
-          "status": "delivered"
-        }
-      ]
+      "convertedAt": "2026-09-23T18:38:59.265Z",
+      "userId": "dev-test-user-id"
     }
   ]
 }

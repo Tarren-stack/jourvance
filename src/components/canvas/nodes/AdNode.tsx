@@ -6,11 +6,12 @@ import type { AdNodeData } from '../../../types/journey';
 export const AdNode: React.FC<NodeProps> = ({ data, selected }) => {
   const d = data as unknown as AdNodeData;
   const isRoasMode = (d as any).canvasViewMode === 'roas';
-  const spend = d.spend || 120;
-  const clicks = d.clicks || 95;
-  const cpc = d.cpc ? d.cpc : (clicks > 0 ? (spend / clicks) : 1.25);
-  const roas = d.roas || 3.8;
-  const attributedRev = Math.round(spend * roas);
+  const spend = d.spend || 0;
+  const clicks = d.clicks || 0;
+  const impressions = d.impressions || 0;
+  const cpc = clicks > 0 ? spend / clicks : 0;
+  const attributedRev = d.roas && spend ? Math.round(spend * d.roas) : 0;
+  const roas = spend > 0 ? attributedRev / spend : 0;
 
   return (
     <div
@@ -54,7 +55,7 @@ export const AdNode: React.FC<NodeProps> = ({ data, selected }) => {
             fontWeight: 700
           }}
         >
-          {isRoasMode ? `${roas}x ROAS` : 'Active'}
+          {isRoasMode ? (spend > 0 ? `${roas.toFixed(1)}x ROAS` : 'No spend') : (clicks > 0 ? `${clicks} clicks` : 'No traffic')}
         </span>
       </div>
 
@@ -108,7 +109,7 @@ export const AdNode: React.FC<NodeProps> = ({ data, selected }) => {
             ROAS
           </div>
           <div style={{ fontSize: '12px', fontWeight: 800, color: '#34D399' }}>
-            {roas}x
+            {spend > 0 ? `${roas.toFixed(1)}x` : '—'}
           </div>
         </div>
       </div>

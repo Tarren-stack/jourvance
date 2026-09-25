@@ -7,6 +7,32 @@ import {
 import { authHeaders } from '../../lib/firebase';
 import type { JourneyNode, Workspace, ShopifyDiscountRule, ShopifyAbandonedCheckout } from '../../types/journey';
 
+function WebhookUrl({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <div>
+      <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
+        Event: <span style={{ color: '#F8FAFC' }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <input
+          type="text"
+          readOnly
+          value={value}
+          style={{ flex: 1, padding: '7px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.4)', color: '#CBD5E1', fontSize: '11px', fontFamily: 'monospace' }}
+        />
+        <button
+          type="button"
+          onClick={onCopy}
+          style={{ padding: '7px 12px', borderRadius: '8px', background: 'rgba(236,72,153,0.15)', border: '1px solid rgba(236,72,153,0.3)', color: '#F472B6', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          <span>{copied ? 'Copied' : 'Copy'}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -39,7 +65,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
 
   // Discounts state
   const [discounts, setDiscounts] = useState<ShopifyDiscountRule[]>([]);
-  const [discCode, setDiscCode] = useState('GROWTH20');
+  const [discCode, setDiscCode] = useState('');
   const [discType, setDiscType] = useState<'percentage' | 'fixed_amount'>('percentage');
   const [discValue, setDiscValue] = useState('20');
   const [discUnique, setDiscUnique] = useState(false);
@@ -54,8 +80,11 @@ export const ShopifySyncModal: React.FC<Props> = ({
 
   const currentHost = typeof window !== 'undefined' ? window.location.origin : 'https://jourvance.com';
   const ordersWebhookUrl = `${currentHost}/api/webhooks/shopify/orders-create`;
-  const customersWebhookUrl = `${currentHost}/api/webhooks/shopify/customers-create`;
   const checkoutsWebhookUrl = `${currentHost}/api/webhooks/shopify/checkouts-create`;
+  const fulfillmentsWebhookUrl = `${currentHost}/api/webhooks/shopify/fulfillments-create`;
+  const cancelledWebhookUrl = `${currentHost}/api/webhooks/shopify/orders-cancelled`;
+  const refundsWebhookUrl = `${currentHost}/api/webhooks/shopify/refunds-create`;
+  const webhookSecretOnFile = Boolean(workspace?.shopifyConfig?.webhookSecretOnFile);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -111,10 +140,10 @@ export const ShopifySyncModal: React.FC<Props> = ({
         headers: { 'Content-Type': 'application/json', ...headers }
       });
       const data = await res.json().catch(() => ({}));
-      if (data?.success) {
-        setOrdersSyncResult(`Synced ${data.ordersCount || 0} orders ($${(data.totalRevenue || 0).toFixed(2)} total attributed revenue).`);
-        setTimeout(() => setOrdersSyncResult(null), 4000);
-      }
+      setOrdersSyncResult(data?.notice || (data?.storeReached
+        ? `Imported ${data.imported || 0} orders from Shopify.`
+        : 'Shopify was not reached. No orders were imported.'));
+      setTimeout(() => setOrdersSyncResult(null), 4000);
     } catch (err) {
       console.error('Failed syncing orders:', err);
     } finally {
@@ -177,7 +206,9 @@ export const ShopifySyncModal: React.FC<Props> = ({
       });
       const data = await res.json().catch(() => ({}));
       if (data?.success) {
-        setDiscountSuccess(`Code ${data.discount.code} created & active in Shopify Admin.`);
+        setDiscountSuccess(data.discount?.syncedToLiveShopify
+          ? `Code ${data.discount.code} is active in Shopify.`
+          : `Code ${data.discount.code} is saved in Jourvance. Shopify was not updated because this workspace has no store token.`);
         loadDiscounts();
         setTimeout(() => setDiscountSuccess(null), 4000);
       }
@@ -345,7 +376,11 @@ export const ShopifySyncModal: React.FC<Props> = ({
                   </div>
                   <div>
                     <div style={{ fontSize: '13px', fontWeight: 700, color: '#F8FAFC' }}>Native Shopify Webhook Endpoints</div>
-                    <div style={{ fontSize: '11px', color: '#94A3B8' }}>Shopify Admin → Settings → Notifications → Webhooks</div>
+                    <div style={{ fontSize: '11px', color: '#94A3B8' }}>
+                      {webhookSecretOnFile
+                        ? 'Shopify checks these with the app API secret saved for this store.'
+                        : 'These stay refused until you save the app API secret on the connect screen.'}
+                    </div>
                   </div>
                 </div>
 
@@ -400,6 +435,10 @@ export const ShopifySyncModal: React.FC<Props> = ({
                 </div>
               </div>
 
+              <WebhookUrl label="Fulfillment creation (fulfillments/create)" value={fulfillmentsWebhookUrl} copied={copiedUrl === 'fulfillments'} onCopy={() => handleCopy(fulfillmentsWebhookUrl, 'fulfillments')} />
+              <WebhookUrl label="Order cancelled (orders/cancelled)" value={cancelledWebhookUrl} copied={copiedUrl === 'cancelled'} onCopy={() => handleCopy(cancelledWebhookUrl, 'cancelled')} />
+              <WebhookUrl label="Refund creation (refunds/create)" value={refundsWebhookUrl} copied={copiedUrl === 'refunds'} onCopy={() => handleCopy(refundsWebhookUrl, 'refunds')} />
+
               {/* Checkout Webhook Box */}
               <div>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '4px' }}>
@@ -424,125 +463,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* 1-Click Order Simulator */}
-            <div style={{ backgroundColor: 'rgba(236, 72, 153, 0.04)', border: '1px solid rgba(236, 72, 153, 0.25)', borderRadius: '14px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.2)', border: '1px solid rgba(236, 72, 153, 0.4)', color: '#F472B6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Zap size={15} />
-                </div>
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#F8FAFC' }}>Interactive Order Simulator</div>
-                  <div style={{ fontSize: '11px', color: '#94A3B8' }}>Fire a test order to immediately see your canvas ROAS, tags, and CRM update in real time.</div>
-                </div>
-              </div>
 
-              {simSuccess && (
-                <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.35)', color: '#34D399', fontSize: '12px' }}>
-                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CheckCircle2 size={15} /> {simSuccess.message || 'Simulated Order Processed!'}
-                  </div>
-                  <div style={{ marginTop: '4px', color: '#CBD5E1', fontSize: '11px' }}>
-                    Attributed to: <strong>{simSuccess.attributedSlug || simSuccess.attributedNodeId}</strong> • Tags Applied: {simSuccess.shopifyTagsApplied?.join(', ')}
-                  </div>
-                </div>
-              )}
-
-              <form onSubmit={handleSimulateOrder} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '10px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
-                      Target Funnel Page Node
-                    </label>
-                    <select
-                      value={selectedNodeId}
-                      onChange={e => setSelectedNodeId(e.target.value)}
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
-                    >
-                      {landingPages.map(lp => (
-                        <option key={lp.id} value={lp.id} style={{ background: '#16161D' }}>
-                          {(lp.data as any)?.label || 'Landing Page'} ({(lp.data as any)?.slug || lp.id.slice(0, 6)})
-                        </option>
-                      ))}
-                      {landingPages.length === 0 && (
-                        <option value="demo" style={{ background: '#16161D' }}>Demo Offer Funnel</option>
-                      )}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
-                      Total Order Amount ($)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={simAmount}
-                      onChange={e => setSimAmount(e.target.value)}
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
-                      Customer Name
-                    </label>
-                    <input
-                      type="text"
-                      value={simName}
-                      onChange={e => setSimName(e.target.value)}
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
-                      Customer Email
-                    </label>
-                    <input
-                      type="email"
-                      value={simEmail}
-                      onChange={e => setSimEmail(e.target.value)}
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
-                    />
-                  </div>
-                </div>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: '#E2E8F0', padding: '2px 0' }}>
-                  <input
-                    type="checkbox"
-                    checked={simBump}
-                    onChange={e => setSimBump(e.target.checked)}
-                    style={{ width: '15px', height: '15px', accentColor: '#EC4899', cursor: 'pointer' }}
-                  />
-                  <span>Include Order Bump Add-on (+$16.00 AOV Booster)</span>
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={simulating}
-                  style={{
-                    marginTop: '4px',
-                    padding: '10px 16px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    background: 'linear-gradient(135deg, #EC4899, #DB2777)',
-                    color: '#FFFFFF',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    cursor: simulating ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  {simulating ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
-                  <span>{simulating ? 'Processing Webhook...' : '⚡ Simulate Shopify Order'}</span>
-                </button>
-              </form>
-            </div>
           </div>
         )}
 
@@ -553,9 +474,9 @@ export const ShopifySyncModal: React.FC<Props> = ({
             <div style={{ padding: '14px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
               <ShieldCheck size={20} style={{ color: '#34D399', flexShrink: 0, marginTop: '2px' }} />
               <div>
-                <div style={{ fontSize: '13px', fontWeight: 700, color: '#34D399' }}>Automatic Shopify Order Tagging Active</div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#34D399' }}>Order tags stay on the Jourvance order</div>
                 <div style={{ fontSize: '12px', color: '#CBD5E1', marginTop: '3px', lineHeight: 1.5 }}>
-                  Every purchase generated through a Jourvance funnel is automatically tagged in your Shopify Admin with:
+                  A real Shopify order webhook stores these tags on the order record here. They are not written back to Shopify Admin:
                   <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
                     <span style={{ padding: '2px 8px', borderRadius: '9999px', background: 'rgba(255, 255, 255, 0.1)', fontSize: '11px', fontFamily: 'monospace', color: '#FFFFFF' }}>Jourvance Funnel</span>
                     <span style={{ padding: '2px 8px', borderRadius: '9999px', background: 'rgba(255, 255, 255, 0.1)', fontSize: '11px', fontFamily: 'monospace', color: '#FFFFFF' }}>Funnel: [slug]</span>
@@ -573,7 +494,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
                 </div>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: '#F8FAFC' }}>Native Shopify Discount Provisioning</div>
-                  <div style={{ fontSize: '11px', color: '#94A3B8' }}>Pushes discount rules directly to Shopify Price Rules API with 1 click.</div>
+                  <div style={{ fontSize: '11px', color: '#94A3B8' }}>Saves the code here, and sends it to Shopify when this store’s token can write price rules.</div>
                 </div>
               </div>
 
@@ -591,7 +512,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. WELCOME20"
+                      placeholder="Code you want at checkout"
                       value={discCode}
                       onChange={e => setDiscCode(e.target.value.toUpperCase())}
                       style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', fontFamily: 'monospace', outline: 'none' }}
@@ -700,8 +621,8 @@ export const ShopifySyncModal: React.FC<Props> = ({
                           {d.isUniquePerLead ? '1-Time Single Use' : 'Standard Shared'}
                         </td>
                         <td style={{ padding: '8px 12px' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399' }}>
-                            <Check size={11} /> Active
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: d.syncedToLiveShopify ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.06)', color: d.syncedToLiveShopify ? '#34D399' : '#94A3B8' }}>
+                            <Check size={11} /> {d.syncedToLiveShopify ? 'In Shopify' : 'Saved here only'}
                           </span>
                         </td>
                       </tr>
@@ -722,34 +643,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
                 <div style={{ fontSize: '11px', color: '#94A3B8' }}>Shoppers who started checkout on Shopify but dropped off before paying.</div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleSimulateAbandonedCheckout}
-                disabled={simulatingCheckout}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  background: 'rgba(236, 72, 153, 0.15)',
-                  border: '1px solid rgba(236, 72, 153, 0.3)',
-                  color: '#F472B6',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: simulatingCheckout ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                {simulatingCheckout ? <RefreshCw size={12} className="animate-spin" /> : <Plus size={12} />}
-                <span>{simulatingCheckout ? 'Simulating...' : '+ Simulate Abandoned Checkout'}</span>
-              </button>
             </div>
-
-            {simCheckoutSuccess && (
-              <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <CheckCircle2 size={14} /> <span>{simCheckoutSuccess}</span>
-              </div>
-            )}
 
             {/* Checkouts Table */}
             <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', overflow: 'hidden' }}>

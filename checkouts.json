@@ -1,28 +1,5 @@
 [
   {
-    "id": "chk_1790270016311_18n3",
-    "token": "tok_sim_1790270016311",
-    "customerEmail": "shopper_6311@example.com",
-    "customerName": "Alex Shopper",
-    "totalPrice": 78,
-    "currency": "USD",
-    "lineItems": [
-      {
-        "title": "Botanical Radiance Serum",
-        "quantity": 1,
-        "price": 58
-      },
-      {
-        "title": "Mini Hydration Mist (Bump)",
-        "quantity": 1,
-        "price": 20
-      }
-    ],
-    "abandonedCheckoutUrl": "https://demo.myshopify.com/checkouts/cn/c1-016311/recover",
-    "abandonedAt": "2026-09-24T17:13:36.311Z",
-    "recoveryStatus": "pending"
-  },
-  {
     "id": "chk_1790270016294_i8zn",
     "token": "chk_token_1790270016292",
     "customerEmail": "prospect_1790270016292@acmecommerce.com",
@@ -42,30 +19,6 @@
     "recoveryEmailSentAt": "2026-09-24T17:13:36.301Z",
     "recoveredAt": "2026-09-24T17:13:36.307Z",
     "recoveredOrderId": "ord_recovered_1790270016305"
-  },
-  {
-    "id": "chk_1790203233934_c4ze",
-    "token": "tok_sim_1790203233934",
-    "customerEmail": "shopper_3934@example.com",
-    "customerName": "Alex Shopper",
-    "totalPrice": 78,
-    "currency": "USD",
-    "lineItems": [
-      {
-        "title": "Botanical Radiance Serum",
-        "quantity": 1,
-        "price": 58
-      },
-      {
-        "title": "Mini Hydration Mist (Bump)",
-        "quantity": 1,
-        "price": 20
-      }
-    ],
-    "abandonedCheckoutUrl": "https://demo.myshopify.com/checkouts/cn/c1-233934/recover",
-    "abandonedAt": "2026-09-23T22:40:33.934Z",
-    "recoveryStatus": "email_sent",
-    "recoveryEmailSentAt": "2026-09-24T17:13:36.301Z"
   },
   {
     "id": "chk_1790203233919_fcys",
@@ -89,30 +42,6 @@
     "recoveredOrderId": "ord_recovered_1790203233929"
   },
   {
-    "id": "chk_1790201013839_mres",
-    "token": "tok_sim_1790201013839",
-    "customerEmail": "shopper_3839@example.com",
-    "customerName": "Alex Shopper",
-    "totalPrice": 78,
-    "currency": "USD",
-    "lineItems": [
-      {
-        "title": "Botanical Radiance Serum",
-        "quantity": 1,
-        "price": 58
-      },
-      {
-        "title": "Mini Hydration Mist (Bump)",
-        "quantity": 1,
-        "price": 20
-      }
-    ],
-    "abandonedCheckoutUrl": "https://demo.myshopify.com/checkouts/cn/c1-013839/recover",
-    "abandonedAt": "2026-09-23T22:03:33.839Z",
-    "recoveryStatus": "email_sent",
-    "recoveryEmailSentAt": "2026-09-23T22:40:33.925Z"
-  },
-  {
     "id": "chk_1790201013823_50vj",
     "token": "chk_token_1790201013821",
     "customerEmail": "prospect_1790201013821@acmecommerce.com",
@@ -132,30 +61,6 @@
     "recoveryEmailSentAt": "2026-09-23T22:03:33.829Z",
     "recoveredAt": "2026-09-23T22:03:33.836Z",
     "recoveredOrderId": "ord_recovered_1790201013834"
-  },
-  {
-    "id": "chk_1790200864837_qz0r",
-    "token": "tok_sim_1790200864837",
-    "customerEmail": "shopper_4837@example.com",
-    "customerName": "Alex Shopper",
-    "totalPrice": 78,
-    "currency": "USD",
-    "lineItems": [
-      {
-        "title": "Botanical Radiance Serum",
-        "quantity": 1,
-        "price": 58
-      },
-      {
-        "title": "Mini Hydration Mist (Bump)",
-        "quantity": 1,
-        "price": 20
-      }
-    ],
-    "abandonedCheckoutUrl": "https://demo.myshopify.com/checkouts/cn/c1-864837/recover",
-    "abandonedAt": "2026-09-23T22:01:04.837Z",
-    "recoveryStatus": "email_sent",
-    "recoveryEmailSentAt": "2026-09-23T22:03:33.829Z"
   },
   {
     "id": "chk_1790200864824_0a5e",
@@ -198,68 +103,5 @@
     "recoveryEmailSentAt": "2026-09-23T21:57:48.055Z",
     "recoveredAt": "2026-09-23T21:57:48.059Z",
     "recoveredOrderId": "ord_recovered_1790200668058"
-  },
-  {
-    "id": "chk_1790195401362_vryj",
-    "token": "tok_test_123",
-    "customerEmail": "abandoned.cart@example.com",
-    "customerName": "abandoned.cart",
-    "totalPrice": 89,
-    "currency": "USD",
-    "lineItems": [
-      {
-        "title": "Growth Accelerator Funnel",
-        "quantity": 1,
-        "price": 89
-      }
-    ],
-    "abandonedCheckoutUrl": "https://demo.myshopify.com/checkouts/cn/c1-test123/recover",
-    "abandonedAt": "2026-09-23T20:30:01.362Z",
-    "recoveryStatus": "recovered",
-    "recoveredAt": "2026-09-23T21:13:39.255Z",
-    "recoveredOrderId": "ord_recovery_test_1"
-  },
-  {
-    "id": "chk_101",
-    "token": "chk_tok_991823",
-    "customerEmail": "david.k@enterprise.com",
-    "customerName": "David Kim",
-    "totalPrice": 87,
-    "currency": "USD",
-    "lineItems": [
-      {
-        "title": "Growth Accelerator Checkout",
-        "quantity": 1,
-        "price": 58
-      },
-      {
-        "title": "High-Converting Checkout Checklist (Order Bump)",
-        "quantity": 1,
-        "price": 29
-      }
-    ],
-    "abandonedCheckoutUrl": "https://demo.myshopify.com/checkouts/cn/c1-991823/recover",
-    "abandonedAt": "2026-09-23T18:13:42.943Z",
-    "recoveryStatus": "email_sent",
-    "recoveryEmailSentAt": "2026-09-23T19:13:42.943Z"
-  },
-  {
-    "id": "chk_102",
-    "token": "chk_tok_991824",
-    "customerEmail": "maya.s@growthlab.io",
-    "customerName": "Maya Sterling",
-    "totalPrice": 64,
-    "currency": "USD",
-    "lineItems": [
-      {
-        "title": "Velvet Botanical Renewal Oil",
-        "quantity": 1,
-        "price": 64
-      }
-    ],
-    "abandonedCheckoutUrl": "https://demo.myshopify.com/checkouts/cn/c1-991824/recover",
-    "abandonedAt": "2026-09-23T19:43:42.943Z",
-    "recoveryStatus": "email_sent",
-    "recoveryEmailSentAt": "2026-09-23T21:57:48.055Z"
   }
 ]

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Sparkles, RefreshCw, Plus, Trash2, Clock, Mail, MessageSquare,
   Copy, Check, Send, ShoppingBag, ExternalLink, CheckCircle2
@@ -13,14 +13,26 @@ interface Props {
   offerHeadline: string;
   businessType: string;
   workspace?: Workspace | null;
+  journeyId?: string;
+  nodeId?: string;
 }
+
+type KlaviyoChoice = {
+  id: string;
+  name: string;
+  status: string;
+  canEnter: boolean;
+  handoff: string;
+};
 
 export const SequenceEditor: React.FC<Props> = ({
   data,
   onChange,
   offerHeadline,
   businessType,
-  workspace
+  workspace,
+  journeyId,
+  nodeId
 }) => {
   const [activeStepIdx, setActiveStepIdx] = useState(0);
   const [loadingAI, setLoadingAI] = useState(false);
@@ -32,6 +44,52 @@ export const SequenceEditor: React.FC<Props> = ({
   const [testEmail, setTestEmail] = useState('');
   const [sendingTest, setSendingTest] = useState(false);
   const [testSuccess, setTestSuccess] = useState(false);
+  const [klaviyoFlows, setKlaviyoFlows] = useState<KlaviyoChoice[]>([]);
+  const [klaviyoSendWith, setKlaviyoSendWith] = useState<'jourvance' | 'klaviyo'>('jourvance');
+  const [klaviyoConnected, setKlaviyoConnected] = useState(false);
+  const [klaviyoNotice, setKlaviyoNotice] = useState('');
+  const [jourvanceFlows, setJourvanceFlows] = useState<{ id: string; name: string; enabled: boolean }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/klaviyo', { headers: await authHeaders() });
+        const body = await res.json().catch(() => ({}));
+        if (!cancelled && body?.klaviyo) {
+          setKlaviyoConnected(Boolean(body.klaviyo.connected));
+          setKlaviyoSendWith(body.klaviyo.sendWith === 'klaviyo' ? 'klaviyo' : 'jourvance');
+          setKlaviyoFlows(Array.isArray(body.klaviyo.flows) ? body.klaviyo.flows : []);
+        }
+        const map = await fetch('/api/email/flow-map', { headers: await authHeaders() });
+        const flows = await map.json().catch(() => ({}));
+        if (!cancelled) {
+          const rows = Array.isArray(flows?.flows) ? flows.flows : [];
+          setJourvanceFlows(rows.filter((flow: { kind?: string }) => flow.kind === 'flow').map((flow: { id: string; name: string; enabled: boolean }) => ({
+            id: flow.id, name: flow.name, enabled: flow.enabled === true
+          })));
+        }
+      } catch { /* the picker stays empty */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const linkKlaviyo = async (flowId: string, when: SequenceNodeData['klaviyoWhen']) => {
+    const chosen = klaviyoFlows.find((flow) => flow.id === flowId);
+    const nextWhen = when || 'lead_capture';
+    onChange({ ...data, klaviyoFlowId: flowId, klaviyoFlowName: chosen?.name || '', klaviyoWhen: nextWhen });
+    if (!journeyId || !nodeId) {
+      setKlaviyoNotice('Save the map once so this journey is on the account, then choose the flow again.');
+      return;
+    }
+    const res = await fetch('/api/klaviyo/link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ journeyId, nodeId, klaviyoFlowId: flowId, when: nextWhen })
+    });
+    const body = await res.json().catch(() => ({}));
+    setKlaviyoNotice(body?.error || (flowId ? 'Link saved. It runs when Klaviyo is the sender.' : 'This node will not hand anyone to Klaviyo.'));
+  };
 
   const steps = data.steps || [];
   const currentStep = steps[activeStepIdx] || steps[0];
@@ -70,28 +128,28 @@ export const SequenceEditor: React.FC<Props> = ({
           id: `step-${Date.now()}-1`,
           channel: 'email',
           delay: 'Instant (0m)',
-          subject: 'Your 15% VIP code is inside 🎁',
-          previewText: 'Welcome to the inner circle',
-          body: `Hi [First Name],\n\nWelcome to our community! Here is your exclusive 15% discount code: VIP15.\n\nClaim your order with code auto-applied: [Checkout Link]\n\nBest,\nThe Team`
+          subject: 'You are on the list',
+          previewText: 'Replace this before anyone receives it',
+          body: `Hi [First Name],\n\nThanks for signing up. Replace this note with the real next step. Add a discount code only if you have created one.\n\nBest,\nThe Team`
         },
         {
           id: `step-${Date.now()}-2`,
           channel: 'email',
           delay: '24 Hours',
-          subject: 'How to get the best results with your routine',
-          previewText: '3 simple tips from our founder',
-          body: `Hi [First Name],\n\nQuick tip: to get the most radiant results from ${offerHeadline}, make sure to apply on slightly damp skin morning and night.\n\nNeed to stock up? Your VIP15 code is still active!\n\nBest,\nThe Team`
+          subject: 'A note about ' + offerHeadline,
+          previewText: 'Replace this before anyone receives it',
+          body: `Hi [First Name],\n\nThis is a placeholder for a real detail about ${offerHeadline}. Replace it before anyone receives it.\n\nBest,\nThe Team`
         },
         {
           id: `step-${Date.now()}-3`,
           channel: 'email',
           delay: '48 Hours',
-          subject: 'Last chance: your 15% VIP discount expires tonight ⏳',
-          previewText: 'Don’t leave your savings behind',
-          body: `Hi [First Name],\n\nJust a quick heads-up: your VIP15 coupon expires at midnight.\n\nFinish your order now: [Checkout Link]\n\nWarmly,\nThe Team`
+          subject: 'Still thinking it over?',
+          previewText: 'Replace this before anyone receives it',
+          body: `Hi [First Name],\n\nThis is the last note in the sequence. Mention a deadline only if you actually have one.\n\nWarmly,\nThe Team`
         }
       ];
-      onChange({ ...data, sequenceTitle: 'VIP Welcome & 15% Drip', steps: vipSteps });
+      onChange({ ...data, sequenceTitle: 'Welcome sequence', steps: vipSteps });
       setActiveStepIdx(0);
     } else {
       const abandonSteps: SequenceStep[] = [
@@ -99,9 +157,9 @@ export const SequenceEditor: React.FC<Props> = ({
           id: `step-${Date.now()}-1`,
           channel: 'email',
           delay: '2 Hours',
-          subject: 'Did you leave something behind in your bag?',
-          previewText: 'Your cart is saved for 24 hours',
-          body: `Hi [First Name],\n\nWe noticed you didn't finish checking out for ${offerHeadline}. We saved your cart so you can pick right back up!\n\nComplete order: [Checkout Link]\n\nBest,\nThe Team`
+          subject: 'Your checkout is still open',
+          previewText: 'Nothing was held aside',
+          body: `Hi [First Name],\n\nYou started a checkout and did not finish it. The items were not held aside.\n\nYou can return here: [Checkout Link]\n\nThe Team`
         },
         {
           id: `step-${Date.now()}-2`,
@@ -109,7 +167,7 @@ export const SequenceEditor: React.FC<Props> = ({
           delay: '24 Hours',
           subject: 'Can we answer any questions about your order?',
           previewText: 'Reply directly to our team',
-          body: `Hi [First Name],\n\nIf you have any questions about shade matching, ingredients, or shipping, reply directly to this email.\n\nBest,\nThe Team`
+          body: `Hi [First Name],\n\nThis is a reminder that the checkout was not completed. Nothing was held in inventory.\n\nYou can return here: [Checkout Link]\n\nThe Team`
         }
       ];
       onChange({ ...data, sequenceTitle: 'Abandoned Checkout Recovery', steps: abandonSteps });
@@ -189,8 +247,80 @@ export const SequenceEditor: React.FC<Props> = ({
     }
   };
 
+  const linked = klaviyoFlows.find((flow) => flow.id === data.klaviyoFlowId);
+
+  const chooseJourvanceFlow = (flowId: string) => {
+    const chosen = jourvanceFlows.find((flow) => flow.id === flowId);
+    onChange({ ...data, jourvanceFlowId: flowId, jourvanceFlowName: chosen?.name || '' });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.28)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6' }}>Jourvance flow</div>
+        <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af', lineHeight: 1.45 }}>
+          {klaviyoSendWith === 'klaviyo'
+            ? 'Klaviyo is the sender, so the handoff below runs. This flow link stays saved until you choose Jourvance on the Klaviyo tab.'
+            : 'A lead from this map and a form on its page join this flow once. The flow’s own trigger joins the same run. One person, one visitor id, one run. The flow sends after you turn it on. Enrolled, sent, clicked, and last-touch revenue here match the flow map. Opens stay blank until an open is stored.'}
+        </p>
+        <label style={{ fontSize: '11px', color: '#d1d5db' }}>
+          Flow on this account
+          <select
+            aria-label="Jourvance flow for this follow-up"
+            value={data.jourvanceFlowId || ''}
+            onChange={(e) => chooseJourvanceFlow(e.target.value)}
+            style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px', borderRadius: 6, background: '#0a0a0f', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }}
+          >
+            <option value="">No Jourvance flow yet</option>
+            {jourvanceFlows.map((flow) => (
+              <option key={flow.id} value={flow.id}>{flow.name} · {flow.enabled ? 'On' : 'Off'}</option>
+            ))}
+          </select>
+        </label>
+        {jourvanceFlows.length === 0 && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>Build a flow in Email Studio. This node waits until one is chosen.</p>}
+      </div>
+      <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.28)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6' }}>Hand this email to Klaviyo</div>
+        <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af', lineHeight: 1.45 }}>
+          {klaviyoConnected
+            ? (klaviyoSendWith === 'klaviyo'
+              ? 'Klaviyo is the sender. When someone reaches this node, Jourvance adds them to that flow’s list or sends the event that starts it. It does not subscribe them, and it does not turn the flow on.'
+              : 'Jourvance is the sender. This link is saved and waits until you choose Klaviyo on the Klaviyo tab.')
+            : 'Connect Klaviyo on the Klaviyo tab, then choose the flow this node should start.'}
+        </p>
+        <label style={{ fontSize: '11px', color: '#d1d5db' }}>
+          Klaviyo flow
+          <select
+            aria-label="Klaviyo flow for this email node"
+            value={data.klaviyoFlowId || ''}
+            disabled={!klaviyoConnected}
+            onChange={(e) => linkKlaviyo(e.target.value, data.klaviyoWhen || 'lead_capture')}
+            style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px', borderRadius: 6, background: '#0a0a0f', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }}
+          >
+            <option value="">Do not hand this node to Klaviyo</option>
+            {klaviyoFlows.map((flow) => (
+              <option key={flow.id} value={flow.id}>{flow.name} · {flow.status || 'status unknown'}</option>
+            ))}
+          </select>
+        </label>
+        <label style={{ fontSize: '11px', color: '#d1d5db' }}>
+          Start it when
+          <select
+            aria-label="When to hand this email node to Klaviyo"
+            value={data.klaviyoWhen || 'lead_capture'}
+            disabled={!klaviyoConnected || !data.klaviyoFlowId}
+            onChange={(e) => linkKlaviyo(data.klaviyoFlowId || '', e.target.value as SequenceNodeData['klaviyoWhen'])}
+            style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px', borderRadius: 6, background: '#0a0a0f', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }}
+          >
+            <option value="lead_capture">Someone joins from a page on this map</option>
+            <option value="exit_intent">Someone submits an exit offer on this map</option>
+            <option value="checkout_abandonment">Someone leaves checkout from this map</option>
+            <option value="order_paid">A paid order is recorded for this map</option>
+          </select>
+        </label>
+        {linked && <p style={{ margin: 0, fontSize: '12px', color: '#e5e7eb' }}>{linked.handoff}</p>}
+        {klaviyoNotice && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>{klaviyoNotice}</p>}
+      </div>
       {/* Tab Switcher */}
       <div
         style={{
@@ -442,7 +572,7 @@ export const SequenceEditor: React.FC<Props> = ({
                 </div>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: '#FFFFFF' }}>
-                    Jourvance VIP Concierge
+                    Your store
                   </div>
                   <div style={{ fontSize: '11px', color: '#94A3B8' }}>
                     to: client@example.com
@@ -492,7 +622,7 @@ export const SequenceEditor: React.FC<Props> = ({
                 cursor: 'pointer'
               }}
             >
-              Load VIP 15% Welcome Drip
+              Load welcome sequence
             </button>
             <button
               type="button"

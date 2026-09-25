@@ -6,22 +6,20 @@ import type { PageNodeData } from '../../../types/journey';
 export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
   const d = data as unknown as PageNodeData;
   const isRoasMode = (d as any).canvasViewMode === 'roas';
-  const visitors = d.visitors || 850;
-  const conv = d.conversions || 34;
-  const aov = d.aov || 48;
-  const bumpTakes = d.orderBumpTakes || (d.orderBumpEnabled ? Math.round(conv * 0.35) : 0);
-  const bumpPrice = Number(d.orderBumpPrice || 18);
-  const bumpRev = d.orderBumpRevenue || (bumpTakes * bumpPrice);
-  const grossRev = d.grossRevenue || (conv * aov + bumpRev);
-  const bumpRate = conv > 0 ? Math.round((bumpTakes / conv) * 100) : 35;
+  const visitors = d.visitors || 0;
+  const conv = d.conversions || 0;
+  const grossRev = d.grossRevenue || d.liveRevenue || 0;
+  const aov = conv > 0 ? Math.round(grossRev / conv) : 0;
+  const bumpTakes = d.orderBumpTakes || 0;
+  const bumpRev = d.orderBumpRevenue || 0;
+  const bumpRate = conv > 0 ? Math.round((bumpTakes / conv) * 100) : 0;
 
-  // A/B test comparative calculations
   const isAbActive = Boolean(d.abTestingEnabled);
   const splitRatio = d.splitRatio ?? 50;
-  const varAVis = d.variantAVisitors ?? Math.round(visitors * (splitRatio / 100));
-  const varBVis = d.variantBVisitors ?? Math.max(0, visitors - varAVis);
-  const varAConv = d.variantAConversions ?? Math.round(conv * 0.44);
-  const varBConv = d.variantBConversions ?? Math.max(0, conv - varAConv);
+  const varAVis = d.variantAVisitors || 0;
+  const varBVis = d.variantBVisitors || 0;
+  const varAConv = d.variantAConversions || 0;
+  const varBConv = d.variantBConversions || 0;
   const varARate = varAVis > 0 ? ((varAConv / varAVis) * 100).toFixed(1) : '0.0';
   const varBRate = varBVis > 0 ? ((varBConv / varBVis) * 100).toFixed(1) : '0.0';
   const isBLeading = parseFloat(varBRate) > parseFloat(varARate);
@@ -105,7 +103,7 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
               fontWeight: 700
             }}
           >
-            {isRoasMode ? `AOV: $${aov}` : (d.customDomain ? 'Custom Domain' : 'Published')}
+            {isRoasMode ? `AOV: $${aov}` : (d.published ? 'Published' : 'Draft')}
           </span>
         </div>
       </div>
@@ -140,10 +138,10 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
               <Clock size={11} color="#F472B6" />
               <span>
                 {d.urgencyTimerEnabled && d.scarcityBatchEnabled
-                  ? `Urgency: ${d.urgencyMinutes || 15}m Timer + Stock Batch`
+                  ? `Timer${d.urgencyMinutes ? `: ${d.urgencyMinutes}m` : ''} + stock line`
                   : d.urgencyTimerEnabled
-                  ? `Urgency: ${d.urgencyMinutes || 15}m Reservation Timer`
-                  : `Scarcity: ${d.scarcityBatchCount || 14} Units Left`}
+                  ? `Timer${d.urgencyMinutes ? `: ${d.urgencyMinutes}m` : ''}`
+                  : (d.scarcityBatchCount ? `Stock line: ${d.scarcityBatchCount} left` : 'Stock line on')}
               </span>
             </div>
           )}

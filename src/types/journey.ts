@@ -23,7 +23,15 @@ export interface AdNodeData extends Record<string, unknown> {
 
 export interface ShopifyConfig {
   storeDomain: string;
+  /** Admin API access token from this store's custom app. */
+  adminAccessToken?: string;
+  /** Older field. New connections store the same admin token here so earlier reads keep working. */
   storefrontAccessToken?: string;
+  shopName?: string;
+  adminScopes?: string[];
+  missingScopes?: string[];
+  /** True when the app API secret used to sign Shopify webhooks is stored. The secret itself is not sent to the browser. */
+  webhookSecretOnFile?: boolean;
   currency?: string;
   connectedAt?: string;
   status: 'connected' | 'disconnected' | 'error';
@@ -74,6 +82,9 @@ export interface PageNodeData extends Record<string, unknown> {
   // Shopify Commerce Link
   shopifyProductId?: string;
   shopifyVariantId?: string;
+  shopifyCollectionId?: string;
+  /** checkout records a checkout start. add records an add to cart. */
+  cartAction?: 'checkout' | 'add';
   shopifyProductTitle?: string;
   shopifyProductPrice?: string;
   shopifyProductImage?: string;
@@ -210,10 +221,20 @@ export interface SequenceNodeData extends Record<string, unknown> {
   steps: SequenceStep[];
   hubFlowId?: string;
   exportFormat?: 'hub' | 'klaviyo' | 'shopify-email';
-  // Metrics
+  klaviyoFlowId?: string;
+  klaviyoFlowName?: string;
+  klaviyoWhen?: 'lead_capture' | 'exit_intent' | 'checkout_abandonment' | 'order_paid';
+  jourvanceFlowId?: string;
+  jourvanceFlowName?: string;
+  // Metrics. Opens stay blank until an open is stored.
   contactsEnrolled: number;
   avgOpenRate: number;
   avgClickRate: number;
+  flowEnrolled?: number | null;
+  flowSent?: number | null;
+  flowClicked?: number | null;
+  flowOpened?: number | null;
+  flowRevenue?: number | null;
 }
 
 export interface ThankYouNodeData extends Record<string, unknown> {
@@ -378,8 +399,10 @@ export interface AudienceSegment {
   id: string;
   name: string;
   description: string;
+  definition?: string;
   count: number;
-  filterKey: 'all' | 'buyers' | 'vip' | 'repeat' | 'leads' | 'exit_rescue';
+  filterKey: string;
+  builtin?: boolean;
 }
 
 export interface EmailCampaign {
@@ -422,7 +445,7 @@ export interface DripSequence {
   activeEnrollments: number;
   totalCompleted: number;
   totalExitedPurchased: number;
-  attributedSales: number;
+  attributedSales: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -487,6 +510,7 @@ export interface AttributionReport {
   };
   channels: ChannelAttribution[];
   funnelSteps: FunnelDropoffStep[];
+  touchCounts?: { pageViews: number | null; emailSends: number | null; emailClicks: number | null };
   recentAttributions: Array<{
     orderId: string;
     orderNumber: string;
@@ -508,6 +532,7 @@ export interface ShopifyDiscountRule {
   shopifyPriceRuleId?: string;
   createdAt: string;
   status: 'active' | 'expired';
+  syncedToLiveShopify?: boolean;
 }
 
 export interface ShopifyAbandonedCheckout {

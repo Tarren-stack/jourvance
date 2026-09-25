@@ -30,7 +30,7 @@ export const ConversionEdge: React.FC<EdgeProps> = ({
   });
 
   const d = data as unknown as ConversionEdgeData | undefined;
-  const rate = d?.rate !== undefined ? d.rate : 100;
+  const rate = typeof d?.rate === 'number' && Number.isFinite(d.rate) ? d.rate : 0;
   const isDropOff = rate < 20 && rate > 0;
 
   return (

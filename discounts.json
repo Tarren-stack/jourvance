@@ -34,38 +34,5 @@
     "createdAt": "2026-09-23T20:22:07.146Z",
     "status": "active",
     "syncedToLiveShopify": false
-  },
-  {
-    "id": "disc_welcome20",
-    "code": "WELCOME20",
-    "discountType": "percentage",
-    "value": 20,
-    "usageLimit": null,
-    "isUniquePerLead": false,
-    "shopifyPriceRuleId": "pr_981240192",
-    "createdAt": "2026-09-18T20:13:42.943Z",
-    "status": "active"
-  },
-  {
-    "id": "disc_growth20",
-    "code": "GROWTH20",
-    "discountType": "percentage",
-    "value": 20,
-    "usageLimit": null,
-    "isUniquePerLead": false,
-    "shopifyPriceRuleId": "pr_981240193",
-    "createdAt": "2026-09-19T20:13:42.943Z",
-    "status": "active"
-  },
-  {
-    "id": "disc_vip15",
-    "code": "WAVE5VIP",
-    "discountType": "percentage",
-    "value": 15,
-    "usageLimit": null,
-    "isUniquePerLead": false,
-    "shopifyPriceRuleId": "pr_981240194",
-    "createdAt": "2026-09-21T20:13:42.943Z",
-    "status": "active"
   }
 ]

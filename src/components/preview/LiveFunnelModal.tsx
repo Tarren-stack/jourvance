@@ -128,7 +128,7 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
                   }}
                 >
                   <div style={{ fontSize: '13px', fontWeight: 700, color: '#FFF', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {adNode?.headline || 'Claim Your Consultation'}
+                    {adNode?.headline || 'Your ad headline'}
                   </div>
                   <button
                     onClick={() => setCurrentStep('page')}
@@ -171,9 +171,11 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
 
               {/* Landing Page Content */}
               <div style={{ padding: '24px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <div style={{ display: 'inline-block', padding: '4px 10px', borderRadius: '9999px', background: 'rgba(56, 189, 248, 0.15)', color: '#38BDF8', fontSize: '11px', fontWeight: 700, marginBottom: '12px' }}>
-                  {pageNode?.trustBadge || 'Verified Client Guarantee'}
-                </div>
+                {pageNode?.trustBadge ? (
+                  <div style={{ display: 'inline-block', padding: '4px 10px', borderRadius: '9999px', background: 'rgba(56, 189, 248, 0.15)', color: '#38BDF8', fontSize: '11px', fontWeight: 700, marginBottom: '12px' }}>
+                    {pageNode.trustBadge}
+                  </div>
+                ) : null}
                 <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#FFF', marginBottom: '10px', lineHeight: '1.3' }}>
                   {pageNode?.headline || 'Experience High-Value Results'}
                 </h1>

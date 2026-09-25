@@ -16,13 +16,7 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
     onChange({ ...data, [field]: val });
   };
 
-  const steps = Array.isArray(data.usageGuideSteps) && data.usageGuideSteps.length
-    ? data.usageGuideSteps
-    : [
-        'Cleanse with warm botanical water to prime the cellular barrier.',
-        'Warm 3–4 drops between fingertips to activate bioactive peptides.',
-        'Press gently into face, neck, and decolletage morning and evening.'
-      ];
+  const steps = Array.isArray(data.usageGuideSteps) ? data.usageGuideSteps : [];
 
   const handleStepChange = (index: number, val: string) => {
     const updated = [...steps];
@@ -31,15 +25,13 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
   };
 
   const handleAddStep = () => {
-    handleFieldChange('usageGuideSteps', [...steps, 'Apply gently to seal hydration.']);
+    handleFieldChange('usageGuideSteps', [...steps, '']);
   };
 
   const handleRemoveStep = (index: number) => {
     const updated = steps.filter((_, i) => i !== index);
     handleFieldChange('usageGuideSteps', updated);
   };
-
-  const storeDomain = workspace?.shopifyConfig?.storeDomain || 'demo.myshopify.com';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

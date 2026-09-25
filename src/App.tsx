@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, NodeType, Workspace, CanvasViewMode, ActiveAppView } from './types/journey';
 import { loadCurrentJourney, saveCurrentJourney } from './lib/journeyStorage';
+import { applyLiveStats } from './lib/liveStats';
 import { CanvasHeader } from './components/toolbar/CanvasHeader';
 import { JourneyCanvas } from './components/canvas/JourneyCanvas';
 import { NodeInspector } from './components/drawers/NodeInspector';
@@ -112,6 +113,45 @@ export const App: React.FC = () => {
     saveCurrentJourney(project);
   }, [project]);
 
+  // Measured counts come from the event log. The effect depends on the journey's shape,
+  // not on the counts themselves, so applying a result does not schedule another fetch.
+  const statsShape = `${project.id}:${project.nodes.map(n => `${n.id}:${(n.data as { spend?: number }).spend || 0}:${(n.data as { jourvanceFlowId?: string }).jourvanceFlowId || ''}`).join(',')}:${project.edges.map(e => e.id).join(',')}`;
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) };
+        const res = await fetch('/api/funnel/stats', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            journeyId: project.id,
+            nodes: project.nodes.map(n => ({
+              id: n.id,
+              type: n.type,
+              slug: (n.data as { slug?: string }).slug || '',
+              utmCampaign: (n.data as { utmCampaign?: string }).utmCampaign || '',
+              offerType: (n.data as { offerType?: string }).offerType || '',
+              spend: (n.data as { spend?: number }).spend || 0,
+              jourvanceFlowId: (n.data as { jourvanceFlowId?: string }).jourvanceFlowId || ''
+            })),
+            edges: project.edges.map(e => ({ id: e.id, source: e.source, target: e.target }))
+          })
+        });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || !data?.success || !data.stats) return;
+        setProject(p => applyLiveStats(p, data.stats));
+      } catch { /* offline: the canvas keeps the last real counts */ }
+    };
+    pull();
+    const timer = window.setInterval(pull, 20000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+    // project.id/nodes/edges are read from the render that matches statsShape
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, statsShape]);
+
   const selectedNode = project.nodes.find(n => n.id === selectedNodeId) || null;
 
   const handleUpdateProjectName = (name: string) => {
@@ -157,14 +197,14 @@ export const App: React.FC = () => {
           type: 'ad-source',
           label: 'New Ad Campaign',
           platform: 'meta',
-          headline: 'Claim Your Special Offer',
-          body: 'Discover our proven service designed for you.',
+          headline: 'Your ad headline',
+          body: 'Describe the offer in words you can stand behind.',
           ctaText: 'Learn More',
           utmCampaign: 'promo-blast',
-          impressions: 1200,
-          clicks: 120,
-          ctr: 10.0,
-          spend: 60
+          impressions: 0,
+          clicks: 0,
+          ctr: 0,
+          spend: 0
         };
         break;
       case 'landing-page':
@@ -172,14 +212,14 @@ export const App: React.FC = () => {
           type: 'landing-page',
           label: 'Promotion Landing Page',
           slug: `offer-${Date.now().toString(36)}`,
-          headline: 'High-Impact Results For Your Business',
-          subhead: 'Guaranteed quality and personalized support.',
-          bullets: ['Fast and reliable turnaround', '100% satisfaction guarantee'],
-          trustBadge: 'Rated 4.9/5 stars by verified clients',
+          headline: 'Your offer headline',
+          subhead: 'Describe what the visitor gets.',
+          bullets: ['First point you can stand behind', 'Second point you can stand behind'],
+          trustBadge: '',
           buttonText: 'Claim Offer',
-          visitors: 120,
-          conversions: 30,
-          conversionRate: 25.0
+          visitors: 0,
+          conversions: 0,
+          conversionRate: 0
         };
         break;
       case 'lead-form':
@@ -194,9 +234,9 @@ export const App: React.FC = () => {
             { id: 'f_email', label: 'Email Address', type: 'email', required: true, enabled: true, placeholder: 'alex@example.com' },
             { id: 'f_phone', label: 'Phone Number', type: 'tel', required: true, enabled: true, placeholder: '(555) 123-4567' }
           ],
-          views: 30,
-          submissions: 18,
-          completionRate: 60.0
+          views: 0,
+          submissions: 0,
+          completionRate: 0
         };
         break;
       case 'follow-up-sequence':
@@ -204,9 +244,9 @@ export const App: React.FC = () => {
           type: 'follow-up-sequence',
           label: 'Client Welcome Flow',
           sequenceTitle: 'Automated Follow-Up',
-          contactsEnrolled: 18,
-          avgOpenRate: 68.0,
-          avgClickRate: 32.0,
+          contactsEnrolled: 0,
+          avgOpenRate: 0,
+          avgClickRate: 0,
           steps: [
             {
               id: `step-1`,
@@ -236,8 +276,8 @@ export const App: React.FC = () => {
           ],
           storeReturnText: 'Browse Complimentary Formulations',
           communityInviteText: 'Join The Private VIP Beauty Circle',
-          pageViews: 18,
-          bounceBackClaims: 4
+          pageViews: 0,
+          bounceBackClaims: 0
         };
         break;
       case 'upsell':
@@ -262,10 +302,10 @@ export const App: React.FC = () => {
           ],
           acceptButtonText: '⚡ Yes, Upgrade My Order (1-Tap Checkout)',
           declineButtonText: 'No thanks, continue to my order confirmation',
-          views: 184,
-          takes: 46,
-          conversionRate: 25.0,
-          attributedRevenue: 1748.00
+          views: 0,
+          takes: 0,
+          conversionRate: 0,
+          attributedRevenue: 0
         };
         break;
     }
@@ -523,6 +563,7 @@ export const App: React.FC = () => {
                 onDeleteNode={handleDeleteNode}
                 offerHeadline={project.offerHeadline}
                 businessType={project.businessType}
+                journeyId={project.id}
                 workspace={currentWorkspace}
                 onOpenShopifyConnect={() => setShowShopifyModal(true)}
               />
@@ -591,28 +632,6 @@ export const App: React.FC = () => {
         onClose={() => setShowShopifySyncModal(false)}
         workspace={currentWorkspace}
         nodes={project.nodes}
-        onOrderSimulated={result => {
-          if (result && result.nodeId) {
-            setProject(prev => ({
-              ...prev,
-              nodes: prev.nodes.map(n => {
-                if (n.id === result.nodeId) {
-                  const data = n.data as any;
-                  return {
-                    ...n,
-                    data: {
-                      ...data,
-                      liveRevenue: (data.liveRevenue || 0) + (result.amount || 0),
-                      liveOrders: (data.liveOrders || 0) + 1,
-                      liveBumpOrders: (data.liveBumpOrders || 0) + (result.bumpIncluded ? 1 : 0)
-                    }
-                  };
-                }
-                return n;
-              })
-            }));
-          }
-        }}
       />
 
       {/* User Auth Modal */}

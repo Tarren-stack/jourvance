@@ -2,10 +2,19 @@ import React, { useState, useEffect } from 'react';
 import {
   Mail, Send, Users, TrendingUp, Sparkles, Plus, CheckCircle2,
   Clock, ArrowUpRight, Copy, Check, RefreshCw, AlertCircle, ShoppingBag, Eye,
+  GitFork, Inbox, MessageSquare, Globe, FormInput,
   ExternalLink, Zap, Terminal, X, Filter, Search, Tag, DollarSign, ArrowRight, Layers,
   ShieldCheck, Play
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
+import { EmailPrograms } from './EmailPrograms';
+import { EmailFlowMap } from './EmailFlowMap';
+import { SignupForms } from './SignupForms';
+import { AudienceDesk } from './AudienceDesk';
+import { EmailInbox } from './EmailInbox';
+import { SmsPanel } from './SmsPanel';
+import { SendingSetup } from './SendingSetup';
+import { KlaviyoSync } from './KlaviyoSync';
 import type { Workspace, AudienceSegment, DripSequence, DripEnrollment, ShopifyAbandonedCheckout } from '../../types/journey';
 
 interface FlowStep {
@@ -30,13 +39,29 @@ interface Broadcast {
   previewText?: string;
   segment?: string;
   segmentName?: string;
-  sentAt: string;
+  sentAt: string | null;
   recipients: number;
-  openRate: number;
-  clickRate: number;
-  attributedSales?: number;
+  openRate: number | null;
+  clickRate: number | null;
+  attributedSales?: number | null;
+  sent?: number | null;
+  delivered?: number | null;
+  opened?: number | null;
+  clicked?: number | null;
+  unsubscribed?: number | null;
+  revenue?: number | null;
+  prefetchOpens?: number | null;
   sendMode?: 'direct' | 'shopify_push';
   shopifyTagApplied?: string;
+  status?: string;
+  when?: string;
+  ab?: { variable: string; winner: string; offsetHours: number } | null;
+  smartReport?: string;
+  holdout?: { enabled: boolean; percent: number } | null;
+  holdoutReport?: {
+    sent: { sample: number; perPerson: number | null };
+    held: { sample: number; perPerson: number | null };
+  } | null;
 }
 
 interface Subscriber {
@@ -48,14 +73,24 @@ interface Subscriber {
   totalSpent?: number;
   ordersCount?: number;
   joinedAt: string;
+  predictionLine?: string;
 }
 
 interface Analytics {
-  totalSent: number;
-  avgOpenRate: number;
-  avgClickRate: number;
-  deliveryRate: number;
+  totalSent: number | null;
+  sent?: number | null;
+  delivered?: number | null;
+  opened?: number | null;
+  clicked?: number | null;
+  unsubscribed?: number | null;
+  revenue?: number | null;
+  prefetchOpens?: number | null;
+  avgOpenRate: number | null;
+  avgClickRate: number | null;
+  deliveryRate: number | null;
   activeSubscribers: number;
+  windows?: { emailClickDays: number; emailOpenDays: number; smsClickDays: number };
+  windowNote?: string;
 }
 
 interface Props {
@@ -65,7 +100,7 @@ interface Props {
 }
 
 export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect, onReturnToCanvas }) => {
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'flows' | 'audience' | 'analytics'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'flows' | 'map' | 'transactional' | 'builder' | 'forms' | 'inbox' | 'sms' | 'audience' | 'analytics' | 'sending' | 'klaviyo'>('flows');
   const [flows, setFlows] = useState<HubFlow[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
@@ -79,7 +114,6 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   const [dripEnrollments, setDripEnrollments] = useState<DripEnrollment[]>([]);
   const [processingDripTick, setProcessingDripTick] = useState(false);
   const [dripTickMsg, setDripTickMsg] = useState<string | null>(null);
-  const [enrollingTestLead, setEnrollingTestLead] = useState(false);
 
   // Wave 8: Abandoned Checkouts state
   const [abandonedCheckouts, setAbandonedCheckouts] = useState<ShopifyAbandonedCheckout[]>([]);
@@ -94,6 +128,28 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
   const [broadcastSuccess, setBroadcastSuccess] = useState(false);
   const [broadcastFeedback, setBroadcastFeedback] = useState<string>('');
+  const [sendWhen, setSendWhen] = useState<'now' | 'clock' | 'gradual' | 'smart'>('now');
+  const [sendAt, setSendAt] = useState('');
+  const [gradualPercent, setGradualPercent] = useState(10);
+  const [gradualEvery, setGradualEvery] = useState<'minute' | 'hour'>('hour');
+  const [smartSkip, setSmartSkip] = useState(false);
+  const [utmSource, setUtmSource] = useState('');
+  const [utmCampaignName, setUtmCampaignName] = useState('');
+  const [abVariable, setAbVariable] = useState('');
+  const [abSubject, setAbSubject] = useState('');
+  const [abBody, setAbBody] = useState('');
+  const [abHours, setAbHours] = useState(4);
+  const [smsMessage, setSmsMessage] = useState('');
+  const [smsConfirm, setSmsConfirm] = useState(false);
+  const [excludeId, setExcludeId] = useState('');
+  const [holdoutOn, setHoldoutOn] = useState(false);
+  const [holdoutPercent, setHoldoutPercent] = useState(10);
+  const [lists, setLists] = useState<{ id: string; name: string; count: number }[]>([]);
+  const [followUpNote, setFollowUpNote] = useState('');
+  const [fallbackHour, setFallbackHour] = useState('');
+  const [exploreSend, setExploreSend] = useState(false);
+  const [smartGradual, setSmartGradual] = useState(false);
+  const [predictionNote, setPredictionNote] = useState('');
 
   // Audience Sync & Filtering state
   const [syncingShopify, setSyncingShopify] = useState(false);
@@ -141,15 +197,17 @@ ${unsub}`;
     try {
       const headers = await authHeaders();
       const wsId = workspace?.id || 'default';
-      const [fRes, bRes, aRes, sRes, segRes, dSeqRes, dEnrRes, chkRes] = await Promise.all([
+      const [fRes, bRes, aRes, sRes, segRes, listRes, dSeqRes, dEnrRes, chkRes, predRes] = await Promise.all([
         fetch('/api/email/flows', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/broadcasts', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/analytics', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/audience', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/email/segments', { headers }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/email/lists', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/drips/sequences', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/drips/enrollments', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch(`/api/workspace/${wsId}/shopify/abandoned-checkouts`, { headers }).then(r => r.json()).catch(() => ({}))
+        fetch(`/api/workspace/${wsId}/shopify/abandoned-checkouts`, { headers }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/email/predictions', { headers }).then(r => r.json()).catch(() => ({}))
       ]);
 
       if (fRes?.success && Array.isArray(fRes.flows)) setFlows(fRes.flows);
@@ -157,9 +215,16 @@ ${unsub}`;
       if (aRes?.success && aRes.analytics) setAnalytics(aRes.analytics);
       if (sRes?.success && Array.isArray(sRes.subscribers)) setSubscribers(sRes.subscribers);
       if (segRes?.success && Array.isArray(segRes.segments)) setSegments(segRes.segments);
+      if (listRes?.success && Array.isArray(listRes.lists)) setLists(listRes.lists);
+      if (segRes?.followUpNote || bRes?.followUpNote) setFollowUpNote(segRes?.followUpNote || bRes?.followUpNote || '');
       if (dSeqRes?.success && Array.isArray(dSeqRes.sequences)) setDripSequences(dSeqRes.sequences);
       if (dEnrRes?.success && Array.isArray(dEnrRes.enrollments)) setDripEnrollments(dEnrRes.enrollments);
       if (chkRes?.success && Array.isArray(chkRes.checkouts)) setAbandonedCheckouts(chkRes.checkouts);
+      if (predRes?.success) {
+        setPredictionNote(predRes.ready
+          ? `Predicted value uses this store’s order gaps. Sample ${predRes.sampleSize}. Computed ${String(predRes.computedAt || '').slice(0, 10)}.`
+          : `Predicted value stays blank until this account has 50 orders, 20 customers with two or more orders, and 90 days of history. ${predRes.missing || ''}`.trim());
+      }
     } finally {
       setLoading(false);
     }
@@ -169,7 +234,7 @@ ${unsub}`;
     setProcessingDripTick(true);
     setDripTickMsg(null);
     try {
-      const res = await fetch('/api/drips/process-tick', { method: 'POST' });
+      const res = await fetch('/api/drips/process-tick', { method: 'POST', headers: await authHeaders() });
       const data = await res.json();
       if (data.success) {
         setDripTickMsg(`Processed ${data.processedCount} due steps • Exited ${data.convertedExitCount} converted buyers (${data.activeRemaining} active)`);
@@ -179,33 +244,6 @@ ${unsub}`;
       console.warn('Drip tick failed:', err);
     } finally {
       setProcessingDripTick(false);
-    }
-  };
-
-  const handleEnrollTestLead = async () => {
-    setEnrollingTestLead(true);
-    try {
-      const headers = await authHeaders();
-      const testEmail = `subscriber_${Date.now().toString().slice(-4)}@example.com`;
-      const res = await fetch('/api/drips/enroll', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({
-          sequenceId: dripSequences[0]?.id || 'drip_seq_default',
-          customerEmail: testEmail,
-          customerName: 'Test Subscriber',
-          sourceSlug: 'growth-funnel'
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setDripTickMsg(`Enrolled test lead (${testEmail}) into Step 1!`);
-        loadData();
-      }
-    } catch (err) {
-      console.warn('Enroll test lead failed:', err);
-    } finally {
-      setEnrollingTestLead(false);
     }
   };
 
@@ -224,11 +262,11 @@ ${unsub}`;
         headers: { 'Content-Type': 'application/json', ...headers }
       });
       const data = await res.json().catch(() => ({}));
-      if (data?.success) {
-        setSyncSuccessMsg(`Synced ${data.syncedCount || 0} customer profiles from Shopify (${data.totalCustomers} total contacts in CRM).`);
-        setTimeout(() => setSyncSuccessMsg(null), 4000);
-        await loadData();
-      }
+      setSyncSuccessMsg(data?.notice || (data?.storeReached
+        ? `Imported ${data.importedCount || 0} customers from Shopify.`
+        : 'Shopify was not reached. No customers were imported.'));
+      setTimeout(() => setSyncSuccessMsg(null), 4000);
+      if (data?.storeReached) await loadData();
     } catch (err) {
       console.error('Failed syncing Shopify customers:', err);
     } finally {
@@ -248,6 +286,17 @@ ${unsub}`;
     setTimeout(() => setCopiedFlowId(null), 2500);
   };
 
+  const chooseWinner = async (id: string, winner: 'a' | 'b') => {
+    const res = await fetch(`/api/email/campaigns/${id}/winner`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ winner })
+    });
+    const data = await res.json().catch(() => ({}));
+    setBroadcastFeedback(data?.message || data?.error || '');
+    if (data?.success) await loadData();
+  };
+
   const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!broadcastSubject.trim() || !broadcastBody.trim()) return;
@@ -262,14 +311,33 @@ ${unsub}`;
           previewText: broadcastPreviewText,
           body: broadcastBody,
           segmentId: selectedSegmentId,
+          include: [{ type: selectedSegmentId.startsWith('list_') ? 'list' : 'segment', id: selectedSegmentId }],
+          exclude: excludeId ? [{ type: excludeId.startsWith('list_') ? 'list' : 'segment', id: excludeId }] : [],
           sendMode,
+          when: sendMode === 'shopify_push' ? 'now' : sendWhen,
+          sendAt,
+          gradual: sendWhen === 'gradual' || (sendWhen === 'smart' && smartGradual)
+            ? { percent: gradualPercent, every: gradualEvery, ...(sendWhen === 'smart' ? { wrap: true } : {}) }
+            : undefined,
+          fallbackHour: sendWhen === 'smart' && fallbackHour !== '' ? Number(fallbackHour) : '',
+          explore: sendWhen === 'smart' && exploreSend,
+          smartSkip,
+          utm: { source: utmSource, medium: 'email', campaign: utmCampaignName },
+          ab: abVariable ? { variable: abVariable, subjectB: abSubject, bodyB: abBody, offsetHours: abHours } : { variable: 'off' },
+          smsMessage,
+          smsConfirm: smsConfirm ? 'opted-in' : '',
+          holdout: holdoutOn ? { enabled: true, percent: holdoutPercent } : { enabled: false },
           workspaceId: workspace?.id
         })
       });
       const data = await res.json().catch(() => ({}));
+      if (!data?.success) {
+        setBroadcastFeedback(data?.error || 'That campaign was not saved.');
+        return;
+      }
       if (data?.success) {
         setBroadcastSuccess(true);
-        setBroadcastFeedback(data.message || 'Campaign processed successfully!');
+        setBroadcastFeedback([data.message, data.smartReport].filter(Boolean).join(' '));
         setTimeout(() => {
           setShowBroadcastModal(false);
           setBroadcastSuccess(false);
@@ -330,7 +398,7 @@ ${unsub}`;
             </span>
           </div>
           <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-            Automated customer journey emails, VIP offer sequences, and 1-click export to Klaviyo & Shopify.
+            Flows, order letters, signup forms, inbox, texts, and sending setup. A message counts as sent only when the service accepts it.
           </p>
         </div>
 
@@ -401,14 +469,23 @@ ${unsub}`;
           alignItems: 'center',
           gap: '8px',
           padding: '12px 32px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)'
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          flexWrap: 'wrap'
         }}
       >
         {[
-          { key: 'flows', label: 'Automated Flows', icon: Clock },
-          { key: 'campaigns', label: 'Broadcasts & Drops', icon: Send },
-          { key: 'audience', label: 'Audience & Leads', icon: Users },
-          { key: 'analytics', label: 'Deliverability & Stats', icon: TrendingUp }
+          { key: 'flows', label: 'Automations', icon: Clock },
+          { key: 'map', label: 'Flow map', icon: GitFork },
+          { key: 'transactional', label: 'Order letters', icon: ShoppingBag },
+          { key: 'builder', label: 'Builder', icon: Layers },
+          { key: 'forms', label: 'Forms', icon: FormInput },
+          { key: 'campaigns', label: 'Broadcasts', icon: Send },
+          { key: 'inbox', label: 'Inbox', icon: Inbox },
+          { key: 'sms', label: 'Texts', icon: MessageSquare },
+          { key: 'audience', label: 'Audience', icon: Users },
+          { key: 'sending', label: 'Sending', icon: Globe },
+          { key: 'klaviyo', label: 'Klaviyo', icon: RefreshCw },
+          { key: 'analytics', label: 'Deliverability', icon: TrendingUp }
         ].map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.key;
@@ -443,40 +520,18 @@ ${unsub}`;
         {/* TAB 1: FLOWS & DRIPS */}
         {activeTab === 'flows' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <EmailPrograms mode="automations" />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#f3f4f6' }}>
-                  Automated Lead Nurture Drips & Sequences
+                  Queue sequences
                 </h2>
                 <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                  Paces captured leads through welcome vouchers, proof case studies, and scarcity deadlines with automatic exit on purchase.
+                  Welcome and abandoned checkout are enrolled from real leads and checkouts. Run the queue when a step is due. A step is marked sent only after the email service accepts it.
                 </p>
               </div>
 
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  onClick={handleEnrollTestLead}
-                  disabled={enrollingTestLead}
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    backgroundColor: 'rgba(99, 102, 241, 0.15)',
-                    border: '1px solid rgba(99, 102, 241, 0.35)',
-                    color: '#818CF8',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                  title="Simulate a new lead opting in and enrolling into Step 1"
-                >
-                  <Plus size={13} />
-                  <span>{enrollingTestLead ? 'Enrolling...' : '+ Test Lead'}</span>
-                </button>
-
                 <button
                   type="button"
                   onClick={handleRunDripTick}
@@ -638,8 +693,8 @@ ${unsub}`;
                   </div>
                   <span style={{ color: '#475569' }}>•</span>
                   <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ color: '#94A3B8' }}>Attributed Revenue:</span>
-                    <strong style={{ color: '#34D399' }}>${seq.attributedSales.toLocaleString()}</strong>
+                    <span style={{ color: '#94A3B8' }}>Last-touch revenue:</span>
+                    <strong style={{ color: '#34D399' }}>{seq.attributedSales == null ? '—' : `$${seq.attributedSales.toLocaleString()}`}</strong>
                   </div>
                 </div>
 
@@ -810,7 +865,7 @@ ${unsub}`;
                               backgroundColor: chk.recoveryStatus === 'recovered' ? 'rgba(16, 185, 129, 0.2)' : chk.recoveryStatus === 'email_sent' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(234, 179, 8, 0.2)',
                               color: chk.recoveryStatus === 'recovered' ? '#34D399' : chk.recoveryStatus === 'email_sent' ? '#60A5FA' : '#FACC15'
                             }}>
-                              {chk.recoveryStatus === 'recovered' ? 'Recovered ($' + chk.totalPrice.toFixed(2) + ')' : chk.recoveryStatus === 'email_sent' ? 'Email Sent' : 'Pending 45m'}
+                              {chk.recoveryStatus === 'recovered' ? 'Recovered' : chk.recoveryStatus === 'email_sent' ? 'Email sent' : 'Pending'}
                             </span>
                           </td>
                           <td style={{ padding: '8px 12px', textAlign: 'right' }}>
@@ -1003,6 +1058,14 @@ ${unsub}`;
         )}
 
         {/* TAB 2: CAMPAIGNS (BROADCASTS) */}
+        {activeTab === 'map' && <EmailFlowMap />}
+        {activeTab === 'transactional' && <EmailPrograms mode="transactional" />}
+        {activeTab === 'builder' && <EmailPrograms mode="builder" />}
+        {activeTab === 'forms' && <SignupForms />}
+        {activeTab === 'inbox' && <EmailInbox />}
+        {activeTab === 'sms' && <SmsPanel />}
+        {activeTab === 'sending' && <SendingSetup />}
+        {activeTab === 'klaviyo' && <KlaviyoSync />}
         {activeTab === 'campaigns' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
@@ -1061,9 +1124,9 @@ ${unsub}`;
                 <div>Campaign & Segment</div>
                 <div>Send Mode</div>
                 <div>Sent Date</div>
-                <div>Recipients</div>
-                <div>Performance</div>
-                <div>Attributed Sales</div>
+                <div>Sent</div>
+                <div>Opened</div>
+                <div>Revenue</div>
               </div>
 
               {broadcasts.length === 0 ? (
@@ -1122,20 +1185,37 @@ ${unsub}`;
                       </span>
                     </div>
 
-                    <div style={{ color: '#9ca3af', fontSize: '12px' }}>{new Date(b.sentAt).toLocaleDateString()}</div>
-                    <div style={{ color: '#d1d5db', fontWeight: 500 }}>{b.recipients.toLocaleString()}</div>
+                    <div style={{ color: '#9ca3af', fontSize: '12px' }}>{b.sentAt ? new Date(b.sentAt).toLocaleDateString() : (b.status === 'scheduled' ? 'Scheduled' : 'Not sent')}</div>
+                    <div style={{ color: '#d1d5db', fontWeight: 500 }}>{b.sent == null ? '—' : b.sent.toLocaleString()}</div>
                     <div>
-                      <span style={{ color: '#34d399', fontWeight: 600 }}>{b.openRate}%</span>
+                      <span style={{ color: '#34d399', fontWeight: 600 }}>{b.opened == null ? '—' : b.opened}</span>
                       <span style={{ color: '#6b7280', margin: '0 4px' }}>/</span>
-                      <span style={{ color: '#60a5fa', fontWeight: 600 }}>{b.clickRate}%</span>
+                      <span style={{ color: '#60a5fa', fontWeight: 600 }}>{b.clicked == null ? '—' : b.clicked}</span>
                     </div>
                     <div style={{ color: '#fbbf24', fontWeight: 700 }}>
-                      ${(b.attributedSales || 0).toFixed(2)}
+                      {b.revenue == null ? '—' : `$${b.revenue.toFixed(2)}`}
                     </div>
+                    <p style={{ gridColumn: '1 / -1', margin: '8px 0 0', fontSize: 12, color: '#9ca3af' }}>
+                      Delivered {b.delivered == null ? '—' : b.delivered} · Unsubscribed {b.unsubscribed == null ? '—' : b.unsubscribed}
+                      {b.prefetchOpens ? ` · ${b.prefetchOpens} opens included an Apple Mail prefetch flag.` : ''}
+                    </p>
+                    {b.smartReport && <p style={{ gridColumn: '1 / -1', margin: '8px 0 0', fontSize: 12, color: '#d1d5db' }}>{b.smartReport}</p>}
+                    {b.holdout?.enabled && (
+                      <p style={{ gridColumn: '1 / -1', margin: '8px 0 0', fontSize: 12, color: '#d1d5db' }}>
+                        Holdout {b.holdout.percent}%. Sent group: {b.holdoutReport?.sent.sample ? `${b.holdoutReport.sent.sample} people, ${b.holdoutReport.sent.perPerson == null ? '—' : `$${b.holdoutReport.sent.perPerson.toFixed(2)}`} each` : '—'}. Held-out group: {b.holdoutReport?.held.sample ? `${b.holdoutReport.held.sample} people, ${b.holdoutReport.held.perPerson == null ? '—' : `$${b.holdoutReport.held.perPerson.toFixed(2)}`} each` : '—'}.
+                      </p>
+                    )}
+                    {b.ab && !b.ab.winner && (
+                      <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, marginTop: 8 }}>
+                        <button type="button" onClick={() => chooseWinner(b.id, 'a')} style={{ fontSize: 12, color: '#e5e7eb', background: 'transparent', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>Set A as the winner</button>
+                        <button type="button" onClick={() => chooseWinner(b.id, 'b')} style={{ fontSize: 12, color: '#e5e7eb', background: 'transparent', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>Set B as the winner</button>
+                      </div>
+                    )}
                   </div>
                 ))
               )}
             </div>
+            {followUpNote && <p style={{ margin: '8px 0 0', fontSize: 12, color: '#9ca3af' }}>{followUpNote}</p>}
           </div>
         )}
 
@@ -1150,6 +1230,7 @@ ${unsub}`;
                 <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
                   Real-time sync between your Shopify customers, captured funnel leads, and exit-intent rescued shoppers.
                 </p>
+                {predictionNote && <p style={{ margin: '8px 0 0', fontSize: 12, color: '#d1d5db' }}>{predictionNote}</p>}
               </div>
 
               <button
@@ -1228,6 +1309,8 @@ ${unsub}`;
                 <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>Compliant for broadcasts</div>
               </div>
             </div>
+
+            <AudienceDesk />
 
             {/* Filter Pills & Search */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
@@ -1357,7 +1440,7 @@ ${unsub}`;
                         ${(sub.totalSpent || 0).toFixed(2)}
                       </div>
                       <div style={{ fontSize: '11px', color: '#9ca3af' }}>
-                        {sub.ordersCount || 0} {(sub.ordersCount || 0) === 1 ? 'order' : 'orders'}
+                        {sub.predictionLine || `${sub.ordersCount || 0} ${(sub.ordersCount || 0) === 1 ? 'order' : 'orders'}`}
                       </div>
                     </div>
 
@@ -1415,43 +1498,47 @@ ${unsub}`;
                 Deliverability & Conversion Metrics
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                Real-time open, click, and delivery rates for your customer journey communications.
+                Opens, clicks, and delivery show up only after a sent campaign reports them.
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-              <div style={{ backgroundColor: '#121217', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <div style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>Active Contacts</div>
-                <div style={{ fontSize: '26px', fontWeight: 700, color: '#ffffff', marginTop: '6px' }}>
-                  {analytics.activeSubscribers.toLocaleString()}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '16px' }}>
+              {([
+                ['Sent', analytics.sent ?? analytics.totalSent],
+                ['Delivered', analytics.delivered],
+                ['Opened', analytics.opened],
+                ['Clicked', analytics.clicked]
+              ] as const).map(([name, value]) => (
+                <div key={name} style={{ backgroundColor: '#121217', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>{name}</div>
+                  <div style={{ fontSize: '26px', fontWeight: 700, color: '#ffffff', marginTop: '6px' }}>{value == null ? '—' : value.toLocaleString()}</div>
+                  <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>From events stored for this account</div>
                 </div>
-                <div style={{ fontSize: '11px', color: '#34d399', marginTop: '4px' }}>Verified Deliverable</div>
-              </div>
-
-              <div style={{ backgroundColor: '#121217', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <div style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>Average Open Rate</div>
-                <div style={{ fontSize: '26px', fontWeight: 700, color: '#34d399', marginTop: '6px' }}>
-                  {analytics.avgOpenRate}%
-                </div>
-                <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>Industry Benchmark: 22.4%</div>
-              </div>
-
-              <div style={{ backgroundColor: '#121217', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <div style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>Average Click Rate</div>
-                <div style={{ fontSize: '26px', fontWeight: 700, color: '#60a5fa', marginTop: '6px' }}>
-                  {analytics.avgClickRate}%
-                </div>
-                <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>Direct to Shopify Checkout</div>
-              </div>
-
-              <div style={{ backgroundColor: '#121217', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <div style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>Inbox Delivery Rate</div>
-                <div style={{ fontSize: '26px', fontWeight: 700, color: '#f472b6', marginTop: '6px' }}>
-                  {analytics.deliveryRate}%
-                </div>
-                <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>SPF / DKIM Authenticated</div>
-              </div>
+              ))}
             </div>
+            <p style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>{analytics.windowNote || 'Last-touch revenue stays blank until a click or an open is stored.'}{analytics.prefetchOpens ? ` ${analytics.prefetchOpens} opens included an Apple Mail prefetch flag.` : ''}</p>
+            {analytics.windows && (
+              <form style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }} onSubmit={async (e) => {
+                e.preventDefault();
+                const form = e.currentTarget;
+                const body = {
+                  emailClickDays: Number((form.elements.namedItem('emailClickDays') as HTMLInputElement).value),
+                  emailOpenDays: Number((form.elements.namedItem('emailOpenDays') as HTMLInputElement).value),
+                  smsClickDays: Number((form.elements.namedItem('smsClickDays') as HTMLInputElement).value)
+                };
+                await fetch('/api/email/attribution-windows', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+                  body: JSON.stringify(body)
+                });
+                await loadData();
+              }}>
+                <label style={{ fontSize: 12, color: '#d1d5db' }}>Email click days<input name="emailClickDays" aria-label="Email click days" defaultValue={analytics.windows.emailClickDays} type="number" min={1} max={30} style={{ display: 'block', marginTop: 4, width: 80 }} /></label>
+                <label style={{ fontSize: 12, color: '#d1d5db' }}>Email open days<input name="emailOpenDays" aria-label="Email open days" defaultValue={analytics.windows.emailOpenDays} type="number" min={1} max={30} style={{ display: 'block', marginTop: 4, width: 80 }} /></label>
+                <label style={{ fontSize: 12, color: '#d1d5db' }}>Text click days<input name="smsClickDays" aria-label="Text click days" defaultValue={analytics.windows.smsClickDays} type="number" min={1} max={30} style={{ display: 'block', marginTop: 4, width: 80 }} /></label>
+                <button type="submit" style={{ fontSize: 12, color: '#e5e7eb', background: 'transparent', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, padding: '8px 10px', cursor: 'pointer' }}>Save windows</button>
+              </form>
+            )}
           </div>
         )}
       </div>
@@ -1491,7 +1578,7 @@ ${unsub}`;
                   Create Segmented Campaign Broadcast
                 </h3>
                 <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
-                  Target by customer psychology with direct delivery or 1-click Shopify Email sync.
+                  Send now, at a clock time, or in batches. An empty audience sends nothing. A follow-up to people who did not open waits until opens are stored.
                 </p>
               </div>
               <button
@@ -1593,7 +1680,12 @@ ${unsub}`;
                 >
                   {segments.map(seg => (
                     <option key={seg.id} value={seg.id} style={{ backgroundColor: '#1a1a24', color: '#ffffff' }}>
-                      {seg.name} ({seg.count} contacts) — {seg.description}
+                      {seg.name} ({seg.count} contacts) — {seg.definition || seg.description}
+                    </option>
+                  ))}
+                  {lists.map(list => (
+                    <option key={list.id} value={list.id} style={{ backgroundColor: '#1a1a24', color: '#ffffff' }}>
+                      List · {list.name} ({list.count})
                     </option>
                   ))}
                   {segments.length === 0 && (
@@ -1603,6 +1695,95 @@ ${unsub}`;
                   )}
                 </select>
               </div>
+
+              {sendMode === 'direct' && (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <label style={{ fontSize: 12, color: '#9ca3af' }}>When
+                    <select aria-label="When to send" value={sendWhen} onChange={(e) => {
+                      const next = e.target.value as 'now' | 'clock' | 'gradual' | 'smart';
+                      setSendWhen(next);
+                      if (next === 'smart' && abVariable === 'send_time') setAbVariable('');
+                    }} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }}>
+                      <option value="now">Send now</option>
+                      <option value="clock">At a clock time</option>
+                      <option value="gradual">Gradual</option>
+                      <option value="smart" disabled={abVariable === 'send_time'}>At each person’s hour</option>
+                    </select>
+                  </label>
+                  {sendWhen === 'smart' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Their hour after 5 opens or clicks. Otherwise the store hour after 200 opens or clicks in 90 days. Otherwise the hour you set. Otherwise the next send. A stored timezone on the contact is used when there is one.</p>
+                      <label style={{ fontSize: 12, color: '#9ca3af' }}>Fallback hour, 0 through 23. Leave empty for the next send.
+                        <input aria-label="Fallback hour" type="number" min={0} max={23} value={fallbackHour} onChange={(e) => setFallbackHour(e.target.value)} style={{ display: 'block', width: 80, marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }} />
+                      </label>
+                      <label style={{ fontSize: 13, color: '#e5e7eb' }}>
+                        <input type="checkbox" checked={exploreSend} onChange={(e) => setExploreSend(e.target.checked)} /> Send 10% at another hour between 9:00 and 17:00
+                      </label>
+                      <label style={{ fontSize: 13, color: '#e5e7eb' }}>
+                        <input type="checkbox" checked={smartGradual} onChange={(e) => setSmartGradual(e.target.checked)} /> Send gradually. Each person’s hour is the batch time
+                      </label>
+                    </div>
+                  )}
+                  {(sendWhen === 'clock' || sendWhen === 'gradual') && (
+                    <label style={{ fontSize: 12, color: '#9ca3af' }}>Date and time in the account timezone, or UTC when none is saved
+                      <input aria-label="Send at" type="datetime-local" value={sendAt} onChange={(e) => setSendAt(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />
+                    </label>
+                  )}
+                  {(sendWhen === 'gradual' || (sendWhen === 'smart' && smartGradual)) && (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <label style={{ fontSize: 12, color: '#9ca3af' }}>Percent per batch
+                        <input aria-label="Batch percent" type="number" min={1} max={50} value={gradualPercent} onChange={(e) => setGradualPercent(Number(e.target.value))} style={{ display: 'block', width: 80, marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }} />
+                      </label>
+                      <label style={{ fontSize: 12, color: '#9ca3af' }}>Every
+                        <select aria-label="Batch interval" value={gradualEvery} onChange={(e) => setGradualEvery(e.target.value as 'minute' | 'hour')} style={{ display: 'block', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }}>
+                          <option value="hour">Hour</option>
+                          <option value="minute">Minute</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
+                  <label style={{ fontSize: 12, color: '#9ca3af' }}>Exclude
+                    <select aria-label="Exclude" value={excludeId} onChange={(e) => setExcludeId(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }}>
+                      <option value="">Nobody</option>
+                      {segments.map((seg) => <option key={seg.id} value={seg.id}>{seg.name}</option>)}
+                      {lists.map((list) => <option key={list.id} value={list.id}>List · {list.name}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 13, color: '#e5e7eb' }}>
+                    <input type="checkbox" checked={smartSkip} onChange={(e) => setSmartSkip(e.target.checked)} /> Skip someone who already got a marketing email in 16 hours, or a text in 24 hours
+                  </label>
+                  <label style={{ fontSize: 13, color: '#e5e7eb' }}>
+                    <input aria-label="Campaign holdout" type="checkbox" checked={holdoutOn} onChange={(e) => setHoldoutOn(e.target.checked)} /> Hold out a percent. They receive nothing.
+                  </label>
+                  {holdoutOn && (
+                    <label style={{ fontSize: 12, color: '#9ca3af' }}>Percent who receive nothing, 1 to 90
+                      <input aria-label="Campaign holdout percent" type="number" min={1} max={90} value={holdoutPercent} onChange={(e) => setHoldoutPercent(Number(e.target.value))} style={{ display: 'block', width: 80, marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }} />
+                    </label>
+                  )}
+                  <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Holdout stays off until you check it. The broadcast row then shows revenue per person for the sent group and the held-out group, with both sample sizes.</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <input aria-label="UTM source" placeholder="UTM source" value={utmSource} onChange={(e) => setUtmSource(e.target.value)} style={{ padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />
+                    <input aria-label="UTM campaign" placeholder="UTM campaign" value={utmCampaignName} onChange={(e) => setUtmCampaignName(e.target.value)} style={{ padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />
+                  </div>
+                  <label style={{ fontSize: 12, color: '#9ca3af' }}>A/B one variable. You choose the winner.
+                    <select aria-label="A/B variable" value={abVariable} onChange={(e) => setAbVariable(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }}>
+                      <option value="">No A/B</option>
+                      <option value="subject">Subject</option>
+                      <option value="content">Content</option>
+                      <option value="send_time" disabled={sendWhen === 'smart'}>Send time</option>
+                    </select>
+                  </label>
+                  {abVariable === 'subject' && <input aria-label="Second subject" placeholder="Second subject" value={abSubject} onChange={(e) => setAbSubject(e.target.value)} style={{ padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />}
+                  {abVariable === 'content' && <textarea aria-label="Second version" placeholder="Second version" value={abBody} onChange={(e) => setAbBody(e.target.value)} style={{ padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />}
+                  {abVariable === 'send_time' && <label style={{ fontSize: 12, color: '#9ca3af' }}>Hours later for version B<input aria-label="Hours later" type="number" min={1} max={168} value={abHours} onChange={(e) => setAbHours(Number(e.target.value))} style={{ display: 'block', width: 80, marginTop: 4, padding: 8 }} /></label>}
+                  <label style={{ fontSize: 12, color: '#9ca3af' }}>Text on the same campaign
+                    <textarea aria-label="Text message" value={smsMessage} onChange={(e) => setSmsMessage(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }} />
+                  </label>
+                  <label style={{ fontSize: 13, color: '#e5e7eb' }}>
+                    <input type="checkbox" checked={smsConfirm} onChange={(e) => setSmsConfirm(e.target.checked)} /> This text goes only to numbers that already opted in
+                  </label>
+                </div>
+              )}
 
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
@@ -1715,8 +1896,10 @@ ${unsub}`;
                     {sendingBroadcast
                       ? 'Processing...'
                       : sendMode === 'shopify_push'
-                      ? 'Tag & Push to Shopify Email'
-                      : 'Send Direct Broadcast'}
+                      ? 'Tag contacts here'
+                      : sendWhen === 'now'
+                      ? 'Send now'
+                      : 'Schedule'}
                   </span>
                 </button>
               </div>
@@ -2050,7 +2233,7 @@ ${unsub}`;
 
             <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <p style={{ margin: 0, fontSize: '13px', color: '#94A3B8', lineHeight: 1.5 }}>
-                Whenever a shopper submits their email or takes an order bump on any Jourvance funnel page, a non-blocking JSON webhook is immediately dispatched to your target URL.
+                When a landing page has a webhook address saved, a lead submission posts this JSON there. cartUrl is present only when that page has a real store domain and variant.
               </p>
 
               <div>
@@ -2072,14 +2255,18 @@ ${unsub}`;
                 >
 {`{
   "event": "funnel_lead",
-  "email": "customer@example.com",
-  "name": "Sarah Jenkins",
-  "phone": "+1-555-0199",
-  "pageSlug": "spring-glow-bundle",
-  "bumpAccepted": true,
-  "bumpProductTitle": "Hydration Mist Mini Add-On",
-  "cartUrl": "https://brand.myshopify.com/cart/42109840192:1,42109840193:1?discount=SPRING20",
-  "timestamp": "2026-09-23T15:30:00.000Z"
+  "email": "",
+  "name": "",
+  "phone": "",
+  "pageSlug": "",
+  "variant": "a",
+  "exitIntent": false,
+  "bumpAccepted": false,
+  "bumpProductTitle": null,
+  "cartUrl": null,
+  "checkoutUrl": null,
+  "discountCode": "",
+  "timestamp": ""
 }`}
                 </pre>
               </div>

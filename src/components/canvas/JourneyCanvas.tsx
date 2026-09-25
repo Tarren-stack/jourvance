@@ -82,9 +82,9 @@ export const JourneyCanvas: React.FC<Props> = ({
         target: params.target,
         type: 'conversion',
         data: {
-          sourceThroughput: 100,
-          targetCount: 50,
-          rate: 50.0
+          sourceThroughput: 0,
+          targetCount: 0,
+          rate: 0
         }
       };
       const nextEdges = addEdge(newEdge, rfEdges) as JourneyEdge[];

@@ -89,7 +89,9 @@ export const PageEditor: React.FC<Props> = ({
   }, [workspace?.id]);
 
   const selectedProduct = products.find(p => p.id === data.shopifyProductId) || null;
-  const storeDomain = workspace?.shopifyConfig?.storeDomain || 'demo.myshopify.com';
+  const storeDomain = workspace?.shopifyConfig?.storeDomain && workspace.shopifyConfig.storeDomain !== 'demo.myshopify.com'
+    ? workspace.shopifyConfig.storeDomain
+    : '';
   const isStoreConnected = workspace?.shopifyConfig?.status === 'connected' && !!workspace?.shopifyConfig?.storeDomain;
 
   const currentCheckoutUrl = (data.orderBumpEnabled && data.orderBumpVariantId)
@@ -462,9 +464,11 @@ export const PageEditor: React.FC<Props> = ({
             </div>
 
             {/* Top Announcement Bar */}
-            <div style={{ background: 'linear-gradient(90deg, #ec4899, #db2777, #9333ea)', color: '#FFFFFF', fontSize: '9px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', textAlign: 'center', padding: '4px 8px' }}>
-              ✨ {data.discountCode ? `VIP Exclusive: Code ${data.discountCode} applied` : 'Limited Quantity Drop • Free Shipping'}
-            </div>
+            {data.discountCode ? (
+              <div style={{ background: 'linear-gradient(90deg, #ec4899, #db2777, #9333ea)', color: '#FFFFFF', fontSize: '9px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', textAlign: 'center', padding: '4px 8px' }}>
+                Code {data.discountCode} is ready at checkout
+              </div>
+            ) : null}
 
             {/* Urgency Reservation Bar */}
             {data.urgencyTimerEnabled && (
@@ -472,7 +476,7 @@ export const PageEditor: React.FC<Props> = ({
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#F472B6', boxShadow: '0 0 6px #EC4899' }} />
                 <span>{data.urgencyText || 'Cart & promotional pricing reserved for'}</span>
                 <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#F472B6', background: 'rgba(236, 72, 153, 0.2)', padding: '1px 5px', borderRadius: '4px' }}>
-                  {String(data.urgencyMinutes || 15).padStart(2, '0')}:00
+                  {data.urgencyMinutes ? `${String(data.urgencyMinutes).padStart(2, '0')}:00` : 'Set minutes'}
                 </span>
               </div>
             )}
@@ -610,12 +614,12 @@ export const PageEditor: React.FC<Props> = ({
               /* Page Mockup */
               <div style={{ padding: previewDevice === 'mobile' ? '16px' : '24px', textAlign: 'center' }}>
                 {/* Scarcity Batch Indicator */}
-                {data.scarcityBatchEnabled && (
+                {data.scarcityBatchEnabled && (data.scarcityBatchText || data.scarcityBatchCount) ? (
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(236, 72, 153, 0.1)', border: '1px solid rgba(236, 72, 153, 0.28)', padding: '3px 8px', borderRadius: '9999px', fontSize: '10px', fontWeight: 700, color: '#F472B6', marginBottom: '10px' }}>
                     <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#EC4899' }} />
-                    <span>{data.scarcityBatchText || `Limited Batch: Only ${data.scarcityBatchCount || 14} units remaining`}</span>
+                    <span>{data.scarcityBatchText || `Limited batch: ${data.scarcityBatchCount} units remaining`}</span>
                   </div>
-                )}
+                ) : null}
 
                 {/* Product Hero Image */}
                 {previewHeroImage && (
@@ -877,6 +881,57 @@ export const PageEditor: React.FC<Props> = ({
                 ))}
               </select>
             </div>
+            <div>
+              <label htmlFor="page-collection-id" style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af', marginBottom: '6px' }}>
+                Collection id
+              </label>
+              <input
+                id="page-collection-id"
+                value={data.shopifyCollectionId || ''}
+                placeholder="Only if this page is a collection"
+                onChange={e => handleFieldChange('shopifyCollectionId', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: '#0a0a0f',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#6b7280' }}>
+                A saved collection id records a collection view. Leave it empty on a product page.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="page-cart-action" style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af', marginBottom: '6px' }}>
+                Button records
+              </label>
+              <select
+                id="page-cart-action"
+                value={data.cartAction === 'add' ? 'add' : 'checkout'}
+                onChange={e => handleFieldChange('cartAction', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: '#0a0a0f',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  outline: 'none'
+                }}
+              >
+                <option value="checkout">Checkout link</option>
+                <option value="add">Add to cart</option>
+              </select>
+              <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#6b7280' }}>
+                A checkout link records checkout. Add to cart records an add, and does not record checkout.
+              </p>
+            </div>
 
             {/* If product selected, show summary & 1-click sync */}
             {selectedProduct && (
@@ -1067,7 +1122,9 @@ export const PageEditor: React.FC<Props> = ({
                         });
                         const json = await res.json().catch(() => ({}));
                         if (json?.success) {
-                          setDiscSyncedMsg(`Synced ${data.discountCode} in Shopify!`);
+                          setDiscSyncedMsg(json.message || (json.discount?.syncedToLiveShopify
+                            ? `${data.discountCode} is active in Shopify.`
+                            : `${data.discountCode} is saved here. Shopify was not updated.`));
                           setTimeout(() => setDiscSyncedMsg(null), 3000);
                         }
                       } catch (err) {
@@ -1463,7 +1520,7 @@ export const PageEditor: React.FC<Props> = ({
                   </span>
                 </label>
                 <span style={{ fontSize: '11px', color: data.urgencyTimerEnabled ? '#ec4899' : '#64748b', fontWeight: 600 }}>
-                  {data.urgencyTimerEnabled ? `${data.urgencyMinutes || 15} mins (Active)` : 'Off'}
+                  {data.urgencyTimerEnabled ? (data.urgencyMinutes ? `${data.urgencyMinutes} min` : 'Set minutes') : 'Off'}
                 </span>
               </div>
 
@@ -1478,8 +1535,8 @@ export const PageEditor: React.FC<Props> = ({
                         type="number"
                         min="3"
                         max="60"
-                        value={data.urgencyMinutes || 15}
-                        onChange={e => handleFieldChange('urgencyMinutes', Number(e.target.value))}
+                        value={data.urgencyMinutes ?? ''}
+                        onChange={e => handleFieldChange('urgencyMinutes', e.target.value === '' ? undefined : Number(e.target.value))}
                         style={{
                           width: '100%',
                           padding: '6px 8px',
@@ -1534,7 +1591,7 @@ export const PageEditor: React.FC<Props> = ({
                   </span>
                 </label>
                 <span style={{ fontSize: '11px', color: data.scarcityBatchEnabled ? '#ec4899' : '#64748b', fontWeight: 600 }}>
-                  {data.scarcityBatchEnabled ? `${data.scarcityBatchCount || 14} units left` : 'Off'}
+                  {data.scarcityBatchEnabled ? (data.scarcityBatchCount ? `${data.scarcityBatchCount} units left` : 'Add a count') : 'Off'}
                 </span>
               </div>
 
@@ -1548,8 +1605,9 @@ export const PageEditor: React.FC<Props> = ({
                       type="number"
                       min="1"
                       max="100"
-                      value={data.scarcityBatchCount || 14}
-                      onChange={e => handleFieldChange('scarcityBatchCount', Number(e.target.value))}
+                      value={data.scarcityBatchCount ?? ''}
+                      placeholder="Count"
+                      onChange={e => handleFieldChange('scarcityBatchCount', e.target.value === '' ? undefined : Number(e.target.value))}
                       style={{
                         width: '100%',
                         padding: '6px 8px',
@@ -1568,7 +1626,7 @@ export const PageEditor: React.FC<Props> = ({
                     <input
                       type="text"
                       value={data.scarcityBatchText || ''}
-                      placeholder={`Limited Batch: Only ${data.scarcityBatchCount || 14} units remaining`}
+                      placeholder={data.scarcityBatchCount ? `Limited batch: ${data.scarcityBatchCount} units remaining` : 'Write the stock line shoppers should see'}
                       onChange={e => handleFieldChange('scarcityBatchText', e.target.value)}
                       style={{
                         width: '100%',
@@ -1652,7 +1710,7 @@ export const PageEditor: React.FC<Props> = ({
                     </label>
                     <input
                       type="text"
-                      value={data.exitIntentDiscountCode || data.discountCode || 'VIP15'}
+                      value={data.exitIntentDiscountCode || data.discountCode || ''}
                       onChange={e => handleFieldChange('exitIntentDiscountCode', e.target.value.toUpperCase())}
                       style={{
                         width: '100%',
@@ -2352,7 +2410,7 @@ export const PageEditor: React.FC<Props> = ({
                   handleFieldChange('trustBadge', e.target.value);
                 }
               }}
-              placeholder="e.g. Rated 4.9/5 stars by over 1,200+ verified buyers"
+              placeholder="A line you can stand behind. Leave it blank if you do not have one."
               style={{
                 width: '100%',
                 boxSizing: 'border-box',

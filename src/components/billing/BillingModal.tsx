@@ -8,26 +8,13 @@ interface BillingModalProps {
 }
 
 export const BillingModal: React.FC<BillingModalProps> = ({
-  onClose,
-  onUpgradeSuccess,
-  userEmail
+  onClose
 }) => {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
-  const [loading, setLoading] = useState(false);
-  const [upgraded, setUpgraded] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const handleUpgrade = () => {
-    setLoading(true);
-    // Simulate instantaneous upgrade or stripe session initialization
-    setTimeout(() => {
-      setLoading(false);
-      setUpgraded(true);
-      localStorage.setItem('jourvance_plan', 'pro');
-      setTimeout(() => {
-        onUpgradeSuccess?.();
-        onClose();
-      }, 1500);
-    }, 1000);
+    setNotice('Billing is not connected. Nothing was charged, and the plan did not change.');
   };
 
   return (
@@ -78,31 +65,6 @@ export const BillingModal: React.FC<BillingModalProps> = ({
           <X size={18} />
         </button>
 
-        {upgraded ? (
-          <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-            <div
-              style={{
-                width: '60px',
-                height: '60px',
-                borderRadius: '50%',
-                backgroundColor: 'rgba(16, 185, 129, 0.15)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 1.5rem'
-              }}
-            >
-              <CheckCircle2 size={32} color="#10B981" />
-            </div>
-            <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.5rem' }}>
-              Welcome to Jourvance Growth Pro!
-            </h2>
-            <p style={{ fontSize: '0.95rem', color: '#94A3B8' }}>
-              Your account has been upgraded. Unlimited funnels and AI copywriter are now active.
-            </p>
-          </div>
-        ) : (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
               <div
@@ -170,7 +132,6 @@ export const BillingModal: React.FC<BillingModalProps> = ({
 
             <button
               onClick={handleUpgrade}
-              disabled={loading}
               style={{
                 width: '100%',
                 display: 'flex',
@@ -179,20 +140,20 @@ export const BillingModal: React.FC<BillingModalProps> = ({
                 gap: '0.5rem',
                 padding: '0.85rem',
                 borderRadius: '8px',
-                background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
-                border: 'none',
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.12)',
                 color: '#FFFFFF',
                 fontSize: '0.95rem',
                 fontWeight: 800,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
+                cursor: 'pointer'
               }}
             >
-              <span>{loading ? 'Activating Growth Pro…' : 'Activate Growth Pro ($49/mo)'}</span>
-              <ArrowRight size={16} />
+              <span>Billing is not connected</span>
             </button>
+            {notice && (
+              <p style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: '#FBBF24', textAlign: 'center' }}>{notice}</p>
+            )}
           </div>
-        )}
       </div>
     </div>
   );

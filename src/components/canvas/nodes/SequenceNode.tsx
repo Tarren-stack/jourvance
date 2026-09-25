@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Mail, Clock, Send, Users } from 'lucide-react';
+import { Mail, Clock, Users } from 'lucide-react';
 import type { SequenceNodeData } from '../../../types/journey';
 
 export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
@@ -43,6 +43,16 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
             <div style={{ fontSize: '13px', fontWeight: 600, color: '#F8FAFC' }}>
               {d.sequenceTitle || 'Follow-Up'}
             </div>
+            {d.jourvanceFlowName && (
+              <div style={{ fontSize: '10px', color: '#FDE68A', marginTop: 2, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Flow · {d.jourvanceFlowName}
+              </div>
+            )}
+            {d.klaviyoFlowName && (
+              <div style={{ fontSize: '10px', color: '#C4B5FD', marginTop: 2, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Klaviyo · {d.klaviyoFlowName}
+              </div>
+            )}
           </div>
         </div>
         <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '9999px', background: 'rgba(245, 158, 11, 0.15)', color: '#FBBF24', fontWeight: 600 }}>
@@ -79,32 +89,25 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
         ))}
       </div>
 
-      {/* Metrics Bar */}
-      <div style={{ padding: '10px 14px', background: 'rgba(0, 0, 0, 0.25)', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-        <div>
-          <div style={{ fontSize: '10px', color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <Users size={10} /> Enrolled
+      <div style={{ padding: '10px 14px', background: 'rgba(0, 0, 0, 0.25)', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+        {([
+          ['Enrolled', d.flowEnrolled],
+          ['Sent', d.flowSent],
+          ['Clicked', d.flowClicked],
+          ['Revenue', d.flowRevenue]
+        ] as const).map(([name, value]) => (
+          <div key={name}>
+            <div style={{ fontSize: '10px', color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {name === 'Enrolled' ? <Users size={10} /> : null} {name}
+            </div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#F1F5F9' }}>
+              {value == null ? '—' : name === 'Revenue' ? `$${Number(value).toFixed(2)}` : value.toLocaleString()}
+            </div>
           </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: '#F1F5F9' }}>
-            {d.contactsEnrolled ? d.contactsEnrolled.toLocaleString() : '0'}
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: '10px', color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            Open %
-          </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: '#34D399' }}>
-            {d.avgOpenRate ? `${d.avgOpenRate}%` : '0%'}
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: '10px', color: '#64748B' }}>
-            Click %
-          </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: '#38BDF8' }}>
-            {d.avgClickRate ? `${d.avgClickRate}%` : '0%'}
-          </div>
-        </div>
+        ))}
+        {typeof d.flowOpened === 'number' && (
+          <div style={{ gridColumn: '1 / -1', fontSize: '11px', color: '#d1d5db' }}>Opened {d.flowOpened}</div>
+        )}
       </div>
     </div>
   );

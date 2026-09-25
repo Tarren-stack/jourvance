@@ -10,10 +10,10 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
   const badgeBg = isDownsell ? 'rgba(245, 158, 11, 0.18)' : 'rgba(16, 185, 129, 0.18)';
   const badgeBorder = isDownsell ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)';
 
-  const views = d.views || 184;
-  const takes = d.takes || (isDownsell ? 22 : 46);
-  const takeRate = views > 0 ? ((takes / views) * 100).toFixed(1) : (isDownsell ? '12.0' : '25.0');
-  const revenue = d.attributedRevenue || (takes * (parseFloat(d.productPrice?.replace(/[^0-9.]/g, '') || (isDownsell ? '28' : '42'))));
+  const views = d.views || 0;
+  const takes = d.takes || 0;
+  const takeRate = views > 0 ? ((takes / views) * 100).toFixed(1) : '0.0';
+  const revenue = d.attributedRevenue || 0;
 
   return (
     <div

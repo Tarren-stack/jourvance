@@ -25,21 +25,21 @@ export async function requestAICopy(req: AICopyRequest): Promise<any> {
   // Fallback client-side generation
   if (req.nodeType === 'ad') {
     return {
-      headline: `Special Offer: ${req.offerHeadline}`,
-      body: `Ready for real results without the headaches? Discover why top clients trust our proven service. Claim your spot today.`,
-      cta: 'Claim Offer Now'
+      headline: req.offerHeadline || 'Your ad headline',
+      body: 'Describe the offer in words you can stand behind.',
+      cta: 'Learn more'
     };
   } else if (req.nodeType === 'page') {
     return {
-      headline: `Get ${req.offerHeadline} without the guesswork`,
-      subhead: `Designed for busy businesses who demand excellence and clarity. Transparent, dependable, and high-impact.`,
-      cta: 'Claim Your Spot Now'
+      headline: req.offerHeadline || 'Your offer headline',
+      subhead: 'Describe what the visitor gets.',
+      cta: 'Continue'
     };
   } else {
     return {
-      subject: `Your ${req.offerHeadline} confirmation details`,
-      preview: `Here is what you need to get started right away...`,
-      body: `Hi there,\n\nThank you for claiming ${req.offerHeadline}!\n\nHere are the next steps:\n1. Check your confirmation details\n2. Schedule your preferred time on our calendar\n3. Reply to this email if you have any questions!\n\nBest,\nThe Team`
+      subject: req.offerHeadline ? `A note about ${req.offerHeadline}` : 'A note from the store',
+      preview: 'Replace this before anyone receives it',
+      body: `Hi there,\n\nReplace this note with the real next step before anyone receives it.\n\nThe Team`
     };
   }
 }

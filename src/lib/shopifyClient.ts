@@ -50,19 +50,64 @@ export async function createWorkspace(name: string): Promise<{ success: boolean;
 export async function connectShopifyStore(
   workspaceId: string,
   storeDomain: string,
-  storefrontAccessToken?: string
-): Promise<{ success: boolean; workspace?: Workspace; error?: string }> {
+  adminAccessToken?: string,
+  webhookSecret?: string
+): Promise<{ success: boolean; workspace?: Workspace; error?: string; notice?: string }> {
   try {
     const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/shopify/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-      body: JSON.stringify({ storeDomain, storefrontAccessToken })
+      body: JSON.stringify({ storeDomain, adminAccessToken, webhookSecret })
     });
     const data = await res.json().catch(() => ({}));
     if (data?.success && data.workspace) {
-      return { success: true, workspace: data.workspace };
+      return { success: true, workspace: data.workspace, notice: data.notice };
     }
     return { success: false, error: data.error || 'Could not connect Shopify store.' };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function fetchShopifySignals(workspaceId: string): Promise<{
+  success: boolean;
+  connected?: boolean;
+  publicUrl?: boolean;
+  topics?: { topic: string; path: string; address?: string; registered: boolean; detail?: string }[];
+  lastEventAt?: string | null;
+  todayCount?: number;
+  pixelSnippet?: string;
+  restockSnippet?: string;
+  notice?: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/shopify/signals`, { headers: await authHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.success === false) return { success: false, error: data.error || 'Store signals could not be loaded.' };
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function registerShopifyWebhooks(workspaceId: string): Promise<{
+  success: boolean;
+  registered?: boolean;
+  publicUrl?: boolean;
+  topics?: { topic: string; path: string; registered: boolean; detail?: string }[];
+  notice?: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/shopify/webhooks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: '{}'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.success === false) return { success: false, error: data.error || 'Shopify did not register the webhooks.' };
+    return data;
   } catch (err: any) {
     return { success: false, error: err.message };
   }
@@ -117,10 +162,9 @@ export function buildCheckoutPermalink(opts: {
   discountCode?: string;
   utmCampaign?: string;
 }): string {
-  let domain = (opts.storeDomain || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-  if (!domain) domain = 'your-store.myshopify.com';
-
-  const cleanVariantId = (opts.variantId || '42109840192').replace(/^gid:\/\/shopify\/ProductVariant\//, '');
+  const domain = (opts.storeDomain || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const cleanVariantId = String(opts.variantId || '').replace(/^gid:\/\/shopify\/ProductVariant\//, '');
+  if (!domain || domain === 'demo.myshopify.com' || domain === 'your-store.myshopify.com' || !cleanVariantId || cleanVariantId === '42109840192') return '';
   const qty = opts.quantity && opts.quantity > 0 ? opts.quantity : 1;
 
   const params = new URLSearchParams();
@@ -152,18 +196,19 @@ export function buildMultiItemCheckoutPermalink(opts: {
   ttclid?: string;
   gclid?: string;
 }): string {
-  let domain = (opts.storeDomain || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-  if (!domain) domain = 'your-store.myshopify.com';
+  const domain = (opts.storeDomain || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!domain || domain === 'demo.myshopify.com' || domain === 'your-store.myshopify.com') return '';
 
   const validItems = opts.items
-    .filter(i => !!i.variantId)
+    .filter(i => !!i.variantId && i.variantId !== '42109840192' && i.variantId !== '42109840193' && i.variantId !== '42109840194')
     .map(i => {
       const cleanId = String(i.variantId!).replace(/^gid:\/\/shopify\/ProductVariant\//, '');
       const qty = i.quantity && i.quantity > 0 ? i.quantity : 1;
       return `${cleanId}:${qty}`;
     });
 
-  const cartPath = validItems.length > 0 ? validItems.join(',') : '42109840192:1';
+  if (!validItems.length) return '';
+  const cartPath = validItems.join(',');
 
   const params = new URLSearchParams();
   if (opts.discountCode && opts.discountCode.trim()) {

@@ -1,0 +1,539 @@
+{
+  "dev-test-user-id": {
+    "transactional": {
+      "order_confirmation": {
+        "enabled": false,
+        "subject": "We received order {{order_number}}",
+        "blocks": [
+          {
+            "id": "oc_h",
+            "kind": "heading",
+            "text": "Order {{order_number}}"
+          },
+          {
+            "id": "oc_b",
+            "kind": "text",
+            "text": "Hi {{first_name}},\n\nWe received your order for {{order_total}} {{currency}}.\n\n{{line_items}}\n\nReply to this email if something needs to change.",
+            "level": 0
+          }
+        ]
+      },
+      "shipping_confirmation": {
+        "enabled": false,
+        "subject": "Order {{order_number}} has a fulfillment",
+        "blocks": [
+          {
+            "id": "sc_h",
+            "kind": "heading",
+            "text": "A fulfillment was created"
+          },
+          {
+            "id": "sc_b",
+            "kind": "text",
+            "text": "Hi {{first_name}},\n\nOrder {{order_number}} has a fulfillment from the store.\n\n{{tracking_line}}",
+            "level": 0
+          }
+        ]
+      },
+      "order_cancelled": {
+        "enabled": false,
+        "subject": "Order {{order_number}} was cancelled",
+        "blocks": [
+          {
+            "id": "cc_h",
+            "kind": "heading",
+            "text": "Order {{order_number}} was cancelled"
+          },
+          {
+            "id": "cc_b",
+            "kind": "text",
+            "text": "Hi {{first_name}},\n\nOrder {{order_number}} was cancelled. Reply to this email if you were not expecting that.",
+            "level": 0
+          }
+        ]
+      },
+      "refund": {
+        "enabled": false,
+        "subject": "A refund was recorded on order {{order_number}}",
+        "blocks": [
+          {
+            "id": "rf_h",
+            "kind": "heading",
+            "text": "Refund on order {{order_number}}"
+          },
+          {
+            "id": "rf_b",
+            "kind": "text",
+            "text": "Hi {{first_name}},\n\nA refund was recorded on order {{order_number}}.\n\n{{refund_amount}}",
+            "level": 0
+          }
+        ]
+      }
+    },
+    "automations": {
+      "post_purchase": {
+        "enabled": false,
+        "steps": [
+          {
+            "id": "pp1",
+            "delayHours": 24,
+            "subject": "Thank you for order {{order_number}}",
+            "previewText": "",
+            "blocks": [
+              {
+                "id": "pp1b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nThank you for order {{order_number}}. Reply if you need anything about it.",
+                "level": 0
+              }
+            ]
+          },
+          {
+            "id": "pp2",
+            "delayHours": 72,
+            "subject": "How was order {{order_number}}?",
+            "previewText": "",
+            "blocks": [
+              {
+                "id": "pp2b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nIf you have a minute, reply and tell us how order {{order_number}} went.",
+                "level": 0
+              }
+            ]
+          }
+        ]
+      },
+      "winback": {
+        "enabled": false,
+        "steps": [
+          {
+            "id": "wb1",
+            "delayHours": 0,
+            "subject": "It has been a while since your last order",
+            "previewText": "",
+            "blocks": [
+              {
+                "id": "wb1b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nYour last order with us was a while ago. Reply if you want help with the next one.",
+                "level": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "enrollments": [],
+    "sentKeys": [],
+    "flows": [
+      {
+        "id": "flow_viewedproduct",
+        "name": "Viewed a product",
+        "enabled": false,
+        "trigger": "product_viewed",
+        "reentry": "once",
+        "reentryDays": 30,
+        "exitOnOrder": false,
+        "filter": [],
+        "dateField": "",
+        "dateOffsetDays": 0,
+        "dateRepeat": "once",
+        "notes": [
+          "Off until you turn it on. A view enrolls someone only after it is tied to an email. The wait is 60 minutes."
+        ],
+        "nodes": [
+          {
+            "id": "n_start",
+            "type": "trigger"
+          },
+          {
+            "id": "n_wait",
+            "type": "delay",
+            "delayMinutes": 60,
+            "mode": "duration",
+            "clockHour": 0,
+            "clockMinute": 0,
+            "weekdays": [],
+            "timezone": "account"
+          },
+          {
+            "id": "n_mail",
+            "type": "email",
+            "subject": "Still looking?",
+            "previewText": "",
+            "fromName": "",
+            "replyTo": "",
+            "blocks": [
+              {
+                "id": "n_mail_b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nYou viewed a product on our store. This draft does not send until you turn the flow on and mark the email live.",
+                "level": 0
+              }
+            ],
+            "status": "draft",
+            "transactional": false,
+            "smartSkip": false,
+            "sendTime": "",
+            "fallbackHour": null,
+            "filter": []
+          }
+        ],
+        "edges": [
+          {
+            "id": "e_start",
+            "source": "n_start",
+            "target": "n_wait",
+            "branch": ""
+          },
+          {
+            "id": "e_wait",
+            "source": "n_wait",
+            "target": "n_mail",
+            "branch": ""
+          }
+        ]
+      },
+      {
+        "id": "flow_addedtocart",
+        "name": "Added to cart",
+        "enabled": false,
+        "trigger": "added_to_cart",
+        "reentry": "once",
+        "reentryDays": 30,
+        "exitOnOrder": false,
+        "filter": [],
+        "dateField": "",
+        "dateOffsetDays": 0,
+        "dateRepeat": "once",
+        "notes": [
+          "Off until you turn it on. An add to cart enrolls someone only after it is tied to an email. The wait is 60 minutes."
+        ],
+        "nodes": [
+          {
+            "id": "n_start",
+            "type": "trigger"
+          },
+          {
+            "id": "n_wait",
+            "type": "delay",
+            "delayMinutes": 60,
+            "mode": "duration",
+            "clockHour": 0,
+            "clockMinute": 0,
+            "weekdays": [],
+            "timezone": "account"
+          },
+          {
+            "id": "n_mail",
+            "type": "email",
+            "subject": "Your cart is still here",
+            "previewText": "",
+            "fromName": "",
+            "replyTo": "",
+            "blocks": [
+              {
+                "id": "n_mail_b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nYou added a product to the cart. This draft does not send until you turn the flow on and mark the email live.",
+                "level": 0
+              }
+            ],
+            "status": "draft",
+            "transactional": false,
+            "smartSkip": false,
+            "sendTime": "",
+            "fallbackHour": null,
+            "filter": []
+          }
+        ],
+        "edges": [
+          {
+            "id": "e_start",
+            "source": "n_start",
+            "target": "n_wait",
+            "branch": ""
+          },
+          {
+            "id": "e_wait",
+            "source": "n_wait",
+            "target": "n_mail",
+            "branch": ""
+          }
+        ]
+      },
+      {
+        "id": "flow_pricedrop",
+        "name": "Price drop",
+        "enabled": false,
+        "trigger": "price_drop",
+        "reentry": "once",
+        "reentryDays": 30,
+        "exitOnOrder": false,
+        "filter": [],
+        "dateField": "",
+        "dateOffsetDays": 0,
+        "dateRepeat": "once",
+        "notes": [
+          "Off until you turn it on. Enrolls when a stored price falls by at least 10 percent, the variant is published, and stock is above zero. A missing stored price does not count."
+        ],
+        "nodes": [
+          {
+            "id": "n_start",
+            "type": "trigger"
+          },
+          {
+            "id": "n_wait",
+            "type": "delay",
+            "delayMinutes": 60,
+            "mode": "duration",
+            "clockHour": 0,
+            "clockMinute": 0,
+            "weekdays": [],
+            "timezone": "account"
+          },
+          {
+            "id": "n_mail",
+            "type": "email",
+            "subject": "A price went down",
+            "previewText": "",
+            "fromName": "",
+            "replyTo": "",
+            "blocks": [
+              {
+                "id": "n_mail_b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nA product you viewed now has a lower stored price. This draft does not send until you turn the flow on and mark the email live.",
+                "level": 0
+              }
+            ],
+            "status": "draft",
+            "transactional": false,
+            "smartSkip": false,
+            "sendTime": "",
+            "fallbackHour": null,
+            "filter": []
+          }
+        ],
+        "edges": [
+          {
+            "id": "e_start",
+            "source": "n_start",
+            "target": "n_wait",
+            "branch": ""
+          },
+          {
+            "id": "e_wait",
+            "source": "n_wait",
+            "target": "n_mail",
+            "branch": ""
+          }
+        ],
+        "lookbackDays": 30,
+        "variantId": "",
+        "dropMode": "percent",
+        "dropValue": 10
+      },
+      {
+        "id": "flow_backinstock",
+        "name": "Back in stock",
+        "enabled": false,
+        "trigger": "back_in_stock",
+        "reentry": "once",
+        "reentryDays": 30,
+        "exitOnOrder": false,
+        "filter": [],
+        "dateField": "",
+        "dateOffsetDays": 0,
+        "dateRepeat": "once",
+        "notes": [
+          "Off until you turn it on. Enrolls only someone who asked to hear about that variant. Each request is used once per restock. Past buyers are not added."
+        ],
+        "nodes": [
+          {
+            "id": "n_start",
+            "type": "trigger"
+          },
+          {
+            "id": "n_wait",
+            "type": "delay",
+            "delayMinutes": 60,
+            "mode": "duration",
+            "clockHour": 0,
+            "clockMinute": 0,
+            "weekdays": [],
+            "timezone": "account"
+          },
+          {
+            "id": "n_mail",
+            "type": "email",
+            "subject": "It is back",
+            "previewText": "",
+            "fromName": "",
+            "replyTo": "",
+            "blocks": [
+              {
+                "id": "n_mail_b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nA variant you asked about is available again. This draft does not send until you turn the flow on and mark the email live.",
+                "level": 0
+              }
+            ],
+            "status": "draft",
+            "transactional": false,
+            "smartSkip": false,
+            "sendTime": "",
+            "fallbackHour": null,
+            "filter": []
+          }
+        ],
+        "edges": [
+          {
+            "id": "e_start",
+            "source": "n_start",
+            "target": "n_wait",
+            "branch": ""
+          },
+          {
+            "id": "e_wait",
+            "source": "n_wait",
+            "target": "n_mail",
+            "branch": ""
+          }
+        ],
+        "lookbackDays": 30,
+        "variantId": "",
+        "stockMinimum": 1
+      },
+      {
+        "id": "flow_sunset",
+        "name": "Sunset",
+        "enabled": false,
+        "trigger": "manual",
+        "reentry": "once",
+        "reentryDays": 30,
+        "exitOnOrder": false,
+        "filter": [],
+        "dateField": "",
+        "dateOffsetDays": 0,
+        "dateRepeat": "once",
+        "notes": [
+          "Off until you turn it on. After the quiet period you set, someone who was sent mail and did not open or click is marked unengaged. This flow sends nothing. The suppress button is the only step that stops mail, and an import does not press i"
+        ],
+        "nodes": [
+          {
+            "id": "n_start",
+            "type": "trigger"
+          }
+        ],
+        "edges": [],
+        "sunset": true
+      }
+    ],
+    "flowEnrollments": [],
+    "postalAddress": "",
+    "suppressions": [],
+    "timezone": "",
+    "profiles": {},
+    "library": [],
+    "couponCodes": [],
+    "lists": [],
+    "segments": [],
+    "segmentState": {
+      "all": {
+        "baselined": true,
+        "members": {
+          "lead_1790188738559@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "lead_1790189246376@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "lead_1790201056524@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "lead_1790203322424@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "lead_1790270346786@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "phase5-check@example.com": {
+            "inside": false,
+            "enteredAt": "2026-09-25T09:15:24.733Z",
+            "leftAt": "2026-09-25T15:42:05.591Z"
+          }
+        }
+      },
+      "vip": {
+        "baselined": true,
+        "members": {}
+      },
+      "repeat": {
+        "baselined": true,
+        "members": {}
+      },
+      "buyers": {
+        "baselined": true,
+        "members": {}
+      },
+      "leads": {
+        "baselined": true,
+        "members": {
+          "lead_1790188738559@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "lead_1790189246376@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "lead_1790201056524@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "lead_1790203322424@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "lead_1790270346786@growthbrand.io": {
+            "inside": true,
+            "enteredAt": "2026-09-25T09:14:45.069Z",
+            "leftAt": ""
+          },
+          "phase5-check@example.com": {
+            "inside": false,
+            "enteredAt": "2026-09-25T09:15:24.733Z",
+            "leftAt": "2026-09-25T15:42:05.591Z"
+          }
+        }
+      },
+      "exit_rescue": {
+        "baselined": true,
+        "members": {}
+      }
+    },
+    "signalStartersSeeded": true,
+    "predictionCheckedAt": "2026-09-25T15:42:23.173Z",
+    "attributionWindows": {
+      "emailClickDays": 5,
+      "emailOpenDays": 5,
+      "smsClickDays": 5
+    }
+  }
+}

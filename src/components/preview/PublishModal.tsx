@@ -40,7 +40,10 @@ export const PublishModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://jourvance.com';
-  const storeDomain = workspace?.shopifyConfig?.storeDomain || 'demo.myshopify.com';
+  const storeDomain = workspace?.shopifyConfig?.storeDomain && workspace.shopifyConfig.storeDomain !== 'demo.myshopify.com'
+    ? workspace.shopifyConfig.storeDomain
+    : '';
+  const storeConnected = workspace?.shopifyConfig?.status === 'connected' && !!storeDomain;
 
   const handleCopy = (key: string, fullUrl: string) => {
     navigator.clipboard.writeText(fullUrl);
@@ -151,7 +154,7 @@ export const PublishModal: React.FC<Props> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {publishedPages.map((page) => {
                 const fullUrl = `${origin}${page.url}`;
-                const testUtmUrl = `${fullUrl}?utm_source=meta_ad&utm_campaign=spring_launch&fbclid=demo_fbclid_12345`;
+                const testUtmUrl = `${fullUrl}?utm_source=preview&utm_medium=test&utm_campaign=jourvance_preview`;
                 const isCopied = copiedSlug === page.slug;
 
                 return (
@@ -377,7 +380,7 @@ export const PublishModal: React.FC<Props> = ({
                         rel="noreferrer"
                         style={{ color: '#A78BFA', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: '3px' }}
                       >
-                        <span>Simulate Ad Click (with UTMs)</span>
+                        <span>Open page with test UTMs</span>
                         <ExternalLink size={10} />
                       </a>
                     </div>
@@ -403,31 +406,31 @@ export const PublishModal: React.FC<Props> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <ShoppingBag size={15} style={{ color: '#10B981' }} />
                 <span style={{ fontSize: '12px', fontWeight: 700, color: '#F1F5F9' }}>
-                  Target Shopify Store: {storeDomain}
+                  {storeConnected ? `Shopify accepted ${storeDomain}` : 'No Shopify store connected'}
                 </span>
               </div>
-              <span style={{ fontSize: '11px', color: '#10B981', fontWeight: 600 }}>
-                ● Connected
+              <span style={{ fontSize: '11px', color: storeConnected ? '#34D399' : '#94A3B8', fontWeight: 600 }}>
+                {storeConnected ? 'Admin token accepted' : 'Not connected'}
               </span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
               <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '8px', borderRadius: '6px', textAlign: 'center' }}>
                 <div style={{ fontSize: '10px', color: '#94A3B8' }}>Meta Pixel</div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: '#38BDF8', marginTop: '2px' }}>Auto-Injected</div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', marginTop: '2px' }}>Only if an id is saved</div>
               </div>
               <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '8px', borderRadius: '6px', textAlign: 'center' }}>
                 <div style={{ fontSize: '10px', color: '#94A3B8' }}>TikTok Pixel</div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: '#A78BFA', marginTop: '2px' }}>Auto-Injected</div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', marginTop: '2px' }}>Only if an id is saved</div>
               </div>
               <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '8px', borderRadius: '6px', textAlign: 'center' }}>
                 <div style={{ fontSize: '10px', color: '#94A3B8' }}>UTM & Click IDs</div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: '#34D399', marginTop: '2px' }}>Forwarded</div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', marginTop: '2px' }}>Kept on the page link</div>
               </div>
             </div>
 
             <div style={{ fontSize: '11px', color: '#94A3B8', lineHeight: 1.4 }}>
-              Visitors clicking through will have their discount coupon automatically applied at Shopify checkout, and all ad click IDs (<code style={{ color: '#F472B6' }}>fbclid</code>, <code style={{ color: '#F472B6' }}>ttclid</code>) will be passed for ROAS attribution.
+              A discount is added to the Shopify cart link only when a store domain and a product variant are saved. Click ids stay on the Jourvance page URL.
             </div>
           </div>
         </div>

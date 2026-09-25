@@ -210,7 +210,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
           onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(30, 41, 59, 0.8)')}
         >
           <Play style={{ width: '14px', height: '14px', color: '#38BDF8' }} />
-          <span>Live Simulator</span>
+          <span>Preview the page</span>
         </button>
 
         <button

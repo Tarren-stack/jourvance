@@ -43,15 +43,15 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
     },
     {
       q: 'Do I need any coding or design skills to use Jourvance?',
-      a: 'Zero. Jourvance comes out-of-the-box with a pre-wired Turnkey Lead Capture Blueprint. You get high-converting ad copy layouts, single-offer landing page structures, and follow-up email sequences ready to go. You can customize text and delays in slide-over inspector drawers without touching a line of code.'
+      a: 'You can edit the map, the page, and the follow-up notes without writing code. The starter map begins with zero measured counts and placeholder sentences you replace.'
     },
     {
       q: 'Does Jourvance charge per-lead or transaction fees?',
-      a: 'No. Unlike platforms that penalize your growth by charging per contact or taking a percentage of your revenue, Jourvance gives you unlimited journeys, leads, and forms for a flat $49/mo on our Pro plan.'
+      a: 'Billing is not connected in this app, so it does not charge per lead and it does not sell a Pro plan from this page.'
     },
     {
       q: 'Can I simulate the funnel as a real prospect before publishing?',
-      a: 'Yes! The Live Funnel Simulator is built right in. Click "Live Simulator" and walk through your ad, experience your landing page, submit the intake form, and watch the email sequence dispatch in real time.'
+      a: 'You can preview the page before you publish it. A real form submission on a published page is stored as a lead. Preview does not send the email sequence.'
     }
   ];
 
@@ -197,7 +197,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
               onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(30, 41, 59, 0.9)')}
             >
               <Play style={{ width: '16px', height: '16px', color: '#38BDF8' }} />
-              <span>Watch Live Funnel Simulation</span>
+              <span>Preview the page</span>
             </button>
           </div>
 
@@ -460,11 +460,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                 </li>
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
                   <span style={{ color: '#10B981', fontWeight: 700 }}>•</span>
-                  <span>Live funnel simulator: Test drive the entire flow as a customer before going live.</span>
+                  <span>Page preview: Read the page before you publish it. Preview does not send email.</span>
                 </li>
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
                   <span style={{ color: '#10B981', fontWeight: 700 }}>•</span>
-                  <span>Flat $49/mo pricing: Zero lead caps, zero transaction markups, zero hidden fees.</span>
+                  <span>Billing is not connected in this app yet.</span>
                 </li>
               </ul>
             </div>
@@ -757,7 +757,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                   <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '0.85rem', marginBottom: '1.25rem' }}>
                     <div style={{ fontSize: '0.75rem', color: '#E2E8F0', marginBottom: '0.4rem' }}>✓ 1-on-1 Funnel Diagnosis & Bottleneck Audit</div>
                     <div style={{ fontSize: '0.75rem', color: '#E2E8F0', marginBottom: '0.4rem' }}>✓ Turnkey Ad-to-Email Architecture Blueprint</div>
-                    <div style={{ fontSize: '0.75rem', color: '#E2E8F0' }}>✓ Guaranteed zero contract commitment</div>
+                    <div style={{ fontSize: '0.75rem', color: '#E2E8F0' }}>✓ No contract is billed from this app</div>
                   </div>
                   <button style={{ width: '100%', padding: '0.85rem', borderRadius: '8px', background: '#6366F1', color: '#FFFFFF', fontSize: '0.85rem', fontWeight: 700, border: 'none' }}>
                     Claim Your Consultation Spot
@@ -1188,7 +1188,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
             >
               <span style={{ color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Capability</span>
               <span style={{ color: '#EF4444', textTransform: 'uppercase', letterSpacing: '0.05em' }}>The Fragmented Stack ($250+/mo)</span>
-              <span style={{ color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Jourvance ($49/mo Flat)</span>
+              <span style={{ color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Jourvance</span>
             </div>
 
             {[
@@ -1197,9 +1197,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
               { cap: 'Multi-Channel Ad Creative Studio', oldWay: 'Messy spreadsheets with broken UTM links', newWay: 'Unified ad studio with automated UTM generator' },
               { cap: 'Automated Email Drip Sequences', oldWay: 'ActiveCampaign ($49/mo) with complex zaps', newWay: 'Timed follow-up sequencer connected to your forms' },
               { cap: 'Lead Intake & Qualifying Forms', oldWay: 'Typeform ($35/mo) with strict response caps', newWay: 'Unlimited custom fields & qualification questions' },
-              { cap: 'End-to-End Funnel Simulation', oldWay: 'Impossible without spending real money on ads', newWay: '1-click interactive Live Prospect Simulator' },
+              { cap: 'Page preview', oldWay: 'Publish first, then find out what the page says', newWay: 'Preview the page before you send traffic' },
               { cap: 'Data Integration & Sync', oldWay: 'Fragile Zapier connections ($29/mo) that break', newWay: 'Zero middleware needed — all components share data' },
-              { cap: 'Monthly Cost of Ownership', oldWay: '$250 - $350+ every month with lead tax', newWay: '$49/mo flat with unlimited leads' }
+              { cap: 'Billing', oldWay: 'A separate invoice for each tool', newWay: 'Billing is not connected in this app yet' }
             ].map((row, i) => (
               <div
                 key={i}
@@ -1245,7 +1245,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
               Simple, Predictable Plans for Growing Businesses
             </h2>
             <p style={{ fontSize: '1rem', color: '#94A3B8' }}>
-              No per-lead caps. No transaction tax. Flat monthly pricing.
+              Billing is not connected in this app yet.
             </p>
           </div>
 
@@ -1296,7 +1296,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
-                  <span>Live Funnel Simulator</span>
+                  <span>Page preview</span>
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
@@ -1331,18 +1331,17 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                   letterSpacing: '0.05em'
                 }}
               >
-                Most Popular
+                Not a paid plan
               </div>
 
               <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '0.4rem', color: '#FFFFFF' }}>
-                Growth Pro
+                Studio
               </h3>
               <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '1.5rem' }}>
-                For business owners & consultants ready to launch and convert.
+                The same studio. Billing is not connected, so this button does not start a subscription.
               </p>
               <div style={{ marginBottom: '1.75rem' }}>
-                <span style={{ fontSize: '2.75rem', fontWeight: 900, color: '#FFFFFF' }}>$49</span>
-                <span style={{ color: '#94A3B8', fontSize: '0.9rem' }}> / month</span>
+                <span style={{ fontSize: '1.35rem', fontWeight: 800, color: '#FFFFFF' }}>No charge</span>
               </div>
               <button
                 onClick={() => onNavigate('canvas')}
@@ -1359,7 +1358,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                   boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)'
                 }}
               >
-                Launch Pro Studio
+                Open the studio
               </button>
               <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.85rem', color: '#F1F5F9' }}>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

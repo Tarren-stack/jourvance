@@ -32,29 +32,41 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [savedJourneys, setSavedJourneys] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-
-  // Mock initial multi-tenant accounts
-  const [accounts, setAccounts] = useState([
-    { id: 'usr-1', email: 'tlm@tarrenmunoz.com', role: 'Operator / Owner', tier: 'Pro Unlimited', funnels: 3, joined: '2026-09-20', status: 'Active' },
-    { id: 'usr-2', email: 'alex.hvac@example.com', role: 'Customer', tier: 'Growth Pro', funnels: 2, joined: '2026-09-18', status: 'Active' },
-    { id: 'usr-3', email: 'dr.marcus@pmuclinic.com', role: 'Customer', tier: 'Free Sandbox', funnels: 1, joined: '2026-09-15', status: 'Active' },
-    { id: 'usr-4', email: 'sarah@digitalgrowth.io', role: 'Agency Partner', tier: 'Growth Pro', funnels: 5, joined: '2026-09-12', status: 'Active' }
-  ]);
+  const [summary, setSummary] = useState<{ leads: number; orders: number; pageViews: number; hubConfigured: boolean }>({
+    leads: 0, orders: 0, pageViews: 0, hubConfigured: false
+  });
 
   useEffect(() => {
-    authHeaders()
-      .then(headers => fetch('/api/admin/journeys', { headers }))
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.journeys) {
-          setSavedJourneys(data.journeys);
-        }
-      })
-      .catch(() => {});
+    let cancelled = false;
+    authHeaders().then(async headers => {
+      const [journeysRes, summaryRes, healthRes] = await Promise.all([
+        fetch('/api/admin/journeys', { headers }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/admin/summary', { headers }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/health').then(r => r.json()).catch(() => ({}))
+      ]);
+      if (cancelled) return;
+      if (journeysRes.success && journeysRes.journeys) setSavedJourneys(journeysRes.journeys);
+      if (summaryRes.success) {
+        setSummary({
+          leads: summaryRes.leads || 0,
+          orders: summaryRes.orders || 0,
+          pageViews: summaryRes.pageViews || 0,
+          hubConfigured: Boolean(summaryRes.hubConfigured || healthRes.hubConfigured)
+        });
+      } else if (typeof healthRes.hubConfigured === 'boolean') {
+        setSummary(s => ({ ...s, hubConfigured: healthRes.hubConfigured }));
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
-  const totalFunnels = accounts.reduce((acc, a) => acc + a.funnels, savedJourneys.length);
-  const totalLeadsCaptured = 48; // Aggregate tracked across nodes
+  const owners = Object.values(savedJourneys.reduce((acc: Record<string, { id: string; funnels: number }>, journey: any) => {
+    const id = String(journey.userId || 'unknown');
+    if (!acc[id]) acc[id] = { id, funnels: 0 };
+    acc[id].funnels += 1;
+    return acc;
+  }, {}));
+  const visibleOwners = owners.filter(o => o.id.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
     <div
@@ -186,8 +198,8 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>Registered Users</span>
                     <Users size={18} color="#6366F1" />
                   </div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#FFFFFF' }}>{accounts.length}</div>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 600 }}>+2 this week</span>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#FFFFFF' }}>{owners.length}</div>
+                  <span style={{ fontSize: '0.75rem', color: '#94A3B8', fontWeight: 600 }}>Distinct owners on saved journeys</span>
                 </div>
 
                 <div style={{ backgroundColor: '#111827', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '1.5rem' }}>
@@ -195,8 +207,8 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>Active Pipelines</span>
                     <Layers size={18} color="#38BDF8" />
                   </div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#FFFFFF' }}>{totalFunnels}</div>
-                  <span style={{ fontSize: '0.75rem', color: '#38BDF8', fontWeight: 600 }}>100% healthy</span>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#FFFFFF' }}>{savedJourneys.length}</div>
+                  <span style={{ fontSize: '0.75rem', color: '#94A3B8', fontWeight: 600 }}>{summary.pageViews} recorded page views</span>
                 </div>
 
                 <div style={{ backgroundColor: '#111827', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '1.5rem' }}>
@@ -204,8 +216,8 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>Total Leads Processed</span>
                     <TrendingUp size={18} color="#10B981" />
                   </div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#FFFFFF' }}>{totalLeadsCaptured}</div>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 600 }}>Zero dropped events</span>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#FFFFFF' }}>{summary.leads}</div>
+                  <span style={{ fontSize: '0.75rem', color: '#94A3B8', fontWeight: 600 }}>{summary.orders} orders on file</span>
                 </div>
 
                 <div style={{ backgroundColor: '#111827', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '1.5rem' }}>
@@ -213,8 +225,8 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }}>Hub Brain API</span>
                     <Activity size={18} color="#F59E0B" />
                   </div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#FFFFFF' }}>28ms</div>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 600 }}>RAG Corpus Connected</span>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#FFFFFF' }}>{summary.hubConfigured ? 'On' : 'Off'}</div>
+                  <span style={{ fontSize: '0.75rem', color: '#94A3B8', fontWeight: 600 }}>{summary.hubConfigured ? 'Hub key is set' : 'No hub key on this server'}</span>
                 </div>
               </div>
 
@@ -227,30 +239,30 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', backgroundColor: '#1E293B', borderRadius: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                       <Globe size={16} color="#10B981" />
-                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#F1F5F9' }}>Primary Domain: jourvance.com</span>
+                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#F1F5F9' }}>This server</span>
                     </div>
-                    <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 700, backgroundColor: 'rgba(16, 185, 129, 0.15)', padding: '0.2rem 0.6rem', borderRadius: '4px' }}>
-                      Registered & Protected
+                    <span style={{ fontSize: '0.75rem', color: '#94A3B8', fontWeight: 700, backgroundColor: 'rgba(255, 255, 255, 0.06)', padding: '0.2rem 0.6rem', borderRadius: '4px' }}>
+                      Local process
                     </span>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', backgroundColor: '#1E293B', borderRadius: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                       <Server size={16} color="#6366F1" />
-                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#F1F5F9' }}>Hosting Engine: Render Free Web Service</span>
+                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#F1F5F9' }}>Recorded orders</span>
                     </div>
-                    <span style={{ fontSize: '0.75rem', color: '#818CF8', fontWeight: 700, backgroundColor: 'rgba(99, 102, 241, 0.15)', padding: '0.2rem 0.6rem', borderRadius: '4px' }}>
-                      Free Plan ($0/mo)
+                    <span style={{ fontSize: '0.75rem', color: '#94A3B8', fontWeight: 700, backgroundColor: 'rgba(255, 255, 255, 0.06)', padding: '0.2rem 0.6rem', borderRadius: '4px' }}>
+                      {summary.orders}
                     </span>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', backgroundColor: '#1E293B', borderRadius: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                       <CheckCircle2 size={16} color="#10B981" />
-                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#F1F5F9' }}>Hub Token: zlk_jourvance_*</span>
+                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#F1F5F9' }}>Hub connection</span>
                     </div>
-                    <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 700, backgroundColor: 'rgba(16, 185, 129, 0.15)', padding: '0.2rem 0.6rem', borderRadius: '4px' }}>
-                      Scoped & Active
+                    <span style={{ fontSize: '0.75rem', color: '#94A3B8', fontWeight: 700, backgroundColor: 'rgba(255, 255, 255, 0.06)', padding: '0.2rem 0.6rem', borderRadius: '4px' }}>
+                      {summary.hubConfigured ? 'Configured' : 'Not configured'}
                     </span>
                   </div>
                 </div>
@@ -264,7 +276,7 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
                 <div>
                   <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF' }}>Customer Accounts</h2>
-                  <p style={{ fontSize: '0.9rem', color: '#94A3B8' }}>Manage registered businesses and subscriber plans.</p>
+                  <p style={{ fontSize: '0.9rem', color: '#94A3B8' }}>Owners are the accounts that have a journey saved on this server.</p>
                 </div>
 
                 <div style={{ position: 'relative', width: '280px' }}>
@@ -292,52 +304,20 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#1E293B', color: '#94A3B8', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                      <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Email Address</th>
-                      <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Role</th>
-                      <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Plan Tier</th>
+                      <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Owner id</th>
                       <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Funnels</th>
-                      <th style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>Joined</th>
-                      <th style={{ padding: '0.85rem 1rem', fontWeight: 700, textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {accounts
-                      .filter(a => a.email.toLowerCase().includes(searchTerm.toLowerCase()))
-                      .map(acc => (
+                    {visibleOwners.length === 0 && (
+                      <tr>
+                        <td colSpan={2} style={{ padding: '1rem', color: '#94A3B8' }}>No saved journeys yet.</td>
+                      </tr>
+                    )}
+                    {visibleOwners.map(acc => (
                         <tr key={acc.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                          <td style={{ padding: '0.85rem 1rem', color: '#FFFFFF', fontWeight: 600 }}>{acc.email}</td>
-                          <td style={{ padding: '0.85rem 1rem', color: '#94A3B8' }}>{acc.role}</td>
-                          <td style={{ padding: '0.85rem 1rem' }}>
-                            <span
-                              style={{
-                                padding: '0.2rem 0.5rem',
-                                borderRadius: '4px',
-                                fontSize: '0.75rem',
-                                fontWeight: 700,
-                                backgroundColor: acc.tier.includes('Pro') ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.08)',
-                                color: acc.tier.includes('Pro') ? '#A5B4FC' : '#94A3B8'
-                              }}
-                            >
-                              {acc.tier}
-                            </span>
-                          </td>
+                          <td style={{ padding: '0.85rem 1rem', color: '#FFFFFF', fontWeight: 600 }}>{acc.id}</td>
                           <td style={{ padding: '0.85rem 1rem', color: '#FFFFFF' }}>{acc.funnels}</td>
-                          <td style={{ padding: '0.85rem 1rem', color: '#94A3B8', fontSize: '0.8rem' }}>{acc.joined}</td>
-                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
-                            <button
-                              style={{
-                                padding: '0.3rem 0.65rem',
-                                borderRadius: '4px',
-                                backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                                border: '1px solid rgba(255, 255, 255, 0.1)',
-                                color: '#CBD5E1',
-                                fontSize: '0.75rem',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              Manage
-                            </button>
-                          </td>
                         </tr>
                       ))}
                   </tbody>

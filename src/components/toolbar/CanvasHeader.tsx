@@ -73,7 +73,7 @@ export const CanvasHeader: React.FC<Props> = ({
   const adNode = project.nodes.find(n => n.type === 'ad-source')?.data as any;
   const formNode = project.nodes.find(n => n.type === 'lead-form')?.data as any;
   const totalLeads = formNode?.submissions || 0;
-  const totalClicks = adNode?.clicks || 1;
+  const totalClicks = adNode?.clicks || 0;
   const overallRate = totalClicks > 0 ? ((totalLeads / totalClicks) * 100).toFixed(1) : '0.0';
 
   // Financial & ROAS calculations (Wave 3)
@@ -84,7 +84,6 @@ export const CanvasHeader: React.FC<Props> = ({
   for (const n of adNodes) {
     totalSpend += (n.data as any)?.spend || 0;
   }
-  if (totalSpend === 0 && adNodes.length > 0) totalSpend = 240;
 
   let totalConversions = 0;
   let totalGrossRevenue = 0;
@@ -93,12 +92,10 @@ export const CanvasHeader: React.FC<Props> = ({
 
   for (const n of pageNodes) {
     const d = n.data as any;
-    const conv = d?.conversions || 18;
-    const aov = d?.aov || 48;
-    const bumpTakes = d?.orderBumpTakes || (d?.orderBumpEnabled ? Math.round(conv * 0.35) : 0);
-    const bumpPrice = d?.orderBumpPrice || 18;
-    const bumpRev = d?.orderBumpRevenue || (bumpTakes * bumpPrice);
-    const gross = d?.grossRevenue || (conv * aov + bumpRev);
+    const conv = d?.conversions || 0;
+    const bumpTakes = d?.orderBumpTakes || 0;
+    const bumpRev = d?.orderBumpRevenue || 0;
+    const gross = d?.grossRevenue || d?.liveRevenue || 0;
 
     totalConversions += conv;
     totalGrossRevenue += gross;
@@ -106,10 +103,9 @@ export const CanvasHeader: React.FC<Props> = ({
     totalBumpTakes += bumpTakes;
   }
 
-  if (totalGrossRevenue === 0) totalGrossRevenue = 1104;
-  const blendedRoas = totalSpend > 0 ? (totalGrossRevenue / totalSpend).toFixed(1) : '4.6';
-  const blendedAov = totalConversions > 0 ? Math.round(totalGrossRevenue / totalConversions) : 54;
-  const bumpTakeRate = totalConversions > 0 ? Math.round((totalBumpTakes / totalConversions) * 100) : 35;
+  const blendedRoas = totalSpend > 0 ? (totalGrossRevenue / totalSpend).toFixed(1) : '—';
+  const blendedAov = totalConversions > 0 ? Math.round(totalGrossRevenue / totalConversions) : 0;
+  const bumpTakeRate = totalConversions > 0 ? Math.round((totalBumpTakes / totalConversions) * 100) : 0;
 
   return (
     <header
@@ -368,7 +364,7 @@ export const CanvasHeader: React.FC<Props> = ({
                 fontSize: '11px'
               }}
             >
-              <span>{blendedRoas}x ROAS</span>
+              <span>{blendedRoas === '—' ? 'ROAS —' : `${blendedRoas}x ROAS`}</span>
             </div>
           </div>
         ) : (
@@ -468,7 +464,7 @@ export const CanvasHeader: React.FC<Props> = ({
               cursor: 'pointer',
               transition: 'all 0.15s ease'
             }}
-            title="Shopify Attribution, Webhooks & 1-Click Order Simulator"
+            title="Shopify orders, webhooks, and discount codes"
             onMouseEnter={e => (e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(59, 130, 246, 0.25))')}
             onMouseLeave={e => (e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.15))')}
           >

@@ -16,6 +16,7 @@ interface Props {
   offerHeadline: string;
   businessType: string;
   workspace?: Workspace | null;
+  journeyId?: string;
   onOpenShopifyConnect?: () => void;
 }
 
@@ -27,6 +28,7 @@ export const NodeInspector: React.FC<Props> = ({
   offerHeadline,
   businessType,
   workspace,
+  journeyId,
   onOpenShopifyConnect
 }) => {
   if (!node) return null;
@@ -151,6 +153,8 @@ export const NodeInspector: React.FC<Props> = ({
             offerHeadline={offerHeadline}
             businessType={businessType}
             workspace={workspace}
+            journeyId={journeyId}
+            nodeId={node.id}
           />
         )}
         {data.type === 'thank-you' && (

@@ -5,6 +5,7 @@ import {
   ExternalLink, BarChart3, Filter, Clock
 } from 'lucide-react';
 import type { Workspace, JourneyNode, AttributionReport, AttributionModelType } from '../../types/journey';
+import { authHeaders } from '../../lib/firebase';
 
 interface Props {
   workspace: Workspace | null;
@@ -28,7 +29,7 @@ export const AttributionReports: React.FC<Props> = ({
     try {
       const res = await fetch(`/api/reports/attribution?model=${model}&timeframe=${timeframe}`, {
         headers: {
-          'Authorization': 'Bearer dev-test-token',
+          ...(await authHeaders()),
           'Content-Type': 'application/json'
         }
       });
@@ -53,7 +54,7 @@ export const AttributionReports: React.FC<Props> = ({
     setDownloadingCsv(true);
     try {
       const res = await fetch(`/api/reports/attribution/export-csv?model=${model}&timeframe=${timeframe}`, {
-        headers: { 'Authorization': 'Bearer dev-test-token' }
+        headers: { ...(await authHeaders()) }
       });
       if (res.ok) {
         const blob = await res.blob();
@@ -125,7 +126,10 @@ export const AttributionReports: React.FC<Props> = ({
             </h1>
           </div>
           <p style={{ margin: 0, fontSize: '13px', color: '#94A3B8' }}>
-            Multi-touch revenue tracking across paid acquisition, funnel pages, automated nurture drips, and organic checkout.
+            Ad clicks, page views, email sends, and email clicks sit on the same path. Channel still comes from the ad click, the page, or the email. A discount code stays on the order.
+          </p>
+          <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#cbd5e1' }}>
+            Page views {report?.touchCounts?.pageViews == null ? '—' : report.touchCounts.pageViews} · Email sends {report?.touchCounts?.emailSends == null ? '—' : report.touchCounts.emailSends} · Email clicks {report?.touchCounts?.emailClicks == null ? '—' : report.touchCounts.emailClicks}
           </p>
         </div>
 
@@ -222,7 +226,7 @@ export const AttributionReports: React.FC<Props> = ({
               }}
             >
               <Zap size={13} />
-              <span>Simulate Order</span>
+              <span>Shopify</span>
             </button>
           )}
         </div>
@@ -275,8 +279,8 @@ export const AttributionReports: React.FC<Props> = ({
             <span style={{ fontSize: '24px', fontWeight: 800, color: '#F1F5F9' }}>
               {summary ? `${summary.blendedRoas}x` : '0x'}
             </span>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: (summary?.blendedRoas || 0) >= 2 ? '#34D399' : '#F59E0B' }}>
-              {(summary?.blendedRoas || 0) >= 2 ? 'Profitable' : 'Pacing'}
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8' }}>
+              {(summary?.totalSpend || 0) > 0 ? 'Revenue / spend' : 'No spend'}
             </span>
           </div>
           <span style={{ fontSize: '11px', color: '#64748B' }}>
@@ -305,7 +309,7 @@ export const AttributionReports: React.FC<Props> = ({
             </span>
           </div>
           <span style={{ fontSize: '11px', color: '#64748B' }}>
-            Payback velocity positive on Day 0
+            Spend divided by orders in this window
           </span>
         </div>
 
@@ -325,8 +329,8 @@ export const AttributionReports: React.FC<Props> = ({
             <span style={{ fontSize: '24px', fontWeight: 800, color: '#F472B6' }}>
               {summary ? `${summary.repeatBuyerRate}%` : '0%'}
             </span>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: '#34D399' }}>
-              +28% via Drips
+            <span style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8' }}>
+              From orders in this window
             </span>
           </div>
           <span style={{ fontSize: '11px', color: '#64748B' }}>
@@ -413,7 +417,7 @@ export const AttributionReports: React.FC<Props> = ({
                     backgroundColor: ch.roas >= 3 ? 'rgba(16, 185, 129, 0.15)' : ch.roas >= 1.5 ? 'rgba(99, 102, 241, 0.15)' : 'rgba(100, 116, 139, 0.15)',
                     color: ch.roas >= 3 ? '#34D399' : ch.roas >= 1.5 ? '#818CF8' : '#94A3B8'
                   }}>
-                    {ch.spend === 0 && ch.revenue > 0 ? 'Inf' : `${ch.roas}x`}
+                    {ch.spend > 0 ? `${ch.roas}x` : '—'}
                   </span>
                 </td>
                 <td style={{ padding: '14px 16px', color: '#CBD5E1' }}>

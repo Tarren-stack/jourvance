@@ -141,7 +141,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     tagline: '2-Step Lead Gate (Email Capture → Direct Checkout)',
     category: 'lead-magnet',
     badge: 'List Builder + Sales',
-    expectedAovLift: '+35% Repeat Buyers',
+    expectedAovLift: 'Lead, then checkout',
     description: 'Captures first-party email leads before purchase with a VIP discount code modal. Ingests contacts into Hub Email and automatically routes them to Shopify checkout with coupon applied.',
     nodes: [
       {
@@ -271,8 +271,8 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     title: 'High-AOV Duo & Order Bump',
     tagline: 'Core Product + 1-Click Complementary Add-On (AOV Booster)',
     category: 'aov-booster',
-    badge: 'Highest Revenue',
-    expectedAovLift: '+42% Higher AOV',
+    badge: 'Order bump',
+    expectedAovLift: 'Order bump on the page',
     description: 'Generates multi-item cart permalinks (/cart/v1:1,v2:1). Shoppers can tick a 1-click in-line order bump to add a complementary product with special bundle savings.',
     nodes: [
       {
@@ -402,8 +402,8 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     title: 'Post-Purchase Upsell & Downsell Branch',
     tagline: 'Landing Page → 1-Click Upsell (OTO) → Downsell → VIP Portal',
     category: 'aov-booster',
-    badge: 'Max AOV Engine',
-    expectedAovLift: '+48% Incremental Margin',
+    badge: 'Post-purchase upsell',
+    expectedAovLift: 'Upsell after checkout',
     description: 'The industry-standard high-ticket funnel architecture. After initial checkout, buyers are presented with an exclusive 1-click replenishment reserve (OTO). If declined, it branches to a lower-friction travel downsell before landing on the VIP confirmation portal.',
     nodes: [
       {

@@ -1,5 +1,6 @@
 import type { JourneyProject } from '../types/journey';
 import { DEFAULT_LEAD_CAPTURE_PROJECT } from './defaultBlueprint';
+import { clearTemplateMetrics } from './liveStats';
 
 const STORAGE_KEY = 'jourvance_active_project';
 
@@ -9,13 +10,13 @@ export function loadCurrentJourney(): JourneyProject {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed.nodes && parsed.edges) {
-        return parsed;
+        return clearTemplateMetrics(parsed);
       }
     }
   } catch (e) {
     console.warn('[Jourvance] Failed to parse localStorage project, using default:', e);
   }
-  return DEFAULT_LEAD_CAPTURE_PROJECT;
+  return clearTemplateMetrics(DEFAULT_LEAD_CAPTURE_PROJECT);
 }
 
 export function saveCurrentJourney(project: JourneyProject): void {
@@ -27,7 +28,7 @@ export function saveCurrentJourney(project: JourneyProject): void {
 }
 
 export function resetToDefaultBlueprint(): JourneyProject {
-  const fresh = JSON.parse(JSON.stringify(DEFAULT_LEAD_CAPTURE_PROJECT));
+  const fresh = clearTemplateMetrics(JSON.parse(JSON.stringify(DEFAULT_LEAD_CAPTURE_PROJECT)));
   fresh.updatedAt = new Date().toISOString();
   saveCurrentJourney(fresh);
   return fresh;

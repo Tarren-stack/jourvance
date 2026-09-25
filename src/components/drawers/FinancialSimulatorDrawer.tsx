@@ -214,7 +214,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Target Benchmark
+                Example rates
               </button>
               <button
                 onClick={() => applyPreset('aggressive')}

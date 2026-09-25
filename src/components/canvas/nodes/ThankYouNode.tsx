@@ -6,9 +6,9 @@ import type { ThankYouNodeData } from '../../../types/journey';
 export const ThankYouNode: React.FC<NodeProps> = ({ data, selected }) => {
   const d = data as unknown as ThankYouNodeData;
   const isRoasMode = (d as any).canvasViewMode === 'roas';
-  const views = d.pageViews || 320;
-  const claims = d.bounceBackClaims || 48;
-  const claimRate = views > 0 ? ((claims / views) * 100).toFixed(1) : '15.0';
+  const views = d.pageViews || 0;
+  const claims = d.bounceBackClaims || 0;
+  const claimRate = views > 0 ? ((claims / views) * 100).toFixed(1) : '0.0';
   const stepsCount = (d.usageGuideSteps || []).length || 3;
 
   return (

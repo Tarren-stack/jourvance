@@ -3,6 +3,7 @@ import { X, Sparkles, ShoppingBag, ArrowRight, Zap, CheckCircle2, Copy, Layers, 
 import { ECOM_BLUEPRINTS, type EcomBlueprint } from '../../data/ecomBlueprints';
 import type { Workspace, ShopifyProduct, JourneyNode, JourneyEdge } from '../../types/journey';
 import { fetchShopifyProducts } from '../../lib/shopifyClient';
+import { zeroBlueprintMetrics } from '../../lib/liveStats';
 
 interface Props {
   isOpen: boolean;
@@ -47,12 +48,34 @@ export const BlueprintModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   const storeConnected = workspace?.shopifyConfig?.status === 'connected' && !!workspace?.shopifyConfig?.storeDomain;
-  const storeDomain = workspace?.shopifyConfig?.storeDomain || 'demo.myshopify.com';
+  const storeDomain = workspace?.shopifyConfig?.storeDomain || '';
 
   const prepareBlueprintWithAutoLink = (blueprint: EcomBlueprint) => {
     // Clone nodes and edges
     const clonedNodes: JourneyNode[] = JSON.parse(JSON.stringify(blueprint.nodes));
     const clonedEdges: JourneyEdge[] = JSON.parse(JSON.stringify(blueprint.edges));
+    const demoVariantIds = new Set(['42109840192', '42109840193', '42109840194', '42109840195', '42109840196', '42109840999']);
+    for (const node of clonedNodes) {
+      const d = node.data as any;
+      if (!d) continue;
+      if (typeof d.trustBadge === 'string' && /4\.9\/5|verified (beauty lovers|customers|buyers|clients)/i.test(d.trustBadge)) {
+        d.trustBadge = '';
+      }
+      if (d.discountCode === 'VIP15') d.discountCode = '';
+      if (Array.isArray(d.steps)) {
+        for (const step of d.steps) {
+          if (typeof step?.body === 'string' && /VIP15|15% discount code/i.test(step.body)) {
+            step.body = 'Hi [First Name],\n\nThanks for signing up. The next step is here: [Checkout Link]\n\nThe Team';
+          }
+          if (typeof step?.subject === 'string' && /15%|VIP coupon/i.test(step.subject)) {
+            step.subject = 'Your next step';
+          }
+        }
+      }
+      for (const key of ['shopifyVariantId', 'orderBumpVariantId', 'upsellVariantId']) {
+        if (demoVariantIds.has(String(d[key] || ''))) d[key] = '';
+      }
+    }
 
     // If real connected products exist, auto-link them per user directive
     if (products.length > 0) {
@@ -66,7 +89,7 @@ export const BlueprintModal: React.FC<Props> = ({
           const d = node.data as any;
           // Auto-link primary product
           d.shopifyProductId = primaryProduct.id;
-          d.shopifyVariantId = primaryVariant?.id || '42109840192';
+          d.shopifyVariantId = primaryVariant?.id || '';
           d.shopifyProductTitle = primaryProduct.title;
           d.shopifyProductPrice = primaryVariant?.price || primaryProduct.price;
           if (primaryProduct.imageUrl) {
@@ -80,7 +103,7 @@ export const BlueprintModal: React.FC<Props> = ({
           // If blueprint has order bump enabled, auto-link secondary product
           if (d.orderBumpEnabled && secondaryProduct) {
             d.orderBumpProductId = secondaryProduct.id;
-            d.orderBumpVariantId = secondaryVariant?.id || '42109840194';
+            d.orderBumpVariantId = secondaryVariant?.id || '';
             d.orderBumpTitle = secondaryProduct.title;
             d.orderBumpPrice = secondaryVariant?.price || secondaryProduct.price;
             if (secondaryProduct.imageUrl) {
@@ -92,10 +115,11 @@ export const BlueprintModal: React.FC<Props> = ({
       }
     }
 
+    const blank = zeroBlueprintMetrics(clonedNodes, clonedEdges);
     return {
       name: `${blueprint.title}`,
-      nodes: clonedNodes,
-      edges: clonedEdges
+      nodes: blank.nodes,
+      edges: blank.edges
     };
   };
 
@@ -217,7 +241,7 @@ export const BlueprintModal: React.FC<Props> = ({
                 </>
               ) : (
                 <>
-                  Catalog Mode: <span style={{ color: '#94a3b8' }}>Using demo beauty catalog</span> (Connect your Shopify store anytime in the toolbar).
+                  No Shopify catalog is loaded. Connect a store to attach real products. Blueprints start with zero traffic.
                 </>
               )}
             </span>

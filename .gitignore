@@ -9,6 +9,11 @@ public_pages.json
 orders.json
 campaigns.json
 workspaces.json
+klaviyo.json
+behavior.json
+catalog_memory.json
+predictions.json
+redirects.json
 scratch/
 .jourvance_cache/
 .agent/

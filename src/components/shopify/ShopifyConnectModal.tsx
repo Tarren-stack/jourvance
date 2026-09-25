@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { ShoppingBag, CheckCircle2, AlertCircle, X, ExternalLink, RefreshCw, Layers } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ShoppingBag, CheckCircle2, AlertCircle, X, RefreshCw, Layers } from 'lucide-react';
 import type { Workspace } from '../../types/journey';
-import { connectShopifyStore, disconnectShopifyStore } from '../../lib/shopifyClient';
+import { connectShopifyStore, disconnectShopifyStore, fetchShopifySignals, registerShopifyWebhooks } from '../../lib/shopifyClient';
 
 interface Props {
   isOpen: boolean;
@@ -19,10 +19,45 @@ export const ShopifyConnectModal: React.FC<Props> = ({
   onOpenBilling
 }) => {
   const [storeDomain, setStoreDomain] = useState(workspace?.shopifyConfig?.storeDomain || '');
-  const [storefrontToken, setStorefrontToken] = useState(workspace?.shopifyConfig?.storefrontAccessToken || '');
+  const [adminToken, setAdminToken] = useState('');
+  const [webhookSecret, setWebhookSecret] = useState('');
+  const tokenOnFile = Boolean(workspace?.shopifyConfig?.adminAccessToken || workspace?.shopifyConfig?.storefrontAccessToken);
+  const secretOnFile = Boolean(workspace?.shopifyConfig?.webhookSecretOnFile);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [signals, setSignals] = useState<Awaited<ReturnType<typeof fetchShopifySignals>> | null>(null);
+  const [signalError, setSignalError] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !workspace || workspace.shopifyConfig?.status !== 'connected') {
+      setSignals(null);
+      return;
+    }
+    let gone = false;
+    fetchShopifySignals(workspace.id).then((row) => {
+      if (gone) return;
+      if (!row.success) setSignalError(row.error || 'Store signals could not be loaded.');
+      else {
+        setSignalError('');
+        setSignals(row);
+      }
+    });
+    return () => { gone = true; };
+  }, [isOpen, workspace]);
+
+  const registerWebhooks = async () => {
+    if (!workspace) return;
+    setLoading(true);
+    setSignalError('');
+    try {
+      const row = await registerShopifyWebhooks(workspace.id);
+      if (!row.success) setSignalError(row.error || 'Shopify did not register the webhooks.');
+      else setSignals((prev) => ({ ...(prev || { success: true }), ...row, success: true }));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!isOpen || !workspace) return null;
 
@@ -31,7 +66,11 @@ export const ShopifyConnectModal: React.FC<Props> = ({
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!storeDomain.trim()) {
-      setError('Please enter your Shopify store domain (e.g., yourbrand.myshopify.com)');
+      setError('Enter that store’s .myshopify.com domain.');
+      return;
+    }
+    if (!adminToken.trim() && !tokenOnFile) {
+      setError('Paste the Admin API access token from this Shopify store.');
       return;
     }
 
@@ -40,13 +79,12 @@ export const ShopifyConnectModal: React.FC<Props> = ({
     setSuccessMsg(null);
 
     try {
-      const res = await connectShopifyStore(workspace.id, storeDomain.trim(), storefrontToken.trim());
+      const res = await connectShopifyStore(workspace.id, storeDomain.trim(), adminToken.trim(), webhookSecret.trim());
       if (res.success && res.workspace) {
         onWorkspaceUpdated(res.workspace);
-        setSuccessMsg(`Successfully connected to ${res.workspace.shopifyConfig?.storeDomain}`);
-        setTimeout(() => {
-          onClose();
-        }, 1200);
+        setAdminToken('');
+        setWebhookSecret('');
+        setSuccessMsg(res.notice || `Shopify accepted ${res.workspace.shopifyConfig?.shopName || res.workspace.shopifyConfig?.storeDomain}.`);
       } else {
         setError(res.error || 'Connection failed. Please check your domain and try again.');
       }
@@ -90,12 +128,13 @@ export const ShopifyConnectModal: React.FC<Props> = ({
       <div
         style={{
           width: '100%',
-          maxWidth: '520px',
+          maxWidth: '640px',
+          maxHeight: '90vh',
           backgroundColor: '#121217',
           borderRadius: '16px',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
-          overflow: 'hidden',
+          overflow: 'auto',
           display: 'flex',
           flexDirection: 'column'
         }}
@@ -129,7 +168,7 @@ export const ShopifyConnectModal: React.FC<Props> = ({
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
-                Shopify Storefront Connect
+                Connect a Shopify store
               </h3>
               <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>
                 Workspace: <span style={{ color: '#ec4899', fontWeight: 500 }}>{workspace.name}</span>
@@ -169,10 +208,12 @@ export const ShopifyConnectModal: React.FC<Props> = ({
               <CheckCircle2 size={18} style={{ color: '#10b981', flexShrink: 0, marginTop: '2px' }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '14px', fontWeight: 600, color: '#10b981' }}>
-                  Connected to {workspace.shopifyConfig?.storeDomain}
+                  Shopify accepted {workspace.shopifyConfig?.shopName || workspace.shopifyConfig?.storeDomain}
                 </div>
                 <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '2px' }}>
-                  Live catalog sync is active. Landing page buttons will link directly to your Shopify checkout permalinks.
+                  {workspace.shopifyConfig?.missingScopes?.length
+                    ? `This store has not granted: ${workspace.shopifyConfig.missingScopes.join(', ')}.`
+                    : 'This store’s admin token can read products, orders, and customers, and can create discount codes.'}
                 </div>
               </div>
             </div>
@@ -188,7 +229,57 @@ export const ShopifyConnectModal: React.FC<Props> = ({
                 lineHeight: 1.5
               }}
             >
-              Link your Shopify store to pull product images, live pricing, and automatically generate direct-to-checkout cart permalinks with instant discount codes.
+              Each Shopify store creates its own Admin API token. Paste that token here so Jourvance can read that store. A token from a different store is refused.
+            </div>
+          )}
+
+          {isConnected && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6' }}>Shopify webhooks</div>
+                <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#9ca3af', lineHeight: 1.5 }}>
+                  {signals?.publicUrl
+                    ? 'Register sends each topic to Shopify. A topic that Shopify refuses stays unchecked.'
+                    : 'These topics are not registered. Shopify cannot reach this app until a public https address is set. The paths below are what you would subscribe.'}
+                </p>
+                {signalError && <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#f87171' }}>{signalError}</p>}
+                <ul style={{ margin: '8px 0 0', paddingLeft: '18px', fontSize: '12px', color: '#d1d5db', lineHeight: 1.5 }}>
+                  {(signals?.topics || []).map((topic) => (
+                    <li key={topic.topic}>
+                      <span style={{ color: topic.registered ? '#34d399' : '#9ca3af' }}>{topic.registered ? 'Registered' : 'Not registered'}</span>
+                      {' '}{topic.topic}{' '}
+                      <code style={{ color: '#93c5fd' }}>{topic.path}</code>
+                      {topic.detail ? ` — ${topic.detail}` : ''}
+                    </li>
+                  ))}
+                </ul>
+                {signals?.publicUrl && (
+                  <button type="button" onClick={registerWebhooks} disabled={loading} style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.4)', background: 'transparent', color: '#34d399', cursor: 'pointer' }}>
+                    Register these webhooks
+                  </button>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6' }}>Customer events pixel</div>
+                <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#9ca3af', lineHeight: 1.5 }}>
+                  Paste this under Customer events. It sends product views, add to cart, collection views, search, and checkout starts. It does not send an email address.
+                </p>
+                <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#d1d5db' }}>
+                  {signals?.lastEventAt ? `Last event ${signals.lastEventAt}. ${signals.todayCount || 0} stored today.` : `No pixel or page event stored yet. ${signals?.todayCount || 0} stored today.`}
+                </p>
+                {signals?.pixelSnippet && (
+                  <textarea readOnly value={signals.pixelSnippet} aria-label="Customer events pixel" style={{ width: '100%', minHeight: '120px', marginTop: '8px', boxSizing: 'border-box', background: '#0b0b10', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '8px', fontSize: '11px' }} />
+                )}
+              </div>
+              {signals?.restockSnippet && (
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6' }}>Back in stock form</div>
+                  <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#9ca3af', lineHeight: 1.5 }}>
+                    Paste this on the Shopify product template. It records a request for that variant. It does not email anyone by itself.
+                  </p>
+                  <textarea readOnly value={signals.restockSnippet} aria-label="Back in stock form" style={{ width: '100%', minHeight: '100px', marginTop: '8px', boxSizing: 'border-box', background: '#0b0b10', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '8px', fontSize: '11px' }} />
+                </div>
+              )}
             </div>
           )}
 
@@ -255,19 +346,21 @@ export const ShopifyConnectModal: React.FC<Props> = ({
                 />
               </div>
               <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#6b7280' }}>
-                Enter your `.myshopify.com` domain or primary store custom domain.
+                Use the .myshopify.com domain from that store’s admin.
               </p>
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#e5e7eb', marginBottom: '6px' }}>
-                Storefront Access Token <span style={{ color: '#6b7280', fontWeight: 400 }}>(Optional)</span>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#e5e7eb', marginBottom: '6px' }} htmlFor="shopify-admin-token">
+                Admin API access token
               </label>
               <input
+                id="shopify-admin-token"
                 type="password"
-                placeholder="shpat_xxxxxxxxxxxxxxxxxxxxx"
-                value={storefrontToken}
-                onChange={e => setStorefrontToken(e.target.value)}
+                autoComplete="off"
+                placeholder={tokenOnFile ? 'Token saved. Paste a new one to replace it.' : 'shpat_…'}
+                value={adminToken}
+                onChange={e => setAdminToken(e.target.value)}
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
@@ -280,8 +373,44 @@ export const ShopifyConnectModal: React.FC<Props> = ({
                   outline: 'none'
                 }}
               />
-              <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#6b7280' }}>
-                Needed only if your store catalog is private or password-protected.
+              <ol style={{ margin: '8px 0 0', paddingLeft: '18px', fontSize: '11px', color: '#9ca3af', lineHeight: 1.5 }}>
+                <li>In that store, open Settings, then Apps and sales channels, then Develop apps.</li>
+                <li>Create an app and allow read products, read orders, read customers, and write price rules.</li>
+                <li>Install the app and reveal the Admin API access token. It starts with shpat_.</li>
+                <li>Paste it here. Shopify checks it before this store is marked connected.</li>
+              </ol>
+              <p style={{ margin: '6px 0 0', fontSize: '11px' }}>
+                <a href="https://help.shopify.com/en/manual/apps/app-types/custom-apps" target="_blank" rel="noreferrer" style={{ color: '#34d399' }}>
+                  Shopify’s custom app steps
+                </a>
+              </p>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#e5e7eb', marginBottom: '6px' }} htmlFor="shopify-webhook-secret">
+                App API secret
+              </label>
+              <input
+                id="shopify-webhook-secret"
+                type="password"
+                autoComplete="off"
+                placeholder={secretOnFile ? 'Secret saved. Paste a new one to replace it.' : 'Used to verify order webhooks'}
+                value={webhookSecret}
+                onChange={e => setWebhookSecret(e.target.value)}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '8px',
+                  padding: '10px 14px',
+                  color: '#f3f4f6',
+                  fontSize: '14px',
+                  outline: 'none'
+                }}
+              />
+              <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af', lineHeight: 1.5 }}>
+                In the same custom app, open API credentials and copy the API secret key. Shopify signs order and checkout webhooks with it. Jourvance refuses those webhooks until this secret is saved. Leave this blank to keep the secret already on file.
               </p>
             </div>
 
