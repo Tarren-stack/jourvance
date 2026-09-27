@@ -1,18 +1,20 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Zap, ArrowDownRight, Tag, Clock, ShoppingBag } from 'lucide-react';
+import { Zap, ArrowDownRight, Tag, Clock, ShoppingBag, TrendingUp, DollarSign } from 'lucide-react';
 import type { UpsellNodeData } from '../../../types/journey';
 
 export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
   const d = data as unknown as UpsellNodeData;
   const isDownsell = d.offerType === 'downsell';
+  const isRoasMode = (d as any).canvasViewMode === 'roas';
   const accentColor = isDownsell ? '#F59E0B' : '#10B981';
   const badgeBg = isDownsell ? 'rgba(245, 158, 11, 0.18)' : 'rgba(16, 185, 129, 0.18)';
   const badgeBorder = isDownsell ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)';
 
   const views = d.views || 0;
   const takes = d.takes || 0;
-  const takeRate = views > 0 ? ((takes / views) * 100).toFixed(1) : '0.0';
+  const takeRate = views > 0 ? ((takes / views) * 100).toFixed(1) : (d.conversionRate ? d.conversionRate.toFixed(1) : '0.0');
+  const numRate = parseFloat(takeRate);
   const revenue = d.attributedRevenue || 0;
 
   return (
@@ -122,6 +124,55 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
 
       {/* Content Preview */}
       <div style={{ padding: '12px 14px' }}>
+        {/* Performance & Revenue Live Pill */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: views > 0
+              ? (numRate >= 18 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)')
+              : 'rgba(255, 255, 255, 0.03)',
+            border: `1px solid ${
+              views > 0
+                ? (numRate >= 18 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)')
+                : 'rgba(255, 255, 255, 0.08)'
+            }`,
+            borderRadius: '8px',
+            padding: '5px 10px',
+            marginBottom: '8px'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <TrendingUp size={12} color={views > 0 ? (numRate >= 18 ? '#34D399' : '#F59E0B') : '#64748B'} />
+            <span
+              style={{
+                fontSize: '10px',
+                fontWeight: 700,
+                color: views > 0 ? '#FFFFFF' : '#94A3B8',
+                letterSpacing: '0.03em'
+              }}
+            >
+              {views > 0 ? `${takeRate}% Take Rate` : '0 Views'}
+            </span>
+            {views > 0 && (
+              <span style={{ fontSize: '9px', color: '#94A3B8' }}>
+                ({takes}/{views})
+              </span>
+            )}
+          </div>
+          <div
+            style={{
+              fontSize: '11px',
+              fontWeight: 800,
+              color: revenue > 0 ? '#34D399' : '#94A3B8',
+              fontFamily: "'JetBrains Mono', monospace"
+            }}
+          >
+            {revenue > 0 ? `+$${Math.round(revenue).toLocaleString()}` : takes > 0 ? `${takes} sold` : '$0 rev'}
+          </div>
+        </div>
+
         <div
           style={{
             fontSize: '12px',

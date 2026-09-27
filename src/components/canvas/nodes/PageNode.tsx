@@ -126,15 +126,83 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
         </div>
       ) : (
         <div style={{ padding: '12px 14px' }}>
-          <div style={{ fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+          {/* Performance & Revenue Live Pill */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: visitors > 0 ? 'rgba(99, 102, 241, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+              border: `1px solid ${visitors > 0 ? 'rgba(99, 102, 241, 0.28)' : 'rgba(255, 255, 255, 0.08)'}`,
+              borderRadius: '8px',
+              padding: '5px 9px',
+              marginBottom: '8px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <TrendingUp size={12} color={visitors > 0 ? '#818CF8' : '#64748B'} />
+              <span
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  color: visitors > 0 ? '#E0E7FF' : '#94A3B8',
+                  letterSpacing: '0.03em'
+                }}
+              >
+                {visitors > 0 ? `${d.conversionRate || (conv > 0 ? ((conv / visitors) * 100).toFixed(1) : '0.0')}% CVR` : '0 Visitors'}
+              </span>
+              {visitors > 0 && (
+                <span style={{ fontSize: '9px', color: '#94A3B8' }}>
+                  ({conv} orders)
+                </span>
+              )}
+            </div>
+            <div
+              style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                color: grossRev > 0 ? '#34D399' : '#94A3B8',
+                fontFamily: "'JetBrains Mono', monospace"
+              }}
+            >
+              {grossRev > 0 ? `$${grossRev.toLocaleString()}` : '$0 rev'}
+            </div>
+          </div>
+
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '4px', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
             {d.headline || 'Offer Page'}
           </div>
           <div style={{ fontSize: '11px', color: '#94A3B8', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
             {d.subhead || 'Clean single-offer landing page.'}
           </div>
 
+          {d.orderBumpEnabled && (
+            <div
+              style={{
+                marginTop: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '10px',
+                color: '#FBCFE8',
+                background: 'rgba(236, 72, 153, 0.08)',
+                padding: '3px 7px',
+                borderRadius: '6px',
+                border: '1px solid rgba(236, 72, 153, 0.2)'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#F472B6' }} />
+                <span>Bump: {d.orderBumpTitle ? (d.orderBumpTitle.length > 14 ? d.orderBumpTitle.slice(0, 14) + '…' : d.orderBumpTitle) : 'Order Bump'}</span>
+              </span>
+              <span style={{ fontWeight: 700, color: '#F472B6' }}>
+                {bumpTakes > 0 ? `+${bumpTakes} (${bumpRate}%)` : d.orderBumpPrice || '$18'}
+              </span>
+            </div>
+          )}
+
           {(d.urgencyTimerEnabled || d.scarcityBatchEnabled) && (
-            <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#FBCFE8', background: 'rgba(236, 72, 153, 0.1)', padding: '3px 7px', borderRadius: '6px', border: '1px solid rgba(236, 72, 153, 0.2)' }}>
+            <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#FBCFE8', background: 'rgba(236, 72, 153, 0.1)', padding: '3px 7px', borderRadius: '6px', border: '1px solid rgba(236, 72, 153, 0.2)' }}>
               <Clock size={11} color="#F472B6" />
               <span>
                 {d.urgencyTimerEnabled && d.scarcityBatchEnabled
