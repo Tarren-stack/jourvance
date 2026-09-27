@@ -38,15 +38,18 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
   initialForecast,
   onSaveForecast
 }) => {
+  // Extract pricing info once from canvas nodes
+  const extractedNodes = useMemo(() => extractPricingFromNodes(nodes), [nodes]);
+
   // Active forecast state
   const [forecast, setForecast] = useState<FunnelForecast>(() => {
     if (initialForecast) return initialForecast;
-    const extracted = extractPricingFromNodes(nodes);
     return {
       ...DEFAULT_FORECAST,
-      corePrice: extracted.corePrice,
-      bumpPrice: extracted.bumpPrice,
-      upsellPrice: extracted.upsellPrice
+      corePrice: extractedNodes.corePrice,
+      bumpPrice: extractedNodes.bumpPrice,
+      upsellPrice: extractedNodes.upsellPrice,
+      downsellPrice: extractedNodes.downsellPrice
     };
   });
 
@@ -70,6 +73,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
       conversionRate: p.conversionRate,
       bumpTakeRate: p.bumpTakeRate,
       upsellTakeRate: p.upsellTakeRate,
+      downsellTakeRate: p.downsellTakeRate,
       cogsPercentage: p.cogsPercentage
     }));
   };
@@ -81,9 +85,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
       ...prev,
       corePrice: extracted.corePrice,
       bumpPrice: extracted.bumpPrice,
-      upsellPrice: extracted.upsellPrice
+      upsellPrice: extracted.upsellPrice,
+      downsellPrice: extracted.downsellPrice
     }));
-    setSyncNotice(`Synced: Core $${extracted.corePrice.toFixed(2)}${extracted.hasBump ? ` | Bump $${extracted.bumpPrice.toFixed(2)}` : ''}${extracted.hasUpsell ? ` | Upsell $${extracted.upsellPrice.toFixed(2)}` : ''}`);
+    const parts = [`Core: $${extracted.corePrice.toFixed(2)}`];
+    if (extracted.hasBump) parts.push(`Bump: $${extracted.bumpPrice.toFixed(2)}`);
+    if (extracted.hasUpsell) parts.push(`Upsell: $${extracted.upsellPrice.toFixed(2)}`);
+    if (extracted.hasDownsell) parts.push(`Downsell: $${extracted.downsellPrice.toFixed(2)}`);
+    setSyncNotice(`Synced: ${parts.join(' | ')}`);
     setTimeout(() => setSyncNotice(null), 4000);
   };
 
@@ -114,6 +123,9 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
       ['Post-Purchase Upsell Take Rate', `${forecast.upsellTakeRate.toFixed(1)}%`],
       ['Post-Purchase Upsell Price', `$${forecast.upsellPrice.toFixed(2)}`],
       ['Upsell Units', sim.upsellSales.toString()],
+      ['Post-Purchase Downsell Take Rate', `${(forecast.downsellTakeRate ?? 0).toFixed(1)}%`],
+      ['Post-Purchase Downsell Price', `$${(forecast.downsellPrice ?? 0).toFixed(2)}`],
+      ['Downsell Units', sim.downsellSales.toString()],
       ['Product COGS %', `${forecast.cogsPercentage.toFixed(1)}%`],
       ['Gross Projected Revenue', `$${sim.grossRevenue.toFixed(2)}`],
       ['Effective AOV', `$${sim.effectiveAov.toFixed(2)}`],
@@ -435,17 +447,26 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               </div>
             </div>
 
-            {/* Section 3: AOV Boosters (Bump & Upsell) */}
+            {/* Section 3: AOV Boosters (Bump, Upsell & Downsell) */}
             <div className="space-y-4 pt-2">
               <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                AOV Multipliers (Bumps & Upsells)
+                AOV Multipliers (Bumps & OTO Offers)
               </span>
 
               {/* Order Bump */}
               <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/70 space-y-3">
                 <div className="flex justify-between items-center">
-                  <div className="text-xs font-semibold text-slate-300">Checkout Order Bump</div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                      <span>Checkout Order Bump</span>
+                      {extractedNodes.hasBump && (
+                        <span className="text-[10px] text-amber-400 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+                          {extractedNodes.bumpTitle ? `Canvas: ${extractedNodes.bumpTitle}` : 'On Canvas'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-slate-400 font-mono">Price:</span>
                     <div className="flex items-center text-xs font-mono text-white">
@@ -483,7 +504,17 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               {/* Post-Purchase Upsell (OTO) */}
               <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/70 space-y-3">
                 <div className="flex justify-between items-center">
-                  <div className="text-xs font-semibold text-slate-300">Post-Purchase Upsell (OTO)</div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                      <span>Post-Purchase Upsell (OTO)</span>
+                      {extractedNodes.hasUpsell && (
+                        <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">
+                          {extractedNodes.upsellTitle ? `Canvas: ${extractedNodes.upsellTitle}` : 'On Canvas'}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500">1-Click offer shown after checkout</span>
+                  </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-slate-400 font-mono">Price:</span>
                     <div className="flex items-center text-xs font-mono text-white">
@@ -514,6 +545,54 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     value={forecast.upsellTakeRate}
                     onChange={e => updateField('upsellTakeRate', parseFloat(e.target.value))}
                     className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Downsell Offer (Downsell OTO) */}
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/70 space-y-3">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                      <span>Downsell Offer (Downsell OTO)</span>
+                      {extractedNodes.hasDownsell && (
+                        <span className="text-[10px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+                          {extractedNodes.downsellTitle ? `Canvas: ${extractedNodes.downsellTitle}` : 'On Canvas'}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500">Offered to buyers who decline initial upsell</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-400 font-mono">Price:</span>
+                    <div className="flex items-center text-xs font-mono text-white">
+                      <span>$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="500"
+                        step="1"
+                        value={forecast.downsellPrice ?? 19}
+                        onChange={e => updateField('downsellPrice', Math.max(0, parseFloat(e.target.value) || 0))}
+                        className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-right font-mono text-white text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-xs text-slate-400">
+                    <span>Take Rate: {forecast.downsellTakeRate ?? 15}%</span>
+                    <span className="font-mono text-amber-300">{sim.downsellSales} buyers (${sim.downsellRevenue.toFixed(0)})</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="50"
+                    step="1"
+                    value={forecast.downsellTakeRate ?? 15}
+                    onChange={e => updateField('downsellTakeRate', parseFloat(e.target.value))}
+                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
                   />
                 </div>
               </div>
@@ -686,6 +765,15 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   <span className="text-emerald-400">+${sim.upsellRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                 </div>
 
+                {((forecast.downsellTakeRate ?? 0) > 0 || sim.downsellRevenue > 0) && (
+                  <div className="flex justify-between py-1 border-b border-slate-800/60 text-slate-300">
+                    <span className="text-amber-300/90 flex items-center gap-1">
+                      <span>↳ Downsell Offer Sales ({sim.downsellSales} @ ${forecast.downsellPrice ?? 0})</span>
+                    </span>
+                    <span className="text-amber-300">+${sim.downsellRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+
                 <div className="flex justify-between py-1 border-b border-slate-800/60 text-slate-200 font-bold bg-slate-950/40 px-2 rounded">
                   <span>Gross Cash Collected</span>
                   <span>${sim.grossRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
@@ -725,6 +813,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     <strong>+5% Upsell Leverage:</strong> Boosting your Upsell Take Rate by just 5% (to {(forecast.upsellTakeRate + 5).toFixed(0)}%) generates an extra <strong className="text-emerald-400">+${sim.leverage5PctUpsellProfit.toFixed(0)}/mo in net profit</strong> with zero additional ad spend.
                   </span>
                 </li>
+                {sim.downsellRevenue > 0 && (
+                  <li className="flex items-start gap-2">
+                    <ChevronRight className="w-3.5 h-3.5 text-amber-300 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Downsell Recovery Net:</strong> Your downsell recaptures <strong className="text-amber-300">{sim.downsellSales} otherwise-declining buyers</strong>, injecting <strong className="text-white">+${sim.downsellRevenue.toFixed(0)}/mo</strong> into total revenue.
+                    </span>
+                  </li>
+                )}
                 <li className="flex items-start gap-2">
                   <ChevronRight className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
                   <span>

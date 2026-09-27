@@ -9,14 +9,16 @@ export const DEFAULT_FORECAST: FunnelForecast = {
   bumpTakeRate: 28,
   bumpPrice: 28.00,
   upsellTakeRate: 22,
-  upsellPrice: 38.00
+  upsellPrice: 38.00,
+  downsellTakeRate: 15,
+  downsellPrice: 19.00
 };
 
 export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', {
   name: string;
   badge: string;
   description: string;
-  values: Pick<FunnelForecast, 'monthlyAdSpend' | 'cpc' | 'conversionRate' | 'bumpTakeRate' | 'upsellTakeRate' | 'cogsPercentage'>;
+  values: Pick<FunnelForecast, 'monthlyAdSpend' | 'cpc' | 'conversionRate' | 'bumpTakeRate' | 'upsellTakeRate' | 'downsellTakeRate' | 'cogsPercentage'>;
 }> = {
   conservative: {
     name: 'Conservative / Testing',
@@ -28,6 +30,7 @@ export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', 
       conversionRate: 1.6,
       bumpTakeRate: 16,
       upsellTakeRate: 12,
+      downsellTakeRate: 10,
       cogsPercentage: 25
     }
   },
@@ -41,6 +44,7 @@ export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', 
       conversionRate: 2.8,
       bumpTakeRate: 28,
       upsellTakeRate: 22,
+      downsellTakeRate: 15,
       cogsPercentage: 20
     }
   },
@@ -54,6 +58,7 @@ export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', 
       conversionRate: 4.2,
       bumpTakeRate: 38,
       upsellTakeRate: 32,
+      downsellTakeRate: 22,
       cogsPercentage: 18
     }
   }
@@ -71,26 +76,32 @@ export function parseNumericPrice(val: unknown, fallback: number = 0): number {
 }
 
 /**
- * Inspects visual canvas nodes to auto-extract core product, bump, and upsell pricing.
+ * Inspects visual canvas nodes to auto-extract core product, bump, upsell, and downsell pricing.
  */
 export function extractPricingFromNodes(nodes: JourneyNode[]): {
   corePrice: number;
   bumpPrice: number;
   upsellPrice: number;
+  downsellPrice: number;
   hasBump: boolean;
   hasUpsell: boolean;
+  hasDownsell: boolean;
   coreTitle?: string;
   bumpTitle?: string;
   upsellTitle?: string;
+  downsellTitle?: string;
 } {
   let corePrice = 58.00;
   let bumpPrice = 28.00;
   let upsellPrice = 38.00;
+  let downsellPrice = 19.00;
   let hasBump = false;
   let hasUpsell = false;
+  let hasDownsell = false;
   let coreTitle: string | undefined;
   let bumpTitle: string | undefined;
   let upsellTitle: string | undefined;
+  let downsellTitle: string | undefined;
 
   for (const node of nodes) {
     if (node.data.type === 'landing-page') {
@@ -112,12 +123,19 @@ export function extractPricingFromNodes(nodes: JourneyNode[]): {
       }
     } else if (node.data.type === 'upsell') {
       const upsellData = node.data as UpsellNodeData;
+      const isDown = upsellData.offerType === 'downsell';
       if (upsellData.productPrice) {
         const parsed = parseNumericPrice(upsellData.productPrice, 0);
         if (parsed > 0) {
-          upsellPrice = parsed;
-          hasUpsell = true;
-          upsellTitle = upsellData.productTitle || upsellData.headline;
+          if (isDown) {
+            downsellPrice = parsed;
+            hasDownsell = true;
+            downsellTitle = upsellData.productTitle || upsellData.headline;
+          } else {
+            upsellPrice = parsed;
+            hasUpsell = true;
+            upsellTitle = upsellData.productTitle || upsellData.headline;
+          }
         }
       }
     }
@@ -127,11 +145,14 @@ export function extractPricingFromNodes(nodes: JourneyNode[]): {
     corePrice,
     bumpPrice,
     upsellPrice,
+    downsellPrice,
     hasBump,
     hasUpsell,
+    hasDownsell,
     coreTitle,
     bumpTitle,
-    upsellTitle
+    upsellTitle,
+    downsellTitle
   };
 }
 
@@ -148,7 +169,9 @@ export function calculateFunnelForecast(forecast: FunnelForecast): FunnelSimulat
     bumpTakeRate,
     bumpPrice,
     upsellTakeRate,
-    upsellPrice
+    upsellPrice,
+    downsellTakeRate = 0,
+    downsellPrice = 0
   } = forecast;
 
   // 1. Traffic & Front-End Orders
@@ -158,12 +181,16 @@ export function calculateFunnelForecast(forecast: FunnelForecast): FunnelSimulat
   // 2. AOV Add-On Units
   const bumpSales = Math.round(frontEndOrders * (bumpTakeRate / 100));
   const upsellSales = Math.round(frontEndOrders * (upsellTakeRate / 100));
+  // In authentic direct-response funnels, the downsell is presented to buyers who decline the upsell
+  const declinedUpsellCount = Math.max(0, frontEndOrders - upsellSales);
+  const downsellSales = Math.round(declinedUpsellCount * (downsellTakeRate / 100));
 
   // 3. Revenue Breakdown
   const coreRevenue = frontEndOrders * corePrice;
   const bumpRevenue = bumpSales * bumpPrice;
   const upsellRevenue = upsellSales * upsellPrice;
-  const grossRevenue = coreRevenue + bumpRevenue + upsellRevenue;
+  const downsellRevenue = downsellSales * downsellPrice;
+  const grossRevenue = coreRevenue + bumpRevenue + upsellRevenue + downsellRevenue;
 
   // 4. AOV & Lift
   const baseAov = corePrice;
@@ -202,9 +229,11 @@ export function calculateFunnelForecast(forecast: FunnelForecast): FunnelSimulat
     frontEndOrders,
     bumpSales,
     upsellSales,
+    downsellSales,
     coreRevenue,
     bumpRevenue,
     upsellRevenue,
+    downsellRevenue,
     grossRevenue,
     effectiveAov,
     baseAov,

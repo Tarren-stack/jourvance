@@ -372,6 +372,8 @@ export interface FunnelForecast {
   bumpPrice: number;
   upsellTakeRate: number; // percentage (e.g. 22)
   upsellPrice: number;
+  downsellTakeRate?: number; // percentage (e.g. 15% of non-upsell buyers)
+  downsellPrice?: number;
   savedAt?: string;
 }
 
@@ -380,9 +382,11 @@ export interface FunnelSimulationResults {
   frontEndOrders: number;
   bumpSales: number;
   upsellSales: number;
+  downsellSales: number;
   coreRevenue: number;
   bumpRevenue: number;
   upsellRevenue: number;
+  downsellRevenue: number;
   grossRevenue: number;
   effectiveAov: number;
   baseAov: number;
