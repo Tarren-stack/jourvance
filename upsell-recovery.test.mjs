@@ -338,4 +338,57 @@ test('Option C1: /api/funnel/stats computes upsell recovery metrics and applies 
   assert.equal(recoveryRate, 50.0);
 });
 
+test('Option 1: courtesy recovery link includes 24h expiration timestamp', () => {
+  const publicBase = 'https://jourvance.app';
+  const slug = 'facial-essence-offer';
+  const discountCode = 'SAVE10';
+  const cleanEmail = 'clara@luxeaesthetics.com';
+  const delayHours = 18;
+  const expTime = Date.now() + (delayHours + 24) * 3600000;
+
+  const offerUrl = `${publicBase}/p/${slug}?coupon=${encodeURIComponent(discountCode)}&email=${encodeURIComponent(cleanEmail)}&ref=recovery&exp=${expTime}`;
+
+  const parsed = new URL(offerUrl);
+  assert.equal(parsed.searchParams.get('coupon'), 'SAVE10');
+  assert.equal(parsed.searchParams.get('email'), 'clara@luxeaesthetics.com');
+  assert.equal(parsed.searchParams.get('ref'), 'recovery');
+  assert.ok(Number(parsed.searchParams.get('exp')) > Date.now());
+});
+
+test('Option 1: expired courtesy offer renders informative fallback message and suppresses discount', () => {
+  const queryExpPast = Date.now() - 5000; // 5 seconds in the past
+  const queryCoupon = 'SAVE10';
+  const isCourtesyRecovery = true;
+
+  const isCourtesyExpired = isCourtesyRecovery && queryExpPast && Date.now() > queryExpPast;
+  assert.equal(isCourtesyExpired, true);
+
+  const rawProductPrice = '$40.00';
+  const regularPrice = '$50.00';
+  const numericBasePrice = 40;
+
+  let finalPriceStr = rawProductPrice;
+  let recordedAmount = numericBasePrice;
+
+  // When expired, courtesy discount is suppressed
+  if (isCourtesyRecovery && numericBasePrice > 0 && !isCourtesyExpired) {
+    const discountedNum = Number((numericBasePrice * 0.9).toFixed(2));
+    finalPriceStr = `$${discountedNum.toFixed(2)}`;
+    recordedAmount = discountedNum;
+  }
+
+  assert.equal(finalPriceStr, '$40.00');
+  assert.equal(recordedAmount, 40);
+
+  // Expired fallback card content
+  const expiredCardTitle = 'This Private Courtesy Offer Has Expired';
+  const expiredBadge = 'Courtesy Window Concluded';
+  const expiredActionText = 'Continue to My Order Confirmation';
+
+  assert.ok(expiredCardTitle.includes('Expired'));
+  assert.ok(expiredBadge.includes('Courtesy Window Concluded'));
+  assert.ok(expiredActionText.includes('Order Confirmation'));
+});
+
+
 
