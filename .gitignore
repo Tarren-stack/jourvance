@@ -19,3 +19,4 @@ scratch/
 .agent/
 .autoclaw/
 .claude/
+test_sample.json

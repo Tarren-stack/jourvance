@@ -298,6 +298,14 @@ export interface ConversionEdgeData extends Record<string, unknown> {
   targetCount: number;
   rate: number;
   dropOffAlert?: boolean;
+  sourceNodeType?: NodeType;
+  targetNodeType?: NodeType;
+  sourceNodeLabel?: string;
+  targetNodeLabel?: string;
+  sourceNodeData?: JourneyNodeData;
+  targetNodeData?: JourneyNodeData;
+  onSelectEdge?: (id: string) => void;
+  isSelected?: boolean;
 }
 
 export type JourneyEdge = Edge<ConversionEdgeData>;

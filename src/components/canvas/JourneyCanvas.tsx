@@ -33,6 +33,8 @@ interface Props {
   onEdgesChange: (edges: JourneyEdge[]) => void;
   selectedNodeId: string | null;
   onSelectNode: (node: JourneyNode | null) => void;
+  selectedEdgeId?: string | null;
+  onSelectEdge?: (edge: JourneyEdge | null) => void;
   canvasViewMode?: CanvasViewMode;
 }
 
@@ -43,6 +45,8 @@ export const JourneyCanvas: React.FC<Props> = ({
   onEdgesChange,
   selectedNodeId,
   onSelectNode,
+  selectedEdgeId,
+  onSelectEdge,
   canvasViewMode = 'edit'
 }) => {
   const nodeTypes: NodeTypes = useMemo(() => ({
@@ -61,6 +65,8 @@ export const JourneyCanvas: React.FC<Props> = ({
   const [rfNodes, setRfNodes, onNodesChangeHandler] = useNodesState(nodes);
   const [rfEdges, setRfEdges, onEdgesChangeHandler] = useEdgesState(edges);
 
+  const nodeMap = useMemo(() => new Map(nodes.map(n => [n.id, n])), [nodes]);
+
   // Synchronize when external nodes change, preserving active user coordinates
   React.useEffect(() => {
     setRfNodes(currentRfNodes => {
@@ -78,8 +84,34 @@ export const JourneyCanvas: React.FC<Props> = ({
   }, [nodes, selectedNodeId, canvasViewMode, setRfNodes]);
 
   React.useEffect(() => {
-    setRfEdges(edges);
-  }, [edges, setRfEdges]);
+    setRfEdges(
+      edges.map(e => {
+        const source = nodeMap.get(e.source);
+        const target = nodeMap.get(e.target);
+        return {
+          ...e,
+          data: {
+            sourceThroughput: 0,
+            targetCount: 0,
+            rate: 0,
+            ...(e.data || {}),
+            sourceNodeType: source?.data?.type,
+            targetNodeType: target?.data?.type,
+            sourceNodeLabel: source?.data?.label,
+            targetNodeLabel: target?.data?.label,
+            sourceNodeData: source?.data,
+            targetNodeData: target?.data,
+            isSelected: e.id === selectedEdgeId,
+            onSelectEdge: (id: string) => {
+              const clicked = edges.find(item => item.id === id);
+              if (onSelectNode) onSelectNode(null);
+              if (onSelectEdge) onSelectEdge(clicked || null);
+            }
+          }
+        };
+      })
+    );
+  }, [edges, nodeMap, selectedEdgeId, onSelectEdge, onSelectNode, setRfEdges]);
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -111,9 +143,12 @@ export const JourneyCanvas: React.FC<Props> = ({
           onEdgesChange(remaining);
           return remaining;
         });
+        if (selectedEdgeId && removedIds.has(selectedEdgeId)) {
+          if (onSelectEdge) onSelectEdge(null);
+        }
       }
     },
-    [onEdgesChangeHandler, onEdgesChange, setRfEdges]
+    [onEdgesChangeHandler, onEdgesChange, selectedEdgeId, onSelectEdge, setRfEdges]
   );
 
   const handleConnect = useCallback(
@@ -138,14 +173,24 @@ export const JourneyCanvas: React.FC<Props> = ({
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
+      if (onSelectEdge) onSelectEdge(null);
       onSelectNode(node as JourneyNode);
     },
-    [onSelectNode]
+    [onSelectNode, onSelectEdge]
+  );
+
+  const handleEdgeClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      if (onSelectNode) onSelectNode(null);
+      if (onSelectEdge) onSelectEdge(edge as JourneyEdge);
+    },
+    [onSelectNode, onSelectEdge]
   );
 
   const handlePaneClick = useCallback(() => {
     onSelectNode(null);
-  }, [onSelectNode]);
+    if (onSelectEdge) onSelectEdge(null);
+  }, [onSelectNode, onSelectEdge]);
 
   const handleNodeDragStop = useCallback(() => {
     onNodesChange(rfNodes as JourneyNode[]);
@@ -163,6 +208,7 @@ export const JourneyCanvas: React.FC<Props> = ({
           onEdgesChange={handleEdgesChange}
           onConnect={handleConnect}
           onNodeClick={handleNodeClick}
+          onEdgeClick={handleEdgeClick}
           onPaneClick={handlePaneClick}
           onNodeDragStop={handleNodeDragStop}
           fitView

@@ -85,3 +85,63 @@ test('mobile sticky bar defaults to enabled unless explicitly set false', () => 
   assert.equal(pageExplicitOff.mobileStickyBarEnabled !== false, false);
 });
 
+test('conversion benchmarks accurately assigns metric names and industry statuses', async () => {
+  const { getStepBenchmark } = await import('./src/lib/conversionBenchmarks.ts');
+
+  // Ad -> Page (CTR)
+  const adEmpty = getStepBenchmark('ad-source', 'landing-page', 0, 0, 0);
+  assert.equal(adEmpty.metricShort, 'CTR');
+  assert.equal(adEmpty.status, 'awaiting_traffic');
+
+  const adPoor = getStepBenchmark('ad-source', 'landing-page', 0.8, 1000, 8);
+  assert.equal(adPoor.metricShort, 'CTR');
+  assert.equal(adPoor.status, 'needs_work');
+  assert.equal(adPoor.dropOffCount, 992);
+
+  const adHealthy = getStepBenchmark('ad-source', 'landing-page', 2.2, 1000, 22);
+  assert.equal(adHealthy.status, 'healthy');
+
+  const adTop = getStepBenchmark('ad-source', 'landing-page', 4.1, 1000, 41);
+  assert.equal(adTop.status, 'top_performer');
+
+  // Page -> Thank You (CR)
+  const pageOrder = getStepBenchmark('landing-page', 'thank-you', 6.5, 500, 32);
+  assert.equal(pageOrder.metricShort, 'CR');
+  assert.equal(pageOrder.status, 'healthy');
+  assert.equal(pageOrder.dropOffCount, 468);
+
+  // Page -> Form (Opt-in)
+  const pageForm = getStepBenchmark('landing-page', 'lead-form', 25.0, 400, 100);
+  assert.equal(pageForm.metricShort, 'OPT-IN');
+  assert.equal(pageForm.status, 'healthy');
+
+  // Upsell -> Thank You (Take Rate)
+  const upsell = getStepBenchmark('upsell', 'thank-you', 30.0, 100, 30);
+  assert.equal(upsell.metricShort, 'TAKE RATE');
+  assert.equal(upsell.status, 'top_performer');
+});
+
+test('revenue leakage calculator models recovered conversions and dollar opportunities', async () => {
+  const { calculateRevenueLeakage } = await import('./src/lib/conversionBenchmarks.ts');
+
+  // 1,000 dropped visitors at 2% current CR vs 5.5% healthy benchmark with $50 AOV
+  const result = calculateRevenueLeakage(1000, 2.0, 5.5, 50.0);
+  assert.equal(result.droppedVisitors, 1000);
+  // Lift = 3.5% of 1000 = 35 recovered conversions
+  assert.equal(result.potentialRecoveredConversions, 35);
+  // Revenue gain = 35 * $50 = $1,750
+  assert.equal(result.potentialRevenueGain, 1750.0);
+});
+
+test('optimization recommendations provide step-tailored actionable playbooks', async () => {
+  const { getStepOptimizationTips } = await import('./src/lib/conversionBenchmarks.ts');
+
+  const pageTips = getStepOptimizationTips('landing-page', 'thank-you');
+  assert.ok(pageTips.length >= 2);
+  assert.ok(pageTips.some(t => t.title.includes('Mobile Sticky Action Bar')));
+
+  const adTips = getStepOptimizationTips('ad-source', 'landing-page');
+  assert.ok(adTips.some(t => t.badge === 'MESSAGE MATCH'));
+});
+
+

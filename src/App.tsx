@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy, useMemo, useCallback } from 'react';
 import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, NodeType, Workspace, CanvasViewMode, ActiveAppView } from './types/journey';
 import { loadCurrentJourney, saveCurrentJourney } from './lib/journeyStorage';
 import { applyLiveStats } from './lib/liveStats';
@@ -17,6 +17,7 @@ import type { PublishedPageInfo } from './components/preview/PublishModal';
 // Code-split heavy interior app and modal bundles to ensure sub-second public page loads
 const JourneyCanvas = lazy(() => import('./components/canvas/JourneyCanvas').then(m => ({ default: m.JourneyCanvas })));
 const NodeInspector = lazy(() => import('./components/drawers/NodeInspector').then(m => ({ default: m.NodeInspector })));
+const EdgeInspector = lazy(() => import('./components/drawers/EdgeInspector').then(m => ({ default: m.EdgeInspector })));
 const HubEmailSuite = lazy(() => import('./components/campaign/HubEmailSuite').then(m => ({ default: m.HubEmailSuite })));
 const AttributionReports = lazy(() => import('./components/analytics/AttributionReports').then(m => ({ default: m.AttributionReports })));
 const FinancialSimulatorDrawer = lazy(() => import('./components/drawers/FinancialSimulatorDrawer').then(m => ({ default: m.FinancialSimulatorDrawer })));
@@ -86,6 +87,29 @@ export const App: React.FC = () => {
   }, []);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+
+  const selectedEdge = useMemo(() => {
+    return project.edges.find(e => e.id === selectedEdgeId) || null;
+  }, [project.edges, selectedEdgeId]);
+
+  const edgeSourceNode = useMemo(() => {
+    if (!selectedEdge) return null;
+    return project.nodes.find(n => n.id === selectedEdge.source) || null;
+  }, [project.nodes, selectedEdge]);
+
+  const edgeTargetNode = useMemo(() => {
+    if (!selectedEdge) return null;
+    return project.nodes.find(n => n.id === selectedEdge.target) || null;
+  }, [project.nodes, selectedEdge]);
+
+  const handleDeleteEdge = useCallback((edgeId: string) => {
+    setProject(prev => {
+      const nextEdges = prev.edges.filter(e => e.id !== edgeId);
+      return { ...prev, edges: nextEdges, updatedAt: new Date().toISOString() };
+    });
+    setSelectedEdgeId(null);
+  }, []);
   
   // Workspace & Multi-Tenancy (1 Shopify Store Per Workspace)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -608,7 +632,15 @@ export const App: React.FC = () => {
                   onNodesChange={handleNodesChange}
                   onEdgesChange={handleEdgesChange}
                   selectedNodeId={selectedNodeId}
-                  onSelectNode={node => setSelectedNodeId(node ? node.id : null)}
+                  onSelectNode={node => {
+                    setSelectedNodeId(node ? node.id : null);
+                    if (node) setSelectedEdgeId(null);
+                  }}
+                  selectedEdgeId={selectedEdgeId}
+                  onSelectEdge={edge => {
+                    setSelectedEdgeId(edge ? edge.id : null);
+                    if (edge) setSelectedNodeId(null);
+                  }}
                   canvasViewMode={canvasViewMode}
                 />
 
@@ -623,6 +655,19 @@ export const App: React.FC = () => {
                   journeyId={project.id}
                   workspace={currentWorkspace}
                   onOpenShopifyConnect={() => setShowShopifyModal(true)}
+                />
+
+                {/* Step Transition Analytics & Leakage Drawer */}
+                <EdgeInspector
+                  edge={selectedEdge}
+                  sourceNode={edgeSourceNode}
+                  targetNode={edgeTargetNode}
+                  onClose={() => setSelectedEdgeId(null)}
+                  onSelectNode={nodeId => {
+                    setSelectedEdgeId(null);
+                    setSelectedNodeId(nodeId);
+                  }}
+                  onDeleteEdge={handleDeleteEdge}
                 />
               </main>
             )}
