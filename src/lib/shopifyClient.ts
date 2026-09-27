@@ -227,20 +227,31 @@ export function buildMultiItemCheckoutPermalink(opts: {
   return `https://${domain}/cart/${cartPath}${query ? `?${query}` : ''}`;
 }
 
-/**
- * Checks CNAME DNS propagation for custom brand subdomains (Wave 3)
- */
-export async function verifyCustomDomain(domain: string): Promise<{
+export interface DomainVerifyResult {
   success: boolean;
   verified: boolean;
   domain: string;
   cnames?: string[];
   expectedTarget?: string;
+  sslActive?: boolean;
+  sslDetails?: {
+    issuer?: string;
+    validTo?: string;
+    daysRemaining?: number;
+    authorized?: boolean;
+  };
   message?: string;
   error?: string;
-}> {
+}
+
+/**
+ * Checks CNAME DNS propagation & SSL certificate for custom brand subdomains (Wave 3)
+ */
+export async function verifyCustomDomain(domain: string): Promise<DomainVerifyResult> {
   try {
-    const res = await fetch(`/api/domain/verify?domain=${encodeURIComponent(domain)}`);
+    const res = await fetch(`/api/domain/verify?domain=${encodeURIComponent(domain)}`, {
+      headers: await authHeaders()
+    });
     return await res.json();
   } catch (err: any) {
     return {
@@ -251,5 +262,73 @@ export async function verifyCustomDomain(domain: string): Promise<{
     };
   }
 }
+
+export interface EmailDeliverabilityReport {
+  success: boolean;
+  domain: string;
+  score: number;
+  status: 'optimal' | 'good' | 'warning' | 'critical';
+  spf: {
+    valid: boolean;
+    record?: string;
+    policy?: string;
+    includes?: string[];
+    error?: string;
+  };
+  dkim: {
+    valid: boolean;
+    selector?: string;
+    record?: string;
+    error?: string;
+  };
+  dmarc: {
+    valid: boolean;
+    record?: string;
+    policy?: string;
+    rua?: string;
+    pct?: number;
+    error?: string;
+  };
+  mx: {
+    valid: boolean;
+    records?: { exchange: string; priority: number }[];
+    error?: string;
+  };
+  recommendations: string[];
+  suggestedRecords: {
+    type: string;
+    name: string;
+    value: string;
+    purpose: string;
+  }[];
+  error?: string;
+}
+
+/**
+ * Deep DNS deliverability health check (SPF, DKIM, DMARC, MX)
+ */
+export async function checkEmailDeliverabilityDns(domain: string): Promise<EmailDeliverabilityReport> {
+  try {
+    const res = await fetch(`/api/email/dns-check?domain=${encodeURIComponent(domain)}`, {
+      headers: await authHeaders()
+    });
+    return await res.json();
+  } catch (err: any) {
+    return {
+      success: false,
+      domain,
+      score: 0,
+      status: 'critical',
+      spf: { valid: false, error: 'Network error checking SPF' },
+      dkim: { valid: false, error: 'Network error checking DKIM' },
+      dmarc: { valid: false, error: 'Network error checking DMARC' },
+      mx: { valid: false, error: 'Network error checking MX' },
+      recommendations: ['Check connection and retry.'],
+      suggestedRecords: [],
+      error: err.message || 'DNS check failed'
+    };
+  }
+}
+
 
 

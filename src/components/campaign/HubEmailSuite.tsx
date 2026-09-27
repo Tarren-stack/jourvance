@@ -483,7 +483,7 @@ ${unsub}`;
           { key: 'inbox', label: 'Inbox', icon: Inbox },
           { key: 'sms', label: 'Texts', icon: MessageSquare },
           { key: 'audience', label: 'Audience', icon: Users },
-          { key: 'sending', label: 'Sending', icon: Globe },
+          { key: 'sending', label: 'DNS & Deliverability', icon: ShieldCheck },
           { key: 'klaviyo', label: 'Klaviyo', icon: RefreshCw },
           { key: 'analytics', label: 'Deliverability', icon: TrendingUp }
         ].map(tab => {

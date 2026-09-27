@@ -18,6 +18,7 @@ import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import dns from 'dns';
+import tls from 'tls';
 import { fileURLToPath } from 'url';
 import { createHubClient } from './hub-sdk.js';
 import { hubStorage } from './hub-storage.mjs';
@@ -9679,6 +9680,60 @@ app.get('/api/public/form-confirm/:token', async (req, res) => {
 
 // ── Wave 3: Custom Brand Subdomain & CNAME Verification ───────────────────────
 
+// Helper: Non-blocking TLS SNI handshake to test live SSL certificate validity
+function checkSslCertificate(domain, timeoutMs = 3500) {
+  return new Promise((resolve) => {
+    let finished = false;
+    const socket = tls.connect({
+      host: domain,
+      port: 443,
+      servername: domain,
+      rejectUnauthorized: false,
+      timeout: timeoutMs
+    }, () => {
+      if (finished) return;
+      finished = true;
+      try {
+        const cert = socket.getPeerCertificate();
+        const authorized = socket.authorized;
+        const validTo = cert ? cert.valid_to : null;
+        const validFrom = cert ? cert.valid_from : null;
+        const issuer = cert && cert.issuer ? (cert.issuer.O || cert.issuer.CN || 'Unknown') : 'Unknown';
+        const now = Date.now();
+        const expiresMs = validTo ? new Date(validTo).getTime() : 0;
+        const daysRemaining = expiresMs > now ? Math.round((expiresMs - now) / 86400000) : 0;
+        const sslActive = authorized && daysRemaining > 0;
+
+        socket.end();
+        resolve({
+          sslActive,
+          authorized,
+          issuer,
+          validFrom,
+          validTo,
+          daysRemaining
+        });
+      } catch (err) {
+        socket.destroy();
+        resolve({ sslActive: false, error: err.message });
+      }
+    });
+
+    socket.on('error', (err) => {
+      if (finished) return;
+      finished = true;
+      resolve({ sslActive: false, error: err.code || err.message });
+    });
+
+    socket.on('timeout', () => {
+      if (finished) return;
+      finished = true;
+      socket.destroy();
+      resolve({ sslActive: false, error: 'SSL Handshake timed out' });
+    });
+  });
+}
+
 app.get('/api/domain/verify', requireUser, async (req, res) => {
   const domain = (req.query.domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   if (!domain || !domain.includes('.')) {
@@ -9693,14 +9748,23 @@ app.get('/api/domain/verify', requireUser, async (req, res) => {
       return lower === expectedTarget || lower === 'jourvance.com' || lower.includes('jourvance');
     });
 
+    let sslStatus = { sslActive: false };
+    if (targetMatch) {
+      sslStatus = await checkSslCertificate(domain);
+    }
+
     res.json({
       success: true,
       domain,
       verified: targetMatch,
       cnames,
       expectedTarget,
+      sslActive: !!sslStatus.sslActive,
+      sslDetails: sslStatus,
       message: targetMatch
-        ? `DNS Verified! ${domain} correctly points to ${expectedTarget}.`
+        ? (sslStatus.sslActive
+            ? `DNS & SSL Active! ${domain} correctly points to ${expectedTarget} with verified HTTPS certificate (${sslStatus.issuer}, ${sslStatus.daysRemaining} days remaining).`
+            : `CNAME Verified! ${domain} points to ${expectedTarget}. SSL certificate is currently provisioning.`)
         : `CNAME points to ${cnames.join(', ')}. Expected: ${expectedTarget}`
     });
   } catch (err) {
@@ -9708,11 +9772,169 @@ app.get('/api/domain/verify', requireUser, async (req, res) => {
       success: true,
       domain,
       verified: false,
+      sslActive: false,
       error: err.code || err.message,
       expectedTarget,
       message: `No active CNAME record detected for ${domain}. Please create: CNAME -> ${expectedTarget}`
     });
   }
+});
+
+// ── Email Deliverability & DNS Authentication (SPF, DKIM, DMARC, MX) ─────────
+
+app.get('/api/email/dns-check', requireUser, async (req, res) => {
+  const domain = (req.query.domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!domain || !domain.includes('.')) {
+    return res.status(400).json({ success: false, error: 'A valid root domain or subdomain is required (e.g. yourbrand.com).' });
+  }
+
+  // 1. SPF Check
+  let spfResult = { valid: false, record: '', policy: '', includes: [], error: null };
+  try {
+    const txts = await dns.promises.resolveTxt(domain);
+    const flat = (txts || []).map(chunks => chunks.join(''));
+    const spfRecord = flat.find(r => r.startsWith('v=spf1'));
+    if (spfRecord) {
+      spfResult.record = spfRecord;
+      spfResult.valid = true;
+      const policyMatch = spfRecord.match(/([~?+-]all)/);
+      spfResult.policy = policyMatch ? policyMatch[1] : '~all';
+      const incMatches = [...spfRecord.matchAll(/include:([^\s]+)/g)].map(m => m[1]);
+      spfResult.includes = incMatches;
+    } else {
+      spfResult.error = 'No SPF (v=spf1) TXT record found.';
+    }
+  } catch (e) {
+    spfResult.error = e.code === 'ENODATA' || e.code === 'ENOTFOUND' ? 'No SPF record found on domain.' : (e.message || 'DNS query failed');
+  }
+
+  // 2. DMARC Check (Mandatory for Google & Yahoo bulk delivery)
+  let dmarcResult = { valid: false, record: '', policy: '', rua: '', pct: 100, error: null };
+  try {
+    const dmarcDomain = `_dmarc.${domain}`;
+    const txts = await dns.promises.resolveTxt(dmarcDomain);
+    const flat = (txts || []).map(chunks => chunks.join(''));
+    const dmarcRecord = flat.find(r => r.startsWith('v=DMARC1'));
+    if (dmarcRecord) {
+      dmarcResult.record = dmarcRecord;
+      dmarcResult.valid = true;
+      const pMatch = dmarcRecord.match(/p=([a-zA-Z]+)/);
+      dmarcResult.policy = pMatch ? pMatch[1].toLowerCase() : 'none';
+      const ruaMatch = dmarcRecord.match(/rua=([^\s;]+)/);
+      dmarcResult.rua = ruaMatch ? ruaMatch[1] : '';
+      const pctMatch = dmarcRecord.match(/pct=([0-9]+)/);
+      dmarcResult.pct = pctMatch ? parseInt(pctMatch[1], 10) : 100;
+    } else {
+      dmarcResult.error = `No DMARC (v=DMARC1) record found at _dmarc.${domain}`;
+    }
+  } catch (e) {
+    dmarcResult.error = e.code === 'ENODATA' || e.code === 'ENOTFOUND' ? 'Missing DMARC policy record.' : (e.message || 'DNS query failed');
+  }
+
+  // 3. DKIM Check (Probes common ESP selectors)
+  const selectors = ['s1', 'k1', 'sg', 'default', 'google', 'smtp', 'mail', 'krs'];
+  let dkimResult = { valid: false, selector: '', record: '', error: null };
+  for (const sel of selectors) {
+    const dkimHost = `${sel}._domainkey.${domain}`;
+    try {
+      const cnames = await dns.promises.resolveCname(dkimHost);
+      if (Array.isArray(cnames) && cnames.length > 0) {
+        dkimResult.valid = true;
+        dkimResult.selector = sel;
+        dkimResult.record = cnames[0];
+        break;
+      }
+    } catch (_) {}
+
+    try {
+      const txts = await dns.promises.resolveTxt(dkimHost);
+      const flat = (txts || []).map(chunks => chunks.join(''));
+      const dkimTxt = flat.find(r => r.includes('v=DKIM1') || r.includes('k=rsa') || r.includes('p='));
+      if (dkimTxt) {
+        dkimResult.valid = true;
+        dkimResult.selector = sel;
+        dkimResult.record = dkimTxt;
+        break;
+      }
+    } catch (_) {}
+  }
+  if (!dkimResult.valid) {
+    dkimResult.error = 'No DKIM public key record detected across standard selectors (s1, k1, sg, default).';
+  }
+
+  // 4. MX Check (Inbound reply & bounce capability)
+  let mxResult = { valid: false, records: [], error: null };
+  try {
+    const mxs = await dns.promises.resolveMx(domain);
+    if (Array.isArray(mxs) && mxs.length > 0) {
+      mxResult.valid = true;
+      mxResult.records = mxs.map(m => ({ exchange: m.exchange, priority: m.priority }));
+    } else {
+      mxResult.error = 'No MX records found.';
+    }
+  } catch (e) {
+    mxResult.error = e.code === 'ENODATA' || e.code === 'ENOTFOUND' ? 'No MX records detected.' : (e.message || 'DNS query failed');
+  }
+
+  // 5. Compute Deliverability Health Score & Status
+  let score = 0;
+  if (spfResult.valid) score += 25;
+  if (dkimResult.valid) score += 25;
+  if (dmarcResult.valid) score += 35; // Heavily weighted for Google/Yahoo compliance
+  if (mxResult.valid) score += 15;
+
+  let status = 'critical';
+  if (score >= 90) status = 'optimal';
+  else if (score >= 70) status = 'good';
+  else if (score >= 40) status = 'warning';
+
+  const recommendations = [];
+  if (!dmarcResult.valid) {
+    recommendations.push('Add a DMARC TXT record (_dmarc) to comply with Google & Yahoo 2024 spam rejection rules.');
+  }
+  if (!spfResult.valid) {
+    recommendations.push('Authorize sending mail servers by publishing an SPF TXT record on your domain.');
+  }
+  if (!dkimResult.valid) {
+    recommendations.push('Publish a DKIM cryptographic signature record to prove your emails are untampered.');
+  }
+  if (!mxResult.valid) {
+    recommendations.push('Configure MX records so inboxes know your domain can receive replies and bounces.');
+  }
+
+  const suggestedRecords = [
+    {
+      type: 'TXT',
+      name: '@',
+      value: spfResult.valid ? spfResult.record : 'v=spf1 include:sendgrid.net ~all',
+      purpose: 'Authorized Sender (SPF)'
+    },
+    {
+      type: 'CNAME',
+      name: 's1._domainkey',
+      value: dkimResult.valid ? (dkimResult.record || 's1.domainkey.u12345.wl.sendgrid.net') : 's1.domainkey.u12345.wl.sendgrid.net',
+      purpose: 'Digital Signature (DKIM)'
+    },
+    {
+      type: 'TXT',
+      name: '_dmarc',
+      value: dmarcResult.valid ? dmarcResult.record : 'v=DMARC1; p=none; sp=none;',
+      purpose: 'Spam Defense Policy (DMARC - Google/Yahoo Mandate)'
+    }
+  ];
+
+  res.json({
+    success: true,
+    domain,
+    score,
+    status,
+    spf: spfResult,
+    dkim: dkimResult,
+    dmarc: dmarcResult,
+    mx: mxResult,
+    recommendations,
+    suggestedRecords
+  });
 });
 
 // Custom Brand Subdomain Host-Header Route (Wave 3)

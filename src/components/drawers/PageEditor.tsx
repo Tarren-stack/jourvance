@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import type { PageNodeData, PageVariantData, Workspace, ShopifyProduct } from '../../types/journey';
 import { requestAICopy } from '../../lib/hubClient';
-import { fetchShopifyProducts, buildCheckoutPermalink, buildMultiItemCheckoutPermalink, verifyCustomDomain } from '../../lib/shopifyClient';
+import { fetchShopifyProducts, buildCheckoutPermalink, buildMultiItemCheckoutPermalink, verifyCustomDomain, type DomainVerifyResult } from '../../lib/shopifyClient';
 import { authHeaders } from '../../lib/firebase';
 
 interface Props {
@@ -38,14 +38,14 @@ export const PageEditor: React.FC<Props> = ({
 
   // Custom Domain & DNS Check (Wave 3)
   const [checkingDns, setCheckingDns] = useState(false);
-  const [dnsResult, setDnsResult] = useState<{ verified?: boolean; message?: string } | null>(null);
+  const [dnsResult, setDnsResult] = useState<DomainVerifyResult | null>(null);
 
   const handleCheckDns = async () => {
     if (!data.customDomain) return;
     setCheckingDns(true);
     try {
       const res = await verifyCustomDomain(data.customDomain);
-      setDnsResult({ verified: res.verified, message: res.message });
+      setDnsResult(res);
       if (res.verified) {
         handleFieldChange('customDomainVerified', true);
       }
@@ -1991,14 +1991,29 @@ export const PageEditor: React.FC<Props> = ({
                 <div
                   style={{
                     fontSize: '11px',
-                    padding: '6px 8px',
-                    borderRadius: '5px',
-                    backgroundColor: dnsResult.verified ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: dnsResult.verified ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
                     color: dnsResult.verified ? '#34d399' : '#f87171',
-                    border: `1px solid ${dnsResult.verified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
+                    border: `1px solid ${dnsResult.verified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
                   }}
                 >
-                  {dnsResult.message}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontWeight: 700 }}>
+                      {dnsResult.verified ? '✓ CNAME Verified' : '✕ CNAME Target Mismatch'}
+                    </span>
+                    {dnsResult.verified && (
+                      <span style={{ fontSize: '10px', fontWeight: 800, color: dnsResult.sslActive ? '#34D399' : '#FBBF24' }}>
+                        {dnsResult.sslActive ? '🔒 HTTPS Active' : '⏳ SSL Provisioning'}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '10px', opacity: 0.9 }}>
+                    {dnsResult.message}
+                  </div>
                 </div>
               )}
 

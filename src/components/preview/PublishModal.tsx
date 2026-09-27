@@ -35,7 +35,7 @@ export const PublishModal: React.FC<Props> = ({
 }) => {
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const [checkingDomain, setCheckingDomain] = useState<string | null>(null);
-  const [domainStatus, setDomainStatus] = useState<Record<string, { verified: boolean; message: string }>>({});
+  const [domainStatus, setDomainStatus] = useState<Record<string, { verified: boolean; sslActive?: boolean; message: string }>>({});
 
   if (!isOpen) return null;
 
@@ -59,6 +59,7 @@ export const PublishModal: React.FC<Props> = ({
         ...prev,
         [domain]: {
           verified: !!res.verified,
+          sslActive: !!res.sslActive,
           message: res.message || (res.verified ? 'CNAME points directly to cname.jourvance.com' : 'DNS not propagated yet')
         }
       }));
@@ -268,9 +269,23 @@ export const PublishModal: React.FC<Props> = ({
                             </span>
                           </div>
                           {domainStatus[page.customDomain]?.verified ? (
-                            <span style={{ fontSize: '10px', fontWeight: 700, color: '#34D399', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <CheckCircle2 size={12} /> CNAME Verified
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '10px', fontWeight: 700, color: '#34D399', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <CheckCircle2 size={12} /> CNAME Verified
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  color: domainStatus[page.customDomain].sslActive ? '#34D399' : '#FBBF24',
+                                  backgroundColor: domainStatus[page.customDomain].sslActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px'
+                                }}
+                              >
+                                {domainStatus[page.customDomain].sslActive ? '🔒 HTTPS Active' : '⏳ SSL Provisioning'}
+                              </span>
+                            </div>
                           ) : (
                             <button
                               type="button"
