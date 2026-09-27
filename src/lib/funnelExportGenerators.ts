@@ -5,7 +5,8 @@ import type {
   FormNodeData,
   SequenceNodeData,
   AdNodeData,
-  SequenceStep
+  SequenceStep,
+  UpsellNodeData
 } from '../types/journey';
 
 function escapeHtml(str: string): string {
@@ -716,6 +717,327 @@ export function generateThankYouHtml({
         setTimeout(function() { btn.innerText = 'Copy Code'; }, 2000);
       }
     }
+  </script>
+</body>
+</html>`;
+}
+
+/**
+ * Generates standalone 1-click Upsell / Downsell OTO HTML with urgency countdown timer and tracking preservation.
+ */
+export function generateUpsellHtml({
+  upsellNode,
+  thankYouNode,
+  downsellNode,
+  targetAcceptUrl,
+  targetDeclineUrl,
+  storeDomain
+}: {
+  upsellNode?: Partial<UpsellNodeData>;
+  thankYouNode?: Partial<ThankYouNodeData>;
+  downsellNode?: Partial<UpsellNodeData>;
+  targetAcceptUrl?: string;
+  targetDeclineUrl?: string;
+  storeDomain?: string;
+}): string {
+  const isDownsell = upsellNode?.offerType === 'downsell';
+  const slug = upsellNode?.slug || (isDownsell ? 'downsell-offer' : 'upgrade-offer');
+  const label = upsellNode?.label || (isDownsell ? 'Special Downsell Offer' : 'Exclusive VIP Upgrade');
+  const headline = upsellNode?.headline || (isDownsell ? 'Wait! Take 50% Off Before You Go' : 'Wait! Complete Your Order With This Exclusive Upgrade');
+  const subhead = upsellNode?.subhead || 'Special one-time offer reserved exclusively for this session.';
+  const badgeText = upsellNode?.badgeText || (isDownsell ? 'Final Opportunity' : 'One-Time VIP Privilege');
+  const urgencyMins = typeof upsellNode?.urgencyMinutes === 'number' ? Math.max(0, upsellNode.urgencyMinutes) : 5;
+  const productTitle = upsellNode?.productTitle || (isDownsell ? 'Essential Starter Toolkit' : 'VIP All-Access Upgrade Pass');
+  const productPrice = upsellNode?.productPrice || (isDownsell ? '$19' : '$37');
+  const regularPrice = upsellNode?.regularPrice || (isDownsell ? '$39' : '$67');
+  const discountPercentage = upsellNode?.discountPercentage || (isDownsell ? 50 : 40);
+  const discountCode = upsellNode?.discountCode || '';
+  const productImage = upsellNode?.productImage || '';
+  const benefits = (Array.isArray(upsellNode?.benefits) && upsellNode.benefits.length)
+    ? upsellNode.benefits
+    : [
+        'Instant digital access and priority onboarding',
+        'Includes all bonus templates and companion guides',
+        'Zero extra shipping fees — added directly to your order'
+      ];
+
+  const defaultDeclineTarget = !isDownsell && downsellNode
+    ? `./${downsellNode.slug || 'downsell'}.html`
+    : `./${thankYouNode?.slug || 'thank-you'}.html`;
+  const declineUrl = targetDeclineUrl || defaultDeclineTarget;
+
+  const defaultAcceptTarget = (storeDomain && upsellNode?.shopifyVariantId)
+    ? `https://${storeDomain}/cart/${upsellNode.shopifyVariantId}:1${discountCode ? `?discount=${discountCode}` : ''}`
+    : (upsellNode?.shopifyVariantId ? `./cart/${upsellNode.shopifyVariantId}:1` : `./${thankYouNode?.slug || 'thank-you'}.html`);
+  const acceptUrl = targetAcceptUrl || defaultAcceptTarget;
+
+  const acceptText = upsellNode?.acceptButtonText || `Yes! Add To My Order for Just ${productPrice}`;
+  const declineText = upsellNode?.declineButtonText || (isDownsell ? "No thanks, continue to my receipt" : "No thanks, I'll pass on this upgrade");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(headline)} | Special Offer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #070A12;
+      color: #F1F5F9;
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2.5rem 1.5rem;
+    }
+    .container {
+      max-width: 580px;
+      width: 100%;
+      background: #111827;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 2.5rem 2rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      text-align: center;
+    }
+    .urgency-banner {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #FCA5A5;
+      font-size: 0.8rem;
+      font-weight: 700;
+      padding: 0.4rem 0.9rem;
+      border-radius: 9999px;
+      margin-bottom: 1.25rem;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.725rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #818CF8;
+      background: rgba(99, 102, 241, 0.12);
+      padding: 0.3rem 0.8rem;
+      border-radius: 9999px;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: 1.85rem;
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: -0.025em;
+      margin-bottom: 0.65rem;
+      color: #FFFFFF;
+    }
+    .subhead {
+      font-size: 0.95rem;
+      color: #94A3B8;
+      margin-bottom: 1.75rem;
+    }
+    .product-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 1.5rem;
+      margin-bottom: 1.75rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+    .product-img {
+      max-width: 140px;
+      max-height: 140px;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .product-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #FFFFFF;
+    }
+    .pricing-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+    }
+    .price-special {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: #34D399;
+    }
+    .price-reg {
+      font-size: 1.15rem;
+      color: #64748B;
+      text-decoration: line-through;
+    }
+    .savings-badge {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #10B981;
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+    }
+    .benefits-list {
+      list-style: none;
+      text-align: left;
+      margin: 0 auto 2rem;
+      max-width: 440px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .benefits-list li {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      font-size: 0.9rem;
+      color: #E2E8F0;
+    }
+    .benefits-list li::before {
+      content: "✓";
+      color: #10B981;
+      font-weight: 800;
+      font-size: 1rem;
+    }
+    .btn-accept {
+      display: block;
+      width: 100%;
+      padding: 1.1rem;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+      color: #FFFFFF;
+      font-size: 1.05rem;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      cursor: pointer;
+    }
+    .btn-accept:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.5);
+    }
+    .btn-decline {
+      display: inline-block;
+      margin-top: 1.15rem;
+      color: #94A3B8;
+      font-size: 0.85rem;
+      text-decoration: underline;
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+    .btn-decline:hover {
+      color: #CBD5E1;
+    }
+    .guarantee-note {
+      margin-top: 1.25rem;
+      font-size: 0.75rem;
+      color: #64748B;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    ${urgencyMins > 0 ? `
+    <div class="urgency-banner">
+      <span>⚡ Limited Offer: Reserved for <span id="jvTimer">${String(urgencyMins).padStart(2, '0')}:00</span></span>
+    </div>` : ''}
+
+    <span class="badge">${escapeHtml(badgeText)}</span>
+    <h1>${escapeHtml(headline)}</h1>
+    <p class="subhead">${escapeHtml(subhead)}</p>
+
+    <div class="product-card">
+      ${productImage ? `<img src="${escapeHtml(productImage)}" alt="${escapeHtml(productTitle)}" class="product-img" />` : ''}
+      <div class="product-title">${escapeHtml(productTitle)}</div>
+      <div class="pricing-row">
+        <span class="price-special">${escapeHtml(productPrice)}</span>
+        ${regularPrice ? `<span class="price-reg">${escapeHtml(regularPrice)}</span>` : ''}
+        ${discountPercentage ? `<span class="savings-badge">Save ${discountPercentage}%</span>` : ''}
+      </div>
+    </div>
+
+    <ul class="benefits-list">
+      ${benefits.map(b => `<li>${escapeHtml(b)}</li>`).join('\n      ')}
+    </ul>
+
+    <a id="jvAcceptBtn" href="${escapeHtml(acceptUrl)}" class="btn-accept">
+      ${escapeHtml(acceptText)} &rarr;
+    </a>
+
+    <div>
+      <a id="jvDeclineBtn" href="${escapeHtml(declineUrl)}" class="btn-decline">
+        ${escapeHtml(declineText)}
+      </a>
+    </div>
+
+    <p class="guarantee-note">🔒 Safe & secure 256-bit encrypted transaction. No extra steps.</p>
+  </div>
+
+  <script>
+    (function() {
+      // 1. Session-persisted countdown timer
+      var urgencyMins = ${urgencyMins};
+      if (urgencyMins > 0) {
+        var timerKey = 'jv_timer_' + ${JSON.stringify(slug)};
+        var totalSecs = urgencyMins * 60;
+        var savedEnd = sessionStorage.getItem(timerKey);
+        var endTime;
+
+        if (savedEnd) {
+          endTime = parseInt(savedEnd, 10);
+        } else {
+          endTime = Date.now() + (totalSecs * 1000);
+          sessionStorage.setItem(timerKey, String(endTime));
+        }
+
+        function updateTimer() {
+          var remaining = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+          var m = Math.floor(remaining / 60);
+          var s = remaining % 60;
+          var el = document.getElementById('jvTimer');
+          if (el) {
+            el.innerText = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+          }
+        }
+        updateTimer();
+        setInterval(updateTimer, 1000);
+      }
+
+      // 2. Preserve incoming query parameters (UTMs, tracking) on Accept & Decline clicks
+      function forwardParams(linkEl) {
+        if (!linkEl) return;
+        linkEl.addEventListener('click', function(e) {
+          try {
+            var search = window.location.search;
+            if (!search) return;
+            var currentHref = linkEl.getAttribute('href');
+            if (!currentHref || currentHref.indexOf('#') === 0) return;
+            var sep = currentHref.indexOf('?') !== -1 ? '&' : '?';
+            linkEl.setAttribute('href', currentHref + sep + search.replace(/^\\?/, '') + window.location.hash);
+          } catch(err) {}
+        });
+      }
+
+      forwardParams(document.getElementById('jvAcceptBtn'));
+      forwardParams(document.getElementById('jvDeclineBtn'));
+    })();
   </script>
 </body>
 </html>`;

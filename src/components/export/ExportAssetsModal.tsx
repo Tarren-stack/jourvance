@@ -14,7 +14,9 @@ import {
   Layers,
   Settings,
   FileText,
-  Webhook
+  Webhook,
+  TrendingUp,
+  ArrowDownRight
 } from 'lucide-react';
 import type { Node } from '@xyflow/react';
 import type {
@@ -23,12 +25,14 @@ import type {
   SequenceNodeData,
   FormNodeData,
   ThankYouNodeData,
-  AbSplitNodeData
+  AbSplitNodeData,
+  UpsellNodeData
 } from '../../types/journey';
 import {
   generateSplitRouterHtml,
   generateLandingPageHtml,
   generateThankYouHtml,
+  generateUpsellHtml,
   generateEmailSequenceText,
   generateAdCopyText
 } from '../../lib/funnelExportGenerators';
@@ -50,6 +54,8 @@ interface ExportableHtmlPage {
   filename: string;
   isRouter?: boolean;
   isThankYou?: boolean;
+  isUpsell?: boolean;
+  isDownsell?: boolean;
   getContent: () => string;
 }
 
@@ -66,6 +72,8 @@ export const ExportAssetsModal: React.FC<Props> = ({
   const [targetAUrl, setTargetAUrl] = useState<string>('');
   const [targetBUrl, setTargetBUrl] = useState<string>('');
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [upsellAcceptUrls, setUpsellAcceptUrls] = useState<Record<string, string>>({});
+  const [upsellDeclineUrls, setUpsellDeclineUrls] = useState<Record<string, string>>({});
 
   // Extract typed nodes from canvas
   const pageNodes = useMemo(() => nodes.filter(n => n.type === 'landing-page'), [nodes]);
@@ -73,6 +81,11 @@ export const ExportAssetsModal: React.FC<Props> = ({
   const splitNode = useMemo(
     () => nodes.find(n => n.type === 'ab-split')?.data as AbSplitNodeData | undefined,
     [nodes]
+  );
+  const upsellNodes = useMemo(() => nodes.filter(n => n.type === 'upsell'), [nodes]);
+  const downsellNode = useMemo(
+    () => upsellNodes.find(n => (n.data as UpsellNodeData)?.offerType === 'downsell'),
+    [upsellNodes]
   );
   const thankYouNode = useMemo(
     () => nodes.find(n => n.type === 'thank-you')?.data as ThankYouNodeData | undefined,
@@ -281,7 +294,34 @@ export const ExportAssetsModal: React.FC<Props> = ({
       }
     }
 
-    // 3. VIP Thank-You Portal
+    // 3. One-Time Offers (Upsell & Downsell OTO Pages)
+    upsellNodes.forEach(node => {
+      const uData = node.data as UpsellNodeData;
+      const isDown = uData.offerType === 'downsell';
+      const pageId = `upsell-${node.id}`;
+      const defaultFilename = `${uData.slug || (isDown ? 'downsell' : 'upsell')}.html`;
+
+      pages.push({
+        id: pageId,
+        label: uData.label || (isDown ? 'Downsell Offer (OTO)' : 'Upsell Offer (OTO)'),
+        sublabel: uData.headline || (isDown ? 'Discounted Downsell Offer' : 'Exclusive VIP Upgrade'),
+        badge: isDown ? 'Downsell (OTO)' : 'Upsell (OTO)',
+        filename: defaultFilename,
+        isUpsell: true,
+        isDownsell: isDown,
+        getContent: () =>
+          generateUpsellHtml({
+            upsellNode: uData,
+            thankYouNode,
+            downsellNode: downsellNode ? (downsellNode.data as UpsellNodeData) : undefined,
+            targetAcceptUrl: upsellAcceptUrls[pageId],
+            targetDeclineUrl: upsellDeclineUrls[pageId],
+            storeDomain: (primaryPageNode as any)?.shopifyConfig?.storeDomain
+          })
+      });
+    });
+
+    // 4. VIP Thank-You Portal
     if (thankYouNode) {
       pages.push({
         id: 'thank-you',
@@ -299,6 +339,8 @@ export const ExportAssetsModal: React.FC<Props> = ({
     splitNode,
     primaryPageNode,
     pageNodes,
+    upsellNodes,
+    downsellNode,
     effectiveTargetA,
     effectiveTargetB,
     formNode,
@@ -306,7 +348,9 @@ export const ExportAssetsModal: React.FC<Props> = ({
     effectiveLeadEndpoint,
     effectiveExternalWebhook,
     effectiveWorkspaceId,
-    effectiveJourneyId
+    effectiveJourneyId,
+    upsellAcceptUrls,
+    upsellDeclineUrls
   ]);
 
   const [selectedPageId, setSelectedPageId] = useState<string>('split-router');
@@ -600,6 +644,12 @@ export const ExportAssetsModal: React.FC<Props> = ({
                     <Split size={13} color={isSelected ? '#818CF8' : '#64748B'} />
                   ) : page.isThankYou ? (
                     <Gift size={13} color={isSelected ? '#34D399' : '#64748B'} />
+                  ) : page.isUpsell ? (
+                    page.isDownsell ? (
+                      <ArrowDownRight size={13} color={isSelected ? '#F59E0B' : '#64748B'} />
+                    ) : (
+                      <TrendingUp size={13} color={isSelected ? '#F59E0B' : '#64748B'} />
+                    )
                   ) : (
                     <FileText size={13} color={isSelected ? '#60A5FA' : '#64748B'} />
                   )}
@@ -695,7 +745,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
         )}
 
         {/* Lead Ingestion & Webhook Dual-Sync Configuration Strip (shown on landing page variants) */}
-        {activeTab === 'page' && activeHtmlPage && !activeHtmlPage.isRouter && !activeHtmlPage.isThankYou && (
+        {activeTab === 'page' && activeHtmlPage && !activeHtmlPage.isRouter && !activeHtmlPage.isThankYou && !activeHtmlPage.isUpsell && (
           <div
             style={{
               padding: '0.85rem 1.75rem',
@@ -749,6 +799,86 @@ export const ExportAssetsModal: React.FC<Props> = ({
                   value={externalWebhookUrl}
                   placeholder="https://hooks.zapier.com/hooks/catch/..."
                   onChange={e => setExternalWebhookUrl(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.45rem 0.65rem',
+                    borderRadius: '6px',
+                    backgroundColor: '#070A12',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#F8FAFC',
+                    fontSize: '0.8rem',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Upsell / Downsell OTO Target URL Configuration Strip */}
+        {activeTab === 'page' && activeHtmlPage?.isUpsell && (
+          <div
+            style={{
+              padding: '0.85rem 1.75rem',
+              backgroundColor: 'rgba(245, 158, 11, 0.06)',
+              borderBottom: '1px solid rgba(245, 158, 11, 0.18)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#FCD34D', fontSize: '0.8rem', fontWeight: 700 }}>
+                {activeHtmlPage.isDownsell ? (
+                  <ArrowDownRight size={14} color="#F59E0B" />
+                ) : (
+                  <TrendingUp size={14} color="#F59E0B" />
+                )}
+                <span>Post-Purchase {activeHtmlPage.isDownsell ? 'Downsell' : 'Upsell'} Offer Destination Routing</span>
+              </div>
+              <span style={{ fontSize: '0.725rem', color: '#94A3B8' }}>
+                Pre-configured for 1-click Shopify checkout or multi-step funnel paths
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                  Accept Checkout Destination (Cart URL / Variant)
+                </label>
+                <input
+                  type="text"
+                  value={upsellAcceptUrls[activeHtmlPage.id] || ''}
+                  placeholder="./thank-you.html (or Shopify /cart/variantId:1)"
+                  onChange={e =>
+                    setUpsellAcceptUrls(prev => ({ ...prev, [activeHtmlPage.id]: e.target.value }))
+                  }
+                  style={{
+                    width: '100%',
+                    padding: '0.45rem 0.65rem',
+                    borderRadius: '6px',
+                    backgroundColor: '#070A12',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#F8FAFC',
+                    fontSize: '0.8rem',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                  Decline Destination URL ({activeHtmlPage.isDownsell ? 'Thank-You Portal' : 'Downsell Offer or Portal'})
+                </label>
+                <input
+                  type="text"
+                  value={upsellDeclineUrls[activeHtmlPage.id] || ''}
+                  placeholder={activeHtmlPage.isDownsell ? './thank-you.html' : './downsell.html'}
+                  onChange={e =>
+                    setUpsellDeclineUrls(prev => ({ ...prev, [activeHtmlPage.id]: e.target.value }))
+                  }
                   style={{
                     width: '100%',
                     padding: '0.45rem 0.65rem',

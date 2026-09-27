@@ -179,6 +179,70 @@ function generateThankYouHtml({ thankYouNode }) {
 </html>`;
 }
 
+function generateUpsellHtml({
+  upsellNode,
+  thankYouNode,
+  downsellNode,
+  targetAcceptUrl,
+  targetDeclineUrl,
+  storeDomain
+}) {
+  const isDownsell = upsellNode?.offerType === 'downsell';
+  const slug = upsellNode?.slug || (isDownsell ? 'downsell-offer' : 'upgrade-offer');
+  const headline = upsellNode?.headline || (isDownsell ? 'Wait! Take 50% Off Before You Go' : 'Wait! Complete Your Order With This Exclusive Upgrade');
+  const subhead = upsellNode?.subhead || 'Special one-time offer reserved exclusively for this session.';
+  const badgeText = upsellNode?.badgeText || (isDownsell ? 'Final Opportunity' : 'One-Time VIP Privilege');
+  const urgencyMins = typeof upsellNode?.urgencyMinutes === 'number' ? Math.max(0, upsellNode.urgencyMinutes) : 5;
+  const productTitle = upsellNode?.productTitle || (isDownsell ? 'Essential Starter Toolkit' : 'VIP All-Access Upgrade Pass');
+  const productPrice = upsellNode?.productPrice || (isDownsell ? '$19' : '$37');
+  const regularPrice = upsellNode?.regularPrice || (isDownsell ? '$39' : '$67');
+  const discountPercentage = upsellNode?.discountPercentage || (isDownsell ? 50 : 40);
+  const discountCode = upsellNode?.discountCode || '';
+  const benefits = (Array.isArray(upsellNode?.benefits) && upsellNode.benefits.length)
+    ? upsellNode.benefits
+    : ['Instant digital access', 'Bonus templates included'];
+
+  const defaultDeclineTarget = !isDownsell && downsellNode
+    ? `./${downsellNode.slug || 'downsell'}.html`
+    : `./${thankYouNode?.slug || 'thank-you'}.html`;
+  const declineUrl = targetDeclineUrl || defaultDeclineTarget;
+
+  const defaultAcceptTarget = (storeDomain && upsellNode?.shopifyVariantId)
+    ? `https://${storeDomain}/cart/${upsellNode.shopifyVariantId}:1${discountCode ? `?discount=${discountCode}` : ''}`
+    : (upsellNode?.shopifyVariantId ? `./cart/${upsellNode.shopifyVariantId}:1` : `./${thankYouNode?.slug || 'thank-you'}.html`);
+  const acceptUrl = targetAcceptUrl || defaultAcceptTarget;
+
+  const acceptText = upsellNode?.acceptButtonText || `Yes! Add To My Order for Just ${productPrice}`;
+  const declineText = upsellNode?.declineButtonText || (isDownsell ? "No thanks, continue to my receipt" : "No thanks, I'll pass on this upgrade");
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <title>${escapeHtml(headline)} | Special Offer</title>
+</head>
+<body>
+  ${urgencyMins > 0 ? `<div class="urgency-banner"><span id="jvTimer">${String(urgencyMins).padStart(2, '0')}:00</span></div>` : ''}
+  <span class="badge">${escapeHtml(badgeText)}</span>
+  <h1>${escapeHtml(headline)}</h1>
+  <p class="subhead">${escapeHtml(subhead)}</p>
+  <div class="product-card">
+    <div class="product-title">${escapeHtml(productTitle)}</div>
+    <span class="price-special">${escapeHtml(productPrice)}</span>
+    <span class="price-reg">${escapeHtml(regularPrice)}</span>
+    <span class="savings-badge">Save ${discountPercentage}%</span>
+  </div>
+  <ul class="benefits-list">
+    ${benefits.map(b => `<li>${escapeHtml(b)}</li>`).join('\n')}
+  </ul>
+  <a id="jvAcceptBtn" href="${escapeHtml(acceptUrl)}">${escapeHtml(acceptText)}</a>
+  <a id="jvDeclineBtn" href="${escapeHtml(declineUrl)}">${escapeHtml(declineText)}</a>
+  <script>
+    var timerKey = 'jv_timer_' + ${JSON.stringify(slug)};
+  </script>
+</body>
+</html>`;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────
 
 test('Split Router generator creates lightweight synchronous redirect with sticky cookies', () => {
@@ -319,5 +383,72 @@ test('POST and OPTIONS /api/public/lead provide valid CORS headers for self-host
   } catch (err) {
     // If port 3005 is not reachable in offline test environment, ignore network errors
   }
+});
+
+test('Upsell generator renders headline, strikethrough pricing, and routes decline to downsell node', () => {
+  const upsellNode = {
+    headline: 'Upgrade to VIP Masterclass',
+    subhead: 'Get direct coaching and video modules.',
+    badgeText: 'One-Time VIP Privilege',
+    productTitle: 'VIP Masterclass Pass',
+    productPrice: '$47',
+    regularPrice: '$97',
+    discountPercentage: 51,
+    benefits: ['Lifetime access', 'Private community']
+  };
+  const downsellNode = {
+    slug: 'downsell-mini-course'
+  };
+
+  const html = generateUpsellHtml({ upsellNode, downsellNode });
+
+  assert.ok(html.includes('Upgrade to VIP Masterclass'), 'Renders OTO headline');
+  assert.ok(html.includes('$47'), 'Renders discounted special price');
+  assert.ok(html.includes('$97'), 'Renders strikethrough regular price');
+  assert.ok(html.includes('Save 51%'), 'Renders calculated savings badge');
+  assert.ok(html.includes('href="./downsell-mini-course.html"'), 'Routes decline to downsell page');
+  assert.ok(html.includes("jv_timer_' + \"upgrade-offer\""), 'Sets sessionStorage countdown key');
+});
+
+test('Upsell generator routes decline to thank-you portal when no downsell exists', () => {
+  const upsellNode = {
+    headline: 'Exclusive Add-on Bundle',
+    productPrice: '$29'
+  };
+  const thankYouNode = {
+    slug: 'vip-thank-you'
+  };
+
+  const html = generateUpsellHtml({ upsellNode, thankYouNode });
+
+  assert.ok(html.includes('Exclusive Add-on Bundle'), 'Renders offer title');
+  assert.ok(html.includes('href="./vip-thank-you.html"'), 'Decline safely routes to thank-you portal');
+});
+
+test('Upsell generator links Accept CTA directly to Shopify checkout cart and respects custom URLs', () => {
+  const upsellNode = {
+    productTitle: 'Pro Presets Bundle',
+    shopifyVariantId: '987654321',
+    discountCode: 'FLASH40'
+  };
+
+  const html = generateUpsellHtml({
+    upsellNode,
+    storeDomain: 'beauty-pro.myshopify.com'
+  });
+
+  assert.ok(
+    html.includes('href="https://beauty-pro.myshopify.com/cart/987654321:1?discount=FLASH40"'),
+    'Constructs direct 1-click Shopify checkout cart URL with discount parameter'
+  );
+
+  const customHtml = generateUpsellHtml({
+    upsellNode,
+    targetAcceptUrl: 'https://checkout.customdomain.com/pay',
+    targetDeclineUrl: 'https://customdomain.com/no-thanks'
+  });
+
+  assert.ok(customHtml.includes('href="https://checkout.customdomain.com/pay"'), 'Respects custom accept URL override');
+  assert.ok(customHtml.includes('href="https://customdomain.com/no-thanks"'), 'Respects custom decline URL override');
 });
 
