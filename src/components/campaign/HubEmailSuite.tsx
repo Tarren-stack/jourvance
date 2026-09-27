@@ -4,7 +4,7 @@ import {
   Clock, ArrowUpRight, Copy, Check, RefreshCw, AlertCircle, ShoppingBag, Eye,
   GitFork, Inbox, MessageSquare, Globe, FormInput,
   ExternalLink, Zap, Terminal, X, Filter, Search, Tag, DollarSign, ArrowRight, Layers,
-  ShieldCheck, Play
+  ShieldCheck, Play, SlidersHorizontal, Crown, AlertTriangle
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
 import { EmailPrograms } from './EmailPrograms';
@@ -73,7 +73,37 @@ interface Subscriber {
   totalSpent?: number;
   ordersCount?: number;
   joinedAt: string;
+  lastOrderAt?: string | null;
   predictionLine?: string;
+  rfmSegment?: string;
+  rfmTier?: string;
+  rfmBadge?: string;
+  rfmColor?: string;
+  recencyDays?: number | null;
+  isVip?: boolean;
+  isAtRisk?: boolean;
+  isLapsed?: boolean;
+}
+
+interface RfmConfig {
+  atRiskDays: number;
+  lapsedDays: number;
+  vipSilver: number;
+  vipGold: number;
+  vipPlatinum: number;
+  coolingDays: number;
+}
+
+interface RfmSummary {
+  whales: number;
+  gold: number;
+  silver: number;
+  atRisk: number;
+  lapsed: number;
+  repeatBuyers: number;
+  totalBuyers: number;
+  totalContacts: number;
+  leads?: number;
 }
 
 interface Analytics {
@@ -157,6 +187,25 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   const [audienceFilter, setAudienceFilter] = useState<string>('all');
   const [audienceSearch, setAudienceSearch] = useState<string>('');
 
+  // RFM Customer Lifecycle state
+  const [rfmConfig, setRfmConfig] = useState<RfmConfig>({
+    atRiskDays: 90,
+    lapsedDays: 180,
+    vipSilver: 100,
+    vipGold: 250,
+    vipPlatinum: 500,
+    coolingDays: 60
+  });
+  const [rfmSummary, setRfmSummary] = useState<RfmSummary | null>(null);
+  const [showRfmSettings, setShowRfmSettings] = useState(false);
+  const [savingRfmConfig, setSavingRfmConfig] = useState(false);
+  const [rfmConfigSavedMsg, setRfmConfigSavedMsg] = useState<string | null>(null);
+  const [customAtRiskDays, setCustomAtRiskDays] = useState<number>(90);
+  const [customLapsedDays, setCustomLapsedDays] = useState<number>(180);
+  const [customVipPlatinum, setCustomVipPlatinum] = useState<number>(500);
+  const [customVipGold, setCustomVipGold] = useState<number>(250);
+  const [customVipSilver, setCustomVipSilver] = useState<number>(100);
+
   // Klaviyo & Shopify Email 1-Click Export state
   const [exportModalFlow, setExportModalFlow] = useState<HubFlow | null>(null);
   const [exportPlatform, setExportPlatform] = useState<'klaviyo' | 'shopify'>('klaviyo');
@@ -213,7 +262,18 @@ ${unsub}`;
       if (fRes?.success && Array.isArray(fRes.flows)) setFlows(fRes.flows);
       if (bRes?.success && Array.isArray(bRes.broadcasts)) setBroadcasts(bRes.broadcasts);
       if (aRes?.success && aRes.analytics) setAnalytics(aRes.analytics);
-      if (sRes?.success && Array.isArray(sRes.subscribers)) setSubscribers(sRes.subscribers);
+      if (sRes?.success) {
+        if (Array.isArray(sRes.subscribers)) setSubscribers(sRes.subscribers);
+        if (sRes.rfmConfig) {
+          setRfmConfig(sRes.rfmConfig);
+          setCustomAtRiskDays(sRes.rfmConfig.atRiskDays ?? 90);
+          setCustomLapsedDays(sRes.rfmConfig.lapsedDays ?? 180);
+          setCustomVipPlatinum(sRes.rfmConfig.vipPlatinum ?? 500);
+          setCustomVipGold(sRes.rfmConfig.vipGold ?? 250);
+          setCustomVipSilver(sRes.rfmConfig.vipSilver ?? 100);
+        }
+        if (sRes.rfmSummary) setRfmSummary(sRes.rfmSummary);
+      }
       if (segRes?.success && Array.isArray(segRes.segments)) setSegments(segRes.segments);
       if (listRes?.success && Array.isArray(listRes.lists)) setLists(listRes.lists);
       if (segRes?.followUpNote || bRes?.followUpNote) setFollowUpNote(segRes?.followUpNote || bRes?.followUpNote || '');
@@ -271,6 +331,45 @@ ${unsub}`;
       console.error('Failed syncing Shopify customers:', err);
     } finally {
       setSyncingShopify(false);
+    }
+  };
+
+  const handleSaveRfmConfig = async () => {
+    setSavingRfmConfig(true);
+    setRfmConfigSavedMsg(null);
+    try {
+      const headers = await authHeaders();
+      const res = await fetch('/api/email/rfm-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({
+          atRiskDays: Number(customAtRiskDays) || 90,
+          lapsedDays: Number(customLapsedDays) || 180,
+          vipPlatinum: Number(customVipPlatinum) || 500,
+          vipGold: Number(customVipGold) || 250,
+          vipSilver: Number(customVipSilver) || 100
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setRfmConfig(data.config);
+        setRfmConfigSavedMsg(`Lifecycle thresholds updated! ${data.modifiedCount ?? 0} contacts re-evaluated.`);
+        const audRes = await fetch('/api/email/audience', { headers }).then(r => r.json()).catch(() => ({}));
+        if (audRes?.success) {
+          if (Array.isArray(audRes.subscribers)) setSubscribers(audRes.subscribers);
+          if (audRes.rfmSummary) setRfmSummary(audRes.rfmSummary);
+        }
+        setTimeout(() => {
+          setShowRfmSettings(false);
+          setRfmConfigSavedMsg(null);
+        }, 1500);
+      } else {
+        alert(data?.error || 'Failed to save RFM thresholds');
+      }
+    } catch (err: any) {
+      alert('Error updating thresholds: ' + err.message);
+    } finally {
+      setSavingRfmConfig(false);
     }
   };
 
@@ -1233,27 +1332,51 @@ ${unsub}`;
                 {predictionNote && <p style={{ margin: '8px 0 0', fontSize: 12, color: '#d1d5db' }}>{predictionNote}</p>}
               </div>
 
-              <button
-                onClick={handleSyncShopifyCustomers}
-                disabled={syncingShopify}
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: '10px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  color: '#ffffff',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: syncingShopify ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s'
-                }}
-              >
-                <RefreshCw size={15} className={syncingShopify ? 'animate-spin' : ''} />
-                <span>{syncingShopify ? 'Syncing Shopify...' : 'Sync Shopify Customers'}</span>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowRfmSettings(true)}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                    border: '1px solid rgba(168, 85, 247, 0.3)',
+                    color: '#c084fc',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <SlidersHorizontal size={15} />
+                  <span>Lifecycle & Inactivity Settings</span>
+                </button>
+
+                <button
+                  onClick={handleSyncShopifyCustomers}
+                  disabled={syncingShopify}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: syncingShopify ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <RefreshCw size={15} className={syncingShopify ? 'animate-spin' : ''} />
+                  <span>{syncingShopify ? 'Syncing Shopify...' : 'Sync Shopify Customers'}</span>
+                </button>
+              </div>
             </div>
 
             {syncSuccessMsg && (
@@ -1276,21 +1399,49 @@ ${unsub}`;
             )}
 
             {/* Audience Stats Ribbon */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
               <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
                 <div style={{ fontSize: '11px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: 600 }}>Total Contacts</div>
                 <div style={{ fontSize: '22px', fontWeight: 700, color: '#ffffff', marginTop: '4px' }}>
                   {subscribers.length.toLocaleString()}
                 </div>
-                <div style={{ fontSize: '11px', color: '#34d399', marginTop: '2px' }}>Unified CRM Audience</div>
+                <div style={{ fontSize: '11px', color: '#34d399', marginTop: '2px' }}>
+                  {(rfmSummary?.leads ?? subscribers.filter(s => (s.ordersCount || 0) === 0).length)} prospects • {(rfmSummary?.totalBuyers ?? subscribers.filter(s => (s.ordersCount || 0) > 0).length)} buyers
+                </div>
               </div>
 
-              <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <div style={{ fontSize: '11px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: 600 }}>Shopify Verified Buyers</div>
-                <div style={{ fontSize: '22px', fontWeight: 700, color: '#ec4899', marginTop: '4px' }}>
-                  {subscribers.filter(s => (s.ordersCount || 0) > 0).length.toLocaleString()}
+              <div style={{ backgroundColor: 'rgba(168, 85, 247, 0.06)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: '11px', color: '#c084fc', textTransform: 'uppercase', fontWeight: 600 }}>VIP Whales (${rfmConfig.vipPlatinum}+)</div>
+                  <Crown size={14} style={{ color: '#c084fc' }} />
                 </div>
-                <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>Past checkout buyers</div>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: '#e9d5ff', marginTop: '4px' }}>
+                  {(rfmSummary?.whales ?? subscribers.filter(s => s.rfmTier === 'whale' || (s.totalSpent || 0) >= rfmConfig.vipPlatinum).length).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#c084fc', marginTop: '2px' }}>Platinum top spenders</div>
+              </div>
+
+              <div style={{ backgroundColor: 'rgba(234, 179, 8, 0.06)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(234, 179, 8, 0.25)' }}>
+                <div style={{ fontSize: '11px', color: '#facc15', textTransform: 'uppercase', fontWeight: 600 }}>VIP Gold & Silver</div>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: '#fef08a', marginTop: '4px' }}>
+                  {((rfmSummary ? (rfmSummary.gold + rfmSummary.silver) : subscribers.filter(s => s.rfmTier === 'gold' || s.rfmTier === 'silver').length)).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#eab308', marginTop: '2px' }}>
+                  {rfmSummary?.gold ?? subscribers.filter(s => s.rfmTier === 'gold').length} Gold • {rfmSummary?.silver ?? subscribers.filter(s => s.rfmTier === 'silver').length} Silver
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.06)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: '11px', color: '#fbbf24', textTransform: 'uppercase', fontWeight: 600 }}>At-Risk Inactive ({rfmConfig.atRiskDays}d+)</div>
+                  <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
+                </div>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: '#fde68a', marginTop: '4px' }}>
+                  {(rfmSummary?.atRisk ?? subscribers.filter(s => s.isAtRisk).length).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '2px' }}>
+                  Needs retention • {(rfmSummary?.lapsed ?? subscribers.filter(s => s.isLapsed).length)} lapsed
+                </div>
               </div>
 
               <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
@@ -1298,15 +1449,7 @@ ${unsub}`;
                 <div style={{ fontSize: '22px', fontWeight: 700, color: '#10b981', marginTop: '4px' }}>
                   ${subscribers.reduce((sum, s) => sum + (s.totalSpent || 0), 0).toFixed(2)}
                 </div>
-                <div style={{ fontSize: '11px', color: '#34d399', marginTop: '2px' }}>Attributed Customer Spend</div>
-              </div>
-
-              <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <div style={{ fontSize: '11px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: 600 }}>Marketing Consented</div>
-                <div style={{ fontSize: '22px', fontWeight: 700, color: '#60a5fa', marginTop: '4px' }}>
-                  {subscribers.filter(s => s.status === 'active').length.toLocaleString()}
-                </div>
-                <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>Compliant for broadcasts</div>
+                <div style={{ fontSize: '11px', color: '#34d399', marginTop: '2px' }}>Attributed customer spend</div>
               </div>
             </div>
 
@@ -1317,8 +1460,11 @@ ${unsub}`;
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {[
                   { id: 'all', label: `All (${subscribers.length})` },
+                  { id: 'whales', label: `VIP Whales (${rfmSummary?.whales ?? subscribers.filter(s => s.rfmTier === 'whale' || (s.totalSpent || 0) >= rfmConfig.vipPlatinum).length})` },
+                  { id: 'gold', label: `VIP Gold (${rfmSummary?.gold ?? subscribers.filter(s => s.rfmTier === 'gold').length})` },
+                  { id: 'silver', label: `VIP Silver (${rfmSummary?.silver ?? subscribers.filter(s => s.rfmTier === 'silver').length})` },
+                  { id: 'at_risk', label: `At-Risk Inactive (${rfmSummary?.atRisk ?? subscribers.filter(s => s.isAtRisk).length})` },
                   { id: 'buyers', label: `Verified Buyers (${subscribers.filter(s => (s.ordersCount || 0) > 0).length})` },
-                  { id: 'vip', label: `VIPs $100+ (${subscribers.filter(s => (s.totalSpent || 0) >= 100).length})` },
                   { id: 'repeat', label: `Repeat Buyers (${subscribers.filter(s => (s.ordersCount || 0) >= 2).length})` },
                   { id: 'leads', label: `Funnel Leads (${subscribers.filter(s => (s.ordersCount || 0) === 0).length})` },
                   { id: 'exit_rescue', label: `Exit Rescues (${subscribers.filter(s => (s.tags || []).includes('Exit-Intent-Rescue')).length})` }
@@ -1376,7 +1522,7 @@ ${unsub}`;
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1.4fr 1.6fr 1fr 1fr 2fr',
+                  gridTemplateColumns: '1.5fr 1.5fr 1.2fr 1fr 1.8fr',
                   padding: '12px 20px',
                   borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
                   fontSize: '11px',
@@ -1385,18 +1531,22 @@ ${unsub}`;
                   textTransform: 'uppercase'
                 }}
               >
-                <div>Customer Name</div>
+                <div>Customer & Lifecycle Tier</div>
                 <div>Email & Phone</div>
-                <div>Orders & Spend</div>
+                <div>Orders & Recency</div>
                 <div>Marketing</div>
-                <div>Tags & Source</div>
+                <div>Tags & Lifecycle</div>
               </div>
 
               {subscribers
                 .filter(sub => {
+                  if (audienceFilter === 'whales') return sub.rfmTier === 'whale' || (sub.totalSpent || 0) >= rfmConfig.vipPlatinum || (sub.tags || []).includes('VIP-Platinum');
+                  if (audienceFilter === 'gold') return sub.rfmTier === 'gold' || (sub.tags || []).includes('VIP-Gold');
+                  if (audienceFilter === 'silver') return sub.rfmTier === 'silver' || (sub.tags || []).includes('VIP-Silver');
+                  if (audienceFilter === 'at_risk') return !!sub.isAtRisk || (sub.tags || []).includes('At-Risk');
                   if (audienceFilter === 'buyers') return (sub.ordersCount || 0) > 0;
-                  if (audienceFilter === 'vip') return (sub.totalSpent || 0) >= 100;
-                  if (audienceFilter === 'repeat') return (sub.ordersCount || 0) >= 2;
+                  if (audienceFilter === 'vip') return (sub.totalSpent || 0) >= 100 || (sub.tags || []).includes('VIP Customer');
+                  if (audienceFilter === 'repeat') return (sub.ordersCount || 0) >= 2 || (sub.tags || []).includes('Repeat Buyer');
                   if (audienceFilter === 'leads') return (sub.ordersCount || 0) === 0;
                   if (audienceFilter === 'exit_rescue') return (sub.tags || []).includes('Exit-Intent-Rescue');
                   return true;
@@ -1408,7 +1558,9 @@ ${unsub}`;
                     sub.name.toLowerCase().includes(q) ||
                     sub.email.toLowerCase().includes(q) ||
                     (sub.phone && sub.phone.includes(q)) ||
-                    sub.tags.some(t => t.toLowerCase().includes(q))
+                    sub.tags.some(t => t.toLowerCase().includes(q)) ||
+                    (sub.rfmBadge && sub.rfmBadge.toLowerCase().includes(q)) ||
+                    (sub.rfmSegment && sub.rfmSegment.toLowerCase().includes(q))
                   );
                 })
                 .map((sub, idx) => (
@@ -1416,7 +1568,7 @@ ${unsub}`;
                     key={idx}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '1.4fr 1.6fr 1fr 1fr 2fr',
+                      gridTemplateColumns: '1.5fr 1.5fr 1.2fr 1fr 1.8fr',
                       padding: '14px 20px',
                       borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
                       fontSize: '13px',
@@ -1424,8 +1576,35 @@ ${unsub}`;
                     }}
                   >
                     <div>
-                      <div style={{ fontWeight: 600, color: '#f3f4f6' }}>{sub.name || 'Anonymous Customer'}</div>
-                      <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, color: '#f3f4f6' }}>{sub.name || 'Anonymous Customer'}</span>
+                        {sub.rfmBadge && (
+                          <span
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              backgroundColor: sub.rfmTier === 'whale' ? 'rgba(168, 85, 247, 0.18)' :
+                                               sub.rfmTier === 'gold' ? 'rgba(234, 179, 8, 0.18)' :
+                                               sub.rfmTier === 'silver' ? 'rgba(6, 182, 212, 0.18)' :
+                                               sub.rfmTier === 'at_risk' ? 'rgba(245, 158, 11, 0.18)' :
+                                               sub.rfmTier === 'lapsed' ? 'rgba(239, 68, 68, 0.18)' :
+                                               sub.rfmTier === 'new' ? 'rgba(16, 185, 129, 0.18)' : 'rgba(255, 255, 255, 0.08)',
+                              color: sub.rfmColor || (sub.rfmTier === 'whale' ? '#c084fc' : sub.rfmTier === 'at_risk' ? '#fbbf24' : '#94a3b8'),
+                              border: `1px solid ${sub.rfmTier === 'whale' ? 'rgba(168, 85, 247, 0.4)' : sub.rfmTier === 'at_risk' ? 'rgba(245, 158, 11, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`
+                            }}
+                          >
+                            {sub.rfmTier === 'whale' && <Crown size={10} />}
+                            {sub.rfmTier === 'at_risk' && <AlertTriangle size={10} />}
+                            {sub.rfmBadge}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
                         Joined {new Date(sub.joinedAt).toLocaleDateString()}
                       </div>
                     </div>
@@ -1440,8 +1619,23 @@ ${unsub}`;
                         ${(sub.totalSpent || 0).toFixed(2)}
                       </div>
                       <div style={{ fontSize: '11px', color: '#9ca3af' }}>
-                        {sub.predictionLine || `${sub.ordersCount || 0} ${(sub.ordersCount || 0) === 1 ? 'order' : 'orders'}`}
+                        {sub.ordersCount || 0} {(sub.ordersCount || 0) === 1 ? 'order' : 'orders'}
                       </div>
+                      {sub.recencyDays != null ? (
+                        <div style={{
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          marginTop: '2px',
+                          color: sub.isLapsed ? '#ef4444' : sub.isAtRisk ? '#f59e0b' : (sub.recencyDays <= 30 ? '#10b981' : '#94a3b8')
+                        }}>
+                          {sub.recencyDays === 0 ? 'Ordered today' :
+                           sub.isAtRisk ? `At-Risk (${sub.recencyDays}d inactive)` :
+                           sub.isLapsed ? `Lapsed (${sub.recencyDays}d)` :
+                           `Ordered ${sub.recencyDays}d ago`}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>No orders yet</div>
+                      )}
                     </div>
 
                     <div>
@@ -1460,33 +1654,352 @@ ${unsub}`;
                     </div>
 
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      {sub.tags.map((tag, tIdx) => (
-                        <span
-                          key={tIdx}
-                          style={{
-                            padding: '2px 8px',
-                            borderRadius: '4px',
-                            fontSize: '11px',
-                            backgroundColor: tag.includes('VIP')
-                              ? 'rgba(236, 72, 153, 0.15)'
-                              : tag.includes('Buyer')
-                              ? 'rgba(16, 185, 129, 0.12)'
-                              : 'rgba(255, 255, 255, 0.06)',
-                            color: tag.includes('VIP')
-                              ? '#f472b6'
-                              : tag.includes('Buyer')
-                              ? '#34d399'
-                              : '#d1d5db',
-                            border: '1px solid rgba(255, 255, 255, 0.1)'
-                          }}
-                        >
-                          {tag}
-                        </span>
-                      ))}
+                      {sub.tags.map((tag, tIdx) => {
+                        const isWhale = tag === 'VIP-Platinum';
+                        const isGold = tag === 'VIP-Gold';
+                        const isSilver = tag === 'VIP-Silver';
+                        const isVipGen = tag === 'VIP Customer';
+                        const isAtRisk = tag === 'At-Risk';
+                        const isLapsed = tag === 'Lapsed';
+                        const isBuyer = tag.includes('Buyer');
+
+                        return (
+                          <span
+                            key={tIdx}
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              backgroundColor: isWhale
+                                ? 'rgba(168, 85, 247, 0.2)'
+                                : isGold
+                                ? 'rgba(234, 179, 8, 0.18)'
+                                : isSilver
+                                ? 'rgba(6, 182, 212, 0.18)'
+                                : isVipGen
+                                ? 'rgba(236, 72, 153, 0.15)'
+                                : isAtRisk
+                                ? 'rgba(245, 158, 11, 0.18)'
+                                : isLapsed
+                                ? 'rgba(239, 68, 68, 0.18)'
+                                : isBuyer
+                                ? 'rgba(16, 185, 129, 0.12)'
+                                : 'rgba(255, 255, 255, 0.06)',
+                              color: isWhale
+                                ? '#e9d5ff'
+                                : isGold
+                                ? '#fef08a'
+                                : isSilver
+                                ? '#a5f3fc'
+                                : isVipGen
+                                ? '#f472b6'
+                                : isAtRisk
+                                ? '#fbbf24'
+                                : isLapsed
+                                ? '#f87171'
+                                : isBuyer
+                                ? '#34d399'
+                                : '#d1d5db',
+                              border: isWhale
+                                ? '1px solid rgba(168, 85, 247, 0.4)'
+                                : isAtRisk
+                                ? '1px solid rgba(245, 158, 11, 0.4)'
+                                : '1px solid rgba(255, 255, 255, 0.1)'
+                            }}
+                          >
+                            {tag}
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
             </div>
+
+            {/* RFM Lifecycle & Inactivity Settings Modal */}
+            {showRfmSettings && (
+              <div
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                  backdropFilter: 'blur(6px)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 9999,
+                  padding: '20px'
+                }}
+              >
+                <div
+                  style={{
+                    backgroundColor: '#16161d',
+                    borderRadius: '16px',
+                    border: '1px solid rgba(168, 85, 247, 0.3)',
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 30px rgba(168, 85, 247, 0.15)',
+                    width: '100%',
+                    maxWidth: '560px',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '20px 24px',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '8px',
+                          backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#c084fc'
+                        }}
+                      >
+                        <SlidersHorizontal size={18} />
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#ffffff' }}>
+                          Customer Lifecycle & Inactivity Thresholds
+                        </h3>
+                        <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#9ca3af' }}>
+                          Customize VIP whale spend tiers and inactivity decay windows.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowRfmSettings(false)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#9ca3af',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                    {rfmConfigSavedMsg && (
+                      <div
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                          border: '1px solid rgba(16, 185, 129, 0.3)',
+                          color: '#34d399',
+                          fontSize: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        <CheckCircle2 size={16} />
+                        <span>{rfmConfigSavedMsg}</span>
+                      </div>
+                    )}
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6' }}>
+                          At-Risk Inactivity Window (Days)
+                        </label>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b' }}>
+                          {customAtRiskDays} Days
+                        </span>
+                      </div>
+                      <p style={{ margin: '4px 0 8px', fontSize: '12px', color: '#9ca3af' }}>
+                        Clients with no purchases after this many days are marked At-Risk for automated winback flows.
+                      </p>
+                      <input
+                        type="range"
+                        min="14"
+                        max="180"
+                        step="5"
+                        value={customAtRiskDays}
+                        onChange={e => setCustomAtRiskDays(Number(e.target.value))}
+                        style={{ width: '100%', accentColor: '#f59e0b', cursor: 'pointer' }}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>
+                        <span>14d (Fast)</span>
+                        <span>60d</span>
+                        <span>90d (Default)</span>
+                        <span>180d</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6' }}>
+                          Lapsed Inactivity Window (Days)
+                        </label>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#ef4444' }}>
+                          {customLapsedDays} Days
+                        </span>
+                      </div>
+                      <p style={{ margin: '4px 0 8px', fontSize: '12px', color: '#9ca3af' }}>
+                        Clients inactive past this period receive the Lapsed status.
+                      </p>
+                      <input
+                        type="range"
+                        min="60"
+                        max="365"
+                        step="15"
+                        value={customLapsedDays}
+                        onChange={e => setCustomLapsedDays(Number(e.target.value))}
+                        style={{ width: '100%', accentColor: '#ef4444', cursor: 'pointer' }}
+                      />
+                    </div>
+
+                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '16px' }}>
+                      <h4 style={{ margin: '0 0 12px', fontSize: '13px', fontWeight: 600, color: '#f3f4f6' }}>
+                        VIP Spend Tiers
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#c084fc', marginBottom: '4px' }}>
+                            Platinum Whale ($)
+                          </label>
+                          <input
+                            type="number"
+                            min="50"
+                            step="25"
+                            value={customVipPlatinum}
+                            onChange={e => setCustomVipPlatinum(Number(e.target.value))}
+                            style={{
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid rgba(168, 85, 247, 0.3)',
+                              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                              color: '#ffffff',
+                              fontSize: '13px',
+                              fontWeight: 600
+                            }}
+                          />
+                          <span style={{ display: 'block', fontSize: '10px', color: '#6b7280', marginTop: '2px' }}>Top Whale tier</span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#facc15', marginBottom: '4px' }}>
+                            VIP Gold ($)
+                          </label>
+                          <input
+                            type="number"
+                            min="25"
+                            step="25"
+                            value={customVipGold}
+                            onChange={e => setCustomVipGold(Number(e.target.value))}
+                            style={{
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid rgba(234, 179, 8, 0.3)',
+                              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                              color: '#ffffff',
+                              fontSize: '13px',
+                              fontWeight: 600
+                            }}
+                          />
+                          <span style={{ display: 'block', fontSize: '10px', color: '#6b7280', marginTop: '2px' }}>Luxe frequent</span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#22d3ee', marginBottom: '4px' }}>
+                            VIP Silver ($)
+                          </label>
+                          <input
+                            type="number"
+                            min="10"
+                            step="25"
+                            value={customVipSilver}
+                            onChange={e => setCustomVipSilver(Number(e.target.value))}
+                            style={{
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid rgba(6, 182, 212, 0.3)',
+                              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                              color: '#ffffff',
+                              fontSize: '13px',
+                              fontWeight: 600
+                            }}
+                          />
+                          <span style={{ display: 'block', fontSize: '10px', color: '#6b7280', marginTop: '2px' }}>Rising VIP</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: '16px 24px',
+                      backgroundColor: 'rgba(0, 0, 0, 0.25)',
+                      borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      gap: '10px'
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setShowRfmSettings(false)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        backgroundColor: 'transparent',
+                        color: '#9ca3af',
+                        fontSize: '13px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveRfmConfig}
+                      disabled={savingRfmConfig}
+                      style={{
+                        padding: '8px 18px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        backgroundColor: '#a855f7',
+                        color: '#ffffff',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: savingRfmConfig ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      {savingRfmConfig ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
+                      <span>{savingRfmConfig ? 'Re-evaluating CRM...' : 'Save & Sync CRM Tags'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

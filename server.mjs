@@ -66,6 +66,13 @@ import {
   renderLineItemCardsHtml,
   resolveCheckoutRecoveryUrl
 } from './checkout-recovery.mjs';
+import {
+  DEFAULT_RFM_CONFIG,
+  cleanRfmConfig,
+  computeContactRfm,
+  syncContactRfmTags,
+  syncAllContactsRfm
+} from './rfm-engine.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1733,10 +1740,9 @@ app.post('/api/workspace/:wsId/shopify/sync-customers', requireUser, async (req,
               existing.shopifyCustomerId = String(c.id);
               if (!existing.tags) existing.tags = [];
               if (!existing.tags.includes('Shopify Buyer') && ordersCount > 0) existing.tags.push('Shopify Buyer');
-              if (ordersCount >= 2 && !existing.tags.includes('Repeat Buyer')) existing.tags.push('Repeat Buyer');
-              if (totalSpent >= 100 && !existing.tags.includes('VIP Customer')) existing.tags.push('VIP Customer');
+              syncContactRfmTags(existing, userProgramBag(req.user.uid)?.rfmConfig || DEFAULT_RFM_CONFIG);
             } else {
-              contacts.push({
+              const newContact = {
                 id: `cust_${c.id}`,
                 shopifyCustomerId: String(c.id),
                 email,
@@ -1745,15 +1751,13 @@ app.post('/api/workspace/:wsId/shopify/sync-customers', requireUser, async (req,
                 totalSpent,
                 ordersCount,
                 acceptsMarketing: c.email_marketing_consent?.state === 'subscribed',
-                tags: [
-                  ...(ordersCount > 0 ? ['Shopify Buyer'] : []),
-                  ...(totalSpent >= 100 ? ['VIP Customer'] : []),
-                  ...(ordersCount >= 2 ? ['Repeat Buyer'] : [])
-                ],
+                tags: ordersCount > 0 ? ['Shopify Buyer'] : [],
                 source: `Shopify Store (${domain})`,
                 firstSeenAt: c.created_at || new Date().toISOString(),
                 lastOrderAt: c.last_order_name ? new Date().toISOString() : undefined
-              });
+              };
+              syncContactRfmTags(newContact, userProgramBag(req.user.uid)?.rfmConfig || DEFAULT_RFM_CONFIG);
+              contacts.push(newContact);
               importedCount++;
             }
           }
@@ -2074,9 +2078,9 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
       if (!contact.userId) contact.userId = shopWs.userId;
       if (!contact.tags) contact.tags = [];
       if (!contact.tags.includes('Shopify Buyer')) contact.tags.push('Shopify Buyer');
-      if (contact.ordersCount >= 2 && !contact.tags.includes('Repeat Buyer')) contact.tags.push('Repeat Buyer');
-      if (contact.totalSpent >= 100 && !contact.tags.includes('VIP Customer')) contact.tags.push('VIP Customer');
       if (bumpIncluded && !contact.tags.includes('Order Bump Taker')) contact.tags.push('Order Bump Taker');
+      const userRfmConfig = userProgramBag(shopWs.userId)?.rfmConfig || DEFAULT_RFM_CONFIG;
+      syncContactRfmTags(contact, userRfmConfig);
     } else {
       contact = {
         id: `cust_${Date.now()}`,
@@ -2086,14 +2090,16 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
         totalSpent: totalPrice,
         ordersCount: 1,
         acceptsMarketing: customer.email_marketing_consent?.state === 'subscribed',
-      visitorId: visitorId || undefined,
-      clientId: linkedOrder.clientId || undefined,
-      userId: shopWs.userId,
-        tags: ['Shopify Buyer', ...(totalPrice >= 100 ? ['VIP Customer'] : []), ...(bumpIncluded ? ['Order Bump Taker'] : [])],
+        visitorId: visitorId || undefined,
+        clientId: linkedOrder.clientId || undefined,
+        userId: shopWs.userId,
+        tags: ['Shopify Buyer', ...(bumpIncluded ? ['Order Bump Taker'] : [])],
         source: attributedSlug ? `Funnel /p/${attributedSlug}` : 'Shopify Direct',
         firstSeenAt: new Date().toISOString(),
         lastOrderAt: new Date().toISOString()
       };
+      const userRfmConfig = userProgramBag(shopWs.userId)?.rfmConfig || DEFAULT_RFM_CONFIG;
+      syncContactRfmTags(contact, userRfmConfig);
       contacts.push(contact);
     }
     saveContacts(contacts);
@@ -4236,21 +4242,38 @@ app.get('/api/email/broadcasts', requireUser, async (req, res) => {
   });
 });
 
-// Dynamic Audience API reading directly from contacts.json
+// Dynamic Audience API reading directly from contacts.json with RFM Lifecycle Intelligence
 app.get('/api/email/audience', requireUser, async (req, res) => {
   const contacts = contactsForUser(req.user.uid);
-  const suppressions = userProgramBag(req.user.uid).suppressions;
+  const bag = userProgramBag(req.user.uid);
+  const rfmConfig = cleanRfmConfig(bag.rfmConfig);
+  const suppressions = bag.suppressions;
   const orders = accountOrders(req.user.uid);
   const live = predictStore(orders, Date.now());
-  res.json({
-    success: true,
-    subscribers: contacts.map(c => {
-      const reason = sendBlockReason(c, suppressions, true);
-      const status = reason === 'hard_bounce' || reason === 'soft_bounce' ? 'suppressed' : (c.acceptsMarketing === false || reason === 'unsubscribed' ? 'unsubscribed' : 'active');
-      const email = String(c.email || '').toLowerCase();
-      const row = live.ready ? live.rows?.[email] : null;
-      const spent = historicSpend(orders.filter((order) => String(order.customerEmail || '').toLowerCase() === email));
-      return {
+
+  let whalesCount = 0;
+  let goldCount = 0;
+  let silverCount = 0;
+  let atRiskCount = 0;
+  let lapsedCount = 0;
+  let repeatCount = 0;
+
+  const subscribers = contacts.map(c => {
+    const reason = sendBlockReason(c, suppressions, true);
+    const status = reason === 'hard_bounce' || reason === 'soft_bounce' ? 'suppressed' : (c.acceptsMarketing === false || reason === 'unsubscribed' ? 'unsubscribed' : 'active');
+    const email = String(c.email || '').toLowerCase();
+    const row = live.ready ? live.rows?.[email] : null;
+    const spent = historicSpend(orders.filter((order) => String(order.customerEmail || '').toLowerCase() === email));
+    const rfm = computeContactRfm(c, rfmConfig);
+
+    if (rfm.tier === 'whale') whalesCount++;
+    else if (rfm.tier === 'gold') goldCount++;
+    else if (rfm.tier === 'silver') silverCount++;
+    if (rfm.isAtRisk) atRiskCount++;
+    if (rfm.isLapsed) lapsedCount++;
+    if (rfm.ordersCount >= 2) repeatCount++;
+
+    return {
       email: c.email,
       name: c.name || c.email.split('@')[0],
       phone: c.phone || '',
@@ -4259,10 +4282,61 @@ app.get('/api/email/audience', requireUser, async (req, res) => {
       totalSpent: c.totalSpent || 0,
       ordersCount: c.ordersCount || 0,
       joinedAt: c.firstSeenAt || c.subscribedAt || new Date().toISOString(),
-      predictionLine: predictionLine(row || spent)
-      };
-    })
+      lastOrderAt: c.lastOrderAt || null,
+      predictionLine: predictionLine(row || spent),
+      rfmSegment: rfm.segment,
+      rfmTier: rfm.tier,
+      rfmBadge: rfm.badge,
+      rfmColor: rfm.color,
+      recencyDays: rfm.recencyDays,
+      isVip: rfm.isVip,
+      isAtRisk: rfm.isAtRisk,
+      isLapsed: rfm.isLapsed
+    };
   });
+
+  res.json({
+    success: true,
+    rfmConfig,
+    rfmSummary: {
+      whales: whalesCount,
+      gold: goldCount,
+      silver: silverCount,
+      atRisk: atRiskCount,
+      lapsed: lapsedCount,
+      repeatBuyers: repeatCount,
+      totalBuyers: subscribers.filter(s => (s.ordersCount || 0) > 0).length,
+      leads: subscribers.filter(s => (s.ordersCount || 0) === 0).length,
+      totalContacts: subscribers.length
+    },
+    subscribers
+  });
+});
+
+app.get('/api/email/rfm-config', requireUser, (req, res) => {
+  const bag = userProgramBag(req.user.uid);
+  res.json({ success: true, config: cleanRfmConfig(bag.rfmConfig) });
+});
+
+app.post('/api/email/rfm-config', requireUser, (req, res) => {
+  const bag = userProgramBag(req.user.uid);
+  const updated = cleanRfmConfig(req.body);
+  bag.rfmConfig = updated;
+  writeUserPrograms(req.user.uid, bag);
+
+  // Synchronize contacts with new thresholds
+  const allContacts = loadContacts();
+  let modifiedCount = 0;
+  for (const c of allContacts) {
+    if (contactOwnerId(c) !== req.user.uid) continue;
+    const rfm = computeContactRfm(c, updated);
+    if (syncContactRfmTags(c, rfm)) modifiedCount++;
+  }
+  if (modifiedCount > 0) {
+    saveContacts(allContacts);
+  }
+
+  res.json({ success: true, config: updated, modifiedCount });
 });
 
 function segmentContext(contact, bag, orders, events, account) {
@@ -5057,6 +5131,18 @@ app.post('/api/email/predictions/refresh', requireUser, async (req, res) => {
 async function processUserAutomationsTick(uid) {
   try { await refreshPredictionsIfDue(uid); } catch (err) {
     console.warn('[Jourvance] Prediction refresh failed:', err.message);
+  }
+  try {
+    const userRfm = userProgramBag(uid)?.rfmConfig || DEFAULT_RFM_CONFIG;
+    const allContacts = loadContacts();
+    let rfmDirty = false;
+    for (const c of allContacts) {
+      if (contactOwnerId(c) !== uid) continue;
+      if (syncContactRfmTags(c, userRfm)) rfmDirty = true;
+    }
+    if (rfmDirty) saveContacts(allContacts);
+  } catch (err) {
+    console.warn('[Jourvance] Periodic RFM tag sync failed:', err.message);
   }
   const dripsData = loadDrips();
   const orders = loadOrders().filter(o => o.userId === uid);
