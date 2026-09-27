@@ -621,7 +621,7 @@ ${unsub}`;
           { key: 'forms', label: 'Forms', icon: FormInput },
           { key: 'campaigns', label: 'Broadcasts', icon: Send },
           { key: 'inbox', label: 'Inbox', icon: Inbox },
-          { key: 'sms', label: 'Texts', icon: MessageSquare },
+          { key: 'sms', label: 'Texts', icon: MessageSquare, badge: 'Soon' },
           { key: 'audience', label: 'Audience', icon: Users },
           { key: 'sending', label: 'DNS & Deliverability', icon: ShieldCheck },
           { key: 'klaviyo', label: 'Klaviyo', icon: RefreshCw },
@@ -650,6 +650,23 @@ ${unsub}`;
             >
               <Icon size={15} />
               <span>{tab.label}</span>
+              {(tab as any).badge && (
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    padding: '1px 6px',
+                    borderRadius: '9999px',
+                    backgroundColor: active ? 'rgba(236, 72, 153, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                    color: active ? '#f472b6' : '#d1d5db',
+                    border: '1px solid rgba(255, 255, 255, 0.12)'
+                  }}
+                >
+                  {(tab as any).badge}
+                </span>
+              )}
             </button>
           );
         })}
