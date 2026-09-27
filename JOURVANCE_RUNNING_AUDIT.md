@@ -554,5 +554,6 @@ This document inventories every identified issue, categorized by severity, along
 | **P1** | **Compliance / Security** | Rotating HMAC mail secret invalidated historical unsubscribe links | CAN-SPAM / GDPR compliance hazard | **RESOLVED** (`MAIL_LINK_OLD_SECRETS` multi-secret rotation array in `server.mjs`) |
 | **P1** | **Privacy / Compliance** | Tracking snippet fired before European/Californian visitor consent | GDPR / CCPA privacy violation | **RESOLVED** (Shopify Customer Privacy API check + `visitorConsentCollected` event queue) |
 | **P1** | **Analytics / Drop-Off** | Generic static edge labels with zero drop-off analysis or leak diagnostics | Merchants unable to spot where funnel is leaking revenue | **RESOLVED** (Step-aware empirical conversion benchmarks, interactive `EdgeInspector` drawer, animated SVG flow, and revenue leakage calculator) |
+| **P1** | **Workspaces / Blueprints** | Inability to save custom journey blueprints at user account level or share between users | Duplicate manual funnel rebuilding across workspaces & friction onboarding clients | **RESOLVED** (Account-level custom blueprint library, tenant isolation, share codes, deep-link import, and always-accessible header toolbar action) |
 
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign, Zap, BarChart3, Circle, ChevronDown, ArrowRight, ExternalLink } from 'lucide-react';
+import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign, Zap, BarChart3, Circle, ChevronDown, ArrowRight, ExternalLink, BookmarkPlus } from 'lucide-react';
 import type { JourneyProject, Workspace, CanvasViewMode, NodeType, ActiveAppView } from '../../types/journey';
 import { WorkspaceSelector } from './WorkspaceSelector';
 
@@ -29,6 +29,7 @@ interface Props {
   activeView?: ActiveAppView;
   onSelectView?: (view: ActiveAppView) => void;
   onOpenBlueprints?: () => void;
+  onSaveBlueprint?: () => void;
   canvasViewMode?: CanvasViewMode;
   onToggleCanvasViewMode?: (mode: CanvasViewMode) => void;
   onOpenShopifySync?: () => void;
@@ -61,6 +62,7 @@ export const CanvasHeader: React.FC<Props> = ({
   activeView = 'canvas',
   onSelectView,
   onOpenBlueprints,
+  onSaveBlueprint,
   canvasViewMode = 'edit',
   onToggleCanvasViewMode,
   onOpenShopifySync,
@@ -803,6 +805,41 @@ export const CanvasHeader: React.FC<Props> = ({
           >
             <Sparkles size={13} color="#F472B6" />
             <span>Blueprints</span>
+          </button>
+        )}
+
+        {/* Save as Custom Blueprint Button */}
+        {onSaveBlueprint && (
+          <button
+            onClick={onSaveBlueprint}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '7px 12px',
+              borderRadius: '8px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              color: '#E2E8F0',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            title="Save current journey canvas as a reusable team blueprint"
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(236, 72, 153, 0.15)';
+              e.currentTarget.style.borderColor = 'rgba(236, 72, 153, 0.35)';
+              e.currentTarget.style.color = '#F472B6';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+              e.currentTarget.style.color = '#E2E8F0';
+            }}
+          >
+            <BookmarkPlus size={13} color="#F472B6" />
+            <span>Save as Blueprint</span>
           </button>
         )}
 

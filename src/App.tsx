@@ -30,6 +30,7 @@ const BillingModal = lazy(() => import('./components/billing/BillingModal').then
 const ExportAssetsModal = lazy(() => import('./components/export/ExportAssetsModal').then(m => ({ default: m.ExportAssetsModal })));
 const PublishModal = lazy(() => import('./components/preview/PublishModal').then(m => ({ default: m.PublishModal })));
 const BlueprintModal = lazy(() => import('./components/modals/BlueprintModal').then(m => ({ default: m.BlueprintModal })));
+const SaveBlueprintModal = lazy(() => import('./components/modals/SaveBlueprintModal').then(m => ({ default: m.SaveBlueprintModal })));
 
 const SuspenseLoader: React.FC<{ label?: string }> = ({ label = 'Loading studio...' }) => (
   <div style={{
@@ -128,6 +129,9 @@ export const App: React.FC = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showBlueprintModal, setShowBlueprintModal] = useState(false);
+  const [showSaveBlueprintModal, setShowSaveBlueprintModal] = useState(false);
+  const [blueprintModalTab, setBlueprintModalTab] = useState<'turnkey' | 'custom' | 'import'>('turnkey');
+  const [blueprintImportCode, setBlueprintImportCode] = useState<string>('');
   const [showSimulatorDrawer, setShowSimulatorDrawer] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishedPages, setPublishedPages] = useState<PublishedPageInfo[]>([]);
@@ -135,6 +139,24 @@ export const App: React.FC = () => {
   
   const [saving, setSaving] = useState(false);
   const [savedRecently, setSavedRecently] = useState(false);
+
+  // Deep-link listener for ?import_blueprint=...
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const importCode = params.get('import_blueprint');
+      if (importCode) {
+        setBlueprintImportCode(importCode);
+        setBlueprintModalTab('import');
+        setShowBlueprintModal(true);
+        setActivePage('canvas');
+        setActiveView('canvas');
+      }
+    } catch (err) {
+      console.warn('[Jourvance] Failed parsing import_blueprint param:', err);
+    }
+  }, []);
 
   // Load Workspaces
   useEffect(() => {
@@ -602,7 +624,11 @@ export const App: React.FC = () => {
             onCreateWorkspace={handleCreateWorkspace}
             activeView={activeView}
             onSelectView={setActiveView}
-            onOpenBlueprints={() => setShowBlueprintModal(true)}
+            onOpenBlueprints={() => {
+              setBlueprintModalTab('turnkey');
+              setShowBlueprintModal(true);
+            }}
+            onSaveBlueprint={() => setShowSaveBlueprintModal(true)}
             canvasViewMode={canvasViewMode}
             onToggleCanvasViewMode={setCanvasViewMode}
             onOpenShopifySync={() => setShowShopifySyncModal(true)}
@@ -785,13 +811,27 @@ export const App: React.FC = () => {
           unpublishing={unpublishing}
         />
 
+        {/* Save as Reusable Blueprint Modal */}
+        <SaveBlueprintModal
+          isOpen={showSaveBlueprintModal}
+          onClose={() => setShowSaveBlueprintModal(false)}
+          nodes={project.nodes}
+          edges={project.edges}
+          currentJourneyName={project.name}
+        />
+
         {/* E-Commerce Funnel Blueprints Modal */}
         <BlueprintModal
           isOpen={showBlueprintModal}
-          onClose={() => setShowBlueprintModal(false)}
+          onClose={() => {
+            setShowBlueprintModal(false);
+            setBlueprintImportCode('');
+          }}
           onLoadBlueprint={handleLoadBlueprint}
           workspace={currentWorkspace}
           currentJourneyName={project.name}
+          initialTab={blueprintModalTab}
+          initialImportCode={blueprintImportCode}
         />
 
         {/* Funnel Financial Simulator & ROAS Forecaster (Wave 10) */}

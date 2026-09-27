@@ -1383,6 +1383,15 @@ function saveRedirects(rows) {
   hubStorage.set('store.redirects', 'redirects.json', trimmed);
 }
 
+function loadTemplates() {
+  const raw = hubStorage.get('store.templates', 'templates.json', []);
+  return Array.isArray(raw) ? raw : [];
+}
+
+function saveTemplates(rows) {
+  hubStorage.set('store.templates', 'templates.json', Array.isArray(rows) ? rows : []);
+}
+
 function rememberRedirect(uid, url, meta) {
   const code = crypto.randomBytes(9).toString('base64url');
   const sentAt = new Date().toISOString();
@@ -6887,6 +6896,144 @@ app.post('/api/user/:userId/journey/:id', requireUser, async (req, res) => {
   }
   const { journey, durable, reason } = await saveJourney(req.user.uid, req.params.id, req.body || {});
   res.json({ success: true, journey, durable, ...(reason ? { reason } : {}) });
+});
+
+// ── Custom Journey Template & Blueprint Library ─────────────────────────────────
+
+app.get('/api/templates', requireUser, async (req, res) => {
+  const templates = loadTemplates();
+  const mine = templates.filter(t => t.userId === req.user.uid);
+  res.json({ success: true, templates: mine });
+});
+
+app.post('/api/templates', requireUser, async (req, res) => {
+  const { name, description, category, nodes, edges } = req.body || {};
+  const cleanName = String(name || '').trim();
+  if (!cleanName || cleanName.length > 100) {
+    return res.status(400).json({ success: false, error: 'Blueprint title must be between 1 and 100 characters.' });
+  }
+
+  const templates = loadTemplates();
+  const userTemplates = templates.filter(t => t.userId === req.user.uid);
+  if (userTemplates.length >= 50) {
+    return res.status(400).json({ success: false, error: 'You have reached the maximum limit of 50 saved blueprints. Please delete older templates to make room.' });
+  }
+
+  // Zero live counts and sanitize node data for template reuse
+  const cleanNodes = Array.isArray(nodes) ? nodes.map(n => {
+    const d = { ...(n.data || {}) };
+    delete d.visitors;
+    delete d.conversions;
+    delete d.conversionRate;
+    delete d.grossRevenue;
+    delete d.liveRevenue;
+    delete d.liveOrders;
+    delete d.pageViews;
+    delete d.impressions;
+    delete d.clicks;
+    delete d.submissions;
+    delete d.flowEnrolled;
+    delete d.takes;
+    return { ...n, data: d };
+  }) : [];
+
+  const cleanEdges = Array.isArray(edges) ? edges.map(e => ({
+    ...e,
+    data: {
+      sourceThroughput: 0,
+      targetCount: 0,
+      rate: 0
+    }
+  })) : [];
+
+  const shareCode = `bp_${crypto.randomBytes(6).toString('base64url')}`;
+  const now = new Date().toISOString();
+  const newTemplate = {
+    id: `bp_custom_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+    userId: req.user.uid,
+    name: cleanName,
+    description: String(description || '').trim().slice(0, 300),
+    category: String(category || 'custom').trim(),
+    nodes: cleanNodes,
+    edges: cleanEdges,
+    shareCode,
+    isShared: true,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  templates.push(newTemplate);
+  saveTemplates(templates);
+
+  res.json({ success: true, template: newTemplate });
+});
+
+app.delete('/api/templates/:id', requireUser, async (req, res) => {
+  const templates = loadTemplates();
+  const idx = templates.findIndex(t => t.id === req.params.id && t.userId === req.user.uid);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, error: 'Blueprint not found or not owned by your account.' });
+  }
+  templates.splice(idx, 1);
+  saveTemplates(templates);
+  res.json({ success: true, message: 'Blueprint removed successfully.' });
+});
+
+app.get('/api/templates/shared/:code', async (req, res) => {
+  const code = String(req.params.code || '').trim();
+  const templates = loadTemplates();
+  const found = templates.find(t => t.shareCode === code);
+  if (!found) {
+    return res.status(404).json({ success: false, error: 'Shared blueprint not found or invalid link.' });
+  }
+
+  // Sanitize blueprint for safe sharing across tenants (remove user IDs, store tokens, internal IDs)
+  const safe = {
+    id: found.id,
+    name: found.name,
+    description: found.description,
+    category: found.category,
+    nodes: found.nodes,
+    edges: found.edges,
+    createdAt: found.createdAt,
+    shareCode: found.shareCode
+  };
+
+  res.json({ success: true, template: safe });
+});
+
+app.post('/api/templates/import/:code', requireUser, async (req, res) => {
+  const code = String(req.params.code || '').trim();
+  const templates = loadTemplates();
+  const source = templates.find(t => t.shareCode === code);
+  if (!source) {
+    return res.status(404).json({ success: false, error: 'Shared blueprint not found.' });
+  }
+
+  const userTemplates = templates.filter(t => t.userId === req.user.uid);
+  if (userTemplates.length >= 50) {
+    return res.status(400).json({ success: false, error: 'You have reached the maximum limit of 50 saved blueprints. Please delete older templates to make room.' });
+  }
+
+  const now = new Date().toISOString();
+  const cloned = {
+    id: `bp_custom_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+    userId: req.user.uid,
+    name: `${source.name} (Shared Import)`,
+    description: source.description || '',
+    category: source.category || 'custom',
+    nodes: JSON.parse(JSON.stringify(source.nodes || [])),
+    edges: JSON.parse(JSON.stringify(source.edges || [])),
+    shareCode: `bp_${crypto.randomBytes(6).toString('base64url')}`,
+    isShared: true,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  templates.push(cloned);
+  saveTemplates(templates);
+
+  res.json({ success: true, template: cloned });
 });
 
 // Operator view of every tenant. This is the one route that crosses the tenant wall, so

@@ -324,6 +324,20 @@ export interface JourneyProject {
   forecast?: FunnelForecast;
 }
 
+export interface CustomBlueprint {
+  id: string;
+  userId: string;
+  name: string;
+  description: string;
+  category: string;
+  nodes: JourneyNode[];
+  edges: JourneyEdge[];
+  createdAt: string;
+  updatedAt: string;
+  shareCode?: string;
+  isShared?: boolean;
+}
+
 // ── Wave 10: Interactive Funnel Financial Simulator & ROAS Forecaster ───────────
 
 export interface FunnelForecast {

@@ -223,7 +223,8 @@ class HubStorageManager {
       { key: 'store.predictions', file: 'predictions.json', isArray: false },
       { key: 'store.behavior', file: 'behavior.json', isArray: false },
       { key: 'store.catalog_memory', file: 'catalog_memory.json', isArray: false },
-      { key: 'store.klaviyo', file: 'klaviyo.json', isArray: false }
+      { key: 'store.klaviyo', file: 'klaviyo.json', isArray: false },
+      { key: 'store.templates', file: 'templates.json', isArray: true }
     ];
 
     let rehydratedCount = 0;
