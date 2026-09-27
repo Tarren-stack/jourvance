@@ -38,12 +38,20 @@ function computeAovExpansion(filteredOrders, reportEvents, publicPageCache = {})
 
   const upsellEvents = reportEvents.filter(e => e.type === 'upsell_accept' && (e.offerType || 'upsell') === 'upsell');
   const downsellEvents = reportEvents.filter(e => e.type === 'upsell_accept' && e.offerType === 'downsell');
+  const upsellDeclines = reportEvents.filter(e => e.type === 'upsell_decline' && (e.offerType || 'upsell') === 'upsell');
 
   const upsellTakes = upsellEvents.length;
   const upsellRevenue = Number(upsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
 
   const downsellTakes = downsellEvents.length;
   const downsellRevenue = Number(downsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
+
+  const totalDeclines = upsellDeclines.length;
+  const declinedEmails = new Set(upsellDeclines.map(d => String(d.email || '').toLowerCase()).filter(Boolean));
+  const recoveredUpsellEvents = upsellEvents.filter(u => u.email && declinedEmails.has(String(u.email).toLowerCase()));
+  const recoveredUpsellOrders = recoveredUpsellEvents.length;
+  const recoveredUpsellRevenue = Number(recoveredUpsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
+  const recoveryRate = totalDeclines > 0 ? Number(((recoveredUpsellOrders / totalDeclines) * 100).toFixed(1)) : 0;
 
   bumpRevenue = Number(bumpRevenue.toFixed(2));
   coreRevenue = Number(coreRevenue.toFixed(2));
@@ -61,6 +69,10 @@ function computeAovExpansion(filteredOrders, reportEvents, publicPageCache = {})
     effectiveAov,
     aovLiftDollars,
     aovLiftPercent,
+    totalDeclines,
+    recoveredUpsellRevenue,
+    recoveredUpsellOrders,
+    recoveryRate,
     streams: [
       {
         tier: 'core',
@@ -87,7 +99,11 @@ function computeAovExpansion(filteredOrders, reportEvents, publicPageCache = {})
         revenue: upsellRevenue,
         percentageOfTotal: combinedRevenue > 0 ? Number(((upsellRevenue / combinedRevenue) * 100).toFixed(1)) : 0,
         attachRate: totalFrontEndOrders > 0 ? Number(((upsellTakes / totalFrontEndOrders) * 100).toFixed(1)) : 0,
-        aovContribution: totalFrontEndOrders > 0 ? Number((upsellRevenue / totalFrontEndOrders).toFixed(2)) : 0
+        aovContribution: totalFrontEndOrders > 0 ? Number((upsellRevenue / totalFrontEndOrders).toFixed(2)) : 0,
+        recoveredRevenue: recoveredUpsellRevenue,
+        recoveredOrders: recoveredUpsellOrders,
+        recoveryRate,
+        totalDeclines
       },
       {
         tier: 'downsell',
@@ -242,4 +258,43 @@ test('channel attribution accurately isolates Base AOV, Blended AOV, and Bump/Up
   assert.equal(tiktok.aov, 58.00, 'TikTok blended AOV is $58.00');
   assert.equal(tiktok.aovLift, 0, 'TikTok AOV lift is $0');
 });
+
+test('computeAovExpansion isolates post-purchase recovery revenue and calculates recovery rate from initial declines', () => {
+  const orders = [
+    { id: '1', customerEmail: 'buyer1@ex.com', totalPrice: 58.00, orderBumpIncluded: false },
+    { id: '2', customerEmail: 'buyer2@ex.com', totalPrice: 58.00, orderBumpIncluded: false },
+    { id: '3', customerEmail: 'buyer3@ex.com', totalPrice: 58.00, orderBumpIncluded: false },
+    { id: '4', customerEmail: 'buyer4@ex.com', totalPrice: 58.00, orderBumpIncluded: false }
+  ];
+
+  // buyer1 accepted live on page without declining
+  // buyer2 and buyer3 declined the offer initially (2 declines)
+  // buyer2 then accepted via courtesy email flow ($38.00)
+  // buyer3 did not convert (0)
+  // buyer4 was never presented or declined
+  const events = [
+    { type: 'upsell_accept', email: 'buyer1@ex.com', offerType: 'upsell', amount: 38.00 },
+    { type: 'upsell_decline', email: 'buyer2@ex.com', offerType: 'upsell' },
+    { type: 'upsell_decline', email: 'buyer3@ex.com', offerType: 'upsell' },
+    { type: 'upsell_accept', email: 'buyer2@ex.com', offerType: 'upsell', amount: 38.00 }
+  ];
+
+  const result = computeAovExpansion(orders, events);
+
+  assert.equal(result.totalOrders, 4);
+  assert.equal(result.totalDeclines, 2, 'Total 2 initial declines');
+  assert.equal(result.recoveredUpsellOrders, 1, '1 recovered order from declined buyers');
+  assert.equal(result.recoveredUpsellRevenue, 38.00, 'Recovered $38.00 from second-chance courtesy');
+  assert.equal(result.recoveryRate, 50.0, 'Recovery rate is 50.0% (1 recovered out of 2 declines)');
+
+  const upsellStream = result.streams.find(s => s.tier === 'upsell');
+  assert.ok(upsellStream);
+  assert.equal(upsellStream.orderCount, 2, 'Total 2 upsell takes (1 live + 1 recovered)');
+  assert.equal(upsellStream.revenue, 76.00, 'Total $76.00 upsell revenue');
+  assert.equal(upsellStream.recoveredRevenue, 38.00);
+  assert.equal(upsellStream.recoveredOrders, 1);
+  assert.equal(upsellStream.recoveryRate, 50.0);
+  assert.equal(upsellStream.totalDeclines, 2);
+});
+
 

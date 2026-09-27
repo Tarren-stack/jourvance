@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, DollarSign, Users, ShoppingCart, ArrowDownRight, 
   Download, RefreshCw, Layers, ShieldCheck, CheckCircle2, Zap,
-  ExternalLink, BarChart3, Filter, Clock, ArrowUpRight, Sparkles
+  ExternalLink, BarChart3, Filter, Clock, ArrowUpRight, Sparkles, Mail
 } from 'lucide-react';
 import type { Workspace, JourneyNode, AttributionReport, AttributionModelType } from '../../types/journey';
 import { authHeaders } from '../../lib/firebase';
@@ -494,8 +494,8 @@ export const AttributionReports: React.FC<Props> = ({
                 ({aovLiftPercent > 0 ? `+${aovLiftPercent.toFixed(1)}%` : '0%'} lift)
               </span>
             </div>
-            <span style={{ fontSize: '11px', color: '#64748B' }}>
-              Generated via bumps & post-purchase OTOs
+            <span style={{ fontSize: '11px', color: (aovExp?.recoveredUpsellRevenue || 0) > 0 ? '#34D399' : '#64748B' }}>
+              {(aovExp?.recoveredUpsellRevenue || 0) > 0 ? `Includes $${(aovExp?.recoveredUpsellRevenue || 0).toFixed(2)} recovered via courtesy flow` : 'Generated via bumps & post-purchase OTOs'}
             </span>
           </div>
 
@@ -596,6 +596,32 @@ export const AttributionReports: React.FC<Props> = ({
                       {isCore ? `$${stream.aovContribution.toFixed(2)}` : `+$${stream.aovContribution.toFixed(2)}`}
                     </strong>
                   </div>
+
+                  {isUpsell && Boolean(stream.recoveredRevenue || stream.recoveredOrders || stream.totalDeclines) && (
+                    <div style={{
+                      marginTop: '6px',
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
+                        <span style={{ color: '#34D399', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Mail size={11} />
+                          Post-Purchase Recovery:
+                        </span>
+                        <strong style={{ color: '#F8FAFC' }}>
+                          ${(stream.recoveredRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </strong>
+                      </div>
+                      <span style={{ fontSize: '10px', color: '#94A3B8' }}>
+                        {stream.recoveredOrders || 0} takes ({stream.recoveryRate || 0}% recovery rate from {stream.totalDeclines || 0} initial declines)
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             );

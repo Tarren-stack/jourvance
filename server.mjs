@@ -5803,12 +5803,38 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
 
   const upsellEvents = reportEvents.filter(e => e.type === 'upsell_accept' && (e.offerType || 'upsell') === 'upsell');
   const downsellEvents = reportEvents.filter(e => e.type === 'upsell_accept' && e.offerType === 'downsell');
+  const upsellDeclines = reportEvents.filter(e => e.type === 'upsell_decline' && (e.offerType || 'upsell') === 'upsell');
 
   const upsellTakes = upsellEvents.length;
   const upsellRevenue = Number(upsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
 
   const downsellTakes = downsellEvents.length;
   const downsellRevenue = Number(downsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
+
+  // Recovery intelligence from second-chance post-purchase courtesy email sequence
+  const totalDeclines = upsellDeclines.length;
+  const declinedEmails = new Set(upsellDeclines.map(d => String(d.email || '').toLowerCase()).filter(Boolean));
+  
+  let recoveryConvertedEmails = new Set();
+  try {
+    const dripsData = loadDrips();
+    const recoveryEnrollments = (dripsData.enrollments || []).filter(e => e.sequenceId === 'drip_seq_upsell_recovery');
+    for (const enr of recoveryEnrollments) {
+      if (enr.status === 'converted_exit' && enr.customerEmail) {
+        recoveryConvertedEmails.add(String(enr.customerEmail).toLowerCase());
+      }
+    }
+  } catch (err) {
+    console.warn('[Jourvance] Recovery drips load failed in attribution report:', err.message);
+  }
+
+  const recoveredUpsellEvents = upsellEvents.filter(u => {
+    const em = String(u.email || '').toLowerCase();
+    return em && (declinedEmails.has(em) || recoveryConvertedEmails.has(em));
+  });
+  const recoveredUpsellOrders = recoveredUpsellEvents.length;
+  const recoveredUpsellRevenue = Number(recoveredUpsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
+  const recoveryRate = totalDeclines > 0 ? Number(((recoveredUpsellOrders / totalDeclines) * 100).toFixed(1)) : 0;
 
   bumpRevenue = Number(bumpRevenue.toFixed(2));
   coreRevenue = Number(coreRevenue.toFixed(2));
@@ -5826,6 +5852,10 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
     effectiveAov,
     aovLiftDollars,
     aovLiftPercent,
+    totalDeclines,
+    recoveredUpsellRevenue,
+    recoveredUpsellOrders,
+    recoveryRate,
     streams: [
       {
         tier: 'core',
@@ -5852,7 +5882,11 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
         revenue: upsellRevenue,
         percentageOfTotal: combinedRevenue > 0 ? Number(((upsellRevenue / combinedRevenue) * 100).toFixed(1)) : 0,
         attachRate: totalFrontEndOrders > 0 ? Number(((upsellTakes / totalFrontEndOrders) * 100).toFixed(1)) : 0,
-        aovContribution: totalFrontEndOrders > 0 ? Number((upsellRevenue / totalFrontEndOrders).toFixed(2)) : 0
+        aovContribution: totalFrontEndOrders > 0 ? Number((upsellRevenue / totalFrontEndOrders).toFixed(2)) : 0,
+        recoveredRevenue: recoveredUpsellRevenue,
+        recoveredOrders: recoveredUpsellOrders,
+        recoveryRate,
+        totalDeclines
       },
       {
         tier: 'downsell',

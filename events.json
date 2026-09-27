@@ -468,5 +468,41 @@
     "fbclid": "",
     "gclid": "",
     "ttclid": ""
+  },
+  {
+    "id": "evt_1790500136418_9kkk",
+    "at": "2026-09-27T09:08:56.418Z",
+    "type": "lead",
+    "slug": "",
+    "journeyId": "",
+    "nodeId": "",
+    "userId": "",
+    "email": "unit-cors-1790500136413@example.com",
+    "variant": "a",
+    "visitorId": "",
+    "utm_source": "",
+    "utm_medium": "",
+    "utm_campaign": "",
+    "fbclid": "",
+    "gclid": "",
+    "ttclid": ""
+  },
+  {
+    "id": "evt_1790500374355_x9is",
+    "at": "2026-09-27T09:12:54.355Z",
+    "type": "lead",
+    "slug": "",
+    "journeyId": "",
+    "nodeId": "",
+    "userId": "",
+    "email": "unit-cors-1790500374345@example.com",
+    "variant": "a",
+    "visitorId": "",
+    "utm_source": "",
+    "utm_medium": "",
+    "utm_campaign": "",
+    "fbclid": "",
+    "gclid": "",
+    "ttclid": ""
   }
 ]

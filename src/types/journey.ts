@@ -564,6 +564,10 @@ export interface OfferRevenueStream {
   percentageOfTotal: number;
   attachRate: number;
   aovContribution: number;
+  recoveredRevenue?: number;
+  recoveredOrders?: number;
+  recoveryRate?: number;
+  totalDeclines?: number;
 }
 
 export interface FunnelAovExpansion {
@@ -574,6 +578,10 @@ export interface FunnelAovExpansion {
   aovLiftDollars: number;
   aovLiftPercent: number;
   streams: OfferRevenueStream[];
+  totalDeclines?: number;
+  recoveredUpsellRevenue?: number;
+  recoveredUpsellOrders?: number;
+  recoveryRate?: number;
 }
 
 export interface AttributionReport {
