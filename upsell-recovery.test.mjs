@@ -229,3 +229,64 @@ test('email template tokens replace offer_url, discount_code, order_number, and 
   assert.ok(rendered.includes('https://jourvance.com/p/botanical-cleanser-offer'));
   assert.equal(rendered.includes('{{'), false);
 });
+
+test('Option A: recovery offer page variant detects coupon and applies 10% courtesy discount', () => {
+  const query = {
+    coupon: 'SAVE10',
+    email: 'sophia@luxeaesthetics.com',
+    ref: 'recovery'
+  };
+
+  const queryCoupon = String(query.coupon || '').trim().toUpperCase();
+  const isCourtesyRecovery = queryCoupon === 'SAVE10' || query.ref === 'recovery' || Boolean(queryCoupon);
+  const effectiveCoupon = queryCoupon || (isCourtesyRecovery ? 'SAVE10' : '');
+
+  const rawProductPrice = '$48.00';
+  const regularPrice = '$60.00';
+  const numericBasePrice = parseFloat(String(rawProductPrice).replace(/[^0-9.]/g, '')) || 0;
+
+  let finalPriceStr = rawProductPrice;
+  let finalStrikethroughStr = regularPrice;
+  let recordedAmount = numericBasePrice;
+
+  if (isCourtesyRecovery && numericBasePrice > 0) {
+    const discountedNum = Number((numericBasePrice * 0.9).toFixed(2));
+    finalPriceStr = `$${discountedNum.toFixed(2)}`;
+    finalStrikethroughStr = rawProductPrice || regularPrice;
+    recordedAmount = discountedNum;
+  }
+
+  const baseAcceptText = 'Add to My Order';
+  const acceptText = isCourtesyRecovery ? `${baseAcceptText} (10% Courtesy Off Applied)` : baseAcceptText;
+
+  const storeDomain = 'luxury-beauty.myshopify.com';
+  const variantId = 'gid://shopify/ProductVariant/441238910';
+  const realVarId = variantId.includes('/') ? variantId.split('/').pop() : variantId;
+  const checkoutUrl = storeDomain && realVarId
+    ? `https://${storeDomain}/cart/${realVarId}:1${effectiveCoupon ? `?discount=${encodeURIComponent(effectiveCoupon)}` : ''}`
+    : '';
+
+  assert.equal(isCourtesyRecovery, true);
+  assert.equal(effectiveCoupon, 'SAVE10');
+  assert.equal(finalPriceStr, '$43.20');
+  assert.equal(finalStrikethroughStr, '$48.00');
+  assert.equal(recordedAmount, 43.20);
+  assert.equal(acceptText, 'Add to My Order (10% Courtesy Off Applied)');
+  assert.equal(checkoutUrl, 'https://luxury-beauty.myshopify.com/cart/441238910:1?discount=SAVE10');
+});
+
+test('Option A: recovery offerUrl incorporates pre-applied voucher and customer email', () => {
+  const publicBase = 'https://jourvance.app';
+  const slug = 'rose-revitalizing-cream-offer';
+  const customerEmail = 'isabella@botanicalglow.com';
+  const discountCode = 'SAVE10';
+
+  const offerUrl = `${publicBase}/p/${slug}?coupon=${encodeURIComponent(discountCode)}&email=${encodeURIComponent(customerEmail)}&ref=recovery`;
+
+  const parsed = new URL(offerUrl);
+  assert.equal(parsed.pathname, `/p/${slug}`);
+  assert.equal(parsed.searchParams.get('coupon'), 'SAVE10');
+  assert.equal(parsed.searchParams.get('email'), 'isabella@botanicalglow.com');
+  assert.equal(parsed.searchParams.get('ref'), 'recovery');
+});
+

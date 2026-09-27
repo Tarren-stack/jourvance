@@ -5103,8 +5103,14 @@ async function processUserAutomationsTick(uid) {
         const dripContact = loadContacts().find(c => c.email === enr.customerEmail && contactOwnerId(c) === uid) || { email: enr.customerEmail, name: enr.customerName };
         const checkout = loadCheckouts().find((row) => row.userId === uid && String(row.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase() && row.abandonedCheckoutUrl);
         const customerOrder = orders.find(o => String(o.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase());
-        const offerUrl = enr.offerUrl || (enr.sourceSlug ? `${publicBase()}/p/${enr.sourceSlug}` : '');
+        let offerUrl = enr.offerUrl || (enr.sourceSlug ? `${publicBase()}/p/${enr.sourceSlug}` : '');
         const discountCode = step.discountVoucher || enr.discountCode || 'SAVE10';
+        if (offerUrl && seq.triggerType === 'upsell_recovery') {
+          const sep = offerUrl.includes('?') ? '&' : '?';
+          if (!offerUrl.includes('coupon=')) {
+            offerUrl += `${sep}coupon=${encodeURIComponent(discountCode)}&email=${encodeURIComponent(enr.customerEmail)}&ref=recovery`;
+          }
+        }
         const letter = await composeForSend(uid, dripContact, [{ kind: 'text', text: step.body || '' }], {
           checkout_url: checkout?.abandonedCheckoutUrl || offerUrl,
           offer_url: offerUrl,
@@ -9027,20 +9033,42 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   const storeDomain = realStoreDomain(shopify);
   const slug = page.slug || req.params.slug || 'offer';
 
+  // Courtesy voucher handling from second-chance recovery flow
+  const queryCoupon = String(req?.query?.coupon || req?.query?.discount || '').trim().toUpperCase();
+  const queryEmail = String(req?.query?.email || '').trim().toLowerCase();
+  const isCourtesyRecovery = queryCoupon === 'SAVE10' || req?.query?.ref === 'recovery' || Boolean(queryCoupon);
+  const effectiveCoupon = queryCoupon || (isCourtesyRecovery ? 'SAVE10' : (upsell.discountCode || (isDownsell ? d.downsellDiscountCode : d.upsellDiscountCode) || ''));
+
   const headline = upsell.headline || (isDownsell ? (d.downsellHeadline || 'Another offer') : (d.upsellHeadline || 'Another offer'));
   const subhead = upsell.subhead || (isDownsell ? (d.downsellSubhead || '') : (d.upsellSubhead || ''));
   const badge = upsell.badgeText || (isDownsell ? (d.downsellBadge || '') : (d.upsellBadge || ''));
   const urgencyRaw = Number(upsell.urgencyMinutes || d.upsellUrgencyMinutes);
   const urgencyMins = Number.isFinite(urgencyRaw) && urgencyRaw > 0 ? urgencyRaw : 0;
   const productTitle = upsell.productTitle || (isDownsell ? (d.downsellProductTitle || '') : (d.upsellProductTitle || ''));
-  const productPrice = upsell.productPrice || (isDownsell ? (d.downsellProductPrice || '') : (d.upsellProductPrice || ''));
+  const rawProductPrice = upsell.productPrice || (isDownsell ? (d.downsellProductPrice || '') : (d.upsellProductPrice || ''));
   const regularPrice = upsell.regularPrice || (isDownsell ? (d.downsellRegularPrice || '') : (d.upsellRegularPrice || ''));
-  const discountCode = upsell.discountCode || (isDownsell ? (d.downsellDiscountCode || '') : (d.upsellDiscountCode || ''));
   const productImage = upsell.productImage || (isDownsell ? (d.downsellProductImage || '') : (d.upsellProductImage || ''));
   const benefits = (Array.isArray(upsell.benefits) && upsell.benefits.length) ? upsell.benefits : (Array.isArray(d.upsellBenefits) ? d.upsellBenefits : []);
-  const acceptText = upsell.acceptButtonText || (isDownsell ? (d.downsellAcceptText || 'Continue') : (d.upsellAcceptText || 'Continue'));
+  const baseAcceptText = upsell.acceptButtonText || (isDownsell ? (d.downsellAcceptText || 'Continue') : (d.upsellAcceptText || 'Continue'));
   const declineText = upsell.declineButtonText || (isDownsell ? 'No thanks, continue to my order confirmation' : 'No thanks, skip this offer');
   const variantId = realVariantId(upsell.shopifyVariantId || d.upsellVariantId);
+
+  // Price calculations with optional courtesy discount
+  const numericBasePrice = parseFloat(String(rawProductPrice).replace(/[^0-9.]/g, '')) || 0;
+  let finalPriceStr = rawProductPrice;
+  let finalStrikethroughStr = regularPrice;
+  let recordedAmount = numericBasePrice;
+
+  if (isCourtesyRecovery && numericBasePrice > 0) {
+    const discountedNum = Number((numericBasePrice * 0.9).toFixed(2));
+    finalPriceStr = `$${discountedNum.toFixed(2)}`;
+    finalStrikethroughStr = rawProductPrice || regularPrice;
+    recordedAmount = discountedNum;
+  }
+
+  const acceptText = isCourtesyRecovery
+    ? `${baseAcceptText} (10% Courtesy Off Applied)`
+    : baseAcceptText;
 
   const accentColor = isDownsell ? '#F59E0B' : '#10B981';
   const accentGradient = isDownsell ? 'linear-gradient(135deg, #F59E0B, #D97706)' : 'linear-gradient(135deg, #10B981, #059669)';
@@ -9048,13 +9076,9 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   const badgeBorder = isDownsell ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)';
 
   const nextDeclineUrl = (!isDownsell && (d.hasDownsell || d.downsell)) ? `/p/${slug}/downsell` : `/p/${slug}/thank-you`;
-  const explicitPrice = isDownsell
-    ? (upsell.productPrice || d.downsellProductPrice || '')
-    : (upsell.productPrice || d.upsellProductPrice || '');
   const checkoutUrl = storeDomain && variantId
-    ? `https://${storeDomain}/cart/${variantId}:1${discountCode ? `?discount=${encodeURIComponent(discountCode)}` : ''}`
+    ? `https://${storeDomain}/cart/${variantId}:1${effectiveCoupon ? `?discount=${encodeURIComponent(effectiveCoupon)}` : ''}`
     : '';
-  const recordedAmount = checkoutUrl ? (parseFloat(String(explicitPrice).replace(/[^0-9.]/g, '')) || 0) : 0;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -9084,6 +9108,30 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
       display: flex;
       flex-direction: column;
       gap: 20px;
+    }
+    .recovery-banner {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(99, 102, 241, 0.15));
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      border-radius: 12px;
+      padding: 12px 18px;
+      text-align: center;
+      font-size: 13px;
+      color: #34D399;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .recovery-tag {
+      background: rgba(16, 185, 129, 0.25);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #FFFFFF;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
     .reassurance-banner {
       background: rgba(234, 179, 8, 0.12);
@@ -9243,10 +9291,14 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
 </head>
 <body>
   <div class="container">
-    ${urgencyMins > 0 ? `
+    ${isCourtesyRecovery ? `
+    <div class="recovery-banner">
+      <span class="recovery-tag">Private Courtesy Offer</span>
+      <span>10% courtesy discount <strong>${escapeHtml(effectiveCoupon)}</strong> pre-applied to your order.</span>
+    </div>` : (urgencyMins > 0 ? `
     <div class="reassurance-banner">
       <span>This offer timer runs for <span id="jv-timer">${String(urgencyMins).padStart(2, '0')}:00</span>.</span>
-    </div>` : ''}
+    </div>` : '')}
 
     <!-- Main Presentation Card -->
     <div class="card">
@@ -9261,9 +9313,10 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
         ${productImage ? `<img src="${escapeHtml(productImage)}" alt="${escapeHtml(productTitle || headline)}" class="product-img" />` : ''}
         <div class="product-info">
           ${productTitle ? `<div class="product-title">${escapeHtml(productTitle)}</div>` : ''}
-          ${(productPrice || regularPrice) ? `<div class="pricing-row">
-            ${productPrice ? `<span class="price-special">${escapeHtml(productPrice)}</span>` : ''}
-            ${regularPrice ? `<span class="price-reg">${escapeHtml(regularPrice)}</span>` : ''}
+          ${(finalPriceStr || finalStrikethroughStr) ? `<div class="pricing-row">
+            ${finalPriceStr ? `<span class="price-special">${escapeHtml(finalPriceStr)}</span>` : ''}
+            ${finalStrikethroughStr ? `<span class="price-reg">${escapeHtml(finalStrikethroughStr)}</span>` : ''}
+            ${isCourtesyRecovery ? `<span style="font-size:11px; font-weight:700; color:#34D399; background:rgba(16, 185, 129, 0.15); padding:2px 8px; border-radius:4px; border:1px solid rgba(16, 185, 129, 0.3);">10% OFF PRE-APPLIED</span>` : ''}
           </div>` : ''}
           ${checkoutUrl ? `<div style="font-size:11px; color:#94A3B8; font-weight:600;">Checkout opens on the connected store.</div>` : `<div style="font-size:11px; color:#94A3B8; font-weight:600;">No store checkout is connected for this offer.</div>`}
         </div>
@@ -9331,6 +9384,8 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
 
     // Track accept action
     document.getElementById('jv-accept-btn').addEventListener('click', function(e) {
+      var queryParams = new URLSearchParams(location.search);
+      var emailFromQuery = queryParams.get('email') || ${JSON.stringify(queryEmail)};
       if (!${JSON.stringify(checkoutUrl)}) {
         e.preventDefault();
       } else {
@@ -9358,11 +9413,37 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
             action: 'accept',
             offerType: ${JSON.stringify(isDownsell ? 'downsell' : 'upsell')},
             amount: ${recordedAmount},
+            customerEmail: emailFromQuery,
+            discountCode: ${JSON.stringify(effectiveCoupon)},
             visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
-          })
+          }),
+          keepalive: true
         }).catch(function(){});
       } catch(err) {}
     });
+
+    // Track decline action
+    var declineBtn = document.getElementById('jv-decline-btn');
+    if (declineBtn) {
+      declineBtn.addEventListener('click', function(e) {
+        try {
+          var queryParams = new URLSearchParams(location.search);
+          var emailFromQuery = queryParams.get('email') || ${JSON.stringify(queryEmail)};
+          fetch('/api/public/upsell-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              slug: ${JSON.stringify(slug)},
+              action: 'decline',
+              offerType: ${JSON.stringify(isDownsell ? 'downsell' : 'upsell')},
+              customerEmail: emailFromQuery,
+              visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
+            }),
+            keepalive: true
+          }).catch(function(){});
+        } catch(err) {}
+      });
+    }
   </script>
 </body>
 </html>`;
@@ -10418,18 +10499,20 @@ app.post('/api/public/upsell-action', async (req, res) => {
           );
           if (!alreadyActive) {
             const delayHours = recoverySeq.steps?.[0]?.delayHours ?? 18;
-            const offerUrl = slug ? `${publicBase()}/p/${slug}` : '';
+            const discountCode = recoverySeq.steps?.[0]?.discountVoucher || 'SAVE10';
+            const cleanEmail = customerEmail.toLowerCase().trim();
+            const offerUrl = slug ? `${publicBase()}/p/${slug}?coupon=${encodeURIComponent(discountCode)}&email=${encodeURIComponent(cleanEmail)}&ref=recovery` : '';
             dripsData.enrollments.unshift({
               id: `enr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
               sequenceId: recoverySeq.id,
               userId: targetUid,
               visitorId: String(req.body?.visitorId || '').slice(0, 80),
-              customerEmail: customerEmail.toLowerCase().trim(),
+              customerEmail: cleanEmail,
               customerName: req.body?.customerName || '',
               sourceSlug: slug || 'upsell_offer',
               offerUrl,
               offerType: isDownsell ? 'downsell' : 'upsell',
-              discountCode: 'SAVE10',
+              discountCode,
               currentStepIndex: 0,
               status: 'active',
               enrolledAt: new Date().toISOString(),

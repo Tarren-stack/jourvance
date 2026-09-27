@@ -504,5 +504,23 @@
     "fbclid": "",
     "gclid": "",
     "ttclid": ""
+  },
+  {
+    "id": "evt_1790500793217_8r1d",
+    "at": "2026-09-27T09:19:53.217Z",
+    "type": "lead",
+    "slug": "",
+    "journeyId": "",
+    "nodeId": "",
+    "userId": "",
+    "email": "unit-cors-1790500793212@example.com",
+    "variant": "a",
+    "visitorId": "",
+    "utm_source": "",
+    "utm_medium": "",
+    "utm_campaign": "",
+    "fbclid": "",
+    "gclid": "",
+    "ttclid": ""
   }
 ]
