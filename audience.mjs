@@ -15,6 +15,11 @@ export const FOLLOW_UP_NOTE = 'A follow-up to people who did not open is a draft
 
 export const BUILT_INS = [
   { id: 'all', name: 'All marketing', definition: 'Accepts marketing, and is not suppressed or unsubscribed.' },
+  { id: 'whales', name: 'VIP Whales (Platinum)', definition: 'Recorded spend is at least $500 (or 4+ orders with $250+ spend), and they are not suppressed or unsubscribed.' },
+  { id: 'gold', name: 'VIP Gold', definition: 'Recorded spend is $250–$499, and they are not suppressed or unsubscribed.' },
+  { id: 'silver', name: 'VIP Silver', definition: 'Recorded spend is $100–$249, and they are not suppressed or unsubscribed.' },
+  { id: 'at_risk', name: 'At-Risk Inactive Clients', definition: 'Inactive for 90+ days without a purchase, and they are not suppressed or unsubscribed.' },
+  { id: 'lapsed', name: 'Lapsed Clients', definition: 'Inactive for 180+ days without a purchase, and they are not suppressed or unsubscribed.' },
   { id: 'vip', name: 'Spent at least $100', definition: 'Recorded spend is at least 100, and they are not suppressed or unsubscribed.' },
   { id: 'repeat', name: 'Two or more orders', definition: 'At least two recorded orders, and they are not suppressed or unsubscribed.' },
   { id: 'buyers', name: 'Buyers', definition: 'At least one recorded order, and they are not suppressed or unsubscribed.' },
@@ -30,11 +35,36 @@ export function inBuiltIn(id, contact, eligible) {
   const spent = Number(contact.totalSpent) || 0;
   const orders = Number(contact.ordersCount) || 0;
   const tags = Array.isArray(contact.tags) ? contact.tags : [];
-  if (id === 'vip') return spent >= 100;
-  if (id === 'repeat') return orders >= 2;
+  if (id === 'vip') return spent >= 100 || tags.includes('VIP Customer');
+  if (id === 'repeat') return orders >= 2 || tags.includes('Repeat Buyer');
   if (id === 'buyers') return orders > 0;
   if (id === 'leads') return orders === 0;
   if (id === 'exit_rescue') return tags.includes('Exit-Intent-Rescue');
+  if (id === 'whales') {
+    return spent >= 500 || (orders >= 4 && spent >= 250) || tags.includes('VIP-Platinum');
+  }
+  if (id === 'gold') {
+    return (spent >= 250 && spent < 500) || (orders >= 3 && spent >= 100) || tags.includes('VIP-Gold');
+  }
+  if (id === 'silver') {
+    return (spent >= 100 && spent < 250) || orders >= 2 || tags.includes('VIP-Silver');
+  }
+  if (id === 'at_risk') {
+    if (tags.includes('At-Risk')) return true;
+    if (!contact.lastOrderAt) return false;
+    const time = Date.parse(contact.lastOrderAt);
+    if (!Number.isFinite(time)) return false;
+    const days = Math.floor((Date.now() - time) / 86400000);
+    return days >= 90 && days < 180;
+  }
+  if (id === 'lapsed') {
+    if (tags.includes('Lapsed')) return true;
+    if (!contact.lastOrderAt) return false;
+    const time = Date.parse(contact.lastOrderAt);
+    if (!Number.isFinite(time)) return false;
+    const days = Math.floor((Date.now() - time) / 86400000);
+    return days >= 180;
+  }
   return true;
 }
 

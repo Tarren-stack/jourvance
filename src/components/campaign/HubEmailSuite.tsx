@@ -452,6 +452,36 @@ ${unsub}`;
     }
   };
 
+  const handleDraftWhaleBroadcast = () => {
+    setSelectedSegmentId('whales');
+    setBroadcastSubject('A private preview & courtesy gift for our most cherished VIP');
+    setBroadcastPreviewText('Your VIP loyalty means the world to us — here is your exclusive priority access');
+    setBroadcastBody('Hello lovely,\n\nAs one of our most valued VIP clients, we wanted to ensure you received private first-access to our newest reserve collection before public release.\n\nWe’ve also arranged a complimentary full-size gift with your next order. Simply enjoy your bespoke VIP experience.');
+    setBroadcastSuccess(false);
+    setBroadcastFeedback('');
+    setShowBroadcastModal(true);
+  };
+
+  const handleDraftWinbackBroadcast = () => {
+    setSelectedSegmentId('at_risk');
+    setBroadcastSubject('We miss you — a private 15% courtesy treat for your next ritual');
+    setBroadcastPreviewText("It's been a little while, and we'd love to welcome you back");
+    setBroadcastBody('Hello lovely,\n\nWe noticed it’s been a little while since your last visit, and we wanted to check in.\n\nSelf-care should always feel effortless. To welcome you back, we’ve placed a special 15% courtesy reward on your profile for your next restock:\n\nUse code WELCOMEBACK15 at checkout.');
+    setBroadcastSuccess(false);
+    setBroadcastFeedback('');
+    setShowBroadcastModal(true);
+  };
+
+  const handleDraftLapsedBroadcast = () => {
+    setSelectedSegmentId('lapsed');
+    setBroadcastSubject('A warm invitation back to your self-care sanctuary');
+    setBroadcastPreviewText("Your bespoke treat is waiting whenever you're ready");
+    setBroadcastBody('Hello lovely,\n\nIt’s been some time since we had the pleasure of treating you, and we wanted to send a warm note your way.\n\nWhenever you’re ready to replenish your favorite beauty rituals, our studio and sanctuary are ready for you.\n\nEnjoy complimentary priority shipping on us with code SANCTUARY.');
+    setBroadcastSuccess(false);
+    setBroadcastFeedback('');
+    setShowBroadcastModal(true);
+  };
+
   const isConnected = workspace?.shopifyConfig?.status === 'connected' && !!workspace?.shopifyConfig?.storeDomain;
 
   return (
@@ -1410,38 +1440,94 @@ ${unsub}`;
                 </div>
               </div>
 
-              <div style={{ backgroundColor: 'rgba(168, 85, 247, 0.06)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: '11px', color: '#c084fc', textTransform: 'uppercase', fontWeight: 600 }}>VIP Whales (${rfmConfig.vipPlatinum}+)</div>
-                  <Crown size={14} style={{ color: '#c084fc' }} />
+              <div style={{ backgroundColor: 'rgba(168, 85, 247, 0.06)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(168, 85, 247, 0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ fontSize: '11px', color: '#c084fc', textTransform: 'uppercase', fontWeight: 600 }}>VIP Whales (${rfmConfig.vipPlatinum}+)</div>
+                    <Crown size={14} style={{ color: '#c084fc' }} />
+                  </div>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#e9d5ff', marginTop: '4px' }}>
+                    {(rfmSummary?.whales ?? subscribers.filter(s => s.rfmTier === 'whale' || (s.totalSpent || 0) >= rfmConfig.vipPlatinum).length).toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#c084fc', marginTop: '2px' }}>Platinum top spenders</div>
                 </div>
-                <div style={{ fontSize: '22px', fontWeight: 700, color: '#e9d5ff', marginTop: '4px' }}>
-                  {(rfmSummary?.whales ?? subscribers.filter(s => s.rfmTier === 'whale' || (s.totalSpent || 0) >= rfmConfig.vipPlatinum).length).toLocaleString()}
-                </div>
-                <div style={{ fontSize: '11px', color: '#c084fc', marginTop: '2px' }}>Platinum top spenders</div>
+                <button
+                  type="button"
+                  onClick={handleDraftWhaleBroadcast}
+                  style={{
+                    marginTop: '10px',
+                    width: '100%',
+                    padding: '6px 10px',
+                    borderRadius: '7px',
+                    border: '1px solid rgba(192, 132, 252, 0.35)',
+                    backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                    color: '#f3e8ff',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    transition: 'background-color 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(168, 85, 247, 0.28)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(168, 85, 247, 0.15)')}
+                >
+                  <Send size={11} /> Draft Whale Perk
+                </button>
               </div>
 
-              <div style={{ backgroundColor: 'rgba(234, 179, 8, 0.06)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(234, 179, 8, 0.25)' }}>
-                <div style={{ fontSize: '11px', color: '#facc15', textTransform: 'uppercase', fontWeight: 600 }}>VIP Gold & Silver</div>
-                <div style={{ fontSize: '22px', fontWeight: 700, color: '#fef08a', marginTop: '4px' }}>
-                  {((rfmSummary ? (rfmSummary.gold + rfmSummary.silver) : subscribers.filter(s => s.rfmTier === 'gold' || s.rfmTier === 'silver').length)).toLocaleString()}
-                </div>
-                <div style={{ fontSize: '11px', color: '#eab308', marginTop: '2px' }}>
-                  {rfmSummary?.gold ?? subscribers.filter(s => s.rfmTier === 'gold').length} Gold • {rfmSummary?.silver ?? subscribers.filter(s => s.rfmTier === 'silver').length} Silver
+              <div style={{ backgroundColor: 'rgba(234, 179, 8, 0.06)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(234, 179, 8, 0.25)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#facc15', textTransform: 'uppercase', fontWeight: 600 }}>VIP Gold & Silver</div>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#fef08a', marginTop: '4px' }}>
+                    {((rfmSummary ? (rfmSummary.gold + rfmSummary.silver) : subscribers.filter(s => s.rfmTier === 'gold' || s.rfmTier === 'silver').length)).toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#eab308', marginTop: '2px' }}>
+                    {rfmSummary?.gold ?? subscribers.filter(s => s.rfmTier === 'gold').length} Gold • {rfmSummary?.silver ?? subscribers.filter(s => s.rfmTier === 'silver').length} Silver
+                  </div>
                 </div>
               </div>
 
-              <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.06)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: '11px', color: '#fbbf24', textTransform: 'uppercase', fontWeight: 600 }}>At-Risk Inactive ({rfmConfig.atRiskDays}d+)</div>
-                  <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
+              <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.06)', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.25)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ fontSize: '11px', color: '#fbbf24', textTransform: 'uppercase', fontWeight: 600 }}>At-Risk Inactive ({rfmConfig.atRiskDays}d+)</div>
+                    <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
+                  </div>
+                  <div style={{ fontSize: '22px', fontWeight: 700, color: '#fde68a', marginTop: '4px' }}>
+                    {(rfmSummary?.atRisk ?? subscribers.filter(s => s.isAtRisk).length).toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '2px' }}>
+                    Needs retention • {(rfmSummary?.lapsed ?? subscribers.filter(s => s.isLapsed).length)} lapsed
+                  </div>
                 </div>
-                <div style={{ fontSize: '22px', fontWeight: 700, color: '#fde68a', marginTop: '4px' }}>
-                  {(rfmSummary?.atRisk ?? subscribers.filter(s => s.isAtRisk).length).toLocaleString()}
-                </div>
-                <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '2px' }}>
-                  Needs retention • {(rfmSummary?.lapsed ?? subscribers.filter(s => s.isLapsed).length)} lapsed
-                </div>
+                <button
+                  type="button"
+                  onClick={handleDraftWinbackBroadcast}
+                  style={{
+                    marginTop: '10px',
+                    width: '100%',
+                    padding: '6px 10px',
+                    borderRadius: '7px',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                    color: '#fef3c7',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    transition: 'background-color 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(245, 158, 11, 0.28)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(245, 158, 11, 0.15)')}
+                >
+                  <Send size={11} /> Draft Winback
+                </button>
               </div>
 
               <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
@@ -2191,6 +2277,11 @@ ${unsub}`;
                     cursor: 'pointer'
                   }}
                 >
+                  {!segments.some(s => s.id === selectedSegmentId) && selectedSegmentId !== 'all' && (
+                    <option value={selectedSegmentId} style={{ backgroundColor: '#1a1a24', color: '#ffffff' }}>
+                      {selectedSegmentId === 'whales' ? 'VIP Whales (Platinum)' : selectedSegmentId === 'at_risk' ? 'At-Risk Inactive Clients' : selectedSegmentId === 'lapsed' ? 'Lapsed Clients' : selectedSegmentId}
+                    </option>
+                  )}
                   {segments.map(seg => (
                     <option key={seg.id} value={seg.id} style={{ backgroundColor: '#1a1a24', color: '#ffffff' }}>
                       {seg.name} ({seg.count} contacts) — {seg.definition || seg.description}
@@ -2207,6 +2298,75 @@ ${unsub}`;
                     </option>
                   )}
                 </select>
+              </div>
+
+              {/* 1-Click Beauty Campaign Presets */}
+              <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#d1d5db', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <Sparkles size={13} style={{ color: '#ec4899' }} /> 1-Click Beauty Campaign Presets
+                  </span>
+                  <span style={{ fontSize: '11px', color: '#9ca3af' }}>Click to auto-fill beauty copy</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={handleDraftWhaleBroadcast}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '7px',
+                      border: selectedSegmentId === 'whales' ? '1px solid #c084fc' : '1px solid rgba(192, 132, 252, 0.3)',
+                      backgroundColor: selectedSegmentId === 'whales' ? 'rgba(168, 85, 247, 0.22)' : 'rgba(168, 85, 247, 0.08)',
+                      color: '#f3e8ff',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <Crown size={12} style={{ color: '#c084fc' }} /> VIP Whale Perk
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDraftWinbackBroadcast}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '7px',
+                      border: selectedSegmentId === 'at_risk' ? '1px solid #fbbf24' : '1px solid rgba(245, 158, 11, 0.3)',
+                      backgroundColor: selectedSegmentId === 'at_risk' ? 'rgba(245, 158, 11, 0.22)' : 'rgba(245, 158, 11, 0.08)',
+                      color: '#fef3c7',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <AlertTriangle size={12} style={{ color: '#f59e0b' }} /> At-Risk 15% Winback
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDraftLapsedBroadcast}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '7px',
+                      border: selectedSegmentId === 'lapsed' ? '1px solid #94a3b8' : '1px solid rgba(148, 163, 184, 0.3)',
+                      backgroundColor: selectedSegmentId === 'lapsed' ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.08)',
+                      color: '#f1f5f9',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <Clock size={12} style={{ color: '#94a3b8' }} /> Lapsed Reconnect
+                  </button>
+                </div>
               </div>
 
               {sendMode === 'direct' && (

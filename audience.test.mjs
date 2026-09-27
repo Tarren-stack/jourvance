@@ -16,6 +16,12 @@ test('built-in segments skip suppressed people and keep the spend rule', () => {
   assert.equal(inBuiltIn('repeat', { ordersCount: 2 }, true), true);
   assert.equal(inBuiltIn('exit_rescue', eligible, true), true);
   assert.equal(inBuiltIn('buyers', { ordersCount: 0 }, true), false);
+  assert.equal(inBuiltIn('whales', { totalSpent: 650, ordersCount: 3 }, true), true);
+  assert.equal(inBuiltIn('whales', { totalSpent: 200, ordersCount: 1 }, true), false);
+  assert.equal(inBuiltIn('whales', { tags: ['VIP-Platinum'] }, true), true);
+  assert.equal(inBuiltIn('at_risk', { tags: ['At-Risk'] }, true), true);
+  assert.equal(inBuiltIn('at_risk', { lastOrderAt: new Date(Date.now() - 100 * 86400000).toISOString() }, true), true);
+  assert.equal(inBuiltIn('at_risk', { lastOrderAt: new Date(Date.now() - 10 * 86400000).toISOString() }, true), false);
 });
 
 test('segment groups honor and and or, and stop at 100 checks', () => {
