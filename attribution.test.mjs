@@ -171,3 +171,75 @@ test('computeAovExpansion handles zero orders gracefully without division by zer
   assert.equal(result.aovLiftPercent, 0, 'AOV lift percent is 0');
   assert.equal(result.streams.length, 4, 'Contains all 4 tiers');
 });
+
+function computeChannelAttribution(orders, events, model = 'last_touch') {
+  const channels = {
+    meta: { channelId: 'meta', orders: 0, revenue: 0, coreRevenue: 0, bumpOrders: 0, bumpRevenue: 0, upsellTakes: 0, upsellRevenue: 0 },
+    tiktok: { channelId: 'tiktok', orders: 0, revenue: 0, coreRevenue: 0, bumpOrders: 0, bumpRevenue: 0, upsellTakes: 0, upsellRevenue: 0 }
+  };
+
+  for (const o of orders) {
+    const chKey = o.checkoutChannel || 'meta';
+    const amount = Number(o.totalPrice || 0);
+    const isBump = Boolean(o.orderBumpIncluded);
+    const bPrice = isBump ? 28.00 : 0;
+    const cPrice = Math.max(0, amount - bPrice);
+
+    channels[chKey].orders += 1;
+    channels[chKey].revenue += amount;
+    channels[chKey].coreRevenue += cPrice;
+    if (isBump) {
+      channels[chKey].bumpOrders += 1;
+      channels[chKey].bumpRevenue += bPrice;
+    }
+
+    const upsells = events.filter(e => e.type === 'upsell_accept' && o.customerEmail && e.email === o.customerEmail);
+    for (const u of upsells) {
+      channels[chKey].upsellTakes += 1;
+      channels[chKey].upsellRevenue += Number(u.amount || 0);
+    }
+  }
+
+  return Object.values(channels).map(ch => {
+    const baseAov = ch.orders > 0 ? Number((ch.coreRevenue / ch.orders).toFixed(2)) : 0;
+    const aov = ch.orders > 0 ? Number(((ch.revenue + ch.upsellRevenue) / ch.orders).toFixed(2)) : 0;
+    const aovLift = Number(Math.max(0, aov - baseAov).toFixed(2));
+    const bumpAttachRate = ch.orders > 0 ? Number(((ch.bumpOrders / ch.orders) * 100).toFixed(1)) : 0;
+    const upsellAttachRate = ch.orders > 0 ? Number(((ch.upsellTakes / ch.orders) * 100).toFixed(1)) : 0;
+    return { ...ch, baseAov, aov, aovLift, bumpAttachRate, upsellAttachRate };
+  });
+}
+
+test('channel attribution accurately isolates Base AOV, Blended AOV, and Bump/Upsell attach per channel', () => {
+  const metaOrders = [
+    { id: 'm1', customerEmail: 'm1@ex.com', totalPrice: 86.00, orderBumpIncluded: true, checkoutChannel: 'meta' },
+    { id: 'm2', customerEmail: 'm2@ex.com', totalPrice: 58.00, orderBumpIncluded: false, checkoutChannel: 'meta' }
+  ];
+  const tiktokOrders = [
+    { id: 't1', customerEmail: 't1@ex.com', totalPrice: 58.00, orderBumpIncluded: false, checkoutChannel: 'tiktok' },
+    { id: 't2', customerEmail: 't2@ex.com', totalPrice: 58.00, orderBumpIncluded: false, checkoutChannel: 'tiktok' }
+  ];
+  const allOrders = [...metaOrders, ...tiktokOrders];
+  const events = [
+    { type: 'upsell_accept', email: 'm1@ex.com', offerType: 'upsell', amount: 38.00 }
+  ];
+
+  const results = computeChannelAttribution(allOrders, events);
+  const meta = results.find(c => c.channelId === 'meta');
+  const tiktok = results.find(c => c.channelId === 'tiktok');
+
+  assert.equal(meta.orders, 2, 'Meta has 2 orders');
+  assert.equal(meta.baseAov, 58.00, 'Meta base AOV is $58.00');
+  assert.equal(meta.bumpAttachRate, 50.0, 'Meta bump attach rate is 50.0% (1 of 2)');
+  assert.equal(meta.upsellAttachRate, 50.0, 'Meta upsell attach rate is 50.0% (1 of 2)');
+  assert.equal(meta.aov, 91.00, 'Meta blended AOV is $91.00 ($182 total / 2)');
+  assert.equal(meta.aovLift, 33.00, 'Meta AOV lift is +$33.00');
+
+  assert.equal(tiktok.orders, 2, 'TikTok has 2 orders');
+  assert.equal(tiktok.baseAov, 58.00, 'TikTok base AOV is $58.00');
+  assert.equal(tiktok.bumpAttachRate, 0, 'TikTok bump attach rate is 0%');
+  assert.equal(tiktok.upsellAttachRate, 0, 'TikTok upsell attach rate is 0%');
+  assert.equal(tiktok.aov, 58.00, 'TikTok blended AOV is $58.00');
+  assert.equal(tiktok.aovLift, 0, 'TikTok AOV lift is $0');
+});
+

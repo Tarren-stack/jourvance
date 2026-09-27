@@ -5471,7 +5471,12 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
       revenue: 0,
       roas: 0,
       cac: 0,
-      conversionRate: 0
+      conversionRate: 0,
+      bumpOrders: 0,
+      bumpRevenue: 0,
+      upsellTakes: 0,
+      upsellRevenue: 0,
+      coreRevenue: 0
     },
     google: {
       channelId: 'google',
@@ -5484,7 +5489,12 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
       revenue: 0,
       roas: 0,
       cac: 0,
-      conversionRate: 0
+      conversionRate: 0,
+      bumpOrders: 0,
+      bumpRevenue: 0,
+      upsellTakes: 0,
+      upsellRevenue: 0,
+      coreRevenue: 0
     },
     tiktok: {
       channelId: 'tiktok',
@@ -5497,7 +5507,12 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
       revenue: 0,
       roas: 0,
       cac: 0,
-      conversionRate: 0
+      conversionRate: 0,
+      bumpOrders: 0,
+      bumpRevenue: 0,
+      upsellTakes: 0,
+      upsellRevenue: 0,
+      coreRevenue: 0
     },
     email: {
       channelId: 'email',
@@ -5510,7 +5525,12 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
       revenue: 0,
       roas: 0,
       cac: 0,
-      conversionRate: 0
+      conversionRate: 0,
+      bumpOrders: 0,
+      bumpRevenue: 0,
+      upsellTakes: 0,
+      upsellRevenue: 0,
+      coreRevenue: 0
     },
     direct: {
       channelId: 'direct',
@@ -5523,7 +5543,12 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
       revenue: 0,
       roas: 0,
       cac: 0,
-      conversionRate: 0
+      conversionRate: 0,
+      bumpOrders: 0,
+      bumpRevenue: 0,
+      upsellTakes: 0,
+      upsellRevenue: 0,
+      coreRevenue: 0
     }
   };
 
@@ -5570,20 +5595,54 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
     const lastTouch = lastIdx >= 0 ? labeled[lastIdx] : firstTouch;
     const distinct = new Set(labeled.filter(c => c !== 'direct'));
 
-    if (model === 'first_touch') {
-      channels[firstTouch].orders += 1;
-      channels[firstTouch].revenue += amount;
-    } else if (model === 'last_touch') {
-      channels[lastTouch].orders += 1;
-      channels[lastTouch].revenue += amount;
-    } else if (firstTouch === lastTouch) {
-      channels[lastTouch].orders += 1;
-      channels[lastTouch].revenue += amount;
-    } else {
-      channels[firstTouch].orders += 0.5;
-      channels[firstTouch].revenue += amount * 0.5;
-      channels[lastTouch].orders += 0.5;
-      channels[lastTouch].revenue += amount * 0.5;
+    const isBump = Boolean(o.orderBumpIncluded);
+    let bPrice = 0;
+    if (isBump) {
+      if (Array.isArray(o.lineItems) && o.lineItems.length > 1) {
+        const bumpItem = o.lineItems.find(it => /bump/i.test(it.title || '')) || o.lineItems[1];
+        if (bumpItem && Number(bumpItem.price) > 0) {
+          bPrice = Number(bumpItem.price) * Number(bumpItem.quantity || 1);
+        }
+      }
+      if (bPrice <= 0 && o.attributedSlug && publicPageCache[o.attributedSlug]?.data?.orderBumpPrice) {
+        const parsed = parseFloat(String(publicPageCache[o.attributedSlug].data.orderBumpPrice).replace(/[^0-9.]/g, ''));
+        if (!isNaN(parsed) && parsed > 0) bPrice = parsed;
+      }
+      if (bPrice <= 0) {
+        bPrice = Math.min(amount * 0.35, 28.00);
+      }
+      bPrice = Math.min(amount, bPrice);
+    }
+    const cPrice = Math.max(0, amount - bPrice);
+
+    const targetList = (model === 'first_touch')
+      ? [firstTouch]
+      : (model === 'last_touch' || firstTouch === lastTouch)
+        ? [lastTouch]
+        : [firstTouch, lastTouch];
+    const weight = targetList.length === 1 ? 1 : 0.5;
+
+    for (const ch of targetList) {
+      channels[ch].orders += weight;
+      channels[ch].revenue += amount * weight;
+      channels[ch].coreRevenue += cPrice * weight;
+      if (isBump) {
+        channels[ch].bumpOrders += weight;
+        channels[ch].bumpRevenue += bPrice * weight;
+      }
+    }
+
+    const orderUpsells = reportEvents.filter(e =>
+      e.type === 'upsell_accept' &&
+      ((o.customerEmail && String(e.email || '').toLowerCase() === String(o.customerEmail).toLowerCase()) ||
+       (o.visitorId && e.visitorId === o.visitorId))
+    );
+    for (const upEvent of orderUpsells) {
+      const upAmt = Number(upEvent.amount || 0);
+      for (const ch of targetList) {
+        channels[ch].upsellTakes += weight;
+        channels[ch].upsellRevenue += upAmt * weight;
+      }
     }
 
     recentAttributions.push({
@@ -5609,6 +5668,17 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
     ch.roas = ch.spend > 0 ? Number((ch.revenue / ch.spend).toFixed(2)) : 0;
     ch.cac = ch.orders > 0 ? Number((ch.spend / ch.orders).toFixed(2)) : 0;
     ch.conversionRate = ch.clicks > 0 ? Number(((ch.orders / ch.clicks) * 100).toFixed(2)) : 0;
+
+    // Per-channel AOV and offer attach intelligence
+    ch.bumpOrders = Math.round(ch.bumpOrders);
+    ch.upsellTakes = Math.round(ch.upsellTakes);
+    ch.bumpRevenue = Number(ch.bumpRevenue.toFixed(2));
+    ch.upsellRevenue = Number(ch.upsellRevenue.toFixed(2));
+    ch.baseAov = ch.orders > 0 ? Number((ch.coreRevenue / ch.orders).toFixed(2)) : 0;
+    ch.aov = ch.orders > 0 ? Number(((ch.revenue + ch.upsellRevenue) / ch.orders).toFixed(2)) : 0;
+    ch.aovLift = Number(Math.max(0, ch.aov - ch.baseAov).toFixed(2));
+    ch.bumpAttachRate = ch.orders > 0 ? Number(((ch.bumpOrders / ch.orders) * 100).toFixed(1)) : 0;
+    ch.upsellAttachRate = ch.orders > 0 ? Number(((ch.upsellTakes / ch.orders) * 100).toFixed(1)) : 0;
 
     totalRevenue += ch.revenue;
     totalSpend += ch.spend;

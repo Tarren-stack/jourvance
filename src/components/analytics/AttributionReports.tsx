@@ -24,6 +24,7 @@ export const AttributionReports: React.FC<Props> = ({
   const [report, setReport] = useState<AttributionReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
+  const [channelViewMode, setChannelViewMode] = useState<'offers' | 'roi' | 'all'>('offers');
 
   const fetchAttribution = async () => {
     setLoading(true);
@@ -667,7 +668,9 @@ export const AttributionReports: React.FC<Props> = ({
           borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between'
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Layers size={16} color="#818CF8" />
@@ -675,75 +678,251 @@ export const AttributionReports: React.FC<Props> = ({
               Acquisition & Conversion Channel Breakdown
             </h2>
           </div>
-          <span style={{ fontSize: '11px', color: '#64748B' }}>
-            Model: <strong style={{ color: '#E2E8F0' }}>{report?.model === 'first_touch' ? 'First-Touch' : report?.model === 'last_touch' ? 'Last-Touch' : 'Linear Multi-Touch'}</strong> • Timeframe: <strong style={{ color: '#E2E8F0' }}>{timeframe}</strong>
-          </span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Table View Switcher */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: 'rgba(255, 255, 255, 0.04)',
+              padding: '3px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.08)'
+            }}>
+              <button
+                onClick={() => setChannelViewMode('offers')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: 'none',
+                  backgroundColor: channelViewMode === 'offers' ? '#8B5CF6' : 'transparent',
+                  color: channelViewMode === 'offers' ? '#FFFFFF' : '#94A3B8',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                Offer & AOV Lift
+              </button>
+              <button
+                onClick={() => setChannelViewMode('roi')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: 'none',
+                  backgroundColor: channelViewMode === 'roi' ? '#6366F1' : 'transparent',
+                  color: channelViewMode === 'roi' ? '#FFFFFF' : '#94A3B8',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                Acquisition ROI
+              </button>
+              <button
+                onClick={() => setChannelViewMode('all')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: 'none',
+                  backgroundColor: channelViewMode === 'all' ? '#10B981' : 'transparent',
+                  color: channelViewMode === 'all' ? '#FFFFFF' : '#94A3B8',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                All Metrics
+              </button>
+            </div>
+
+            <span style={{ fontSize: '11px', color: '#64748B' }}>
+              Model: <strong style={{ color: '#E2E8F0' }}>{report?.model === 'first_touch' ? 'First-Touch' : report?.model === 'last_touch' ? 'Last-Touch' : 'Linear'}</strong>
+            </span>
+          </div>
         </div>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-          <thead>
-            <tr style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.02)',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-              color: '#94A3B8',
-              textAlign: 'left'
-            }}>
-              <th style={{ padding: '12px 20px', fontWeight: 600 }}>Channel</th>
-              <th style={{ padding: '12px 16px', fontWeight: 600 }}>Ad Spend</th>
-              <th style={{ padding: '12px 16px', fontWeight: 600 }}>Clicks</th>
-              <th style={{ padding: '12px 16px', fontWeight: 600 }}>Leads</th>
-              <th style={{ padding: '12px 16px', fontWeight: 600 }}>Orders</th>
-              <th style={{ padding: '12px 16px', fontWeight: 600 }}>Attributed Revenue</th>
-              <th style={{ padding: '12px 16px', fontWeight: 600 }}>ROAS</th>
-              <th style={{ padding: '12px 16px', fontWeight: 600 }}>CAC</th>
-              <th style={{ padding: '12px 20px', fontWeight: 600 }}>CVR</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report?.channels.map(ch => (
-              <tr 
-                key={ch.channelId}
-                style={{
-                  borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
-                  transition: 'background 0.15s ease'
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-              >
-                <td style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{
-                    width: '10px',
-                    height: '10px',
-                    borderRadius: '50%',
-                    backgroundColor: getChannelColor(ch.channelId)
-                  }} />
-                  <span style={{ fontWeight: 600, color: '#F8FAFC' }}>{ch.channelName}</span>
-                </td>
-                <td style={{ padding: '14px 16px', color: '#CBD5E1' }}>${ch.spend.toFixed(2)}</td>
-                <td style={{ padding: '14px 16px', color: '#94A3B8' }}>{ch.clicks.toLocaleString()}</td>
-                <td style={{ padding: '14px 16px', color: '#CBD5E1' }}>{ch.leads}</td>
-                <td style={{ padding: '14px 16px', fontWeight: 700, color: '#F8FAFC' }}>{ch.orders}</td>
-                <td style={{ padding: '14px 16px', fontWeight: 800, color: '#34D399' }}>${ch.revenue.toLocaleString()}</td>
-                <td style={{ padding: '14px 16px' }}>
-                  <span style={{
-                    padding: '3px 8px',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    backgroundColor: ch.roas >= 3 ? 'rgba(16, 185, 129, 0.15)' : ch.roas >= 1.5 ? 'rgba(99, 102, 241, 0.15)' : 'rgba(100, 116, 139, 0.15)',
-                    color: ch.roas >= 3 ? '#34D399' : ch.roas >= 1.5 ? '#818CF8' : '#94A3B8'
-                  }}>
-                    {ch.spend > 0 ? `${ch.roas}x` : '—'}
-                  </span>
-                </td>
-                <td style={{ padding: '14px 16px', color: '#CBD5E1' }}>
-                  {ch.cac > 0 ? `$${ch.cac.toFixed(2)}` : '—'}
-                </td>
-                <td style={{ padding: '14px 20px', color: '#94A3B8' }}>{ch.conversionRate}%</td>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <thead>
+              <tr style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                color: '#94A3B8',
+                textAlign: 'left'
+              }}>
+                <th style={{ padding: '12px 20px', fontWeight: 600 }}>Channel</th>
+                {channelViewMode !== 'offers' && (
+                  <>
+                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>Ad Spend</th>
+                    {channelViewMode === 'roi' && (
+                      <>
+                        <th style={{ padding: '12px 14px', fontWeight: 600 }}>Clicks</th>
+                        <th style={{ padding: '12px 14px', fontWeight: 600 }}>Leads</th>
+                      </>
+                    )}
+                  </>
+                )}
+                <th style={{ padding: '12px 14px', fontWeight: 600 }}>Orders</th>
+                <th style={{ padding: '12px 14px', fontWeight: 600 }}>Attributed Revenue</th>
+                {channelViewMode !== 'roi' && (
+                  <>
+                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>Base AOV</th>
+                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>Blended AOV</th>
+                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>AOV Expansion Lift</th>
+                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>Order Bump Attach</th>
+                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>1-Click OTO Attach</th>
+                  </>
+                )}
+                <th style={{ padding: '12px 14px', fontWeight: 600 }}>ROAS</th>
+                {channelViewMode !== 'offers' && (
+                  <>
+                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>CAC</th>
+                    <th style={{ padding: '12px 20px', fontWeight: 600 }}>CVR</th>
+                  </>
+                )}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {report?.channels.map(ch => {
+                const topAovChannelId = report?.channels.reduce((best: string | null, curr) => {
+                  const currOrders = curr.orders || 0;
+                  const currLift = curr.aovLift || 0;
+                  if (currOrders > 0 && currLift > 0) {
+                    if (!best) return curr.channelId;
+                    const bestChannel = report.channels.find(c => c.channelId === best);
+                    if ((bestChannel?.aovLift || 0) < currLift) return curr.channelId;
+                  }
+                  return best;
+                }, null);
+
+                const isTopLift = ch.channelId === topAovChannelId && (ch.aovLift || 0) > 0;
+                const baseVal = ch.baseAov ?? (ch.orders > 0 ? ch.revenue / ch.orders : 0);
+                const aovVal = ch.aov ?? (ch.orders > 0 ? ch.revenue / ch.orders : 0);
+                const liftVal = ch.aovLift ?? Math.max(0, aovVal - baseVal);
+                const liftPct = baseVal > 0 ? ((liftVal / baseVal) * 100).toFixed(1) : '0';
+
+                return (
+                  <tr 
+                    key={ch.channelId}
+                    style={{
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+                      transition: 'background 0.15s ease'
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <td style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: '10px',
+                        height: '10px',
+                        borderRadius: '50%',
+                        backgroundColor: getChannelColor(ch.channelId)
+                      }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontWeight: 600, color: '#F8FAFC' }}>{ch.channelName}</span>
+                        {isTopLift && (
+                          <span style={{
+                            fontSize: '9px',
+                            fontWeight: 700,
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                            color: '#34D399',
+                            border: '1px solid rgba(16, 185, 129, 0.3)'
+                          }}>
+                            Top AOV Lift
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {channelViewMode !== 'offers' && (
+                      <>
+                        <td style={{ padding: '14px 14px', color: '#CBD5E1' }}>${ch.spend.toFixed(2)}</td>
+                        {channelViewMode === 'roi' && (
+                          <>
+                            <td style={{ padding: '14px 14px', color: '#94A3B8' }}>{ch.clicks.toLocaleString()}</td>
+                            <td style={{ padding: '14px 14px', color: '#CBD5E1' }}>{ch.leads}</td>
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    <td style={{ padding: '14px 14px', fontWeight: 700, color: '#F8FAFC' }}>{ch.orders}</td>
+                    <td style={{ padding: '14px 14px', fontWeight: 800, color: '#34D399' }}>${ch.revenue.toLocaleString()}</td>
+
+                    {channelViewMode !== 'roi' && (
+                      <>
+                        <td style={{ padding: '14px 14px', color: '#94A3B8' }}>${baseVal.toFixed(2)}</td>
+                        <td style={{ padding: '14px 14px', fontWeight: 700, color: '#A78BFA' }}>
+                          ${aovVal.toFixed(2)}
+                        </td>
+                        <td style={{ padding: '14px 14px' }}>
+                          {liftVal > 0 ? (
+                            <span style={{ color: '#34D399', fontWeight: 700, fontSize: '12px' }}>
+                              +${liftVal.toFixed(2)}
+                              <span style={{ fontSize: '10px', color: '#10B981', marginLeft: '3px' }}>
+                                (+{liftPct}%)
+                              </span>
+                            </span>
+                          ) : (
+                            <span style={{ color: '#64748B' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '14px 14px' }}>
+                          {(ch.bumpOrders || 0) > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ color: '#34D399', fontWeight: 700 }}>{ch.bumpAttachRate}%</span>
+                              <span style={{ fontSize: '10px', color: '#94A3B8' }}>{ch.bumpOrders} {ch.bumpOrders === 1 ? 'order' : 'orders'}</span>
+                            </div>
+                          ) : (
+                            <span style={{ color: '#64748B' }}>0%</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '14px 14px' }}>
+                          {(ch.upsellTakes || 0) > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ color: '#A78BFA', fontWeight: 700 }}>{ch.upsellAttachRate}%</span>
+                              <span style={{ fontSize: '10px', color: '#94A3B8' }}>{ch.upsellTakes} {ch.upsellTakes === 1 ? 'take' : 'takes'}</span>
+                            </div>
+                          ) : (
+                            <span style={{ color: '#64748B' }}>0%</span>
+                          )}
+                        </td>
+                      </>
+                    )}
+
+                    <td style={{ padding: '14px 14px' }}>
+                      <span style={{
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        backgroundColor: ch.roas >= 3 ? 'rgba(16, 185, 129, 0.15)' : ch.roas >= 1.5 ? 'rgba(99, 102, 241, 0.15)' : 'rgba(100, 116, 139, 0.15)',
+                        color: ch.roas >= 3 ? '#34D399' : ch.roas >= 1.5 ? '#818CF8' : '#94A3B8'
+                      }}>
+                        {ch.spend > 0 ? `${ch.roas}x` : '—'}
+                      </span>
+                    </td>
+
+                    {channelViewMode !== 'offers' && (
+                      <>
+                        <td style={{ padding: '14px 14px', color: '#CBD5E1' }}>
+                          {ch.cac > 0 ? `$${ch.cac.toFixed(2)}` : '—'}
+                        </td>
+                        <td style={{ padding: '14px 20px', color: '#94A3B8' }}>{ch.conversionRate}%</td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Two-Column Grid: Funnel Dropoff Velocity & Live Attributions Stream */}

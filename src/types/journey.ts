@@ -534,6 +534,15 @@ export interface ChannelAttribution {
   roas: number;
   cac: number;
   conversionRate: number;
+  baseAov?: number;
+  aov?: number;
+  aovLift?: number;
+  bumpOrders?: number;
+  bumpAttachRate?: number;
+  bumpRevenue?: number;
+  upsellTakes?: number;
+  upsellAttachRate?: number;
+  upsellRevenue?: number;
 }
 
 export interface FunnelDropoffStep {
