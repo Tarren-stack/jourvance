@@ -4391,6 +4391,252 @@ app.get('/api/email/audience', requireUser, async (req, res) => {
   });
 });
 
+app.get('/api/email/contact-details', requireUser, async (req, res) => {
+  const emailQuery = String(req.query.email || '').toLowerCase().trim();
+  if (!emailQuery || !emailQuery.includes('@')) {
+    return res.status(400).json({ success: false, error: 'Valid customer email is required.' });
+  }
+
+  const contacts = contactsForUser(req.user.uid);
+  let contact = contacts.find(c => String(c.email || '').toLowerCase().trim() === emailQuery);
+
+  const orders = accountOrders(req.user.uid).filter(o => String(o.customerEmail || '').toLowerCase().trim() === emailQuery);
+  const bag = userProgramBag(req.user.uid);
+  const rfmConfig = cleanRfmConfig(bag.rfmConfig);
+  const suppressions = bag.suppressions || [];
+
+  if (!contact && orders.length > 0) {
+    const sorted = [...orders].sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+    const first = sorted[sorted.length - 1];
+    contact = {
+      userId: req.user.uid,
+      email: emailQuery,
+      name: first.customerName || emailQuery.split('@')[0],
+      phone: first.customerPhone || '',
+      tags: ['Customer'],
+      firstSeenAt: first.createdAt,
+      subscribedAt: first.createdAt,
+      ordersCount: orders.length,
+      totalSpent: orders.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0),
+      lastOrderAt: sorted[0]?.createdAt
+    };
+  }
+
+  if (!contact) {
+    return res.status(404).json({ success: false, error: 'Customer record not found.' });
+  }
+
+  const rfm = computeContactRfm(contact, rfmConfig);
+  const reason = sendBlockReason(contact, suppressions, true);
+  const marketingStatus = reason === 'hard_bounce' || reason === 'soft_bounce' ? 'suppressed' : (contact.acceptsMarketing === false || reason === 'unsubscribed' ? 'unsubscribed' : 'active');
+
+  const checkouts = loadCheckouts().filter(c => {
+    const ownerMatch = !c.userId || c.userId === req.user.uid;
+    const emailMatch = String(c.email || c.customerEmail || '').toLowerCase().trim() === emailQuery;
+    return ownerMatch && emailMatch;
+  });
+
+  const { enrollments, sequences } = loadDrips();
+  const customerEnrollments = (enrollments || []).filter(e => e.userId === req.user.uid && String(e.customerEmail || '').toLowerCase().trim() === emailQuery).map(e => {
+    const seq = sequences.find(s => s.id === e.sequenceId);
+    return {
+      ...e,
+      sequenceName: seq?.name || e.sequenceId,
+      totalSteps: seq?.steps?.length || 1
+    };
+  });
+
+  const redirects = loadRedirects().filter(r => r.uid === req.user.uid && String(r.email || '').toLowerCase().trim() === emailQuery);
+  const events = loadEvents().filter(evt => evt.userId === req.user.uid && String(evt.email || '').toLowerCase().trim() === emailQuery);
+
+  const timeline = [];
+  if (contact.firstSeenAt || contact.subscribedAt) {
+    timeline.push({
+      kind: 'joined',
+      title: 'Joined Jourvance CRM',
+      description: `Lead captured via ${contact.sourceSlug || 'Storefront'}`,
+      at: contact.firstSeenAt || contact.subscribedAt
+    });
+  }
+
+  for (const o of orders) {
+    timeline.push({
+      kind: 'order',
+      title: `Placed Order #${o.orderNumber || o.name || 'Store Order'}`,
+      description: `$${(Number(o.totalPrice) || 0).toFixed(2)} • ${Array.isArray(o.lineItems) ? o.lineItems.map(l => l.title || l.name).filter(Boolean).join(', ') : 'Shopify Order'}`,
+      at: o.createdAt,
+      orderId: o.id || o.orderNumber,
+      total: Number(o.totalPrice) || 0
+    });
+  }
+
+  for (const chk of checkouts) {
+    timeline.push({
+      kind: 'checkout',
+      title: chk.recoveredAt ? 'Recovered Abandoned Checkout' : 'Initiated Checkout',
+      description: `$${(Number(chk.totalPrice || chk.subtotalPrice) || 0).toFixed(2)} in bag`,
+      at: chk.abandonedAt || chk.createdAt || chk.updatedAt,
+      recovered: Boolean(chk.recoveredAt)
+    });
+  }
+
+  for (const enr of customerEnrollments) {
+    timeline.push({
+      kind: 'automation',
+      title: `Enrolled in ${enr.sequenceName}`,
+      description: `Status: ${enr.status} • Step ${(enr.currentStepIndex || 0) + 1}`,
+      at: enr.enrolledAt
+    });
+  }
+
+  for (const red of redirects) {
+    timeline.push({
+      kind: 'touch',
+      title: `${red.channel === 'sms' ? 'SMS' : 'Email'} Delivered`,
+      description: red.campaignId ? `Campaign: ${red.campaignId}` : 'Automation link touch',
+      at: red.sentAt
+    });
+  }
+
+  for (const ev of events) {
+    timeline.push({
+      kind: 'event',
+      title: ev.event || ev.type || 'Storefront Interaction',
+      description: ev.url || ev.description || '',
+      at: ev.at || ev.timestamp
+    });
+  }
+
+  timeline.sort((a, b) => Date.parse(b.at || 0) - Date.parse(a.at || 0));
+
+  let strategicAdvice = {
+    title: 'Customer Engagement',
+    actionText: 'Draft Broadcast',
+    suggestedTemplate: 'regular',
+    body: 'Regular subscriber with standard engagement.'
+  };
+
+  if (rfm.tier === 'whale') {
+    if (rfm.isAtRisk) {
+      strategicAdvice = {
+        title: 'Priority At-Risk VIP Whale',
+        actionText: 'Draft VIP Winback Perk (WELCOMEBACK15)',
+        suggestedTemplate: 'at_risk_winback',
+        body: `High lifetime value ($${rfm.totalSpent.toFixed(2)}) but inactive for ${rfm.recencyDays} days. Send an exclusive 15% courtesy VIP reconnect gift code before churn is permanent.`
+      };
+    } else {
+      strategicAdvice = {
+        title: 'Active VIP Whale (Top 2% Spender)',
+        actionText: 'Draft VIP Whale Perk (SANCTUARY)',
+        suggestedTemplate: 'whale_perk',
+        body: `Top-spending customer with $${rfm.totalSpent.toFixed(2)} across ${rfm.ordersCount} orders. Reward with early collection access or a surprise VIP gift.`
+      };
+    }
+  } else if (rfm.isAtRisk) {
+    strategicAdvice = {
+      title: 'At-Risk Customer',
+      actionText: 'Send 15% Winback Offer (WELCOMEBACK15)',
+      suggestedTemplate: 'at_risk_winback',
+      body: `Customer has not ordered in ${rfm.recencyDays} days (exceeds your ${rfmConfig.atRiskDays}d threshold). Re-engage with an automated or manual courtesy recovery code.`
+    };
+  } else if (rfm.ordersCount === 0) {
+    strategicAdvice = {
+      title: 'Top-of-Funnel Lead (0 Orders)',
+      actionText: 'Send First-Order Gift (SAVE10)',
+      suggestedTemplate: 'lead_welcome',
+      body: 'Lead has subscribed but has not yet placed their first order. Send a first-time buyer welcome gift code (SAVE10).'
+    };
+  } else if (rfm.ordersCount === 1) {
+    strategicAdvice = {
+      title: 'Single-Order Buyer',
+      actionText: 'Encourage 2nd Order',
+      suggestedTemplate: 'repeat_nurture',
+      body: 'Converted once. High potential to become a repeat loyal customer with a complementary botanical recommendation.'
+    };
+  }
+
+  const formattedOrders = orders.map(o => ({
+    id: o.id || o.orderNumber || o.name,
+    orderNumber: o.orderNumber || o.name || 'Store Order',
+    totalPrice: Number(o.totalPrice) || 0,
+    currency: o.currency || 'USD',
+    financialStatus: o.financialStatus || 'paid',
+    fulfillmentStatus: o.fulfillmentStatus || 'unfulfilled',
+    createdAt: o.createdAt || o.processedAt || new Date().toISOString(),
+    lineItems: Array.isArray(o.lineItems) ? o.lineItems.map(item => ({
+      title: item.title || item.name || 'Product',
+      quantity: Number(item.quantity) || 1,
+      price: Number(item.price) || 0,
+      imageUrl: item.imageUrl || item.image || ''
+    })) : []
+  }));
+
+  const formattedCheckouts = checkouts.map(chk => ({
+    id: chk.id || chk.token,
+    totalPrice: Number(chk.totalPrice || chk.subtotalPrice) || 0,
+    currency: chk.currency || 'USD',
+    abandonedAt: chk.abandonedAt || chk.createdAt || new Date().toISOString(),
+    recoveryStatus: chk.recoveryStatus || (chk.recoveredAt ? 'recovered' : 'abandoned'),
+    abandonedCheckoutUrl: chk.abandonedCheckoutUrl || chk.checkoutUrl || '',
+    lineItems: Array.isArray(chk.lineItems) ? chk.lineItems.map(item => ({
+      title: item.title || item.name || 'Product',
+      quantity: Number(item.quantity) || 1,
+      price: Number(item.price) || 0
+    })) : []
+  }));
+
+  res.json({
+    success: true,
+    contact: {
+      ...contact,
+      status: marketingStatus,
+      rfmSegment: rfm.segment,
+      rfmTier: rfm.tier,
+      rfmBadge: rfm.badge,
+      rfmColor: rfm.color,
+      recencyDays: rfm.recencyDays,
+      isVip: rfm.isVip,
+      isAtRisk: rfm.isAtRisk,
+      isLapsed: rfm.isLapsed
+    },
+    rfm,
+    strategicAdvice,
+    orders: formattedOrders,
+    checkouts: formattedCheckouts,
+    enrollments: customerEnrollments,
+    timeline: timeline.slice(0, 50)
+  });
+});
+
+app.post('/api/email/contact-tags', requireUser, async (req, res) => {
+  const { email, tags } = req.body || {};
+  const emailClean = String(email || '').toLowerCase().trim();
+  if (!emailClean || !Array.isArray(tags)) {
+    return res.status(400).json({ success: false, error: 'Valid email and tags array are required.' });
+  }
+
+  const allContacts = loadContacts();
+  let contact = allContacts.find(c => contactOwnerId(c) === req.user.uid && String(c.email || '').toLowerCase().trim() === emailClean);
+  const cleanTags = Array.from(new Set(tags.map(t => String(t || '').trim()).filter(Boolean)));
+
+  if (!contact) {
+    contact = {
+      userId: req.user.uid,
+      email: emailClean,
+      name: emailClean.split('@')[0],
+      tags: cleanTags,
+      firstSeenAt: new Date().toISOString(),
+      subscribedAt: new Date().toISOString()
+    };
+    allContacts.push(contact);
+  } else {
+    contact.tags = cleanTags;
+  }
+
+  saveContacts(allContacts);
+  res.json({ success: true, tags: contact.tags });
+});
+
 app.get('/api/email/rfm-config', requireUser, (req, res) => {
   const bag = userProgramBag(req.user.uid);
   res.json({ success: true, config: cleanRfmConfig(bag.rfmConfig) });
@@ -5207,6 +5453,30 @@ app.post('/api/drips/enroll', requireUser, async (req, res) => {
   saveDrips(dripsData);
 
   res.json({ success: true, enrollment });
+});
+
+app.post('/api/drips/enrollment-toggle', requireUser, async (req, res) => {
+  const { enrollmentId, action } = req.body || {};
+  if (!enrollmentId || !['pause', 'resume', 'cancel'].includes(action)) {
+    return res.status(400).json({ success: false, error: 'Valid enrollmentId and action (pause, resume, cancel) are required.' });
+  }
+
+  const dripsData = loadDrips();
+  const enr = (dripsData.enrollments || []).find(e => e.id === enrollmentId && e.userId === req.user.uid);
+  if (!enr) {
+    return res.status(404).json({ success: false, error: 'Enrollment not found.' });
+  }
+
+  if (action === 'pause') {
+    enr.status = 'paused';
+  } else if (action === 'resume') {
+    enr.status = 'active';
+  } else if (action === 'cancel') {
+    enr.status = 'cancelled';
+  }
+
+  saveDrips(dripsData);
+  res.json({ success: true, enrollment: enr });
 });
 
 app.get('/api/email/predictions', requireUser, (req, res) => {

@@ -4,7 +4,7 @@ import {
   Clock, ArrowUpRight, Copy, Check, RefreshCw, AlertCircle, ShoppingBag, Eye,
   GitFork, Inbox, MessageSquare, Globe, FormInput,
   ExternalLink, Zap, Terminal, X, Filter, Search, Tag, DollarSign, ArrowRight, Layers,
-  ShieldCheck, Play, SlidersHorizontal, Crown, AlertTriangle
+  ShieldCheck, Play, SlidersHorizontal, Crown, AlertTriangle, ChevronRight
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
 import { EmailPrograms } from './EmailPrograms';
@@ -15,6 +15,7 @@ import { EmailInbox } from './EmailInbox';
 import { SmsPanel } from './SmsPanel';
 import { SendingSetup } from './SendingSetup';
 import { KlaviyoSync } from './KlaviyoSync';
+import { CustomerProfileDrawer } from './CustomerProfileDrawer';
 import type { Workspace, AudienceSegment, DripSequence, DripEnrollment, ShopifyAbandonedCheckout } from '../../types/journey';
 
 interface FlowStep {
@@ -189,6 +190,7 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
   const [audienceFilter, setAudienceFilter] = useState<string>('all');
   const [audienceSearch, setAudienceSearch] = useState<string>('');
+  const [selectedCustomerEmail, setSelectedCustomerEmail] = useState<string | null>(null);
 
   // RFM Customer Lifecycle state
   const [rfmConfig, setRfmConfig] = useState<RfmConfig>({
@@ -1636,7 +1638,7 @@ ${unsub}`;
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1.5fr 1.5fr 1.2fr 1fr 1.8fr',
+                  gridTemplateColumns: '1.5fr 1.5fr 1.2fr 1fr 1.8fr 36px',
                   padding: '12px 20px',
                   borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
                   fontSize: '11px',
@@ -1650,6 +1652,7 @@ ${unsub}`;
                 <div>Orders & Recency</div>
                 <div>Marketing</div>
                 <div>Tags & Lifecycle</div>
+                <div style={{ textAlign: 'center' }}>360°</div>
               </div>
 
               {subscribers
@@ -1680,14 +1683,19 @@ ${unsub}`;
                 .map((sub, idx) => (
                   <div
                     key={idx}
+                    onClick={() => setSelectedCustomerEmail(sub.email)}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '1.5fr 1.5fr 1.2fr 1fr 1.8fr',
+                      gridTemplateColumns: '1.5fr 1.5fr 1.2fr 1fr 1.8fr 36px',
                       padding: '14px 20px',
                       borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
                       fontSize: '13px',
-                      alignItems: 'center'
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.15s'
                     }}
+                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                   >
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -1825,6 +1833,23 @@ ${unsub}`;
                           </span>
                         );
                       })}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                      <span
+                        title="View Customer 360 Profile"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '6px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          color: '#94a3b8'
+                        }}
+                      >
+                        <ChevronRight size={13} />
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -2176,6 +2201,37 @@ ${unsub}`;
                   </div>
                 </div>
               </div>
+            )}
+
+            {selectedCustomerEmail && (
+              <CustomerProfileDrawer
+                customerEmail={selectedCustomerEmail}
+                onClose={() => setSelectedCustomerEmail(null)}
+                onDraftCampaign={(contact, templateKey) => {
+                  setSelectedCustomerEmail(null);
+                  if (templateKey === 'whale_perk') {
+                    setBroadcastSubject('Your Private VIP Sanctuary Perk');
+                    setBroadcastPreviewText('An exclusive reward reserved for our most cherished clients');
+                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nAs one of our most valued clients, we wanted to personally gift you our private VIP Sanctuary reward.\n\nUse code SANCTUARY at checkout for 10% off your next botanical ritual.\n\nWith gratitude,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
+                  } else if (templateKey === 'at_risk_winback') {
+                    setBroadcastSubject('We missed you — a 15% reconnect gift inside');
+                    setBroadcastPreviewText('Your private courtesy code WELCOMEBACK15 is ready');
+                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nIt has been a while since your last order, and we would love to welcome you back.\n\nUse courtesy code WELCOMEBACK15 at checkout for 15% off your next restock.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
+                  } else if (templateKey === 'lead_welcome') {
+                    setBroadcastSubject('A special welcome gift: 10% off your first order');
+                    setBroadcastPreviewText('Claim your welcome voucher SAVE10 today');
+                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nThank you for joining our community! We are excited to help you find your signature skincare ritual.\n\nEnjoy 10% off your first order with code SAVE10.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
+                  } else {
+                    setBroadcastSubject(`Personal note for ${contact.name.split(' ')[0] || 'you'}`);
+                    setBroadcastPreviewText('Checking in on your latest order');
+                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nWe wanted to follow up and see how you are enjoying your order.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
+                  }
+                  setShowBroadcastModal(true);
+                }}
+                onTagsUpdated={(email, updatedTags) => {
+                  setSubscribers(prev => prev.map(s => s.email === email ? { ...s, tags: updatedTags } : s));
+                }}
+              />
             )}
           </div>
         )}
