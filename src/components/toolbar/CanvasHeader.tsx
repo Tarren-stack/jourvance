@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign, Zap, BarChart3 } from 'lucide-react';
+import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign, Zap, BarChart3, Circle, ChevronDown, ArrowRight, ExternalLink } from 'lucide-react';
 import type { JourneyProject, Workspace, CanvasViewMode, NodeType, ActiveAppView } from '../../types/journey';
 import { WorkspaceSelector } from './WorkspaceSelector';
 
@@ -33,6 +33,7 @@ interface Props {
   onToggleCanvasViewMode?: (mode: CanvasViewMode) => void;
   onOpenShopifySync?: () => void;
   onOpenSimulator?: () => void;
+  onSelectNode?: (nodeId: string) => void;
 }
 
 export const CanvasHeader: React.FC<Props> = ({
@@ -63,11 +64,37 @@ export const CanvasHeader: React.FC<Props> = ({
   canvasViewMode = 'edit',
   onToggleCanvasViewMode,
   onOpenShopifySync,
-  onOpenSimulator
+  onOpenSimulator,
+  onSelectNode
 }) => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showChecklist, setShowChecklist] = useState(false);
   const isOp = user?.email?.toLowerCase() === 'tlm@tarrenmunoz.com';
+
+  // First-Run Launch Readiness evaluation
+  const landingPageNode = project.nodes.find(n => n.type === 'landing-page');
+  const lpData = (landingPageNode?.data as any) || {};
+
+  const isOfferDone = Boolean(
+    (project.offerHeadline && project.offerHeadline !== 'Your offer' && project.offerHeadline.trim().length > 3) ||
+    (lpData.headline && lpData.headline !== 'Your offer headline' && lpData.headline.trim().length > 3)
+  );
+
+  const isStoreDone = Boolean(
+    currentWorkspace?.shopifyConfig?.shopName ||
+    currentWorkspace?.shopifyConfig?.storeDomain ||
+    project.shopifyStoreDomain ||
+    lpData.shopifyProductId ||
+    lpData.checkoutUrl
+  );
+
+  const isPublishDone = Boolean(
+    project.nodes.some(n => n.type === 'landing-page' && (n.data as any)?.published)
+  );
+
+  const completedCount = (isOfferDone ? 1 : 0) + (isStoreDone ? 1 : 0) + (isPublishDone ? 1 : 0);
+  const isAllDone = completedCount === 3;
 
   // Compute total pipeline conversions
   const adNode = project.nodes.find(n => n.type === 'ad-source')?.data as any;
@@ -390,6 +417,339 @@ export const CanvasHeader: React.FC<Props> = ({
             </div>
           </div>
         )}
+
+        {/* First-Run Launch Readiness Checklist */}
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setShowChecklist(!showChecklist)}
+            aria-label="Launch Readiness Checklist"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '9999px',
+              background: isAllDone
+                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(5, 150, 105, 0.12))'
+                : 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.12))',
+              border: isAllDone
+                ? '1px solid rgba(16, 185, 129, 0.35)'
+                : '1px solid rgba(236, 72, 153, 0.3)',
+              color: isAllDone ? '#34D399' : '#F472B6',
+              fontSize: '11px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: isAllDone
+                ? '0 2px 8px rgba(16, 185, 129, 0.15)'
+                : '0 2px 8px rgba(236, 72, 153, 0.15)',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            {isAllDone ? (
+              <CheckCircle2 size={13} color="#34D399" />
+            ) : (
+              <Sparkles size={13} color="#F472B6" />
+            )}
+            <span>{isAllDone ? 'Funnel Live' : `Launch: ${completedCount}/3 Ready`}</span>
+            <ChevronDown size={11} style={{ transform: showChecklist ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease' }} />
+          </button>
+
+          {showChecklist && (
+            <>
+              <div
+                onClick={() => setShowChecklist(false)}
+                style={{ position: 'fixed', inset: 0, zIndex: 45 }}
+              />
+              <div
+                className="glass-dropdown"
+                style={{
+                  position: 'absolute',
+                  top: '38px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: '330px',
+                  background: 'rgba(15, 23, 42, 0.98)',
+                  backdropFilter: 'blur(20px)',
+                  borderRadius: '14px',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(236, 72, 153, 0.15)',
+                  padding: '16px',
+                  zIndex: 50
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.01em' }}>
+                      Launch Readiness
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#94A3B8' }}>
+                      Essential steps before driving traffic
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '9999px',
+                      background: isAllDone ? 'rgba(16, 185, 129, 0.2)' : 'rgba(236, 72, 153, 0.2)',
+                      color: isAllDone ? '#34D399' : '#F472B6',
+                      border: isAllDone ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(236, 72, 153, 0.3)'
+                    }}
+                  >
+                    {completedCount} of 3 Ready
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                <div style={{ width: '100%', height: '4px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '2px', overflow: 'hidden', marginBottom: '14px' }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${(completedCount / 3) * 100}%`,
+                      background: 'linear-gradient(90deg, #EC4899, #10B981)',
+                      borderRadius: '2px',
+                      transition: 'width 0.3s ease'
+                    }}
+                  />
+                </div>
+
+                {/* Checklist Steps */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {/* Step 1: Define Offer */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      justifyContent: 'space-between',
+                      gap: '10px',
+                      padding: '10px',
+                      borderRadius: '8px',
+                      backgroundColor: isOfferDone ? 'rgba(16, 185, 129, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+                      border: isOfferDone ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(255, 255, 255, 0.06)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      {isOfferDone ? (
+                        <CheckCircle2 size={15} color="#10B981" style={{ marginTop: '2px', flexShrink: 0 }} />
+                      ) : (
+                        <Circle size={15} color="#64748B" style={{ marginTop: '2px', flexShrink: 0 }} />
+                      )}
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: '#F1F5F9' }}>
+                          1. Define your offer
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#94A3B8', marginTop: '2px' }}>
+                          Set your headline, hero shot, and offer pricing
+                        </div>
+                      </div>
+                    </div>
+                    {isOfferDone ? (
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981' }}>Done</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (landingPageNode && onSelectNode) onSelectNode(landingPageNode.id);
+                          setShowChecklist(false);
+                        }}
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: '#EC4899',
+                          background: 'rgba(236, 72, 153, 0.12)',
+                          border: '1px solid rgba(236, 72, 153, 0.25)',
+                          borderRadius: '6px',
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <span>Edit Offer</span>
+                        <ArrowRight size={10} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Step 2: Connect Store */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      justifyContent: 'space-between',
+                      gap: '10px',
+                      padding: '10px',
+                      borderRadius: '8px',
+                      backgroundColor: isStoreDone ? 'rgba(16, 185, 129, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+                      border: isStoreDone ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(255, 255, 255, 0.06)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      {isStoreDone ? (
+                        <CheckCircle2 size={15} color="#10B981" style={{ marginTop: '2px', flexShrink: 0 }} />
+                      ) : (
+                        <Circle size={15} color="#64748B" style={{ marginTop: '2px', flexShrink: 0 }} />
+                      )}
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: '#F1F5F9' }}>
+                          2. Connect your store
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#94A3B8', marginTop: '2px' }}>
+                          Link Shopify products for 1-click checkout
+                        </div>
+                      </div>
+                    </div>
+                    {isStoreDone ? (
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981' }}>Connected</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpenShopifyConnect?.();
+                          setShowChecklist(false);
+                        }}
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: '#38BDF8',
+                          background: 'rgba(56, 189, 248, 0.12)',
+                          border: '1px solid rgba(56, 189, 248, 0.25)',
+                          borderRadius: '6px',
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <span>Connect</span>
+                        <ArrowRight size={10} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Step 3: Publish Funnel */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      justifyContent: 'space-between',
+                      gap: '10px',
+                      padding: '10px',
+                      borderRadius: '8px',
+                      backgroundColor: isPublishDone ? 'rgba(16, 185, 129, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+                      border: isPublishDone ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(255, 255, 255, 0.06)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      {isPublishDone ? (
+                        <CheckCircle2 size={15} color="#10B981" style={{ marginTop: '2px', flexShrink: 0 }} />
+                      ) : (
+                        <Circle size={15} color="#64748B" style={{ marginTop: '2px', flexShrink: 0 }} />
+                      )}
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: '#F1F5F9' }}>
+                          3. Publish to live domain
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#94A3B8', marginTop: '2px' }}>
+                          Push landing page live with global edge hosting
+                        </div>
+                      </div>
+                    </div>
+                    {isPublishDone ? (
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: '#10B981' }}>Live</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onPublishFunnel?.();
+                          setShowChecklist(false);
+                        }}
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: '#A855F7',
+                          background: 'rgba(168, 85, 247, 0.12)',
+                          border: '1px solid rgba(168, 85, 247, 0.25)',
+                          borderRadius: '6px',
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <span>Publish</span>
+                        <ArrowRight size={10} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Footer advice / status */}
+                <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  {isAllDone ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '11px', color: '#34D399', fontWeight: 600 }}>
+                        All 3 steps complete. Ready for customers.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onTestJourney();
+                          setShowChecklist(false);
+                        }}
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: '#38BDF8',
+                          background: 'rgba(56, 189, 248, 0.12)',
+                          border: '1px solid rgba(56, 189, 248, 0.25)',
+                          borderRadius: '6px',
+                          padding: '3px 8px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Test Flow
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '10px', color: '#94A3B8' }}>
+                        Need inspiration?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpenBlueprints?.();
+                          setShowChecklist(false);
+                        }}
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: '#F472B6',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          textDecoration: 'underline'
+                        }}
+                      >
+                        Browse Journey Blueprints
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Right: Actions */}

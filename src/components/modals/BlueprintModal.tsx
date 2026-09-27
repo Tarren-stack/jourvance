@@ -197,10 +197,10 @@ export const BlueprintModal: React.FC<Props> = ({
             </div>
             <div>
               <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#FFFFFF', margin: 0 }}>
-                E-Commerce Funnel Blueprints
+                Turnkey Journey Blueprints
               </h2>
               <p style={{ fontSize: '12px', color: '#94A3B8', margin: '2px 0 0 0' }}>
-                Pre-built full journey architectures optimized for high AOV, instant Shopify checkout, and email flows.
+                Pre-built full journey architectures optimized for e-commerce, high-ticket services, digital products, and automated follow-up flows.
               </p>
             </div>
           </div>
@@ -258,7 +258,9 @@ export const BlueprintModal: React.FC<Props> = ({
           {ECOM_BLUEPRINTS.map(bp => {
             const isAov = bp.category === 'aov-booster';
             const isLead = bp.category === 'lead-magnet';
-            const badgeColor = isAov ? '#a855f7' : isLead ? '#ec4899' : '#10b981';
+            const isHighTicket = bp.category === 'high-ticket';
+            const isDigital = bp.category === 'digital-product';
+            const badgeColor = isAov ? '#a855f7' : isLead ? '#ec4899' : isHighTicket ? '#38bdf8' : isDigital ? '#f59e0b' : '#10b981';
 
             return (
               <div

@@ -28,9 +28,10 @@ import {
 interface HomePageProps {
   onNavigate: (page: 'home' | 'about' | 'blog' | 'contact' | 'canvas') => void;
   onTestJourney: () => void;
+  onOpenBilling?: () => void;
 }
 
-export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney }) => {
+export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, onOpenBilling }) => {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [activeBuilderTab, setActiveBuilderTab] = useState<'map' | 'pages' | 'ads' | 'emails' | 'forms' | 'tracking'>('map');
@@ -43,15 +44,15 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
     },
     {
       q: 'Do I need any coding or design skills to use Jourvance?',
-      a: 'You can edit the map, the page, and the follow-up notes without writing code. The starter map begins with zero measured counts and placeholder sentences you replace.'
+      a: 'Not at all. Jourvance gives you turnkey, pre-tested funnel blueprints, drag-and-drop landing page blocks, and automated nurture sequences right out of the box. You can launch your first high-converting offer in under 15 minutes.'
     },
     {
       q: 'Does Jourvance charge per-lead or transaction fees?',
-      a: 'Billing is not connected in this app, so it does not charge per lead and it does not sell a Pro plan from this page.'
+      a: 'No. Jourvance never charges transaction fees or takes a cut of your store revenue. Starter Studio is 100% free with no credit card required. When you want unlimited journeys and 24/7 automated drips, upgrade to Growth Pro for a flat rate.'
     },
     {
       q: 'Can I simulate the funnel as a real prospect before publishing?',
-      a: 'You can preview the page before you publish it. A real form submission on a published page is stored as a lead. Preview does not send the email sequence.'
+      a: 'Yes! You can preview your desktop and mobile pages in real time, run live simulations to test the shopper experience, and connect your Shopify checkout with a single click.'
     }
   ];
 
@@ -1241,16 +1242,78 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
             <span style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
               Transparent Pricing
             </span>
-            <h2 style={{ fontSize: 'clamp(2rem, 4vw, 2.75rem)', fontWeight: 800, letterSpacing: '-0.025em', marginTop: '0.5rem', marginBottom: '1rem' }}>
-              Simple, Predictable Plans for Growing Businesses
+            <h2 style={{ fontSize: 'clamp(2rem, 4vw, 2.75rem)', fontWeight: 800, letterSpacing: '-0.025em', marginTop: '0.5rem', marginBottom: '0.75rem' }}>
+              Simple, Predictable Plans for Growing Brands & Businesses
             </h2>
-            <p style={{ fontSize: '1rem', color: '#94A3B8' }}>
-              Billing is not connected in this app yet.
+            <p style={{ fontSize: '1rem', color: '#94A3B8', maxWidth: '580px', margin: '0 auto 1.5rem' }}>
+              Transparent, founder-friendly pricing with zero transaction cuts or surprise fees.
             </p>
+
+            {/* Billing Cycle Switcher */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                backgroundColor: '#1E293B',
+                borderRadius: '9999px',
+                padding: '0.25rem',
+                border: '1px solid rgba(255, 255, 255, 0.08)'
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setBillingCycle('monthly')}
+                style={{
+                  padding: '0.4rem 1.1rem',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  backgroundColor: billingCycle === 'monthly' ? '#6366F1' : 'transparent',
+                  color: '#FFFFFF',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                Monthly
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingCycle('annual')}
+                style={{
+                  padding: '0.4rem 1.1rem',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  backgroundColor: billingCycle === 'annual' ? '#6366F1' : 'transparent',
+                  color: '#FFFFFF',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <span>Annual</span>
+                <span
+                  style={{
+                    fontSize: '0.65rem',
+                    fontWeight: 800,
+                    backgroundColor: '#10B981',
+                    color: '#FFFFFF',
+                    padding: '0.1rem 0.45rem',
+                    borderRadius: '9999px'
+                  }}
+                >
+                  Save 20%
+                </span>
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
-            {/* Tier 1: Free Sandbox */}
+            {/* Tier 1: Free Starter Studio */}
             <div
               style={{
                 backgroundColor: '#111827',
@@ -1260,10 +1323,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
               }}
             >
               <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '0.4rem', color: '#FFFFFF' }}>
-                Sandbox Explorer
+                Starter Studio
               </h3>
               <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '1.5rem' }}>
-                Ideal for mapping journeys and testing funnel logic.
+                Ideal for mapping journeys and launching your first high-converting offer.
               </p>
               <div style={{ marginBottom: '1.75rem' }}>
                 <span style={{ fontSize: '2.75rem', fontWeight: 900, color: '#FFFFFF' }}>$0</span>
@@ -1280,7 +1343,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                   color: '#FFFFFF',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  marginBottom: '1.75rem'
+                  marginBottom: '1.75rem',
+                  transition: 'background 0.2s ease'
                 }}
               >
                 Start Free Canvas
@@ -1296,7 +1360,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
-                  <span>Page preview</span>
+                  <span>Live Funnel & Mobile Preview</span>
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
@@ -1305,7 +1369,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
               </ul>
             </div>
 
-            {/* Tier 2: Pro (Featured) */}
+            {/* Tier 2: Growth Pro (Featured) */}
             <div
               style={{
                 backgroundColor: '#1E293B',
@@ -1331,20 +1395,25 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                   letterSpacing: '0.05em'
                 }}
               >
-                Not a paid plan
+                Most Popular
               </div>
 
               <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '0.4rem', color: '#FFFFFF' }}>
-                Studio
+                Growth Pro
               </h3>
               <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '1.5rem' }}>
-                The same studio. Billing is not connected, so this button does not start a subscription.
+                For scaling brands ready to maximize ROAS and recover abandoned carts on autopilot.
               </p>
               <div style={{ marginBottom: '1.75rem' }}>
-                <span style={{ fontSize: '1.35rem', fontWeight: 800, color: '#FFFFFF' }}>No charge</span>
+                <span style={{ fontSize: '2.75rem', fontWeight: 900, color: '#FFFFFF' }}>
+                  {billingCycle === 'monthly' ? '$49' : '$39'}
+                </span>
+                <span style={{ color: '#94A3B8', fontSize: '0.9rem' }}>
+                  {billingCycle === 'monthly' ? ' / month' : ' / mo (billed annually)'}
+                </span>
               </div>
               <button
-                onClick={() => onNavigate('canvas')}
+                onClick={() => (onOpenBilling ? onOpenBilling() : onNavigate('canvas'))}
                 style={{
                   width: '100%',
                   padding: '0.75rem',
@@ -1358,7 +1427,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                   boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)'
                 }}
               >
-                Open the studio
+                Request VIP Pro Access
               </button>
               <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.85rem', color: '#F1F5F9' }}>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1367,7 +1436,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
-                  <span>Unlimited Form Submissions</span>
+                  <span>24/7 Automated Drips & Cart Recovery</span>
+                </li>
+                <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
+                  <span>Multi-Store Shopify Sync & Attribution</span>
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
@@ -1375,7 +1448,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney })
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
-                  <span>Custom Domain Support</span>
+                  <span>Custom Domain Publishing</span>
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, CheckCircle2, Zap, Sparkles, Shield, ArrowRight } from 'lucide-react';
+import { X, CheckCircle2, Sparkles, ArrowRight, ShieldCheck, Store, Mail } from 'lucide-react';
 
 interface BillingModalProps {
   onClose: () => void;
@@ -8,13 +8,51 @@ interface BillingModalProps {
 }
 
 export const BillingModal: React.FC<BillingModalProps> = ({
-  onClose
+  onClose,
+  userEmail
 }) => {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
-  const [notice, setNotice] = useState<string | null>(null);
+  const [email, setEmail] = useState<string>(userEmail || '');
+  const [storeDomain, setStoreDomain] = useState<string>('');
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [submitted, setSubmitted] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleUpgrade = () => {
-    setNotice('Billing is not connected. Nothing was charged, and the plan did not change.');
+  const handleRequestAccess = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setErrorMsg('Please enter a valid email address.');
+      return;
+    }
+
+    setSubmitting(true);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch('/api/public/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          storeDomain: storeDomain.trim(),
+          plan: 'growth_pro',
+          billingCycle,
+          source: 'billing_upgrade_modal'
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSubmitted(true);
+      } else {
+        setErrorMsg(data.error || 'Could not record request. Please try again.');
+      }
+    } catch {
+      setErrorMsg('Network error. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -23,7 +61,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({
         position: 'fixed',
         inset: 0,
         zIndex: 100,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
+        backgroundColor: 'rgba(0, 0, 0, 0.78)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
         display: 'flex',
@@ -39,11 +77,13 @@ export const BillingModal: React.FC<BillingModalProps> = ({
       <div
         style={{
           width: '100%',
-          maxWidth: '680px',
+          maxWidth: '720px',
+          maxHeight: '90vh',
+          overflowY: 'auto',
           backgroundColor: '#111827',
-          borderRadius: '16px',
+          borderRadius: '20px',
           border: '1px solid rgba(255, 255, 255, 0.12)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 30px rgba(99, 102, 241, 0.25)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 35px rgba(99, 102, 241, 0.22)',
           padding: '2.5rem',
           position: 'relative'
         }}
@@ -54,106 +94,328 @@ export const BillingModal: React.FC<BillingModalProps> = ({
             position: 'absolute',
             top: '1.25rem',
             right: '1.25rem',
-            background: 'none',
-            border: 'none',
+            background: 'rgba(255, 255, 255, 0.06)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '9999px',
             color: '#94A3B8',
             cursor: 'pointer',
-            padding: '4px'
+            padding: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}
           aria-label="Close"
         >
           <X size={18} />
         </button>
 
-          <div>
-            <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-              <div
+        {/* Modal Header */}
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.25rem 0.75rem',
+              borderRadius: '9999px',
+              backgroundColor: 'rgba(99, 102, 241, 0.15)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              color: '#818CF8',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              marginBottom: '0.75rem'
+            }}
+          >
+            <Sparkles size={12} />
+            <span>Zero Lead Caps • Zero Transaction Fees</span>
+          </div>
+          <h2 style={{ fontSize: '1.85rem', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em', margin: 0 }}>
+            Jourvance Growth Pro
+          </h2>
+          <p style={{ fontSize: '0.9rem', color: '#94A3B8', marginTop: '0.4rem' }}>
+            Scale your customer acquisition pipeline with automated drips and multi-store intelligence.
+          </p>
+
+          {/* Billing Cycle Switcher */}
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              backgroundColor: '#1E293B',
+              borderRadius: '9999px',
+              padding: '0.25rem',
+              marginTop: '1.25rem',
+              border: '1px solid rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setBillingCycle('monthly')}
+              style={{
+                padding: '0.4rem 1rem',
+                borderRadius: '9999px',
+                border: 'none',
+                backgroundColor: billingCycle === 'monthly' ? '#6366F1' : 'transparent',
+                color: '#FFFFFF',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingCycle('annual')}
+              style={{
+                padding: '0.4rem 1rem',
+                borderRadius: '9999px',
+                border: 'none',
+                backgroundColor: billingCycle === 'annual' ? '#6366F1' : 'transparent',
+                color: '#FFFFFF',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem'
+              }}
+            >
+              <span>Annual</span>
+              <span
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.2rem 0.65rem',
-                  borderRadius: '9999px',
-                  backgroundColor: 'rgba(99, 102, 241, 0.15)',
-                  color: '#818CF8',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  marginBottom: '0.75rem'
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  backgroundColor: '#10B981',
+                  color: '#FFFFFF',
+                  padding: '0.1rem 0.45rem',
+                  borderRadius: '9999px'
                 }}
               >
-                <Sparkles size={12} />
-                <span>Zero Lead Caps • Zero Transaction Fees</span>
-              </div>
-              <h2 style={{ fontSize: '1.75rem', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em' }}>
-                Upgrade to Jourvance Growth Pro
-              </h2>
-              <p style={{ fontSize: '0.9rem', color: '#94A3B8', marginTop: '0.35rem' }}>
-                Scale your client acquisition pipeline without paying extra per lead.
+                Save 20%
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Pricing Cards Comparison */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
+          {/* Starter Plan */}
+          <div style={{ backgroundColor: '#1E293B', borderRadius: '14px', padding: '1.5rem', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current Plan</span>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#FFFFFF', marginTop: '0.2rem' }}>Starter Studio</h3>
+            <div style={{ margin: '0.75rem 0' }}>
+              <span style={{ fontSize: '2.25rem', fontWeight: 900, color: '#FFFFFF' }}>$0</span>
+              <span style={{ fontSize: '0.8rem', color: '#64748B' }}> / forever</span>
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem', color: '#94A3B8' }}>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CheckCircle2 size={14} color="#10B981" />
+                <span>1 Active Customer Journey</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CheckCircle2 size={14} color="#10B981" />
+                <span>Turnkey Lead Funnel Blueprint</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CheckCircle2 size={14} color="#10B981" />
+                <span>Real-Time Node Canvas</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748B' }}>
+                <span>✕ Automated 24/7 Drips & Recovery</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748B' }}>
+                <span>✕ Multi-Store Shopify Sync</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Growth Pro Plan */}
+          <div style={{ backgroundColor: '#1E293B', borderRadius: '14px', padding: '1.5rem', border: '2px solid #6366F1', position: 'relative', boxShadow: '0 8px 24px rgba(99, 102, 241, 0.2)' }}>
+            <div style={{ position: 'absolute', top: '-11px', right: '16px', backgroundColor: '#6366F1', color: '#FFFFFF', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.2rem 0.6rem', borderRadius: '9999px', letterSpacing: '0.05em' }}>
+              Most Popular
+            </div>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#818CF8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Scaling Stores</span>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#FFFFFF', marginTop: '0.2rem' }}>Growth Pro</h3>
+            <div style={{ margin: '0.75rem 0' }}>
+              <span style={{ fontSize: '2.25rem', fontWeight: 900, color: '#FFFFFF' }}>
+                {billingCycle === 'monthly' ? '$49' : '$39'}
+              </span>
+              <span style={{ fontSize: '0.8rem', color: '#94A3B8' }}>
+                {billingCycle === 'monthly' ? ' / month' : ' / mo (billed annually)'}
+              </span>
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem', color: '#F1F5F9' }}>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CheckCircle2 size={14} color="#10B981" />
+                <span>Unlimited Customer Journeys</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CheckCircle2 size={14} color="#10B981" />
+                <span>24/7 Automated Drips & Cart Recovery</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CheckCircle2 size={14} color="#10B981" />
+                <span>Multi-Store Shopify Attribution</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CheckCircle2 size={14} color="#10B981" />
+                <span>Hub Brain AI Copywriting Assistant</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CheckCircle2 size={14} color="#10B981" />
+                <span>Custom Domain Publishing</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        {/* Lead Capture or Success State */}
+        {submitted ? (
+          <div
+            style={{
+              backgroundColor: 'rgba(16, 185, 129, 0.12)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              borderRadius: '14px',
+              padding: '1.75rem',
+              textAlign: 'center'
+            }}
+          >
+            <div style={{ display: 'inline-flex', padding: '0.6rem', borderRadius: '9999px', backgroundColor: 'rgba(16, 185, 129, 0.2)', marginBottom: '0.75rem' }}>
+              <ShieldCheck size={28} color="#10B981" />
+            </div>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#FFFFFF', margin: '0 0 0.4rem' }}>
+              You're on the VIP Priority List!
+            </h3>
+            <p style={{ fontSize: '0.875rem', color: '#CBD5E1', maxWidth: '480px', margin: '0 auto 1.25rem' }}>
+              We have reserved your Growth Pro spot. Our onboarding team will verify your store and reach out to <strong>{email}</strong> with early-access activation details.
+            </p>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '0.65rem 1.5rem',
+                borderRadius: '8px',
+                backgroundColor: '#10B981',
+                border: 'none',
+                color: '#FFFFFF',
+                fontWeight: 700,
+                fontSize: '0.875rem',
+                cursor: 'pointer'
+              }}
+            >
+              Continue with Starter Studio
+            </button>
+          </div>
+        ) : (
+          <form
+            onSubmit={handleRequestAccess}
+            style={{
+              backgroundColor: 'rgba(255, 255, 255, 0.03)',
+              borderRadius: '14px',
+              padding: '1.5rem',
+              border: '1px solid rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            <div style={{ marginBottom: '1rem' }}>
+              <h4 style={{ margin: '0 0 0.25rem', fontSize: '1rem', fontWeight: 700, color: '#FFFFFF' }}>
+                Join the Growth Pro VIP Priority List
+              </h4>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#94A3B8' }}>
+                We are onboarding high-growth brands in weekly cohorts. Lock in early founder pricing today.
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-              {/* Free Plan */}
-              <div style={{ backgroundColor: '#1E293B', borderRadius: '12px', padding: '1.5rem', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase' }}>Current Plan</span>
-                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#FFFFFF', marginTop: '0.2rem' }}>Free Sandbox</h3>
-                <div style={{ margin: '1rem 0' }}>
-                  <span style={{ fontSize: '2rem', fontWeight: 900, color: '#FFFFFF' }}>$0</span>
-                  <span style={{ fontSize: '0.8rem', color: '#64748B' }}> / forever</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
+                  Work Email
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <Mail size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748B' }} />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="you@yourbrand.com"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '0.65rem 0.75rem 0.65rem 2.25rem',
+                      borderRadius: '8px',
+                      backgroundColor: '#1E293B',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      color: '#FFFFFF',
+                      fontSize: '0.85rem'
+                    }}
+                  />
                 </div>
-                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem', color: '#94A3B8' }}>
-                  <li>✓ 1 Active Visual Journey</li>
-                  <li>✓ Turnkey Lead Blueprint</li>
-                  <li>✓ Live Funnel Simulator</li>
-                  <li>✕ AI Copywriter Generation</li>
-                  <li>✕ Custom Domain Publishing</li>
-                </ul>
               </div>
 
-              {/* Growth Pro Plan */}
-              <div style={{ backgroundColor: '#1E293B', borderRadius: '12px', padding: '1.5rem', border: '2px solid #6366F1', position: 'relative' }}>
-                <div style={{ position: 'absolute', top: '-10px', right: '15px', backgroundColor: '#6366F1', color: '#FFFFFF', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', padding: '0.15rem 0.5rem', borderRadius: '9999px' }}>
-                  Recommended
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
+                  Shopify Store URL <span style={{ color: '#64748B' }}>(optional)</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <Store size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748B' }} />
+                  <input
+                    type="text"
+                    value={storeDomain}
+                    onChange={e => setStoreDomain(e.target.value)}
+                    placeholder="yourbrand.myshopify.com"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '0.65rem 0.75rem 0.65rem 2.25rem',
+                      borderRadius: '8px',
+                      backgroundColor: '#1E293B',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      color: '#FFFFFF',
+                      fontSize: '0.85rem'
+                    }}
+                  />
                 </div>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#818CF8', textTransform: 'uppercase' }}>Unlimited Growth</span>
-                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#FFFFFF', marginTop: '0.2rem' }}>Growth Pro</h3>
-                <div style={{ margin: '1rem 0' }}>
-                  <span style={{ fontSize: '2rem', fontWeight: 900, color: '#FFFFFF' }}>$49</span>
-                  <span style={{ fontSize: '0.8rem', color: '#94A3B8' }}> / month</span>
-                </div>
-                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem', color: '#F1F5F9' }}>
-                  <li>✓ Unlimited Customer Journeys</li>
-                  <li>✓ Hub Brain AI Copywriter (High converting ad & email copy)</li>
-                  <li>✓ Custom Domain Publishing (jourvance.com/p/:slug)</li>
-                  <li>✓ Zero Lead Caps or Platform Fees</li>
-                </ul>
               </div>
             </div>
 
+            {errorMsg && (
+              <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: '#EF4444' }}>
+                {errorMsg}
+              </p>
+            )}
+
             <button
-              onClick={handleUpgrade}
+              type="submit"
+              disabled={submitting}
               style={{
                 width: '100%',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '0.5rem',
-                padding: '0.85rem',
+                padding: '0.8rem',
                 borderRadius: '8px',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
+                border: 'none',
                 color: '#FFFFFF',
-                fontSize: '0.95rem',
-                fontWeight: 800,
-                cursor: 'pointer'
+                fontSize: '0.925rem',
+                fontWeight: 700,
+                cursor: submitting ? 'not-allowed' : 'pointer',
+                boxShadow: '0 4px 15px rgba(99, 102, 241, 0.35)',
+                opacity: submitting ? 0.7 : 1
               }}
             >
-              <span>Billing is not connected</span>
+              <span>{submitting ? 'Submitting Request…' : 'Request VIP Pro Access'}</span>
+              <ArrowRight size={16} />
             </button>
-            {notice && (
-              <p style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: '#FBBF24', textAlign: 'center' }}>{notice}</p>
-            )}
-          </div>
+
+            <p style={{ margin: '0.6rem 0 0', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
+              No credit card required today • Priority cohort onboarding
+            </p>
+          </form>
+        )}
       </div>
     </div>
   );

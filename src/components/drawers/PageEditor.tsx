@@ -776,8 +776,14 @@ export const PageEditor: React.FC<Props> = ({
 
                 {/* CTA Button */}
                 <a
-                  href={currentCheckoutUrl}
-                  target="_blank"
+                  href={currentCheckoutUrl || '#'}
+                  onClick={e => {
+                    if (!currentCheckoutUrl) {
+                      e.preventDefault();
+                      alert('Please connect your Shopify store and select a product variant to activate checkout.');
+                    }
+                  }}
+                  target={currentCheckoutUrl ? "_blank" : undefined}
                   rel="noreferrer"
                   style={{
                     display: 'block',
@@ -853,6 +859,23 @@ export const PageEditor: React.FC<Props> = ({
                 </button>
               )}
             </div>
+
+            {/* Placeholder / Missing Variant Warning */}
+            {(data.shopifyVariantId === '42109840192' || !data.shopifyVariantId || !data.shopifyProductTitle) && (
+              <div
+                style={{
+                  backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  borderRadius: '6px',
+                  padding: '8px 10px',
+                  fontSize: '11px',
+                  color: '#fbbf24',
+                  lineHeight: '1.4'
+                }}
+              >
+                ⚠️ <strong>Placeholder Product Active:</strong> Please select a real product from your Shopify catalog below so your 1-click checkout button connects to your live inventory.
+              </div>
+            )}
 
             {/* Product Picker Dropdown */}
             <div>
@@ -1773,6 +1796,42 @@ export const PageEditor: React.FC<Props> = ({
             )}
           </div>
 
+          {/* Mobile Sticky Action Bar Toggle */}
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: '10px',
+              backgroundColor: data.mobileStickyBarEnabled !== false ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+              border: data.mobileStickyBarEnabled !== false ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}
+          >
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>Mobile Sticky Action Bar</span>
+                <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' }}>
+                  CONVERSION
+                </span>
+              </div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                Fixes your primary checkout or booking button to the bottom of the screen on mobile devices.
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={data.mobileStickyBarEnabled !== false}
+                onChange={e => handleFieldChange('mobileStickyBarEnabled', e.target.checked)}
+                style={{ accentColor: '#38bdf8', width: '16px', height: '16px' }}
+              />
+              <span style={{ fontSize: '11px', fontWeight: 700, color: data.mobileStickyBarEnabled !== false ? '#38bdf8' : '#64748b' }}>
+                {data.mobileStickyBarEnabled !== false ? 'Enabled' : 'Off'}
+              </span>
+            </label>
+          </div>
+
           {/* SECTION 2: LIVE PUBLIC HOSTING & STATUS */}
           <div
             style={{
@@ -2282,7 +2341,7 @@ export const PageEditor: React.FC<Props> = ({
                   handleFieldChange('headline', e.target.value);
                 }
               }}
-              placeholder={activeVariantTab === 'b' ? 'Alternative headline hook...' : 'e.g. Experience Radiant Skin With Pure Botanical Radiance'}
+              placeholder={activeVariantTab === 'b' ? 'Alternative headline hook...' : 'e.g. Elevate Your Results With Our Proven Signature System'}
               style={{
                 width: '100%',
                 boxSizing: 'border-box',

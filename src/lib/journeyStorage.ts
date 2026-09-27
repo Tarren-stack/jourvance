@@ -10,7 +10,7 @@ export function loadCurrentJourney(): JourneyProject {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed.nodes && parsed.edges) {
-        return clearTemplateMetrics(parsed);
+        return parsed as JourneyProject;
       }
     }
   } catch (e) {

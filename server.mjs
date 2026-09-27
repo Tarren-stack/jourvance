@@ -20,6 +20,7 @@ import fs from 'fs';
 import dns from 'dns';
 import { fileURLToPath } from 'url';
 import { createHubClient } from './hub-sdk.js';
+import { hubStorage } from './hub-storage.mjs';
 import { accountFrom, contactFromProfile, e164, flowFromKlaviyo, klaviyoSend, metricHandoffAllowed, nextPath, readFlowCatalog } from './klaviyo.mjs';
 import {
   cleanBlockList, couponCodeValue, couponPriceRule, couponSpec, fillMailTokens, footerHtml,
@@ -93,6 +94,7 @@ const hub = createHubClient({
   apiKey: process.env.HUB_API_KEY || ''
 });
 const hubReady = Boolean(process.env.HUB_API_KEY);
+hubStorage.init({ hub, hubReady, dataDir: __dirname });
 if (!hubReady) {
   console.warn('[Jourvance] HUB_API_KEY is not set: journeys will persist locally only and AI copy will use templates.');
 }
@@ -234,7 +236,7 @@ async function loadJourney(uid, id) {
 // The client posts its whole JourneyProject (src/types/journey.ts). These four are top-level
 // strings on it, and the server used to keep only nodes/edges/metadata: a journey read back
 // had lost its name, offer and goal, and every row in a list read "Untitled Journey".
-const PROJECT_TEXT_FIELDS = ['name', 'businessType', 'offerHeadline', 'goal'];
+const PROJECT_TEXT_FIELDS = ['name', 'businessType', 'offerHeadline', 'goal', 'workspaceId', 'shopifyStoreDomain'];
 const text = (v) => (typeof v === 'string' ? v.slice(0, 500) : '');
 
 async function saveJourney(uid, id, body) {
@@ -242,6 +244,7 @@ async function saveJourney(uid, id, body) {
     id,
     userId: uid,
     ...Object.fromEntries(PROJECT_TEXT_FIELDS.map((f) => [f, text(body[f])])),
+    ...(body.forecast && typeof body.forecast === 'object' ? { forecast: body.forecast } : {}),
     nodes: Array.isArray(body.nodes) ? body.nodes : [],
     edges: Array.isArray(body.edges) ? body.edges : [],
     metadata: body.metadata && typeof body.metadata === 'object' ? body.metadata : {},
@@ -439,16 +442,15 @@ function readJsonObject(file) {
 }
 
 function loadCatalog(uid) {
-  const bag = readJsonObject(catalogMemoryPath)[uid];
+  const all = hubStorage.get('store.catalog_memory', 'catalog_memory.json', {});
+  const bag = all && typeof all === 'object' ? all[uid] : null;
   return bag && typeof bag === 'object' && !Array.isArray(bag) ? bag : {};
 }
 
 function saveCatalog(uid, memory) {
-  const all = readJsonObject(catalogMemoryPath);
+  const all = hubStorage.get('store.catalog_memory', 'catalog_memory.json', {});
   all[uid] = memory && typeof memory === 'object' ? memory : {};
-  try { fs.writeFileSync(catalogMemoryPath, JSON.stringify(all)); } catch (err) {
-    console.warn('[Jourvance] Failed saving catalog memory:', err.message);
-  }
+  hubStorage.set('store.catalog_memory', 'catalog_memory.json', all);
 }
 
 function rememberAdminCatalog(uid, domain, products) {
@@ -459,28 +461,20 @@ function rememberAdminCatalog(uid, domain, products) {
 }
 
 function loadBehaviorBag(uid) {
-  const bag = readJsonObject(behaviorPath)[uid];
-  return {
-    events: Array.isArray(bag?.events) ? bag.events : [],
-    subscriptions: Array.isArray(bag?.subscriptions) ? bag.subscriptions : []
-  };
+  return hubStorage.loadBehaviorBag(uid);
 }
 
 function saveBehaviorBag(uid, bag) {
-  const all = readJsonObject(behaviorPath);
+  const all = hubStorage.get('store.behavior', 'behavior.json', {});
   all[uid] = {
     events: (bag?.events || []).slice(-50000),
     subscriptions: (bag?.subscriptions || []).slice(-20000)
   };
-  try { fs.writeFileSync(behaviorPath, JSON.stringify(all)); } catch (err) {
-    console.warn('[Jourvance] Failed saving behavior:', err.message);
-  }
+  hubStorage.set('store.behavior', 'behavior.json', all);
 }
 
 function pushBehavior(uid, event) {
-  const bag = loadBehaviorBag(uid);
-  bag.events.push(event);
-  saveBehaviorBag(uid, bag);
+  hubStorage.pushBehavior(uid, event);
 }
 
 function behaviorSummary(uid) {
@@ -1062,19 +1056,17 @@ function readJsonArray(file) {
 }
 
 function loadContacts() {
-  return readJsonArray(contactsFilePath).filter(row => !isDemoRecord(row));
+  const raw = hubStorage.get('store.contacts', 'contacts.json', []);
+  return (Array.isArray(raw) ? raw : []).filter(row => !isDemoRecord(row));
 }
 
 function saveContacts(contacts) {
-  try {
-    fs.writeFileSync(contactsFilePath, JSON.stringify(contacts, null, 2), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving contacts:', err.message);
-  }
+  hubStorage.set('store.contacts', 'contacts.json', contacts);
 }
 
 function loadOrders() {
-  return readJsonArray(ordersFilePath).filter(row => !isDemoRecord(row));
+  const raw = hubStorage.get('store.orders', 'orders.json', []);
+  return (Array.isArray(raw) ? raw : []).filter(row => !isDemoRecord(row));
 }
 
 function contactOwnerId(c) {
@@ -1093,31 +1085,18 @@ function pageOwnedBy(slug, uid) {
 }
 
 function saveOrders(orders) {
-  try {
-    fs.writeFileSync(ordersFilePath, JSON.stringify(orders, null, 2), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving orders:', err.message);
-  }
+  hubStorage.set('store.orders', 'orders.json', orders);
 }
 
 const predictionsFilePath = path.join(__dirname, 'predictions.json');
 
 function loadPredictionStore() {
-  if (!fs.existsSync(predictionsFilePath)) return {};
-  try {
-    const data = JSON.parse(fs.readFileSync(predictionsFilePath, 'utf8'));
-    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
-  } catch {
-    return {};
-  }
+  const data = hubStorage.get('store.predictions', 'predictions.json', {});
+  return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 }
 
 function savePredictionStore(store) {
-  try {
-    fs.writeFileSync(predictionsFilePath, JSON.stringify(store));
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving predictions:', err.message);
-  }
+  hubStorage.set('store.predictions', 'predictions.json', store);
 }
 
 function predictionAccount(uid) {
@@ -1169,15 +1148,12 @@ function cleanFallbackHour(value) {
 }
 
 function loadCampaigns() {
-  return readJsonArray(campaignsFilePath).filter(row => !isDemoRecord(row));
+  const raw = hubStorage.get('store.campaigns', 'campaigns.json', []);
+  return (Array.isArray(raw) ? raw : []).filter(row => !isDemoRecord(row));
 }
 
 function saveCampaigns(campaigns) {
-  try {
-    fs.writeFileSync(campaignsFilePath, JSON.stringify(campaigns, null, 2), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving campaigns:', err.message);
-  }
+  hubStorage.set('store.campaigns', 'campaigns.json', campaigns);
 }
 
 // ── Wave 7: Persistent Drip Nurture Queue & Sequences ─────────────────────────
@@ -1262,28 +1238,23 @@ const INITIAL_DRIP_SEQUENCES = [
 ];
 
 function loadDrips() {
-  if (fs.existsSync(dripsFilePath)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(dripsFilePath, 'utf8'));
-      if (data && Array.isArray(data.sequences)) {
-        let modified = false;
-        for (const initSeq of INITIAL_DRIP_SEQUENCES) {
-          if (!data.sequences.some(s => s.id === initSeq.id)) {
-            data.sequences.push(initSeq);
-            modified = true;
-          }
-        }
-        if (modified) {
-          saveDrips(data);
-        }
-        const cleaned = recomputeDripCounters({
-          sequences: data.sequences,
-          enrollments: (Array.isArray(data.enrollments) ? data.enrollments : []).filter(row => !isDemoRecord(row))
-        });
-        saveDrips(cleaned);
-        return cleaned;
+  const data = hubStorage.get('store.drips', 'drips.json', null);
+  if (data && Array.isArray(data.sequences)) {
+    let modified = false;
+    for (const initSeq of INITIAL_DRIP_SEQUENCES) {
+      if (!data.sequences.some(s => s.id === initSeq.id)) {
+        data.sequences.push(initSeq);
+        modified = true;
       }
-    } catch {}
+    }
+    const cleaned = recomputeDripCounters({
+      sequences: data.sequences,
+      enrollments: (Array.isArray(data.enrollments) ? data.enrollments : []).filter(row => !isDemoRecord(row))
+    });
+    if (modified) {
+      saveDrips(cleaned);
+    }
+    return cleaned;
   }
   const initial = recomputeDripCounters({
     sequences: INITIAL_DRIP_SEQUENCES,
@@ -1327,11 +1298,7 @@ function recomputeDripCounters(data) {
 }
 
 function saveDrips(drips) {
-  try {
-    fs.writeFileSync(dripsFilePath, JSON.stringify(drips, null, 2), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving drips:', err.message);
-  }
+  hubStorage.set('store.drips', 'drips.json', drips);
 }
 
 // ── Wave 8: Shopify Native Discounts & Abandoned Checkouts Stores ────────────
@@ -1339,33 +1306,28 @@ const discountsFilePath = path.join(__dirname, 'discounts.json');
 const checkoutsFilePath = path.join(__dirname, 'checkouts.json');
 
 function loadDiscounts() {
-  return readJsonArray(discountsFilePath).filter(row => !isDemoRecord(row));
+  const raw = hubStorage.get('store.discounts', 'discounts.json', []);
+  return (Array.isArray(raw) ? raw : []).filter(row => !isDemoRecord(row));
 }
 
 function saveDiscounts(discounts) {
-  try {
-    fs.writeFileSync(discountsFilePath, JSON.stringify(discounts, null, 2), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving discounts:', err.message);
-  }
+  hubStorage.set('store.discounts', 'discounts.json', discounts);
 }
 
 function loadCheckouts() {
-  return readJsonArray(checkoutsFilePath).filter(row => !isDemoRecord(row));
+  const raw = hubStorage.get('store.checkouts', 'checkouts.json', []);
+  return (Array.isArray(raw) ? raw : []).filter(row => !isDemoRecord(row));
 }
 
 function saveCheckouts(checkouts) {
-  try {
-    fs.writeFileSync(checkoutsFilePath, JSON.stringify(checkouts, null, 2), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving checkouts:', err.message);
-  }
+  hubStorage.set('store.checkouts', 'checkouts.json', checkouts);
 }
 
 const eventsFilePath = path.join(__dirname, 'events.json');
 
 function loadEvents() {
-  return readJsonArray(eventsFilePath);
+  const raw = hubStorage.get('store.events', 'events.json', []);
+  return Array.isArray(raw) ? raw : [];
 }
 
 function recordEvent(evt) {
@@ -1376,29 +1338,49 @@ function recordEvent(evt) {
     ...evt
   });
   const trimmed = events.length > 20000 ? events.slice(-20000) : events;
-  try {
-    fs.writeFileSync(eventsFilePath, JSON.stringify(trimmed), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving events:', err.message);
-  }
+  hubStorage.set('store.events', 'events.json', trimmed);
+}
+
+function mailLinkSecrets() {
+  const current = process.env.MAIL_LINK_SECRET || process.env.HUB_API_KEY || 'jourvance_internal_salt_key_84920';
+  const oldSecretsRaw = process.env.MAIL_LINK_OLD_SECRETS || '';
+  const olds = oldSecretsRaw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  return Array.from(new Set([current, ...olds]));
 }
 
 function mailLinkSecret() {
-  return process.env.MAIL_LINK_SECRET || process.env.HUB_API_KEY || '';
+  return mailLinkSecrets()[0];
+}
+
+function verifyUnsubscribeToken(token) {
+  for (const secret of mailLinkSecrets()) {
+    const parsed = readUnsubscribe(secret, token);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function verifyConfirmToken(token) {
+  for (const secret of mailLinkSecrets()) {
+    const parsed = readConfirm(secret, token);
+    if (parsed) return parsed;
+  }
+  return null;
 }
 
 const redirectsFilePath = path.join(__dirname, 'redirects.json');
 
 function loadRedirects() {
-  return readJsonArray(redirectsFilePath);
+  const raw = hubStorage.get('store.redirects', 'redirects.json', []);
+  return Array.isArray(raw) ? raw : [];
 }
 
 function saveRedirects(rows) {
-  try {
-    fs.writeFileSync(redirectsFilePath, JSON.stringify((rows || []).slice(-20000)));
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving redirects:', err.message);
-  }
+  const trimmed = (rows || []).slice(-20000);
+  hubStorage.set('store.redirects', 'redirects.json', trimmed);
 }
 
 function rememberRedirect(uid, url, meta) {
@@ -1599,8 +1581,38 @@ window.jourvanceVisitor = function() {
   } catch (e) {}
   return id;
 };
+window.jourvanceCanTrack = function() {
+  try {
+    if (window.Shopify && window.Shopify.customerPrivacy) {
+      if (typeof window.Shopify.customerPrivacy.analyticsProcessingAllowed === 'function') {
+        return !!window.Shopify.customerPrivacy.analyticsProcessingAllowed();
+      }
+      if (typeof window.Shopify.customerPrivacy.userCanBeTracked === 'function') {
+        return !!window.Shopify.customerPrivacy.userCanBeTracked();
+      }
+    }
+  } catch (e) {}
+  return true;
+};
+window.__jvPendingEvents = window.__jvPendingEvents || [];
+if (typeof document !== 'undefined' && !window.__jvConsentBound) {
+  window.__jvConsentBound = true;
+  document.addEventListener('visitorConsentCollected', function() {
+    if (window.jourvanceCanTrack()) {
+      var pending = window.__jvPendingEvents || [];
+      window.__jvPendingEvents = [];
+      for (var i = 0; i < pending.length; i++) {
+        window.jourvanceTrack(pending[i].type, pending[i].extra);
+      }
+    }
+  });
+}
 window.jourvanceTrack = function(type, extra) {
   try {
+    if (!window.jourvanceCanTrack()) {
+      window.__jvPendingEvents.push({ type: type, extra: extra });
+      return;
+    }
     var params = new URLSearchParams(location.search);
     var body = Object.assign({
       type: type,
@@ -2120,6 +2132,7 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
     attributedAdId: attributedAdId || undefined,
     visitorId: visitorId || undefined,
     journeyId: journeyId || (attributedSlug && publicPageCache[attributedSlug]?.journeyId) || undefined,
+    workspaceId: shopWs.id || undefined,
     userId: shopWs.userId,
     ...orderUtm,
     checkoutChannel: channelOf(orderUtm),
@@ -2654,21 +2667,12 @@ const SAMPLE_MAIL_VARS = {
 };
 
 function loadProgramStore() {
-  try {
-    if (!fs.existsSync(emailProgramsFilePath)) return {};
-    const data = JSON.parse(fs.readFileSync(emailProgramsFilePath, 'utf8'));
-    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
-  } catch {
-    return {};
-  }
+  const data = hubStorage.get('store.email_programs', 'email_programs.json', {});
+  return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 }
 
 function saveProgramStore(store) {
-  try {
-    fs.writeFileSync(emailProgramsFilePath, JSON.stringify(store, null, 2), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving email programs:', err.message);
-  }
+  hubStorage.set('store.email_programs', 'email_programs.json', store);
 }
 
 function cleanBlocks(input, fallback) {
@@ -4089,7 +4093,7 @@ function applyUnsubscribe(uid, email) {
 }
 
 function unsubscribeResponse(req, res) {
-  const parsed = readUnsubscribe(mailLinkSecret(), req.params.token);
+  const parsed = verifyUnsubscribeToken(req.params.token);
   if (!parsed) {
     const message = 'This unsubscribe link is not valid.';
     if (req.method === 'POST') return res.status(400).type('text/plain').send(message);
@@ -5006,15 +5010,15 @@ app.post('/api/email/predictions/refresh', requireUser, async (req, res) => {
   }
 });
 
-app.post('/api/drips/process-tick', requireUser, async (req, res) => {
-  try { await refreshPredictionsIfDue(req.user.uid); } catch (err) {
+async function processUserAutomationsTick(uid) {
+  try { await refreshPredictionsIfDue(uid); } catch (err) {
     console.warn('[Jourvance] Prediction refresh failed:', err.message);
   }
   const dripsData = loadDrips();
-  const orders = loadOrders().filter(o => o.userId === req.user.uid);
-  const programTick = await processAccountAutomations(req.user.uid);
-  const campaignTick = await processDueCampaigns(req.user.uid);
-  const holdForKlaviyo = klaviyoIsSender(req.user.uid);
+  const orders = loadOrders().filter(o => o.userId === uid);
+  const programTick = await processAccountAutomations(uid);
+  const campaignTick = await processDueCampaigns(uid);
+  const holdForKlaviyo = klaviyoIsSender(uid);
   const now = Date.now();
   let processedCount = 0;
   let convertedExitCount = 0;
@@ -5022,7 +5026,7 @@ app.post('/api/drips/process-tick', requireUser, async (req, res) => {
 
   for (const enr of dripsData.enrollments) {
     if (holdForKlaviyo) break;
-    if (enr.status !== 'active' || enr.userId !== req.user.uid) continue;
+    if (enr.status !== 'active' || enr.userId !== uid) continue;
 
     const seq = dripsData.sequences.find(s => s.id === enr.sequenceId);
     if (!seq) continue;
@@ -5046,9 +5050,9 @@ app.post('/api/drips/process-tick', requireUser, async (req, res) => {
       const step = seq.steps[enr.currentStepIndex];
       if (step) {
         if (!hubReady || !enr.customerEmail) continue;
-        const dripContact = loadContacts().find(c => c.email === enr.customerEmail && contactOwnerId(c) === req.user.uid) || { email: enr.customerEmail, name: enr.customerName };
-        const checkout = loadCheckouts().find((row) => row.userId === req.user.uid && String(row.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase() && row.abandonedCheckoutUrl);
-        const letter = await composeForSend(req.user.uid, dripContact, [{ kind: 'text', text: step.body || '' }], {
+        const dripContact = loadContacts().find(c => c.email === enr.customerEmail && contactOwnerId(c) === uid) || { email: enr.customerEmail, name: enr.customerName };
+        const checkout = loadCheckouts().find((row) => row.userId === uid && String(row.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase() && row.abandonedCheckoutUrl);
+        const letter = await composeForSend(uid, dripContact, [{ kind: 'text', text: step.body || '' }], {
           checkout_url: checkout?.abandonedCheckoutUrl || '',
           first_name: personFields(dripContact.name || enr.customerName).first_name,
           eventLineItems: Array.isArray(checkout?.lineItems) ? checkout.lineItems : []
@@ -5060,7 +5064,7 @@ app.post('/api/drips/process-tick', requireUser, async (req, res) => {
           text: letter.text,
           html: letter.html,
           previewText: step.previewText,
-          userId: req.user.uid,
+          userId: uid,
           visitorId: dripContact.visitorId,
           medium: 'drip',
           marketing: true,
@@ -5107,16 +5111,36 @@ app.post('/api/drips/process-tick', requireUser, async (req, res) => {
   let cartRecoverySentCount = 0;
 
   for (const chk of checkouts) {
-    if (chk.recoveryStatus === 'pending' && chk.userId === req.user.uid) {
-      const abandonedTime = new Date(chk.abandonedAt).getTime();
+    if (chk.userId !== uid) continue;
+    const abandonedTime = new Date(chk.abandonedAt).getTime();
+
+    // Check if customer completed purchase
+    const bought = orders.some(o => o.customerEmail === chk.customerEmail && new Date(o.createdAt).getTime() >= abandonedTime - 60000);
+    if (bought) {
+      if (chk.recoveryStatus !== 'recovered') {
+        chk.recoveryStatus = 'recovered';
+        chk.recoveredAt = new Date().toISOString();
+        checkoutsModified = true;
+      }
+      continue;
+    }
+
+    // Stage 1: Initial reminder after 45 minutes
+    if (chk.recoveryStatus === 'pending') {
       if (now - abandonedTime >= 2700000) {
-        const bought = orders.some(o => o.customerEmail === chk.customerEmail && new Date(o.createdAt).getTime() >= abandonedTime - 60000);
-        if (bought) {
-          chk.recoveryStatus = 'recovered';
-          chk.recoveredAt = new Date().toISOString();
-        } else if (!holdForKlaviyo && hubReady && chk.customerEmail) {
-          const recoveryContact = loadContacts().find(c => c.email === chk.customerEmail && contactOwnerId(c) === req.user.uid) || { email: chk.customerEmail };
-          const letter = composeLetter(req.user.uid, recoveryContact, [{ kind: 'text', text: `You can finish checking out here: ${chk.abandonedCheckoutUrl || ''}` }], {
+        if (!holdForKlaviyo && hubReady && chk.customerEmail) {
+          const recoveryContact = loadContacts().find(c => c.email === chk.customerEmail && contactOwnerId(c) === uid) || { email: chk.customerEmail };
+          const itemsSummary = Array.isArray(chk.lineItems) && chk.lineItems.length > 0
+            ? chk.lineItems.map(item => `• ${item.title || 'Item'}${item.quantity ? ` (Qty: ${item.quantity})` : ''}`).join('\n')
+            : '';
+          const recoveryBlocks = [
+            { kind: 'heading', text: 'You left something in your bag' },
+            { kind: 'text', text: `Hi ${recoveryContact.name || 'there'},\n\nWe noticed you didn't finish completing your order. Your items are currently saved, but inventory is limited.` },
+            ...(itemsSummary ? [{ kind: 'text', text: `Saved items:\n${itemsSummary}` }] : []),
+            { kind: 'button', label: 'Complete Your Order Now', url: chk.abandonedCheckoutUrl || '', color: '#EC4899', radius: 8, padding: 12 },
+            { kind: 'text', text: 'If you had any trouble or need assistance, simply reply directly to this email and our team will be glad to assist you.' }
+          ];
+          const letter = composeLetter(uid, recoveryContact, recoveryBlocks, {
             checkout_url: chk.abandonedCheckoutUrl || ''
           }, { marketing: true });
           const result = await deliverLetter({
@@ -5125,7 +5149,7 @@ app.post('/api/drips/process-tick', requireUser, async (req, res) => {
             subject: 'Your checkout is still open',
             text: letter.text,
             html: letter.html,
-            userId: req.user.uid,
+            userId: uid,
             visitorId: recoveryContact.visitorId || chk.visitorId,
             medium: 'drip',
             marketing: true
@@ -5139,6 +5163,42 @@ app.post('/api/drips/process-tick', requireUser, async (req, res) => {
         checkoutsModified = true;
       }
     }
+    // Stage 2: Courtesy incentive (10% off) after 24 hours of Stage 1 email
+    else if (chk.recoveryStatus === 'email_sent') {
+      const sentTime = new Date(chk.recoveryEmailSentAt || chk.abandonedAt).getTime();
+      if (now - sentTime >= 86400000) {
+        if (!holdForKlaviyo && hubReady && chk.customerEmail) {
+          const recoveryContact = loadContacts().find(c => c.email === chk.customerEmail && contactOwnerId(c) === uid) || { email: chk.customerEmail };
+          const incentiveBlocks = [
+            { kind: 'heading', text: 'A courtesy incentive for your order' },
+            { kind: 'text', text: `Hi ${recoveryContact.name || 'there'},\n\nWe want to make sure you get the best experience. As a special courtesy, use code SAVE10 at checkout to take 10% off your saved items today.` },
+            { kind: 'button', label: 'Claim 10% Off & Complete Checkout', url: chk.abandonedCheckoutUrl || '', color: '#EC4899', radius: 8, padding: 12 },
+            { kind: 'text', text: 'This code is active for 48 hours. Let us know if you need any help completing your purchase!' }
+          ];
+          const letter2 = composeLetter(uid, recoveryContact, incentiveBlocks, {
+            checkout_url: chk.abandonedCheckoutUrl || '',
+            discount_code: 'SAVE10'
+          }, { marketing: true });
+          const result2 = await deliverLetter({
+            to: chk.customerEmail,
+            name: recoveryContact.name || '',
+            subject: 'Courtesy incentive: 10% off your saved cart',
+            text: letter2.text,
+            html: letter2.html,
+            userId: uid,
+            visitorId: recoveryContact.visitorId || chk.visitorId,
+            medium: 'drip',
+            marketing: true
+          });
+          if (result2.ok) {
+            chk.recoveryStatus = 'incentive_sent';
+            chk.incentiveEmailSentAt = new Date().toISOString();
+            cartRecoverySentCount++;
+          }
+        }
+        checkoutsModified = true;
+      }
+    }
   }
   if (checkoutsModified) {
     saveCheckouts(checkouts);
@@ -5146,8 +5206,7 @@ app.post('/api/drips/process-tick', requireUser, async (req, res) => {
 
   saveDrips(dripsData);
 
-  res.json({
-    success: true,
+  return {
     processedCount,
     convertedExitCount,
     completedCount,
@@ -5155,8 +5214,206 @@ app.post('/api/drips/process-tick', requireUser, async (req, res) => {
     programSent: programTick.sent,
     programFailed: programTick.failed,
     campaignSent: campaignTick.sent,
-    activeRemaining: dripsData.enrollments.filter(e => e.status === 'active' && e.userId === req.user.uid).length + programTick.active
+    activeRemaining: dripsData.enrollments.filter(e => e.status === 'active' && e.userId === uid).length + programTick.active
+  };
+}
+
+let isAutomationRunning = false;
+let automationIntervalHandle = null;
+
+async function runBackgroundAutomations() {
+  if (isAutomationRunning) return;
+  isAutomationRunning = true;
+  try {
+    const uids = new Set();
+    for (const ws of Object.values(workspaceCache)) {
+      if (ws.userId) uids.add(ws.userId);
+    }
+    const drips = loadDrips();
+    if (Array.isArray(drips.enrollments)) {
+      for (const e of drips.enrollments) {
+        if (e.userId && e.status === 'active') uids.add(e.userId);
+      }
+    }
+    const checkouts = loadCheckouts();
+    for (const c of checkouts) {
+      if (c.userId && c.recoveryStatus === 'pending') uids.add(c.userId);
+    }
+    const campaigns = loadCampaigns();
+    for (const cmp of campaigns) {
+      if (cmp.userId && (cmp.status === 'scheduled' || cmp.status === 'sending')) uids.add(cmp.userId);
+    }
+
+    let totalActions = 0;
+    for (const uid of uids) {
+      try {
+        const res = await processUserAutomationsTick(uid);
+        const count = (res.processedCount || 0) + (res.cartRecoverySentCount || 0) + (res.programSent || 0) + (res.campaignSent || 0);
+        totalActions += count;
+      } catch (err) {
+        console.warn(`[Jourvance Automations] Error processing user ${uid}:`, err?.message);
+      }
+    }
+    if (totalActions > 0) {
+      console.log(`[Jourvance Automations] Background runner processed ${totalActions} action(s) across ${uids.size} account(s).`);
+    }
+  } catch (err) {
+    console.error('[Jourvance Automations] Runner error:', err?.message);
+  } finally {
+    isAutomationRunning = false;
+  }
+}
+
+function startAutomationRunner() {
+  if (automationIntervalHandle) clearInterval(automationIntervalHandle);
+  setTimeout(runBackgroundAutomations, 10000);
+  automationIntervalHandle = setInterval(runBackgroundAutomations, 60000);
+  console.log('[Jourvance Automations] Background automation runner initialized (60s tick interval).');
+}
+
+const INTERNAL_CRON_SECRET = process.env.INTERNAL_CRON_SECRET || 'jourvance_internal_cron_secret_7291';
+app.post('/api/internal/cron/drips', async (req, res) => {
+  const auth = req.headers.authorization || '';
+  if (auth !== `Bearer ${INTERNAL_CRON_SECRET}`) {
+    return res.status(401).json({ ok: false, error: 'Unauthorized cron token' });
+  }
+  await runBackgroundAutomations();
+  res.json({ ok: true, timestamp: new Date().toISOString() });
+});
+
+app.post('/api/drips/process-tick', requireUser, async (req, res) => {
+  const summary = await processUserAutomationsTick(req.user.uid);
+  res.json({
+    success: true,
+    ...summary
   });
+});
+
+app.post('/api/public/waitlist', async (req, res) => {
+  try {
+    const { email, storeDomain, plan, billingCycle, source } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return res.status(400).json({ success: false, error: 'A valid email address is required.' });
+    }
+
+    const contacts = loadContacts();
+    const existing = contacts.find(c => String(c.email || '').toLowerCase() === cleanEmail);
+    const now = new Date().toISOString();
+
+    if (existing) {
+      const tags = new Set(Array.isArray(existing.tags) ? existing.tags : []);
+      tags.add('growth_pro_waitlist');
+      existing.tags = Array.from(tags);
+      existing.metadata = {
+        ...(existing.metadata || {}),
+        requestedPlan: plan || 'growth_pro',
+        billingCycle: billingCycle || 'monthly',
+        storeDomain: storeDomain || existing.metadata?.storeDomain || '',
+        waitlistJoinedAt: now
+      };
+      existing.updatedAt = now;
+    } else {
+      contacts.push({
+        id: `lead_waitlist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        email: cleanEmail,
+        name: '',
+        tags: ['growth_pro_waitlist'],
+        source: source || 'vip_waitlist_modal',
+        metadata: {
+          requestedPlan: plan || 'growth_pro',
+          billingCycle: billingCycle || 'monthly',
+          storeDomain: storeDomain || '',
+          waitlistJoinedAt: now
+        },
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+
+    saveContacts(contacts);
+    return res.json({ success: true, message: 'You have been added to the VIP priority list.' });
+  } catch (err) {
+    console.error('[Jourvance Waitlist] Ingestion error:', err?.message);
+    return res.status(500).json({ success: false, error: 'Could not record waitlist entry.' });
+  }
+});
+
+app.post('/api/public/inquiry', async (req, res) => {
+  try {
+    const { name, email, message, businessType, source } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return res.status(400).json({ success: false, error: 'A valid email address is required.' });
+    }
+
+    const contacts = loadContacts();
+    const existing = contacts.find(c => String(c.email || '').toLowerCase() === cleanEmail);
+    const now = new Date().toISOString();
+    const cleanName = String(name || '').trim();
+
+    if (existing) {
+      const tags = new Set(Array.isArray(existing.tags) ? existing.tags : []);
+      tags.add('inquiry');
+      tags.add('contact_page');
+      existing.tags = Array.from(tags);
+      if (cleanName && !existing.name) existing.name = cleanName;
+      existing.metadata = {
+        ...(existing.metadata || {}),
+        businessType: businessType || existing.metadata?.businessType || '',
+        lastInquiryMessage: message || '',
+        lastInquiryAt: now
+      };
+      existing.updatedAt = now;
+    } else {
+      contacts.push({
+        id: `inq_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        email: cleanEmail,
+        name: cleanName,
+        tags: ['inquiry', 'contact_page'],
+        source: source || 'contact-page',
+        metadata: {
+          businessType: businessType || '',
+          lastInquiryMessage: message || '',
+          lastInquiryAt: now
+        },
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+
+    saveContacts(contacts);
+
+    // Asynchronously notify external CRM webhook if available (fail-open so contact is never blocked)
+    (async () => {
+      try {
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000));
+        const fetchPromise = fetch('https://zeluslabs.dev/api/crm/webhook/jourvance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'lead_captured',
+            appName: 'Jourvance',
+            payload: {
+              name: cleanName,
+              email: cleanEmail,
+              message: message || '',
+              source: source || 'contact-page',
+              businessType: businessType || ''
+            }
+          })
+        });
+        await Promise.race([fetchPromise, timeoutPromise]);
+      } catch (err) {
+        console.warn('[Jourvance Inquiry] External CRM dispatch notice:', err?.message);
+      }
+    })();
+
+    return res.json({ success: true, message: 'Thank you! Your message has been received. Our team will be in touch shortly.' });
+  } catch (err) {
+    console.error('[Jourvance Inquiry] Error:', err?.message);
+    return res.status(500).json({ success: false, error: 'Could not submit inquiry.' });
+  }
 });
 
 // ── Wave 7: Multi-Channel Attribution Analytics API ───────────────────────────
@@ -5164,6 +5421,7 @@ app.post('/api/drips/process-tick', requireUser, async (req, res) => {
 app.get('/api/reports/attribution', requireUser, async (req, res) => {
   const model = req.query.model || 'last_touch'; // 'first_touch' | 'last_touch' | 'linear'
   const timeframe = req.query.timeframe || '30d'; // '7d' | '30d' | 'all'
+  const workspaceId = req.query.workspaceId ? String(req.query.workspaceId) : '';
 
   const uid = req.user.uid;
   const now = Date.now();
@@ -5171,11 +5429,25 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
   const cutoff = now - (daysLimit * 86400000);
   const inWindow = (iso) => new Date(iso || 0).getTime() >= cutoff;
   const eventOwner = (e) => e.userId || (e.slug && publicPageCache[e.slug]?.userId) || '';
-  const reportEvents = loadEvents().filter(e => eventOwner(e) === uid && inWindow(e.at));
+  const reportEvents = loadEvents().filter(e => {
+    if (eventOwner(e) !== uid || !inWindow(e.at)) return false;
+    if (workspaceId) {
+      if (e.workspaceId && e.workspaceId !== workspaceId) return false;
+      const slugWs = e.slug ? publicPageCache[e.slug]?.workspaceId : '';
+      if (slugWs && slugWs !== workspaceId) return false;
+    }
+    return true;
+  });
   const filteredOrders = loadOrders().filter(o => {
     if (!inWindow(o.createdAt)) return false;
     const slugOwner = o.attributedSlug ? publicPageCache[o.attributedSlug]?.userId : '';
-    return orderBelongsTo(o, uid, slugOwner);
+    if (!orderBelongsTo(o, uid, slugOwner)) return false;
+    if (workspaceId) {
+      if (o.workspaceId && o.workspaceId !== workspaceId) return false;
+      const orderWsId = o.attributedSlug ? publicPageCache[o.attributedSlug]?.workspaceId : '';
+      if (orderWsId && orderWsId !== workspaceId) return false;
+    }
+    return true;
   });
   const channels = {
     meta: {
@@ -5247,6 +5519,7 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
 
   for (const journey of Object.values(journeyCache)) {
     if (journey.userId !== uid) continue;
+    if (workspaceId && journey.workspaceId && journey.workspaceId !== workspaceId) continue;
     for (const node of journey.nodes || []) {
       if (node.type !== 'ad-source') continue;
       const platform = node.data?.platform;
@@ -5395,12 +5668,19 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
 app.get('/api/reports/attribution/export-csv', requireUser, async (req, res) => {
   const model = req.query.model || 'last_touch';
   const timeframe = req.query.timeframe || '30d';
+  const workspaceId = req.query.workspaceId ? String(req.query.workspaceId) : '';
   const days = timeframe === '7d' ? 7 : timeframe === '30d' ? 30 : null;
   const cutoff = days ? Date.now() - days * 86400000 : 0;
   const orders = loadOrders().filter(o => {
     if (cutoff && new Date(o.createdAt || 0).getTime() < cutoff) return false;
     const slugOwner = o.attributedSlug ? publicPageCache[o.attributedSlug]?.userId : '';
-    return orderBelongsTo(o, req.user.uid, slugOwner);
+    if (!orderBelongsTo(o, req.user.uid, slugOwner)) return false;
+    if (workspaceId) {
+      if (o.workspaceId && o.workspaceId !== workspaceId) return false;
+      const orderWsId = o.attributedSlug ? publicPageCache[o.attributedSlug]?.workspaceId : '';
+      if (orderWsId && orderWsId !== workspaceId) return false;
+    }
+    return true;
   });
   const lines = ['Order,Email,Amount,Created,Discount,Slug,Visitor,Channel'];
   for (const o of orders) {
@@ -5468,21 +5748,12 @@ app.get('/api/email/senders', requireUser, async (req, res) => {
 const signupFormsFilePath = path.join(__dirname, 'signup_forms.json');
 
 function loadSignupStore() {
-  try {
-    if (!fs.existsSync(signupFormsFilePath)) return {};
-    const data = JSON.parse(fs.readFileSync(signupFormsFilePath, 'utf8'));
-    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
-  } catch {
-    return {};
-  }
+  const data = hubStorage.get('store.signup_forms', 'signup_forms.json', {});
+  return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 }
 
 function saveSignupStore(store) {
-  try {
-    fs.writeFileSync(signupFormsFilePath, JSON.stringify(store, null, 2), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving signup forms:', err.message);
-  }
+  hubStorage.set('store.signup_forms', 'signup_forms.json', store);
 }
 
 function cleanSignupForm(input, options = {}) {
@@ -5971,21 +6242,12 @@ app.post('/api/sms/send', requireUser, async (req, res) => {
 const klaviyoFilePath = path.join(__dirname, 'klaviyo.json');
 
 function loadKlaviyoStore() {
-  try {
-    if (!fs.existsSync(klaviyoFilePath)) return {};
-    const data = JSON.parse(fs.readFileSync(klaviyoFilePath, 'utf8'));
-    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
-  } catch {
-    return {};
-  }
+  const data = hubStorage.get('store.klaviyo', 'klaviyo.json', {});
+  return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 }
 
 function saveKlaviyoStore(store) {
-  try {
-    fs.writeFileSync(klaviyoFilePath, JSON.stringify(store, null, 2), 'utf8');
-  } catch (err) {
-    console.warn('[Jourvance] Failed saving Klaviyo connections:', err.message);
-  }
+  hubStorage.set('store.klaviyo', 'klaviyo.json', store);
 }
 
 function klaviyoRow(uid) {
@@ -6717,7 +6979,12 @@ app.post('/api/ai/copy', requireUser, async (req, res) => {
         `Reply with JSON only, exactly these keys: ${fields.join(', ')}.`;
       const answer = await hub.brain.chat(prompt, { json: true });
       if (answer?.success && typeof answer.text === 'string') {
-        const parsed = JSON.parse(answer.text);
+        const cleanJson = answer.text
+          .trim()
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```$/i, '')
+          .trim();
+        const parsed = JSON.parse(cleanJson);
         if (parsed && fields.every((f) => typeof parsed[f] === 'string' && parsed[f])) {
           const copy = {};
           for (const f of fields) copy[f] = parsed[f];
@@ -7790,7 +8057,10 @@ function renderPublicFunnelHtml(page, req, res) {
             modal.style.display = 'flex';
           } else {
             fireInitiateCheckout();
-            if (!storeDomain) return;
+            if (!storeDomain) {
+              alert('This boutique is preparing for launch. Checkout will be open shortly!');
+              return;
+            }
             const targetUrl = buildCheckoutUrl();
             window.location.href = targetUrl;
           }
@@ -8029,6 +8299,49 @@ function renderPublicFunnelHtml(page, req, res) {
       </div>
     </div>
   </div>
+  ` : ''}
+
+  ${data.mobileStickyBarEnabled !== false ? `
+  <!-- Mobile Sticky Action Bar -->
+  <div id="jv-mobile-sticky-bar" style="display:none; position:fixed; bottom:0; left:0; right:0; z-index:9000; background:rgba(15, 23, 42, 0.95); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-top:1px solid rgba(255, 255, 255, 0.12); padding:10px 16px; box-shadow:0 -10px 25px rgba(0,0,0,0.5); align-items:center; justify-content:space-between; gap:12px;">
+    <div style="flex:1; min-width:0;">
+      <div style="font-size:12px; font-weight:700; color:#FFFFFF; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        ${escapeHtml(productTitle || headline)}
+      </div>
+      ${productPrice ? `
+      <div style="font-size:12px; font-weight:800; color:#34D399; margin-top:1px;">
+        ${escapeHtml(productPrice)}
+      </div>` : ''}
+    </div>
+    <button id="jv-mobile-sticky-btn" type="button" style="flex-shrink:0; padding:10px 18px; border-radius:10px; border:none; background:linear-gradient(135deg, #EC4899, #DB2777); color:#FFFFFF; font-size:13px; font-weight:800; letter-spacing:0.02em; cursor:pointer; box-shadow:0 4px 15px rgba(236, 72, 153, 0.4);">
+      ${escapeHtml(buttonText || 'Continue')}
+    </button>
+  </div>
+  <script>
+    (function() {
+      if (window.innerWidth >= 768) return;
+      var stickyBar = document.getElementById('jv-mobile-sticky-bar');
+      var mainBtn = document.getElementById('main-cta-btn');
+      var stickyBtn = document.getElementById('jv-mobile-sticky-btn');
+      if (!stickyBar || !mainBtn) return;
+
+      if (stickyBtn) {
+        stickyBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          mainBtn.click();
+        });
+      }
+
+      window.addEventListener('scroll', function() {
+        var rect = mainBtn.getBoundingClientRect();
+        if (rect.bottom < 0) {
+          stickyBar.style.display = 'flex';
+        } else {
+          stickyBar.style.display = 'none';
+        }
+      }, { passive: true });
+    })();
+  </script>
   ` : ''}
 </body>
 </html>`;
@@ -8698,6 +9011,15 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
         customDomain: customDomain || undefined
       };
 
+      // Multi-tenancy slug protection: prevent hijacking another tenant's page
+      const existingPage = publicPageCache[cleanSlug] || await loadPublicPage(cleanSlug);
+      if (existingPage && existingPage.userId && existingPage.userId !== req.user.uid) {
+        return res.status(409).json({
+          success: false,
+          error: `The page slug "${cleanSlug}" is already claimed by another store. Please choose a unique custom slug in page settings.`
+        });
+      }
+
       await savePublicPage(cleanSlug, publicRecord);
       if (customDomain) {
         publicPageCache[`domain:${customDomain}`] = cleanSlug;
@@ -8797,8 +9119,40 @@ async function grantFormCoupon(uid, contact, form) {
   return { code, note: code ? '' : 'A code was not created.', label: slice?.label || '' };
 }
 
+const leadRateLimits = new Map();
+function isLeadRateLimited(ip) {
+  if (!ip || ip === '127.0.0.1' || ip === '::1' || ip === 'unknown') return false;
+  const now = Date.now();
+  const record = leadRateLimits.get(ip);
+  if (!record || now > record.resetAt) {
+    leadRateLimits.set(ip, { count: 1, resetAt: now + 60000 });
+    return false;
+  }
+  record.count++;
+  if (record.count > 15) return true;
+  return false;
+}
+
+// Clean up expired rate limits periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, rec] of leadRateLimits.entries()) {
+    if (now > rec.resetAt) leadRateLimits.delete(ip);
+  }
+}, 5 * 60 * 1000).unref();
+
 // Public Lead Ingestion
 app.post('/api/public/lead', async (req, res) => {
+  const clientIp = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  if (isLeadRateLimited(clientIp)) {
+    return res.status(429).json({ success: false, error: 'Too many submissions. Please wait a moment and try again.' });
+  }
+
+  const honeypot = req.body?.website_url_hp || req.body?.website_hp || req.body?.hp_field;
+  if (honeypot) {
+    return res.json({ success: true, message: 'Thank you! Your submission has been received.' });
+  }
+
   const { slug, email, name, phone, variant, order_bump_selected, orderBumpAccepted, utm_source, utm_medium, utm_campaign, utm_content, utm_term, fbclid, ttclid, gclid, visitorId } = req.body || {};
   if (!email || !email.includes('@')) {
     return res.status(400).json({ success: false, error: 'A valid email address is required.' });
@@ -9137,7 +9491,7 @@ app.post('/api/public/lead', async (req, res) => {
 });
 
 app.get('/api/public/form-confirm/:token', async (req, res) => {
-  const parsed = readConfirm(mailLinkSecret(), req.params.token);
+  const parsed = verifyConfirmToken(req.params.token);
   if (!parsed) return res.status(400).type('html').send('<!doctype html><title>Confirm</title><p>This confirm link is not valid.</p>');
   const form = signupFormsFor(parsed.uid).find((item) => item.id === parsed.formId);
   const contacts = loadContacts();
@@ -9178,7 +9532,7 @@ app.get('/api/public/form-confirm/:token', async (req, res) => {
 
 // ── Wave 3: Custom Brand Subdomain & CNAME Verification ───────────────────────
 
-app.get('/api/domain/verify', async (req, res) => {
+app.get('/api/domain/verify', requireUser, async (req, res) => {
   const domain = (req.query.domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   if (!domain || !domain.includes('.')) {
     return res.status(400).json({ success: false, error: 'A valid subdomain is required (e.g. offer.yourbrand.com).' });
@@ -9690,8 +10044,20 @@ function purgeSeededFiles() {
   const orders = loadOrders();
   const contacts = loadContacts();
   let changed = false;
+  const ordersByEmail = new Map();
+  for (const o of orders) {
+    const email = String(o.customerEmail || '').toLowerCase();
+    if (!email) continue;
+    let list = ordersByEmail.get(email);
+    if (!list) {
+      list = [];
+      ordersByEmail.set(email, list);
+    }
+    list.push(o);
+  }
   for (const contact of contacts) {
-    const mine = orders.filter(o => String(o.customerEmail || '').toLowerCase() === String(contact.email || '').toLowerCase());
+    const email = String(contact.email || '').toLowerCase();
+    const mine = ordersByEmail.get(email) || [];
     const count = mine.length;
     const spent = Number(mine.reduce((sum, o) => sum + Number(o.totalPrice || 0), 0).toFixed(2));
     if ((contact.ordersCount || 0) !== count || Number(contact.totalSpent || 0) !== spent) {
@@ -9721,8 +10087,22 @@ function purgeSeededFiles() {
   }
   if (dripsChanged) saveDrips(dripsData);
 }
-purgeSeededFiles();
 
-app.listen(PORT, () => {
-  console.log(`[Jourvance] Customer Journey Spoke running at http://localhost:${PORT}`);
-});
+(async () => {
+  try {
+    await hubStorage.rehydrateAll({
+      workspaceCache,
+      publicPageCache,
+      sanitizeWorkspace
+    });
+  } catch (err) {
+    console.warn('[Jourvance] Startup rehydration notice:', err.message);
+  }
+  purgeSeededFiles();
+
+  app.listen(PORT, () => {
+    console.log(`[Jourvance] Customer Journey Spoke running at http://localhost:${PORT}`);
+    startAutomationRunner();
+  });
+})();
+

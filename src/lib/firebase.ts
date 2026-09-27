@@ -24,10 +24,10 @@ export const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig
 export const auth = getAuth(firebaseApp);
 export const googleProvider = new GoogleAuthProvider();
 
-export const OPERATOR_EMAIL = 'tlm@tarrenmunoz.com';
+export const OPERATOR_EMAIL = ((import.meta as any).env?.VITE_OPERATOR_EMAIL || 'tlm@tarrenmunoz.com').toLowerCase();
 
 export const isOperator = (user: User | null): boolean => {
-  return !!user && user.email?.toLowerCase() === OPERATOR_EMAIL.toLowerCase();
+  return !!user && user.email?.toLowerCase() === OPERATOR_EMAIL;
 };
 
 export const signInWithGoogle = async () => {

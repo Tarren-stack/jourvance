@@ -152,11 +152,11 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
             </div>
           </div>
 
-          {/* SECTION 3: 3-Step Beauty Ritual Guide */}
+          {/* SECTION 3: 3-Step Onboarding Guide */}
           <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: '#F472B6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                3. Product Ritual / Usage Guide
+                3. Product Onboarding / Quick Start Guide
               </div>
               <button
                 type="button"
@@ -170,7 +170,7 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
               <label style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>Section Title</label>
               <input
                 type="text"
-                value={data.usageGuideTitle || 'The 3-Step Botanical Ritual Guide'}
+                value={data.usageGuideTitle || 'The 3-Step Quick Start Onboarding Guide'}
                 onChange={e => handleFieldChange('usageGuideTitle', e.target.value)}
                 style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#FFFFFF', fontSize: '12px', marginBottom: '10px' }}
               />
@@ -220,7 +220,7 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
                 <label style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>VIP Community Invite Text</label>
                 <input
                   type="text"
-                  value={data.communityInviteText || 'Join The Private VIP Beauty Circle'}
+                  value={data.communityInviteText || 'Join Our Private VIP Customer Community'}
                   onChange={e => handleFieldChange('communityInviteText', e.target.value)}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#FFFFFF', fontSize: '12px' }}
                 />
@@ -243,7 +243,7 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
               {data.headline || 'Your VIP Allocation & Order is Confirmed'}
             </h4>
             <p style={{ fontSize: '12px', color: '#94A3B8', margin: 0, lineHeight: '1.4' }}>
-              {data.subhead || 'Thank you for choosing our bioactive formulation ritual. Your parcel is currently being prepared with care.'}
+              {data.subhead || 'Thank you for your order! Your confirmation and receipt have been emailed to you.'}
             </p>
           </div>
 
@@ -251,7 +251,7 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
           <div style={{ border: '1px dashed rgba(236, 72, 153, 0.4)', background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.1), rgba(15, 23, 42, 0.6))', borderRadius: '12px', padding: '16px', textAlign: 'center' }}>
             <div style={{ fontSize: '10px', fontWeight: 700, color: '#F472B6', textTransform: 'uppercase' }}>Exclusive VIP Bounce-Back Perk</div>
             <div style={{ fontSize: '13px', fontWeight: 700, color: '#FFFFFF', margin: '3px 0 10px' }}>
-              {data.bounceBackDiscountText || '$15 Off Your Next Renewal Formulation'}
+              {data.bounceBackDiscountText || '$15 Off Your Next Order'}
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(0, 0, 0, 0.5)', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.15)' }}>
               <span style={{ fontFamily: 'monospace', fontSize: '16px', fontWeight: 800, color: '#FFFFFF' }}>
@@ -270,7 +270,7 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
           {/* Ritual Steps */}
           <div style={{ background: 'rgba(255, 255, 255, 0.03)', borderRadius: '12px', padding: '14px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
             <div style={{ fontSize: '12px', fontWeight: 700, color: '#FFFFFF', marginBottom: '10px' }}>
-              ✦ {data.usageGuideTitle || 'The 3-Step Botanical Ritual Guide'}
+              ✦ {data.usageGuideTitle || 'The 3-Step Quick Start Onboarding Guide'}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {steps.map((st, i) => (
@@ -290,13 +290,13 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
               type="button"
               style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #EC4899, #DB2777)', color: '#FFFFFF', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
             >
-              {data.storeReturnText || 'Browse Complimentary Formulations'} →
+              {data.storeReturnText || 'Explore More Best-Sellers & Add-Ons'} →
             </button>
             <button
               type="button"
               style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.15)', background: 'transparent', color: '#94A3B8', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
             >
-              {data.communityInviteText || 'Join The Private VIP Beauty Circle'}
+              {data.communityInviteText || 'Join Our Private VIP Customer Community'}
             </button>
           </div>
         </div>

@@ -88,10 +88,10 @@ export const ThankYouNode: React.FC<NodeProps> = ({ data, selected }) => {
           </div>
         </div>
 
-        {/* Ritual Guide Indicator */}
+        {/* Onboarding Guide Indicator */}
         <div style={{ fontSize: '10px', color: '#94A3B8', display: 'flex', alignItems: 'center', gap: '5px' }}>
           <CheckCircle2 size={11} color="#34D399" />
-          <span>Includes {stepsCount}-Step Beauty Ritual Guide</span>
+          <span>Includes {stepsCount}-Step Onboarding Guide</span>
         </div>
       </div>
 

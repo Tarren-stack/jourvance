@@ -24,7 +24,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
     setStatus('submitting');
 
     try {
-      // Save locally to simulate direct contact capture
+      // Save locally as browser backup
       const savedContacts = JSON.parse(localStorage.getItem('jourvance_inquiries') || '[]');
       savedContacts.push({
         ...formData,
@@ -33,30 +33,28 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
       });
       localStorage.setItem('jourvance_inquiries', JSON.stringify(savedContacts));
 
-      // CRM webhook dispatch. The hub REQUIRES a top-level `event` and reads the lead out
-      // of `payload` (server.ts, POST /api/crm/webhook/:appId): a body without `event` is
-      // a 400. This used to post the bare fields and swallow the refusal, so every inquiry
-      // was answered "Message sent" and reached nobody.
-      const res = await fetch('https://zeluslabs.dev/api/crm/webhook/jourvance', {
+      // Post to internal backend endpoint (persisted in Firestore with external webhook relay)
+      const res = await fetch('/api/public/inquiry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          event: 'lead_captured',
-          appName: 'Jourvance',
-          payload: {
-            name: formData.name,
-            email: formData.email,
-            message: formData.message,
-            source: 'contact-page',
-            businessType: formData.businessType
-          }
+          name: formData.name,
+          email: formData.email,
+          message: formData.message,
+          source: 'contact-page',
+          businessType: formData.businessType
         })
       });
-      if (!res.ok) throw new Error(`CRM webhook refused the lead: ${res.status}`);
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Inquiry could not be recorded (${res.status})`);
+      }
 
       setStatus('success');
       setFormData({ name: '', email: '', businessType: '', message: '' });
     } catch (err) {
+      console.warn('[Jourvance] Contact submission notice:', err);
       setStatus('error');
     }
   };

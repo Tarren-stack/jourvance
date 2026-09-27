@@ -27,7 +27,8 @@ export const AttributionReports: React.FC<Props> = ({
   const fetchAttribution = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/reports/attribution?model=${model}&timeframe=${timeframe}`, {
+      const wsParam = workspace?.id ? `&workspaceId=${encodeURIComponent(workspace.id)}` : '';
+      const res = await fetch(`/api/reports/attribution?model=${model}&timeframe=${timeframe}${wsParam}`, {
         headers: {
           ...(await authHeaders()),
           'Content-Type': 'application/json'
@@ -48,12 +49,13 @@ export const AttributionReports: React.FC<Props> = ({
 
   useEffect(() => {
     fetchAttribution();
-  }, [model, timeframe]);
+  }, [model, timeframe, workspace?.id]);
 
   const handleDownloadCsv = async () => {
     setDownloadingCsv(true);
     try {
-      const res = await fetch(`/api/reports/attribution/export-csv?model=${model}&timeframe=${timeframe}`, {
+      const wsParam = workspace?.id ? `&workspaceId=${encodeURIComponent(workspace.id)}` : '';
+      const res = await fetch(`/api/reports/attribution/export-csv?model=${model}&timeframe=${timeframe}${wsParam}`, {
         headers: { ...(await authHeaders()) }
       });
       if (res.ok) {

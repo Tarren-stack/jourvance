@@ -164,15 +164,71 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
       ${bullets.map(b => `<li>${b}</li>`).join('\n      ')}
     </ul>
 
-    <form onsubmit="event.preventDefault(); alert('Form submitted successfully!');">
+    <form id="leadCaptureForm" onsubmit="handleLeadSubmit(event)">
       ${fields.map(f => `
       <div class="form-group">
         <label>${f.label}</label>
-        <input type="${f.type}" placeholder="${f.placeholder}" ${f.required ? 'required' : ''} />
+        <input name="${f.type === 'email' ? 'email' : (f.type === 'tel' ? 'phone' : 'name')}" type="${f.type}" placeholder="${f.placeholder}" ${f.required ? 'required' : ''} />
       </div>`).join('')}
-      <button type="submit" class="submit-btn">${buttonText}</button>
+      <input type="text" name="website_url_hp" style="display:none !important; position:absolute; left:-9999px;" tabindex="-1" autocomplete="off" aria-hidden="true" />
+      <button type="submit" id="submitBtn" class="submit-btn">${buttonText}</button>
+      <div id="formMsg" style="display:none; margin-top:1rem; padding:0.75rem; border-radius:6px; font-size:0.875rem; text-align:center;"></div>
       <p class="guarantee">🔒 Your information is confidential and never shared.</p>
     </form>
+
+    <script>
+      async function handleLeadSubmit(e) {
+        e.preventDefault();
+        var form = e.target;
+        var btn = document.getElementById('submitBtn');
+        var msg = document.getElementById('formMsg');
+        var emailInput = form.querySelector('input[type="email"]');
+        var nameInput = form.querySelector('input[type="text"]');
+        var phoneInput = form.querySelector('input[type="tel"]');
+        var hpInput = form.querySelector('input[name="website_url_hp"]');
+
+        var payload = {
+          email: emailInput ? emailInput.value : '',
+          name: nameInput ? nameInput.value : '',
+          phone: phoneInput ? phoneInput.value : '',
+          website_url_hp: hpInput ? hpInput.value : '',
+          slug: '${(pageNode as any)?.slug || 'export'}',
+          utm_source: 'exported_html'
+        };
+
+        btn.disabled = true;
+        btn.innerText = 'Submitting...';
+        msg.style.display = 'none';
+
+        try {
+          var targetUrl = window.location.origin + '/api/public/lead';
+          var res = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          var data = await res.json();
+          if (res.ok && data.success) {
+            form.style.display = 'none';
+            msg.style.display = 'block';
+            msg.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
+            msg.style.color = '#10B981';
+            msg.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+            msg.innerHTML = '<strong>✨ Thank you!</strong> We have received your information.';
+          } else {
+            throw new Error(data.error || 'Submission failed');
+          }
+        } catch (err) {
+          btn.disabled = false;
+          btn.innerText = '${buttonText}';
+          msg.style.display = 'block';
+          msg.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+          msg.style.color = '#EF4444';
+          msg.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+          msg.innerText = err.message || 'Something went wrong. Please try again.';
+        }
+      }
+    </script>
   </div>
 </body>
 </html>`;

@@ -73,21 +73,32 @@ export const EmailPrograms: React.FC<{ mode: 'automations' | 'transactional' | '
   const [people, setPeople] = useState<{ email: string; name: string }[]>([]);
   const [personEmail, setPersonEmail] = useState('');
   const [library, setLibrary] = useState<LibraryRow[]>([]);
+  const [loadError, setLoadError] = useState(false);
 
   const load = async () => {
-    const headers = await authHeaders();
-    const data = await readJson(await fetch('/api/email/suite', { headers }));
-    if (data?.suite) {
-      setSuite(data.suite);
-      if (Array.isArray(data.suite.library)) setLibrary(data.suite.library);
-    }
-    if (mode === 'builder') {
-      const segs = await readJson(await fetch('/api/email/segments', { headers }));
-      if (Array.isArray(segs?.segments)) setSegments(segs.segments);
-      const audience = await readJson(await fetch('/api/email/audience', { headers }));
-      if (Array.isArray(audience?.subscribers)) {
-        setPeople(audience.subscribers.map((row: { email?: string; name?: string }) => ({ email: row.email || '', name: row.name || row.email || '' })).filter((row: { email: string }) => row.email));
+    setLoadError(false);
+    try {
+      const headers = await authHeaders();
+      const res = await fetch('/api/email/suite', { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await readJson(res);
+      if (data?.suite) {
+        setSuite(data.suite);
+        if (Array.isArray(data.suite.library)) setLibrary(data.suite.library);
+      } else {
+        setLoadError(true);
       }
+      if (mode === 'builder') {
+        const segs = await readJson(await fetch('/api/email/segments', { headers }));
+        if (Array.isArray(segs?.segments)) setSegments(segs.segments);
+        const audience = await readJson(await fetch('/api/email/audience', { headers }));
+        if (Array.isArray(audience?.subscribers)) {
+          setPeople(audience.subscribers.map((row: { email?: string; name?: string }) => ({ email: row.email || '', name: row.name || row.email || '' })).filter((row: { email: string }) => row.email));
+        }
+      }
+    } catch (err) {
+      console.warn('[Jourvance] Email suite load error:', err);
+      setLoadError(true);
     }
   };
 
@@ -135,6 +146,38 @@ export const EmailPrograms: React.FC<{ mode: 'automations' | 'transactional' | '
     const data = await readJson(await fetch(`/api/email/library/${id}`, { method: 'DELETE', headers: await authHeaders() }));
     if (Array.isArray(data?.library)) setLibrary(data.library);
   };
+
+  if (loadError && !suite) {
+    return (
+      <div style={{
+        padding: '32px 24px',
+        textAlign: 'center',
+        background: 'rgba(239, 68, 68, 0.05)',
+        border: '1px solid rgba(239, 68, 68, 0.15)',
+        borderRadius: '12px',
+        margin: '16px 0'
+      }}>
+        <p style={{ color: '#f87171', fontSize: '13px', margin: '0 0 16px', fontWeight: 600 }}>
+          Unable to load the email suite at this moment.
+        </p>
+        <button
+          onClick={load}
+          style={{
+            background: 'linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)',
+            color: '#ffffff',
+            border: 'none',
+            padding: '8px 18px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
+        >
+          Retry Loading
+        </button>
+      </div>
+    );
+  }
 
   if (!suite) {
     return <p style={{ color: '#9ca3af', fontSize: 13 }}>Loading the email suite…</p>;

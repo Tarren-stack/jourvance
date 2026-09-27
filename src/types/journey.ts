@@ -140,6 +140,8 @@ export interface PageNodeData extends Record<string, unknown> {
   exitIntentDiscountCode?: string;
   exitIntentButtonText?: string;
   exitIntentBadge?: string;
+  // Mobile Conversion Enhancements
+  mobileStickyBarEnabled?: boolean;
   // Metrics & Financials (Wave 3 & Wave 6 Live Closed Loop)
   visitors: number;
   conversions: number;

@@ -1,36 +1,90 @@
-import React, { useState, useEffect } from 'react';
-import { ReactFlowProvider } from '@xyflow/react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, NodeType, Workspace, CanvasViewMode, ActiveAppView } from './types/journey';
 import { loadCurrentJourney, saveCurrentJourney } from './lib/journeyStorage';
 import { applyLiveStats } from './lib/liveStats';
 import { CanvasHeader } from './components/toolbar/CanvasHeader';
-import { JourneyCanvas } from './components/canvas/JourneyCanvas';
-import { NodeInspector } from './components/drawers/NodeInspector';
-import { LiveFunnelModal } from './components/preview/LiveFunnelModal';
 import { PublicHeader } from './components/public/PublicHeader';
 import { PublicFooter } from './components/public/PublicFooter';
 import { HomePage } from './components/public/HomePage';
 import { AboutPage } from './components/public/AboutPage';
 import { BlogPage } from './components/public/BlogPage';
 import { ContactPage } from './components/public/ContactPage';
-import { AuthModal } from './components/auth/AuthModal';
-import { BillingModal } from './components/billing/BillingModal';
-import { OperatorDashboard } from './components/admin/OperatorDashboard';
-import { ExportAssetsModal } from './components/export/ExportAssetsModal';
-import { ShopifyConnectModal } from './components/shopify/ShopifyConnectModal';
-import { ShopifySyncModal } from './components/modals/ShopifySyncModal';
-import { HubEmailSuite } from './components/campaign/HubEmailSuite';
-import { AttributionReports } from './components/analytics/AttributionReports';
-import { PublishModal, type PublishedPageInfo } from './components/preview/PublishModal';
-import { BlueprintModal } from './components/modals/BlueprintModal';
-import { FinancialSimulatorDrawer } from './components/drawers/FinancialSimulatorDrawer';
 import { fetchWorkspaces, createWorkspace } from './lib/shopifyClient';
 import { auth, onAuthStateChanged, logOut, authHeaders, type User } from './lib/firebase';
 import type { PageNodeData, FunnelForecast } from './types/journey';
+import type { PublishedPageInfo } from './components/preview/PublishModal';
+
+// Code-split heavy interior app and modal bundles to ensure sub-second public page loads
+const JourneyCanvas = lazy(() => import('./components/canvas/JourneyCanvas').then(m => ({ default: m.JourneyCanvas })));
+const NodeInspector = lazy(() => import('./components/drawers/NodeInspector').then(m => ({ default: m.NodeInspector })));
+const HubEmailSuite = lazy(() => import('./components/campaign/HubEmailSuite').then(m => ({ default: m.HubEmailSuite })));
+const AttributionReports = lazy(() => import('./components/analytics/AttributionReports').then(m => ({ default: m.AttributionReports })));
+const FinancialSimulatorDrawer = lazy(() => import('./components/drawers/FinancialSimulatorDrawer').then(m => ({ default: m.FinancialSimulatorDrawer })));
+const OperatorDashboard = lazy(() => import('./components/admin/OperatorDashboard').then(m => ({ default: m.OperatorDashboard })));
+const LiveFunnelModal = lazy(() => import('./components/preview/LiveFunnelModal').then(m => ({ default: m.LiveFunnelModal })));
+const ShopifyConnectModal = lazy(() => import('./components/shopify/ShopifyConnectModal').then(m => ({ default: m.ShopifyConnectModal })));
+const ShopifySyncModal = lazy(() => import('./components/modals/ShopifySyncModal').then(m => ({ default: m.ShopifySyncModal })));
+const AuthModal = lazy(() => import('./components/auth/AuthModal').then(m => ({ default: m.AuthModal })));
+const BillingModal = lazy(() => import('./components/billing/BillingModal').then(m => ({ default: m.BillingModal })));
+const ExportAssetsModal = lazy(() => import('./components/export/ExportAssetsModal').then(m => ({ default: m.ExportAssetsModal })));
+const PublishModal = lazy(() => import('./components/preview/PublishModal').then(m => ({ default: m.PublishModal })));
+const BlueprintModal = lazy(() => import('./components/modals/BlueprintModal').then(m => ({ default: m.BlueprintModal })));
+
+const SuspenseLoader: React.FC<{ label?: string }> = ({ label = 'Loading studio...' }) => (
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+    width: '100%',
+    minHeight: '260px',
+    color: '#94a3b8',
+    fontSize: '13px',
+    gap: '10px'
+  }}>
+    <div style={{
+      width: '16px',
+      height: '16px',
+      border: '2px solid rgba(255, 255, 255, 0.15)',
+      borderTopColor: '#f43f5e',
+      borderRadius: '50%',
+      animation: 'spin 0.8s linear infinite'
+    }} />
+    <span>{label}</span>
+  </div>
+);
 
 export const App: React.FC = () => {
   const [project, setProject] = useState<JourneyProject>(() => loadCurrentJourney());
-  const [activePage, setActivePage] = useState<'home' | 'about' | 'blog' | 'contact' | 'canvas'>('home');
+  const [activePage, setActivePage] = useState<'home' | 'about' | 'blog' | 'contact' | 'canvas'>(() => {
+    if (typeof window === 'undefined') return 'home';
+    const path = window.location.pathname.replace(/^\//, '').toLowerCase();
+    if (path === 'about' || path === 'blog' || path === 'contact' || path === 'canvas') {
+      return path;
+    }
+    return 'home';
+  });
+
+  useEffect(() => {
+    const targetPath = activePage === 'home' ? '/' : `/${activePage}`;
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({ page: activePage }, '', targetPath);
+    }
+  }, [activePage]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname.replace(/^\//, '').toLowerCase();
+      if (path === 'about' || path === 'blog' || path === 'contact' || path === 'canvas') {
+        setActivePage(path);
+      } else {
+        setActivePage('home');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   
   // Workspace & Multi-Tenancy (1 Shopify Store Per Workspace)
@@ -97,6 +151,9 @@ export const App: React.FC = () => {
               businessType: remote.businessType || p.businessType,
               offerHeadline: remote.offerHeadline || p.offerHeadline,
               goal: remote.goal || p.goal,
+              workspaceId: remote.workspaceId || p.workspaceId,
+              shopifyStoreDomain: remote.shopifyStoreDomain || p.shopifyStoreDomain,
+              forecast: remote.forecast || p.forecast,
               nodes: remote.nodes,
               edges: remote.edges,
               updatedAt: remote.updatedAt
@@ -264,18 +321,18 @@ export const App: React.FC = () => {
           label: 'VIP Order Confirmation',
           slug: 'thank-you',
           headline: 'Your VIP Allocation & Order is Confirmed',
-          subhead: 'Thank you for choosing our bioactive formulation ritual. Your parcel is currently being prepared with care.',
+          subhead: 'Thank you for your order! Your confirmation and receipt have been emailed to you.',
           badgeText: 'VIP Member Privilege',
           bounceBackDiscountCode: 'VIPRETURN',
-          bounceBackDiscountText: '$15 Off Your Next Renewal Formulation',
-          usageGuideTitle: 'The 3-Step Botanical Ritual Guide',
+          bounceBackDiscountText: '$15 Off Your Next Order',
+          usageGuideTitle: 'The 3-Step Quick Start Onboarding Guide',
           usageGuideSteps: [
-            'Cleanse with warm botanical water to prime cellular barrier.',
-            'Warm 3–4 drops between fingertips to activate bioactive peptides.',
-            'Press gently into face, neck, and decolletage morning and evening.'
+            'Review your order receipt and welcome guide in your inbox.',
+            'Follow the setup steps or initial instructions for maximum results.',
+            'Reach out to our dedicated concierge support if you have any questions.'
           ],
-          storeReturnText: 'Browse Complimentary Formulations',
-          communityInviteText: 'Join The Private VIP Beauty Circle',
+          storeReturnText: 'Explore More Best-Sellers & Add-Ons',
+          communityInviteText: 'Join Our Private VIP Customer Community',
           pageViews: 0,
           bounceBackClaims: 0
         };
@@ -526,24 +583,25 @@ export const App: React.FC = () => {
             onToggleCanvasViewMode={setCanvasViewMode}
             onOpenShopifySync={() => setShowShopifySyncModal(true)}
             onOpenSimulator={() => setShowSimulatorDrawer(true)}
+            onSelectNode={nodeId => setSelectedNodeId(nodeId)}
           />
 
           {/* Main Area: Funnel Canvas, Email Studio, OR Attribution Reports */}
-          {activeView === 'email-studio' ? (
-            <HubEmailSuite
-              workspace={currentWorkspace}
-              onOpenShopifyConnect={() => setShowShopifyModal(true)}
-              onReturnToCanvas={() => setActiveView('canvas')}
-            />
-          ) : activeView === 'attribution' ? (
-            <AttributionReports
-              workspace={currentWorkspace}
-              nodes={project.nodes}
-              onOpenShopifySync={() => setShowShopifySyncModal(true)}
-            />
-          ) : (
-            <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-              <ReactFlowProvider>
+          <Suspense fallback={<SuspenseLoader label="Loading studio view..." />}>
+            {activeView === 'email-studio' ? (
+              <HubEmailSuite
+                workspace={currentWorkspace}
+                onOpenShopifyConnect={() => setShowShopifyModal(true)}
+                onReturnToCanvas={() => setActiveView('canvas')}
+              />
+            ) : activeView === 'attribution' ? (
+              <AttributionReports
+                workspace={currentWorkspace}
+                nodes={project.nodes}
+                onOpenShopifySync={() => setShowShopifySyncModal(true)}
+              />
+            ) : (
+              <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
                 <JourneyCanvas
                   nodes={project.nodes}
                   edges={project.edges}
@@ -553,22 +611,22 @@ export const App: React.FC = () => {
                   onSelectNode={node => setSelectedNodeId(node ? node.id : null)}
                   canvasViewMode={canvasViewMode}
                 />
-              </ReactFlowProvider>
 
-              {/* Slide-Over Drawer Inspector */}
-              <NodeInspector
-                node={selectedNode}
-                onClose={() => setSelectedNodeId(null)}
-                onUpdateNode={handleUpdateNode}
-                onDeleteNode={handleDeleteNode}
-                offerHeadline={project.offerHeadline}
-                businessType={project.businessType}
-                journeyId={project.id}
-                workspace={currentWorkspace}
-                onOpenShopifyConnect={() => setShowShopifyModal(true)}
-              />
-            </main>
-          )}
+                {/* Slide-Over Drawer Inspector */}
+                <NodeInspector
+                  node={selectedNode}
+                  onClose={() => setSelectedNodeId(null)}
+                  onUpdateNode={handleUpdateNode}
+                  onDeleteNode={handleDeleteNode}
+                  offerHeadline={project.offerHeadline}
+                  businessType={project.businessType}
+                  journeyId={project.id}
+                  workspace={currentWorkspace}
+                  onOpenShopifyConnect={() => setShowShopifyModal(true)}
+                />
+              </main>
+            )}
+          </Suspense>
         </>
       ) : (
         /* Public Marketing Web Pages */
@@ -589,6 +647,7 @@ export const App: React.FC = () => {
               <HomePage
                 onNavigate={setActivePage}
                 onTestJourney={() => setShowLiveModal(true)}
+                onOpenBilling={() => setShowBillingModal(true)}
               />
             )}
             {activePage === 'about' && (
@@ -606,102 +665,105 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Live Funnel Simulation Modal */}
-      {showLiveModal && (
-        <LiveFunnelModal
-          project={project}
-          onClose={() => setShowLiveModal(false)}
+      {/* Lazy-Loaded Modals & Drawers */}
+      <Suspense fallback={null}>
+        {/* Live Funnel Simulation Modal */}
+        {showLiveModal && (
+          <LiveFunnelModal
+            project={project}
+            onClose={() => setShowLiveModal(false)}
+          />
+        )}
+
+        {/* Shopify Connect Modal */}
+        <ShopifyConnectModal
+          isOpen={showShopifyModal}
+          onClose={() => setShowShopifyModal(false)}
+          workspace={currentWorkspace}
+          onWorkspaceUpdated={updated => {
+            setCurrentWorkspace(updated);
+            setWorkspaces(prev => prev.map(w => (w.id === updated.id ? updated : w)));
+          }}
+          onOpenBilling={() => setShowBillingModal(true)}
         />
-      )}
 
-      {/* Shopify Connect Modal */}
-      <ShopifyConnectModal
-        isOpen={showShopifyModal}
-        onClose={() => setShowShopifyModal(false)}
-        workspace={currentWorkspace}
-        onWorkspaceUpdated={updated => {
-          setCurrentWorkspace(updated);
-          setWorkspaces(prev => prev.map(w => (w.id === updated.id ? updated : w)));
-        }}
-        onOpenBilling={() => setShowBillingModal(true)}
-      />
-
-      {/* Shopify Live Attribution & Order Simulator Modal */}
-      <ShopifySyncModal
-        isOpen={showShopifySyncModal}
-        onClose={() => setShowShopifySyncModal(false)}
-        workspace={currentWorkspace}
-        nodes={project.nodes}
-      />
-
-      {/* User Auth Modal */}
-      {showAuthModal && (
-        <AuthModal
-          onClose={() => setShowAuthModal(false)}
+        {/* Shopify Live Attribution & Order Simulator Modal */}
+        <ShopifySyncModal
+          isOpen={showShopifySyncModal}
+          onClose={() => setShowShopifySyncModal(false)}
+          workspace={currentWorkspace}
+          nodes={project.nodes}
         />
-      )}
 
-      {/* Subscription Billing Upgrade Modal */}
-      {showBillingModal && (
-        <BillingModal
-          onClose={() => setShowBillingModal(false)}
-          userEmail={user?.email || undefined}
+        {/* User Auth Modal */}
+        {showAuthModal && (
+          <AuthModal
+            onClose={() => setShowAuthModal(false)}
+          />
+        )}
+
+        {/* Subscription Billing Upgrade Modal */}
+        {showBillingModal && (
+          <BillingModal
+            onClose={() => setShowBillingModal(false)}
+            userEmail={user?.email || undefined}
+          />
+        )}
+
+        {/* Operator Admin Dashboard */}
+        {showOperatorDashboard && (
+          <OperatorDashboard
+            currentProject={project}
+            onClose={() => setShowOperatorDashboard(false)}
+            onLoadProject={p => {
+              setProject(p);
+              setShowOperatorDashboard(false);
+            }}
+          />
+        )}
+
+        {/* Production Assets Export Modal */}
+        <ExportAssetsModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          nodes={project.nodes as any}
+          journeyTitle={project.name}
         />
-      )}
 
-      {/* Operator Admin Dashboard */}
-      {showOperatorDashboard && (
-        <OperatorDashboard
-          currentProject={project}
-          onClose={() => setShowOperatorDashboard(false)}
-          onLoadProject={p => {
-            setProject(p);
-            setShowOperatorDashboard(false);
+        {/* Funnel Publish Modal */}
+        <PublishModal
+          isOpen={showPublishModal}
+          onClose={() => setShowPublishModal(false)}
+          publishedPages={publishedPages}
+          workspace={currentWorkspace}
+          onUnpublish={handleUnpublishFunnel}
+          unpublishing={unpublishing}
+        />
+
+        {/* E-Commerce Funnel Blueprints Modal */}
+        <BlueprintModal
+          isOpen={showBlueprintModal}
+          onClose={() => setShowBlueprintModal(false)}
+          onLoadBlueprint={handleLoadBlueprint}
+          workspace={currentWorkspace}
+          currentJourneyName={project.name}
+        />
+
+        {/* Funnel Financial Simulator & ROAS Forecaster (Wave 10) */}
+        <FinancialSimulatorDrawer
+          isOpen={showSimulatorDrawer}
+          onClose={() => setShowSimulatorDrawer(false)}
+          nodes={project.nodes}
+          initialForecast={project.forecast}
+          onSaveForecast={(forecast: FunnelForecast) => {
+            setProject(prev => {
+              const updated = { ...prev, forecast, updatedAt: new Date().toISOString() };
+              saveCurrentJourney(updated);
+              return updated;
+            });
           }}
         />
-      )}
-
-      {/* Production Assets Export Modal */}
-      <ExportAssetsModal
-        isOpen={showExportModal}
-        onClose={() => setShowExportModal(false)}
-        nodes={project.nodes as any}
-        journeyTitle={project.name}
-      />
-
-      {/* Funnel Publish Modal */}
-      <PublishModal
-        isOpen={showPublishModal}
-        onClose={() => setShowPublishModal(false)}
-        publishedPages={publishedPages}
-        workspace={currentWorkspace}
-        onUnpublish={handleUnpublishFunnel}
-        unpublishing={unpublishing}
-      />
-
-      {/* E-Commerce Funnel Blueprints Modal */}
-      <BlueprintModal
-        isOpen={showBlueprintModal}
-        onClose={() => setShowBlueprintModal(false)}
-        onLoadBlueprint={handleLoadBlueprint}
-        workspace={currentWorkspace}
-        currentJourneyName={project.name}
-      />
-
-      {/* Funnel Financial Simulator & ROAS Forecaster (Wave 10) */}
-      <FinancialSimulatorDrawer
-        isOpen={showSimulatorDrawer}
-        onClose={() => setShowSimulatorDrawer(false)}
-        nodes={project.nodes}
-        initialForecast={project.forecast}
-        onSaveForecast={(forecast: FunnelForecast) => {
-          setProject(prev => {
-            const updated = { ...prev, forecast, updatedAt: new Date().toISOString() };
-            saveCurrentJourney(updated);
-            return updated;
-          });
-        }}
-      />
+      </Suspense>
     </div>
   );
 };

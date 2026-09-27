@@ -529,7 +529,190 @@
       }
     },
     "signalStartersSeeded": true,
-    "predictionCheckedAt": "2026-09-25T15:42:23.173Z",
+    "predictionCheckedAt": "2026-09-27T00:22:56.768Z",
+    "attributionWindows": {
+      "emailClickDays": 5,
+      "emailOpenDays": 5,
+      "smsClickDays": 5
+    }
+  },
+  "usr_wave4_operator": {
+    "transactional": {
+      "order_confirmation": {
+        "enabled": false,
+        "subject": "We received order {{order_number}}",
+        "blocks": [
+          {
+            "id": "oc_h",
+            "kind": "heading",
+            "text": "Order {{order_number}}"
+          },
+          {
+            "id": "oc_b",
+            "kind": "text",
+            "text": "Hi {{first_name}},\n\nWe received your order for {{order_total}} {{currency}}.\n\n{{line_items}}\n\nReply to this email if something needs to change.",
+            "level": 0
+          }
+        ]
+      },
+      "shipping_confirmation": {
+        "enabled": false,
+        "subject": "Order {{order_number}} has a fulfillment",
+        "blocks": [
+          {
+            "id": "sc_h",
+            "kind": "heading",
+            "text": "A fulfillment was created"
+          },
+          {
+            "id": "sc_b",
+            "kind": "text",
+            "text": "Hi {{first_name}},\n\nOrder {{order_number}} has a fulfillment from the store.\n\n{{tracking_line}}",
+            "level": 0
+          }
+        ]
+      },
+      "order_cancelled": {
+        "enabled": false,
+        "subject": "Order {{order_number}} was cancelled",
+        "blocks": [
+          {
+            "id": "cc_h",
+            "kind": "heading",
+            "text": "Order {{order_number}} was cancelled"
+          },
+          {
+            "id": "cc_b",
+            "kind": "text",
+            "text": "Hi {{first_name}},\n\nOrder {{order_number}} was cancelled. Reply to this email if you were not expecting that.",
+            "level": 0
+          }
+        ]
+      },
+      "refund": {
+        "enabled": false,
+        "subject": "A refund was recorded on order {{order_number}}",
+        "blocks": [
+          {
+            "id": "rf_h",
+            "kind": "heading",
+            "text": "Refund on order {{order_number}}"
+          },
+          {
+            "id": "rf_b",
+            "kind": "text",
+            "text": "Hi {{first_name}},\n\nA refund was recorded on order {{order_number}}.\n\n{{refund_amount}}",
+            "level": 0
+          }
+        ]
+      }
+    },
+    "automations": {
+      "post_purchase": {
+        "enabled": false,
+        "steps": [
+          {
+            "id": "pp1",
+            "delayHours": 24,
+            "subject": "Thank you for order {{order_number}}",
+            "previewText": "",
+            "blocks": [
+              {
+                "id": "pp1b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nThank you for order {{order_number}}. Reply if you need anything about it.",
+                "level": 0
+              }
+            ]
+          },
+          {
+            "id": "pp2",
+            "delayHours": 72,
+            "subject": "How was order {{order_number}}?",
+            "previewText": "",
+            "blocks": [
+              {
+                "id": "pp2b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nIf you have a minute, reply and tell us how order {{order_number}} went.",
+                "level": 0
+              }
+            ]
+          }
+        ]
+      },
+      "winback": {
+        "enabled": false,
+        "steps": [
+          {
+            "id": "wb1",
+            "delayHours": 0,
+            "subject": "It has been a while since your last order",
+            "previewText": "",
+            "blocks": [
+              {
+                "id": "wb1b",
+                "kind": "text",
+                "text": "Hi {{first_name}},\n\nYour last order with us was a while ago. Reply if you want help with the next one.",
+                "level": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "enrollments": [],
+    "sentKeys": [],
+    "flows": [],
+    "flowEnrollments": [],
+    "postalAddress": "",
+    "suppressions": [],
+    "timezone": "",
+    "profiles": {},
+    "library": [],
+    "couponCodes": [],
+    "lists": [],
+    "segments": [],
+    "segmentState": {
+      "all": {
+        "baselined": true,
+        "members": {
+          "serena@botanicalglow.com": {
+            "inside": true,
+            "enteredAt": "2026-09-27T00:22:56.771Z",
+            "leftAt": ""
+          }
+        }
+      },
+      "vip": {
+        "baselined": true,
+        "members": {}
+      },
+      "repeat": {
+        "baselined": true,
+        "members": {}
+      },
+      "buyers": {
+        "baselined": true,
+        "members": {}
+      },
+      "leads": {
+        "baselined": true,
+        "members": {
+          "serena@botanicalglow.com": {
+            "inside": true,
+            "enteredAt": "2026-09-27T00:22:56.771Z",
+            "leftAt": ""
+          }
+        }
+      },
+      "exit_rescue": {
+        "baselined": true,
+        "members": {}
+      }
+    },
+    "signalStartersSeeded": false,
+    "predictionCheckedAt": "2026-09-27T00:22:56.771Z",
     "attributionWindows": {
       "emailClickDays": 5,
       "emailOpenDays": 5,

@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   Controls,
   MiniMap,
@@ -12,7 +13,9 @@ import {
   type Edge,
   type Node,
   type NodeTypes,
-  type EdgeTypes
+  type EdgeTypes,
+  type NodeChange,
+  type EdgeChange
 } from '@xyflow/react';
 import type { JourneyNode, JourneyEdge, JourneyNodeData, CanvasViewMode } from '../../types/journey';
 import { AdNode } from './nodes/AdNode';
@@ -58,21 +61,60 @@ export const JourneyCanvas: React.FC<Props> = ({
   const [rfNodes, setRfNodes, onNodesChangeHandler] = useNodesState(nodes);
   const [rfEdges, setRfEdges, onEdgesChangeHandler] = useEdgesState(edges);
 
-  // Synchronize when external nodes change
+  // Synchronize when external nodes change, preserving active user coordinates
   React.useEffect(() => {
-    setRfNodes(nodes.map(n => ({
-      ...n,
-      selected: n.id === selectedNodeId,
-      data: {
-        ...n.data,
-        canvasViewMode
-      }
-    })));
+    setRfNodes(currentRfNodes => {
+      const positionMap = new Map(currentRfNodes.map(rn => [rn.id, rn.position]));
+      return nodes.map(n => ({
+        ...n,
+        position: positionMap.has(n.id) ? (positionMap.get(n.id) || n.position) : n.position,
+        selected: n.id === selectedNodeId,
+        data: {
+          ...n.data,
+          canvasViewMode
+        }
+      }));
+    });
   }, [nodes, selectedNodeId, canvasViewMode, setRfNodes]);
 
   React.useEffect(() => {
     setRfEdges(edges);
   }, [edges, setRfEdges]);
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      onNodesChangeHandler(changes as any);
+      const removals = changes.filter(c => c.type === 'remove');
+      if (removals.length > 0) {
+        const removedIds = new Set(removals.map((c: any) => c.id));
+        setRfNodes(currentNodes => {
+          const remaining = currentNodes.filter(n => !removedIds.has(n.id)) as JourneyNode[];
+          onNodesChange(remaining);
+          return remaining;
+        });
+        if (selectedNodeId && removedIds.has(selectedNodeId)) {
+          onSelectNode(null);
+        }
+      }
+    },
+    [onNodesChangeHandler, onNodesChange, selectedNodeId, onSelectNode, setRfNodes]
+  );
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      onEdgesChangeHandler(changes as any);
+      const removals = changes.filter(c => c.type === 'remove');
+      if (removals.length > 0) {
+        const removedIds = new Set(removals.map((c: any) => c.id));
+        setRfEdges(currentEdges => {
+          const remaining = currentEdges.filter(e => !removedIds.has(e.id)) as JourneyEdge[];
+          onEdgesChange(remaining);
+          return remaining;
+        });
+      }
+    },
+    [onEdgesChangeHandler, onEdgesChange, setRfEdges]
+  );
 
   const handleConnect = useCallback(
     (params: Connection) => {
@@ -111,46 +153,44 @@ export const JourneyCanvas: React.FC<Props> = ({
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <ReactFlow
-        nodes={rfNodes}
-        edges={rfEdges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodesChange={(changes) => {
-          onNodesChangeHandler(changes);
-        }}
-        onEdgesChange={(changes) => {
-          onEdgesChangeHandler(changes);
-        }}
-        onConnect={handleConnect}
-        onNodeClick={handleNodeClick}
-        onPaneClick={handlePaneClick}
-        onNodeDragStop={handleNodeDragStop}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.3}
-        maxZoom={1.8}
-        defaultEdgeOptions={{ type: 'conversion' }}
-      >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={24}
-          size={1.2}
-          color="rgba(255, 255, 255, 0.08)"
-        />
-        <Controls position="bottom-left" showInteractive={false} />
-        <MiniMap
-          position="bottom-right"
-          nodeColor={n => {
-            if (n.type === 'ad-source') return '#3B82F6';
-            if (n.type === 'landing-page') return '#6366F1';
-            if (n.type === 'lead-form') return '#10B981';
-            return '#F59E0B';
-          }}
-          maskColor="rgba(11, 15, 25, 0.75)"
-          style={{ width: 140, height: 90 }}
-        />
-      </ReactFlow>
+      <ReactFlowProvider>
+        <ReactFlow
+          nodes={rfNodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
+          onConnect={handleConnect}
+          onNodeClick={handleNodeClick}
+          onPaneClick={handlePaneClick}
+          onNodeDragStop={handleNodeDragStop}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          minZoom={0.3}
+          maxZoom={1.8}
+          defaultEdgeOptions={{ type: 'conversion' }}
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={24}
+            size={1.2}
+            color="rgba(255, 255, 255, 0.08)"
+          />
+          <Controls position="bottom-left" showInteractive={false} />
+          <MiniMap
+            position="bottom-right"
+            nodeColor={n => {
+              if (n.type === 'ad-source') return '#3B82F6';
+              if (n.type === 'landing-page') return '#6366F1';
+              if (n.type === 'lead-form') return '#10B981';
+              return '#F59E0B';
+            }}
+            maskColor="rgba(11, 15, 25, 0.75)"
+            style={{ width: 140, height: 90 }}
+          />
+        </ReactFlow>
+      </ReactFlowProvider>
     </div>
   );
 };

@@ -42,6 +42,7 @@ export const NodeInspector: React.FC<Props> = ({
       case 'lead-form': return 'Lead Capture Form';
       case 'follow-up-sequence': return 'Follow-up Nurture Flow';
       case 'thank-you': return 'VIP Thank-You Portal';
+      case 'upsell': return 'Upsell & Downsell Offer Editor';
       default: return 'Node Configuration';
     }
   };
