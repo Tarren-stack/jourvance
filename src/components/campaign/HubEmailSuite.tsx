@@ -92,6 +92,9 @@ interface RfmConfig {
   vipGold: number;
   vipPlatinum: number;
   coolingDays: number;
+  autoWinbackEnabled?: boolean;
+  autoWinbackEnabledAt?: string | null;
+  allowUnlimitedDiscountUse?: boolean;
 }
 
 interface RfmSummary {
@@ -205,6 +208,8 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   const [customVipPlatinum, setCustomVipPlatinum] = useState<number>(500);
   const [customVipGold, setCustomVipGold] = useState<number>(250);
   const [customVipSilver, setCustomVipSilver] = useState<number>(100);
+  const [autoWinbackEnabled, setAutoWinbackEnabled] = useState<boolean>(false);
+  const [allowUnlimitedDiscountUse, setAllowUnlimitedDiscountUse] = useState<boolean>(false);
 
   // Klaviyo & Shopify Email 1-Click Export state
   const [exportModalFlow, setExportModalFlow] = useState<HubFlow | null>(null);
@@ -271,6 +276,8 @@ ${unsub}`;
           setCustomVipPlatinum(sRes.rfmConfig.vipPlatinum ?? 500);
           setCustomVipGold(sRes.rfmConfig.vipGold ?? 250);
           setCustomVipSilver(sRes.rfmConfig.vipSilver ?? 100);
+          setAutoWinbackEnabled(Boolean(sRes.rfmConfig.autoWinbackEnabled));
+          setAllowUnlimitedDiscountUse(Boolean(sRes.rfmConfig.allowUnlimitedDiscountUse));
         }
         if (sRes.rfmSummary) setRfmSummary(sRes.rfmSummary);
       }
@@ -347,12 +354,16 @@ ${unsub}`;
           lapsedDays: Number(customLapsedDays) || 180,
           vipPlatinum: Number(customVipPlatinum) || 500,
           vipGold: Number(customVipGold) || 250,
-          vipSilver: Number(customVipSilver) || 100
+          vipSilver: Number(customVipSilver) || 100,
+          autoWinbackEnabled,
+          allowUnlimitedDiscountUse
         })
       });
       const data = await res.json().catch(() => ({}));
       if (data?.success) {
         setRfmConfig(data.config);
+        setAutoWinbackEnabled(Boolean(data.config?.autoWinbackEnabled));
+        setAllowUnlimitedDiscountUse(Boolean(data.config?.allowUnlimitedDiscountUse));
         setRfmConfigSavedMsg(`Lifecycle thresholds updated! ${data.modifiedCount ?? 0} contacts re-evaluated.`);
         const audRes = await fetch('/api/email/audience', { headers }).then(r => r.json()).catch(() => ({}));
         if (audRes?.success) {
@@ -2033,6 +2044,69 @@ ${unsub}`;
                         </div>
                       </div>
                     </div>
+
+                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <label htmlFor="autoWinbackToggle" style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6', cursor: 'pointer' }}>
+                              Automate Inactivity Winback
+                            </label>
+                            <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: autoWinbackEnabled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)', color: autoWinbackEnabled ? '#34d399' : '#9ca3af', fontWeight: 600 }}>
+                              {autoWinbackEnabled ? 'Active' : 'Off'}
+                            </span>
+                          </div>
+                          <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#9ca3af', lineHeight: 1.4 }}>
+                            Automatically enrolls clients into our gentle winback sequence with code WELCOMEBACK15 when they cross {customAtRiskDays} days inactive.
+                          </p>
+                          <div style={{ marginTop: '6px', fontSize: '11px', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <ShieldCheck size={13} /> Option A Deliverability Guard: Only enrolls clients who cross {customAtRiskDays}d from today onward. Exits automatically on purchase.
+                          </div>
+                        </div>
+                        <input
+                          id="autoWinbackToggle"
+                          type="checkbox"
+                          checked={autoWinbackEnabled}
+                          onChange={e => setAutoWinbackEnabled(e.target.checked)}
+                          style={{ width: '18px', height: '18px', accentColor: '#a855f7', cursor: 'pointer', marginTop: '2px' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <label htmlFor="unlimitedDiscountToggle" style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6', cursor: 'pointer' }}>
+                              Single-Use Coupon Safeguard
+                            </label>
+                            <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: !allowUnlimitedDiscountUse ? 'rgba(16, 185, 129, 0.2)' : 'rgba(234, 179, 8, 0.2)', color: !allowUnlimitedDiscountUse ? '#34d399' : '#fde047', fontWeight: 600 }}>
+                              {!allowUnlimitedDiscountUse ? '1 Use Per Client' : 'Unlimited Use'}
+                            </span>
+                          </div>
+                          <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#9ca3af', lineHeight: 1.4 }}>
+                            {!allowUnlimitedDiscountUse
+                              ? 'Restricts WELCOMEBACK15 to one redemption per customer in Shopify to prevent coupon sharing.'
+                              : 'Allows customers to reuse WELCOMEBACK15 on multiple orders.'}
+                          </p>
+                        </div>
+                        <input
+                          id="unlimitedDiscountToggle"
+                          type="checkbox"
+                          checked={!allowUnlimitedDiscountUse}
+                          onChange={e => setAllowUnlimitedDiscountUse(!e.target.checked)}
+                          style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer', marginTop: '2px' }}
+                        />
+                      </div>
+
+                      <div style={{ marginTop: '12px', padding: '10px 12px', borderRadius: '8px', backgroundColor: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e5e7eb' }}>
+                          <CheckCircle2 size={14} style={{ color: '#34d399' }} />
+                          <span>Shopify Codes: <strong>WELCOMEBACK15</strong> (15%), <strong>SAVE10</strong> (10%), <strong>SANCTUARY</strong> (10%)</span>
+                        </div>
+                        <span style={{ fontSize: '10px', color: '#9ca3af' }}>Auto-Synced</span>
+                      </div>
+                    </div>
                   </div>
 
                   <div
@@ -2366,6 +2440,15 @@ ${unsub}`;
                   >
                     <Clock size={12} style={{ color: '#94a3b8' }} /> Lapsed Reconnect
                   </button>
+                </div>
+                <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#9ca3af' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <ShieldCheck size={12} style={{ color: '#10b981' }} />
+                    Shopify Voucher: <strong style={{ color: '#34d399' }}>WELCOMEBACK15</strong> (15% Off Active)
+                  </span>
+                  <span style={{ color: '#6b7280' }}>
+                    {rfmConfig.allowUnlimitedDiscountUse ? 'Unlimited reuse' : '1 use per client'}
+                  </span>
                 </div>
               </div>
 

@@ -1272,6 +1272,30 @@ const INITIAL_DRIP_SEQUENCES = [
     attributedSales: null,
     createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
     updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'drip_seq_at_risk_winback',
+    name: 'At-Risk Inactive Client Winback',
+    description: 'Automatically re-engages clients who reach the at-risk inactivity threshold (90 days since last purchase) with a gentle check-in and 15% courtesy treat.',
+    triggerType: 'at_risk_inactivity',
+    smartExitOnPurchase: true,
+    steps: [
+      {
+        id: 'winback_step_1',
+        stepNumber: 1,
+        delayHours: 0,
+        subject: 'We miss you — a private 15% courtesy treat for your next ritual',
+        previewText: "It's been a little while, and we'd love to welcome you back",
+        body: 'Hello {{first_name}},\n\nWe noticed it’s been a little while since your last visit, and we wanted to check in.\n\nSelf-care should always feel effortless. To welcome you back, we’ve placed a special 15% courtesy reward on your profile for your next restock:\n\nUse code {{discount_code}} at checkout.\n\nWhenever you’re ready to replenish your favorites, we are here for you.\n\nWarmly,\nThe Jourvance Team',
+        discountVoucher: 'WELCOMEBACK15'
+      }
+    ],
+    activeEnrollments: 0,
+    totalCompleted: 0,
+    totalExitedPurchased: 0,
+    attributedSales: null,
+    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -1863,23 +1887,12 @@ app.post('/api/workspace/:wsId/shopify/sync-orders', requireUser, async (req, re
 });
 
 // ── Wave 8: Shopify Native Discount Code Provisioning API ─────────────────────
-app.get('/api/workspace/:wsId/shopify/discounts', requireUser, async (req, res) => {
-  const discounts = loadDiscounts();
-  res.json({ success: true, discounts });
-});
+async function provisionShopifyDiscount(ws, { code, discountType = 'percentage', value = 15, usageLimit = null, isUniquePerLead = false, oncePerCustomer = true }) {
+  const cleanCode = String(code || '').trim().toUpperCase();
+  if (!cleanCode) return null;
 
-app.post('/api/workspace/:wsId/shopify/create-discount', requireUser, async (req, res) => {
-  const ws = await loadWorkspace(req.user.uid, req.params.wsId);
-  if (!ws) return res.status(404).json({ success: false, error: 'Workspace not found.' });
-
-  const { code, discountType = 'percentage', value = 20, usageLimit = null, isUniquePerLead = false } = req.body || {};
-  if (!code || typeof code !== 'string' || !code.trim()) {
-    return res.status(400).json({ success: false, error: 'A discount code string is required.' });
-  }
-
-  const cleanCode = code.trim().toUpperCase();
-  const domain = realStoreDomain(ws.shopifyConfig);
-  const token = adminToken(ws.shopifyConfig);
+  const domain = ws ? realStoreDomain(ws.shopifyConfig) : '';
+  const token = ws ? adminToken(ws.shopifyConfig) : '';
   let shopifyPriceRuleId = null;
   let syncedToLiveShopify = false;
 
@@ -1895,7 +1908,8 @@ app.post('/api/workspace/:wsId/shopify/create-discount', requireUser, async (req
           value: discountType === 'percentage' ? `-${Math.abs(Number(value))}` : `-${Math.abs(Number(value)).toFixed(2)}`,
           customer_selection: 'all',
           starts_at: new Date().toISOString(),
-          usage_limit: isUniquePerLead ? 1 : (usageLimit ? Number(usageLimit) : null)
+          usage_limit: isUniquePerLead ? 1 : (usageLimit ? Number(usageLimit) : null),
+          once_per_customer: Boolean(oncePerCustomer)
         }
       };
 
@@ -1933,16 +1947,16 @@ app.post('/api/workspace/:wsId/shopify/create-discount', requireUser, async (req
   const discounts = loadDiscounts();
   const existingIdx = discounts.findIndex(d => d.code === cleanCode);
   const discountRule = {
-    id: `disc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    id: existingIdx >= 0 ? discounts[existingIdx].id : `disc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     code: cleanCode,
     discountType: discountType === 'fixed_amount' ? 'fixed_amount' : 'percentage',
-    value: Number(value) || 20,
+    value: Number(value) || 15,
     usageLimit: isUniquePerLead ? 1 : (usageLimit ? Number(usageLimit) : null),
-    isUniquePerLead: Boolean(isUniquePerLead),
-    shopifyPriceRuleId,
-    createdAt: new Date().toISOString(),
+    oncePerCustomer: Boolean(oncePerCustomer),
+    shopifyPriceRuleId: shopifyPriceRuleId || (existingIdx >= 0 ? discounts[existingIdx].shopifyPriceRuleId : null),
+    createdAt: existingIdx >= 0 ? discounts[existingIdx].createdAt : new Date().toISOString(),
     status: 'active',
-    syncedToLiveShopify
+    syncedToLiveShopify: syncedToLiveShopify || (existingIdx >= 0 && discounts[existingIdx].syncedToLiveShopify)
   };
 
   if (existingIdx >= 0) {
@@ -1951,11 +1965,75 @@ app.post('/api/workspace/:wsId/shopify/create-discount', requireUser, async (req
     discounts.unshift(discountRule);
   }
   saveDiscounts(discounts);
+  return discountRule;
+}
+
+async function ensureShopifyCoreDiscounts(ws, allowUnlimited = false) {
+  const oncePerCustomer = !allowUnlimited;
+  const coreCodes = [
+    { code: 'WELCOMEBACK15', value: 15, discountType: 'percentage', oncePerCustomer },
+    { code: 'SAVE10', value: 10, discountType: 'percentage', oncePerCustomer },
+    { code: 'SANCTUARY', value: 10, discountType: 'percentage', oncePerCustomer }
+  ];
+  const results = [];
+  for (const c of coreCodes) {
+    const res = await provisionShopifyDiscount(ws, c);
+    if (res) results.push(res);
+  }
+  return results;
+}
+
+app.get('/api/workspace/:wsId/shopify/discounts', requireUser, async (req, res) => {
+  const discounts = loadDiscounts();
+  res.json({ success: true, discounts });
+});
+
+app.get('/api/discounts/core-status', requireUser, (req, res) => {
+  const discounts = loadDiscounts();
+  const findCode = (code) => discounts.find(d => d.code === code) || null;
+  res.json({
+    success: true,
+    welcomeback15: findCode('WELCOMEBACK15'),
+    save10: findCode('SAVE10'),
+    sanctuary: findCode('SANCTUARY')
+  });
+});
+
+app.post('/api/discounts/ensure-core', requireUser, async (req, res) => {
+  const bag = userProgramBag(req.user.uid);
+  const rfm = cleanRfmConfig(bag.rfmConfig);
+  const userWs = Object.values(workspaceCache).find(w => w.userId === req.user.uid && realStoreDomain(w.shopifyConfig));
+  const results = await ensureShopifyCoreDiscounts(userWs, rfm.allowUnlimitedDiscountUse);
+  res.json({
+    success: true,
+    discounts: results,
+    syncedToLiveShopify: Boolean(userWs && results.some(r => r.syncedToLiveShopify))
+  });
+});
+
+app.post('/api/workspace/:wsId/shopify/create-discount', requireUser, async (req, res) => {
+  const ws = await loadWorkspace(req.user.uid, req.params.wsId);
+  if (!ws) return res.status(404).json({ success: false, error: 'Workspace not found.' });
+
+  const { code, discountType = 'percentage', value = 20, usageLimit = null, isUniquePerLead = false, oncePerCustomer = true } = req.body || {};
+  if (!code || typeof code !== 'string' || !code.trim()) {
+    return res.status(400).json({ success: false, error: 'A discount code string is required.' });
+  }
+
+  const cleanCode = code.trim().toUpperCase();
+  const discountRule = await provisionShopifyDiscount(ws, {
+    code: cleanCode,
+    discountType,
+    value,
+    usageLimit,
+    isUniquePerLead,
+    oncePerCustomer
+  });
 
   res.json({
     success: true,
     discount: discountRule,
-    message: syncedToLiveShopify
+    message: discountRule?.syncedToLiveShopify
       ? `Discount code ${cleanCode} is active in Shopify.`
       : `Discount code ${cleanCode} is saved here. Shopify was not updated.`
   });
@@ -4318,9 +4396,18 @@ app.get('/api/email/rfm-config', requireUser, (req, res) => {
   res.json({ success: true, config: cleanRfmConfig(bag.rfmConfig) });
 });
 
-app.post('/api/email/rfm-config', requireUser, (req, res) => {
+app.post('/api/email/rfm-config', requireUser, async (req, res) => {
   const bag = userProgramBag(req.user.uid);
-  const updated = cleanRfmConfig(req.body);
+  const previousConfig = cleanRfmConfig(bag.rfmConfig);
+  const willBeEnabled = Boolean(req.body?.autoWinbackEnabled);
+  const enabledAt = (willBeEnabled && !previousConfig.autoWinbackEnabled)
+    ? new Date().toISOString()
+    : (willBeEnabled ? (previousConfig.autoWinbackEnabledAt || new Date().toISOString()) : null);
+
+  const updated = cleanRfmConfig({
+    ...req.body,
+    autoWinbackEnabledAt: enabledAt
+  });
   bag.rfmConfig = updated;
   writeUserPrograms(req.user.uid, bag);
 
@@ -4336,7 +4423,14 @@ app.post('/api/email/rfm-config', requireUser, (req, res) => {
     saveContacts(allContacts);
   }
 
-  res.json({ success: true, config: updated, modifiedCount });
+  // Provision core discounts for Shopify workspace if connected
+  const userWs = Object.values(workspaceCache).find(w => w.userId === req.user.uid && realStoreDomain(w.shopifyConfig));
+  let discountResults = [];
+  if (userWs) {
+    discountResults = await ensureShopifyCoreDiscounts(userWs, updated.allowUnlimitedDiscountUse);
+  }
+
+  res.json({ success: true, config: updated, modifiedCount, discounts: discountResults });
 });
 
 function segmentContext(contact, bag, orders, events, account) {
@@ -5132,24 +5226,84 @@ async function processUserAutomationsTick(uid) {
   try { await refreshPredictionsIfDue(uid); } catch (err) {
     console.warn('[Jourvance] Prediction refresh failed:', err.message);
   }
+  const now = Date.now();
   try {
-    const userRfm = userProgramBag(uid)?.rfmConfig || DEFAULT_RFM_CONFIG;
+    const userRfm = cleanRfmConfig(userProgramBag(uid)?.rfmConfig || DEFAULT_RFM_CONFIG);
     const allContacts = loadContacts();
     let rfmDirty = false;
     for (const c of allContacts) {
       if (contactOwnerId(c) !== uid) continue;
       if (syncContactRfmTags(c, userRfm)) rfmDirty = true;
     }
+
+    // Auto-Winback Drip Enrollment (Option A)
+    if (userRfm.autoWinbackEnabled) {
+      const dripsData = loadDrips();
+      const winbackSeq = dripsData.sequences.find(s => s.id === 'drip_seq_at_risk_winback');
+      if (winbackSeq) {
+        const enabledAtMs = Date.parse(userRfm.autoWinbackEnabledAt || '') || now;
+        const atRiskWindowMs = userRfm.atRiskDays * 86400000;
+        const lapsedWindowMs = userRfm.lapsedDays * 86400000;
+
+        for (const c of allContacts) {
+          if (contactOwnerId(c) !== uid) continue;
+          if (!c.email || c.acceptsMarketing === false) continue;
+          if (!c.lastOrderAt) continue;
+
+          const lastOrderMs = Date.parse(c.lastOrderAt);
+          if (!Number.isFinite(lastOrderMs)) continue;
+
+          const crossedAtRiskMs = lastOrderMs + atRiskWindowMs;
+          const crossedLapsedMs = lastOrderMs + lapsedWindowMs;
+
+          // Option A: Only enroll contacts whose 90-day at-risk mark falls ON or AFTER autoWinbackEnabledAt
+          // and has not yet crossed into lapsed status (180 days)
+          if (crossedAtRiskMs >= enabledAtMs && now < crossedLapsedMs) {
+            const lastEnrolledMs = Date.parse(c.lastAtRiskWinbackEnrolledAt || '') || 0;
+            const cooldownPassed = !lastEnrolledMs || (now - lastEnrolledMs > 180 * 86400000);
+
+            const alreadyActive = dripsData.enrollments.some(e => 
+              e.sequenceId === 'drip_seq_at_risk_winback' &&
+              String(e.customerEmail || '').toLowerCase() === String(c.email || '').toLowerCase() &&
+              e.status === 'active'
+            );
+
+            if (cooldownPassed && !alreadyActive) {
+              const newEnr = {
+                id: `enr_wb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                sequenceId: 'drip_seq_at_risk_winback',
+                userId: uid,
+                customerEmail: c.email,
+                customerName: c.name || '',
+                currentStepIndex: 0,
+                status: 'active',
+                enrolledAt: new Date().toISOString(),
+                nextStepDueAt: new Date().toISOString(),
+                source: 'rfm_auto_winback'
+              };
+              dripsData.enrollments.push(newEnr);
+              winbackSeq.activeEnrollments = (winbackSeq.activeEnrollments || 0) + 1;
+              c.lastAtRiskWinbackEnrolledAt = new Date().toISOString();
+              if (Array.isArray(c.tags) && !c.tags.includes('At-Risk-Winback-Sent')) {
+                c.tags.push('At-Risk-Winback-Sent');
+              }
+              rfmDirty = true;
+            }
+          }
+        }
+        saveDrips(dripsData);
+      }
+    }
+
     if (rfmDirty) saveContacts(allContacts);
   } catch (err) {
-    console.warn('[Jourvance] Periodic RFM tag sync failed:', err.message);
+    console.warn('[Jourvance] Periodic RFM tag sync / winback failed:', err.message);
   }
   const dripsData = loadDrips();
   const orders = loadOrders().filter(o => o.userId === uid);
   const programTick = await processAccountAutomations(uid);
   const campaignTick = await processDueCampaigns(uid);
   const holdForKlaviyo = klaviyoIsSender(uid);
-  const now = Date.now();
   let processedCount = 0;
   let convertedExitCount = 0;
   let completedCount = 0;

@@ -11,7 +11,10 @@ export const DEFAULT_RFM_CONFIG = {
   vipSilver: 100,
   vipGold: 250,
   vipPlatinum: 500,
-  coolingDays: 60
+  coolingDays: 60,
+  autoWinbackEnabled: false,
+  autoWinbackEnabledAt: null,
+  allowUnlimitedDiscountUse: false
 };
 
 export const MANAGED_RFM_TAGS = new Set([
@@ -36,7 +39,10 @@ export function cleanRfmConfig(input) {
     vipSilver: Math.max(10, Number(input.vipSilver) || DEFAULT_RFM_CONFIG.vipSilver),
     vipGold: Math.max(20, Number(input.vipGold) || DEFAULT_RFM_CONFIG.vipGold),
     vipPlatinum: Math.max(50, Number(input.vipPlatinum) || DEFAULT_RFM_CONFIG.vipPlatinum),
-    coolingDays: Math.max(7, Number(input.coolingDays) || DEFAULT_RFM_CONFIG.coolingDays)
+    coolingDays: Math.max(7, Number(input.coolingDays) || DEFAULT_RFM_CONFIG.coolingDays),
+    autoWinbackEnabled: Boolean(input.autoWinbackEnabled),
+    autoWinbackEnabledAt: typeof input.autoWinbackEnabledAt === 'string' ? input.autoWinbackEnabledAt : (input.autoWinbackEnabled ? new Date().toISOString() : null),
+    allowUnlimitedDiscountUse: Boolean(input.allowUnlimitedDiscountUse)
   };
 }
 
