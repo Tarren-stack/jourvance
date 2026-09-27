@@ -489,7 +489,7 @@ export interface DripSequence {
   id: string;
   name: string;
   description: string;
-  triggerType: 'lead_capture' | 'exit_intent' | 'abandoned_cart' | 'manual';
+  triggerType: 'lead_capture' | 'exit_intent' | 'abandoned_cart' | 'checkout_abandonment' | 'upsell_recovery' | 'manual';
   smartExitOnPurchase: boolean; // exits automatically when order is attributed
   steps: DripStep[];
   activeEnrollments: number;
@@ -506,6 +506,9 @@ export interface DripEnrollment {
   customerEmail: string;
   customerName?: string;
   sourceSlug?: string;
+  offerUrl?: string;
+  offerType?: 'upsell' | 'downsell';
+  discountCode?: string;
   currentStepIndex: number;
   status: 'active' | 'completed' | 'converted_exit';
   enrolledAt: string;

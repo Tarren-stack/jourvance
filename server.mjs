@@ -1235,6 +1235,30 @@ const INITIAL_DRIP_SEQUENCES = [
     attributedSales: null,
     createdAt: new Date(Date.now() - 86400000 * 10).toISOString(),
     updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'drip_seq_upsell_recovery',
+    name: 'Post-Purchase Courtesy Offer',
+    description: 'Reaches out to clients who passed on their post-purchase upgrade, offering a gentle second chance with a private courtesy discount.',
+    triggerType: 'upsell_recovery',
+    smartExitOnPurchase: true,
+    steps: [
+      {
+        id: 'upsell_rec_step_1',
+        stepNumber: 1,
+        delayHours: 18,
+        subject: 'A little courtesy for your recent order',
+        previewText: 'In case you still wanted to complete your ritual',
+        body: 'Hey {{first_name}},\n\nThank you again for your order {{order_number}}. We are already preparing everything for you.\n\nWhen you checked out, you skipped the upgrade offer. In case you still wanted to add it to your routine, we saved a private 10% courtesy voucher for you:\n\nCode: {{discount_code}}\n\nYou can review the offer and claim your discount here:\n{{offer_url}}\n\nNo pressure at all—we simply wanted to make sure you had the option before your order ships.\n\nWarmly,\nThe Jourvance Team',
+        discountVoucher: 'SAVE10'
+      }
+    ],
+    activeEnrollments: 0,
+    totalCompleted: 0,
+    totalExitedPurchased: 0,
+    attributedSales: null,
+    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -5043,8 +5067,24 @@ async function processUserAutomationsTick(uid) {
 
     // 1. Smart Exit on Purchase Check
     if (seq.smartExitOnPurchase) {
-      const hasBought = orders.some(o => o.customerEmail === enr.customerEmail && new Date(o.createdAt).getTime() >= new Date(enr.enrolledAt).getTime() - 60000);
-      if (hasBought) {
+      let shouldExit = false;
+      if (seq.triggerType === 'upsell_recovery') {
+        const events = loadEvents();
+        const hasAcceptedUpsell = events.some(ev => 
+          ev.type === 'upsell_accept' && 
+          ev.email && ev.email.toLowerCase() === enr.customerEmail.toLowerCase() && 
+          new Date(ev.timestamp).getTime() >= new Date(enr.enrolledAt).getTime() - 5000
+        );
+        const hasSubsequentOrder = orders.some(o => 
+          o.customerEmail && o.customerEmail.toLowerCase() === enr.customerEmail.toLowerCase() && 
+          new Date(o.createdAt).getTime() >= new Date(enr.enrolledAt).getTime() + 1000
+        );
+        shouldExit = hasAcceptedUpsell || hasSubsequentOrder;
+      } else {
+        shouldExit = orders.some(o => o.customerEmail === enr.customerEmail && new Date(o.createdAt).getTime() >= new Date(enr.enrolledAt).getTime() - 60000);
+      }
+
+      if (shouldExit) {
         enr.status = 'converted_exit';
         enr.convertedAt = new Date().toISOString();
         seq.activeEnrollments = Math.max(0, (seq.activeEnrollments || 1) - 1);
@@ -5062,8 +5102,14 @@ async function processUserAutomationsTick(uid) {
         if (!hubReady || !enr.customerEmail) continue;
         const dripContact = loadContacts().find(c => c.email === enr.customerEmail && contactOwnerId(c) === uid) || { email: enr.customerEmail, name: enr.customerName };
         const checkout = loadCheckouts().find((row) => row.userId === uid && String(row.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase() && row.abandonedCheckoutUrl);
+        const customerOrder = orders.find(o => String(o.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase());
+        const offerUrl = enr.offerUrl || (enr.sourceSlug ? `${publicBase()}/p/${enr.sourceSlug}` : '');
+        const discountCode = step.discountVoucher || enr.discountCode || 'SAVE10';
         const letter = await composeForSend(uid, dripContact, [{ kind: 'text', text: step.body || '' }], {
-          checkout_url: checkout?.abandonedCheckoutUrl || '',
+          checkout_url: checkout?.abandonedCheckoutUrl || offerUrl,
+          offer_url: offerUrl,
+          discount_code: discountCode,
+          order_number: customerOrder?.orderNumber || (customerOrder?.id ? `#${String(customerOrder.id).slice(-6)}` : ''),
           first_name: personFields(dripContact.name || enr.customerName).first_name,
           eventLineItems: Array.isArray(checkout?.lineItems) ? checkout.lineItems : []
         }, { marketing: true, previewText: step.previewText });
@@ -10298,22 +10344,88 @@ app.post('/api/public/upsell-action', async (req, res) => {
   }
 
   // Tag customer if email provided
-  if (customerEmail && action === 'accept') {
+  if (customerEmail && (action === 'accept' || action === 'decline')) {
     try {
       const contacts = loadContacts();
       const contact = contacts.find(c => c.email.toLowerCase() === customerEmail.toLowerCase());
       if (contact) {
         if (!contact.tags) contact.tags = [];
-        const tagName = isDownsell ? 'Downsell-Accepted' : 'Upsell-Accepted';
-        if (!contact.tags.includes(tagName)) contact.tags.push(tagName);
-        const parsedAmount = Number(amount);
-        if (Number.isFinite(parsedAmount) && parsedAmount > 0) {
-          contact.totalSpent = Number(((contact.totalSpent || 0) + parsedAmount).toFixed(2));
+        if (action === 'accept') {
+          const tagName = isDownsell ? 'Downsell-Accepted' : 'Upsell-Accepted';
+          if (!contact.tags.includes(tagName)) contact.tags.push(tagName);
+          const parsedAmount = Number(amount);
+          if (Number.isFinite(parsedAmount) && parsedAmount > 0) {
+            contact.totalSpent = Number(((contact.totalSpent || 0) + parsedAmount).toFixed(2));
+          }
+        } else if (action === 'decline') {
+          const tagName = isDownsell ? 'Downsell-Declined' : 'Upsell-Declined';
+          if (!contact.tags.includes(tagName)) contact.tags.push(tagName);
         }
         saveContacts(contacts);
       }
     } catch (e) {
       console.warn('[Jourvance] Upsell customer tagging error:', e.message);
+    }
+  }
+
+  // Drip sequence trigger / smart exit handling
+  if (customerEmail) {
+    try {
+      const dripsData = loadDrips();
+      let dripsModified = false;
+      const targetUid = page?.userId || 'usr_default';
+
+      if (action === 'decline' && !klaviyoIsSender(targetUid)) {
+        const recoverySeq = dripsData.sequences.find(s => s.triggerType === 'upsell_recovery');
+        if (recoverySeq) {
+          const alreadyActive = dripsData.enrollments.some(e => 
+            e.customerEmail && e.customerEmail.toLowerCase() === customerEmail.toLowerCase() &&
+            e.sequenceId === recoverySeq.id && e.status === 'active'
+          );
+          if (!alreadyActive) {
+            const delayHours = recoverySeq.steps?.[0]?.delayHours ?? 18;
+            const offerUrl = slug ? `${publicBase()}/p/${slug}` : '';
+            dripsData.enrollments.unshift({
+              id: `enr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              sequenceId: recoverySeq.id,
+              userId: targetUid,
+              visitorId: String(req.body?.visitorId || '').slice(0, 80),
+              customerEmail: customerEmail.toLowerCase().trim(),
+              customerName: req.body?.customerName || '',
+              sourceSlug: slug || 'upsell_offer',
+              offerUrl,
+              offerType: isDownsell ? 'downsell' : 'upsell',
+              discountCode: 'SAVE10',
+              currentStepIndex: 0,
+              status: 'active',
+              enrolledAt: new Date().toISOString(),
+              nextStepDueAt: new Date(Date.now() + delayHours * 3600000).toISOString(),
+              history: []
+            });
+            recoverySeq.activeEnrollments = (recoverySeq.activeEnrollments || 0) + 1;
+            dripsModified = true;
+          }
+        }
+      } else if (action === 'accept') {
+        for (const enr of dripsData.enrollments) {
+          if (enr.customerEmail && enr.customerEmail.toLowerCase() === customerEmail.toLowerCase() && enr.status === 'active') {
+            const s = dripsData.sequences.find(sq => sq.id === enr.sequenceId);
+            if (s && s.triggerType === 'upsell_recovery') {
+              enr.status = 'converted_exit';
+              enr.convertedAt = new Date().toISOString();
+              s.activeEnrollments = Math.max(0, (s.activeEnrollments || 1) - 1);
+              s.totalExitedPurchased = (s.totalExitedPurchased || 0) + 1;
+              dripsModified = true;
+            }
+          }
+        }
+      }
+
+      if (dripsModified) {
+        saveDrips(dripsData);
+      }
+    } catch (e) {
+      console.warn('[Jourvance] Upsell drip sequence error:', e.message);
     }
   }
 

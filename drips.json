@@ -35,7 +35,7 @@
           "discountVoucher": ""
         }
       ],
-      "activeEnrollments": 1,
+      "activeEnrollments": 17,
       "totalCompleted": 0,
       "totalExitedPurchased": 5,
       "attributedSales": null,
@@ -74,9 +74,243 @@
       "attributedSales": null,
       "createdAt": "2026-09-13T22:01:25.927Z",
       "updatedAt": "2026-09-23T22:01:25.927Z"
+    },
+    {
+      "id": "drip_seq_upsell_recovery",
+      "name": "Post-Purchase Courtesy Offer",
+      "description": "Reaches out to clients who passed on their post-purchase upgrade, offering a gentle second chance with a private courtesy discount.",
+      "triggerType": "upsell_recovery",
+      "smartExitOnPurchase": true,
+      "steps": [
+        {
+          "id": "upsell_rec_step_1",
+          "stepNumber": 1,
+          "delayHours": 18,
+          "subject": "A little courtesy for your recent order",
+          "previewText": "In case you still wanted to complete your ritual",
+          "body": "Hey {{first_name}},\n\nThank you again for your order {{order_number}}. We are already preparing everything for you.\n\nWhen you checked out, you skipped the upgrade offer. In case you still wanted to add it to your routine, we saved a private 10% courtesy voucher for you:\n\nCode: {{discount_code}}\n\nYou can review the offer and claim your discount here:\n{{offer_url}}\n\nNo pressure at all—we simply wanted to make sure you had the option before your order ships.\n\nWarmly,\nThe Jourvance Team",
+          "discountVoucher": "SAVE10"
+        }
+      ],
+      "activeEnrollments": 0,
+      "totalCompleted": 0,
+      "totalExitedPurchased": 1,
+      "attributedSales": null,
+      "createdAt": "2026-09-22T05:29:17.582Z",
+      "updatedAt": "2026-09-27T05:29:17.582Z"
     }
   ],
   "enrollments": [
+    {
+      "id": "enr_1790488717039_7ucf",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790488717035@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T05:58:37.039Z",
+      "nextStepDueAt": "2026-09-27T05:58:37.039Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790487509213_gok3",
+      "sequenceId": "drip_seq_upsell_recovery",
+      "userId": "usr_default",
+      "visitorId": "vis_test_123",
+      "customerEmail": "testdecline@example.com",
+      "customerName": "",
+      "sourceSlug": "test-upsell",
+      "offerUrl": "http://localhost:3005/p/test-upsell",
+      "offerType": "upsell",
+      "discountCode": "SAVE10",
+      "currentStepIndex": 0,
+      "status": "converted_exit",
+      "enrolledAt": "2026-09-27T05:38:29.213Z",
+      "nextStepDueAt": "2026-09-27T23:38:29.213Z",
+      "history": [],
+      "convertedAt": "2026-09-27T05:53:01.589Z"
+    },
+    {
+      "id": "enr_1790486945753_k6mc",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790486945748@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T05:29:05.753Z",
+      "nextStepDueAt": "2026-09-27T05:29:05.753Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790486787209_e4ao",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790486787205@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T05:26:27.209Z",
+      "nextStepDueAt": "2026-09-27T05:26:27.209Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790486467747_8847",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790486467738@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T05:21:07.747Z",
+      "nextStepDueAt": "2026-09-27T05:21:07.747Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790486397491_75qk",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790486397480@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T05:19:57.491Z",
+      "nextStepDueAt": "2026-09-27T05:19:57.491Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790486095525_pmfy",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790486095521@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T05:14:55.525Z",
+      "nextStepDueAt": "2026-09-27T05:14:55.525Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790485913432_p0p4",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790485913428@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T05:11:53.432Z",
+      "nextStepDueAt": "2026-09-27T05:11:53.432Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790485665192_d64h",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790485665188@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T05:07:45.192Z",
+      "nextStepDueAt": "2026-09-27T05:07:45.192Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790485308186_cdjk",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790485308183@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T05:01:48.186Z",
+      "nextStepDueAt": "2026-09-27T05:01:48.186Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790484915686_j515",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790484915682@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T04:55:15.686Z",
+      "nextStepDueAt": "2026-09-27T04:55:15.686Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790484911215_k4mk",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790484911212@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T04:55:11.215Z",
+      "nextStepDueAt": "2026-09-27T04:55:11.215Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790484897792_9tsi",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790484897788@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T04:54:57.792Z",
+      "nextStepDueAt": "2026-09-27T04:54:57.792Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790484883346_92e4",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790484883342@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T04:54:43.346Z",
+      "nextStepDueAt": "2026-09-27T04:54:43.346Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790484178104_khhk",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790484178101@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T04:42:58.104Z",
+      "nextStepDueAt": "2026-09-27T04:42:58.104Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790484173367_rai4",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790484173364@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T04:42:53.367Z",
+      "nextStepDueAt": "2026-09-27T04:42:53.367Z",
+      "history": []
+    },
+    {
+      "id": "enr_1790484141659_c0d0",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "test-lead-export@example.com",
+      "customerName": "Test Lead",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T04:42:21.659Z",
+      "nextStepDueAt": "2026-09-27T04:42:21.659Z",
+      "history": []
+    },
     {
       "id": "enr_1790270347221_0y5b",
       "sequenceId": "drip_seq_default",
@@ -1345,6 +1579,902 @@
           "stepNumber": 2,
           "subject": "What happens after you opt in",
           "sentAt": "2026-09-27T03:51:26.111Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T03:52:26.304Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T03:53:26.173Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T03:54:26.200Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T03:55:26.069Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T03:56:26.225Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T03:57:26.148Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T03:58:26.117Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T03:59:26.155Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:00:26.386Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:01:26.188Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:02:26.206Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:03:26.135Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:04:26.103Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:05:26.106Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:06:11.765Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:07:01.865Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:08:01.993Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:09:01.804Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:10:01.857Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:11:01.809Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:12:01.936Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:13:01.823Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:14:01.777Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:15:01.928Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:16:01.844Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:17:01.814Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:18:01.817Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:19:01.870Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:20:01.916Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:21:01.896Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:22:01.880Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:23:01.955Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:24:01.967Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:25:02.020Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:26:01.846Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:27:01.871Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:28:01.860Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:29:01.941Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:30:01.800Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:31:01.980Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:32:01.989Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:33:01.945Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:34:01.854Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:35:01.829Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:36:01.817Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:37:01.881Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:38:01.900Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:39:01.802Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:40:02.033Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:41:01.890Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:42:06.201Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:42:56.132Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:43:56.374Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:44:56.373Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:45:56.479Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:46:56.331Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:47:56.496Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:48:56.333Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:49:56.350Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:50:56.389Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:51:56.389Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:52:56.505Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:53:56.452Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:54:56.334Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:55:56.311Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:56:56.481Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:57:56.338Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:58:56.577Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T04:59:56.354Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:00:56.462Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:01:56.388Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:02:56.476Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:03:56.435Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:04:56.338Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:05:56.500Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:06:56.331Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:07:56.330Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:08:56.331Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:09:56.393Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:10:56.507Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:11:56.115Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:12:56.520Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:13:56.281Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:14:56.332Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:15:22.745Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:16:13.144Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:17:13.149Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:18:12.917Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:19:12.989Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:20:27.840Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:21:17.769Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:22:17.916Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:23:17.865Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:24:17.835Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:25:17.881Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:26:17.894Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:27:17.971Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:28:17.798Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:29:32.008Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:30:22.055Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:31:21.985Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:32:21.960Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:33:22.042Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:34:22.049Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:35:22.127Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:36:22.119Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:37:22.050Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:38:21.972Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:39:21.997Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:40:22.038Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:41:22.421Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:42:22.098Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:43:22.121Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:44:22.008Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:45:22.236Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:46:22.057Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:47:22.027Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:48:22.076Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:49:22.068Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:50:22.071Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:51:21.971Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:52:22.076Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:53:21.964Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:54:22.146Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:55:22.061Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:56:22.037Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:57:22.052Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T05:58:22.072Z",
           "status": "failed",
           "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
         }

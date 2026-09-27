@@ -643,7 +643,7 @@ ${unsub}`;
                       backgroundColor: 'rgba(99, 102, 241, 0.15)',
                       color: '#818CF8'
                     }}>
-                      Trigger: {seq.triggerType.replace('_', ' ')}
+                      Trigger: {seq.triggerType === 'upsell_recovery' ? 'Post-Purchase Courtesy' : seq.triggerType === 'checkout_abandonment' ? 'Abandoned Checkout' : seq.triggerType === 'lead_capture' ? 'Lead Capture' : seq.triggerType === 'exit_intent' ? 'Exit Intent' : seq.triggerType.replace(/_/g, ' ')}
                     </span>
                   </div>
 
