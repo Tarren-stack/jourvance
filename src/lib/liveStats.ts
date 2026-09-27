@@ -13,7 +13,8 @@ const MEASURED_KEYS = [
   'views', 'submissions', 'completionRate',
   'contactsEnrolled', 'avgOpenRate', 'avgClickRate',
   'pageViews', 'bounceBackClaims',
-  'takes', 'attributedRevenue'
+  'takes', 'attributedRevenue',
+  'totalDeclines', 'recoveredTakes', 'recoveredRevenue', 'recoveryRate'
 ] as const;
 
 const TEMPLATE_NODE = /^(node-(ad|page|form|seq)-1|bp[1-4]-)/;

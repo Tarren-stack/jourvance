@@ -522,5 +522,23 @@
     "fbclid": "",
     "gclid": "",
     "ttclid": ""
+  },
+  {
+    "id": "evt_1790501256369_zhuu",
+    "at": "2026-09-27T09:27:36.369Z",
+    "type": "lead",
+    "slug": "",
+    "journeyId": "",
+    "nodeId": "",
+    "userId": "",
+    "email": "unit-cors-1790501256358@example.com",
+    "variant": "a",
+    "visitorId": "",
+    "utm_source": "",
+    "utm_medium": "",
+    "utm_campaign": "",
+    "fbclid": "",
+    "gclid": "",
+    "ttclid": ""
   }
 ]

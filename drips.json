@@ -35,7 +35,7 @@
           "discountVoucher": ""
         }
       ],
-      "activeEnrollments": 20,
+      "activeEnrollments": 21,
       "totalCompleted": 0,
       "totalExitedPurchased": 5,
       "attributedSales": null,
@@ -101,6 +101,18 @@
     }
   ],
   "enrollments": [
+    {
+      "id": "enr_1790501256369_q1v4",
+      "sequenceId": "drip_seq_default",
+      "userId": "",
+      "customerEmail": "unit-cors-1790501256358@example.com",
+      "customerName": "",
+      "currentStepIndex": 0,
+      "status": "active",
+      "enrolledAt": "2026-09-27T09:27:36.369Z",
+      "nextStepDueAt": "2026-09-27T09:27:36.369Z",
+      "history": []
+    },
     {
       "id": "enr_1790500793217_zl28",
       "sequenceId": "drip_seq_default",
@@ -3953,6 +3965,41 @@
           "stepNumber": 2,
           "subject": "What happens after you opt in",
           "sentAt": "2026-09-27T09:23:21.849Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T09:24:21.920Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T09:25:21.779Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T09:26:21.762Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T09:27:21.966Z",
+          "status": "failed",
+          "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
+        },
+        {
+          "stepNumber": 2,
+          "subject": "What happens after you opt in",
+          "sentAt": "2026-09-27T09:28:04.327Z",
           "status": "failed",
           "error": "Set a verified From address in Setup first, or connect a sending domain in Senders & Domains."
         }

@@ -287,6 +287,10 @@ export interface UpsellNodeData extends Record<string, unknown> {
   takes?: number;
   conversionRate?: number;
   attributedRevenue?: number;
+  totalDeclines?: number;
+  recoveredTakes?: number;
+  recoveredRevenue?: number;
+  recoveryRate?: number;
 }
 
 export interface AbSplitNodeData extends Record<string, unknown> {

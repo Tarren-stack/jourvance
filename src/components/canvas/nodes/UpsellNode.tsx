@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Zap, ArrowDownRight, Tag, Clock, ShoppingBag, TrendingUp, DollarSign } from 'lucide-react';
+import { Zap, ArrowDownRight, Tag, Clock, ShoppingBag, TrendingUp, DollarSign, Sparkles } from 'lucide-react';
 import type { UpsellNodeData } from '../../../types/journey';
 
 export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
@@ -16,6 +16,11 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
   const takeRate = views > 0 ? ((takes / views) * 100).toFixed(1) : (d.conversionRate ? d.conversionRate.toFixed(1) : '0.0');
   const numRate = parseFloat(takeRate);
   const revenue = d.attributedRevenue || 0;
+
+  const totalDeclines = d.totalDeclines || 0;
+  const recoveredTakes = d.recoveredTakes || 0;
+  const recoveredRevenue = d.recoveredRevenue || 0;
+  const recoveryRate = d.recoveryRate || 0;
 
   return (
     <div
@@ -173,6 +178,59 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
           </div>
         </div>
 
+        {/* Progressive Courtesy Recovery Micro-Pill (Option C1) */}
+        {recoveredTakes > 0 ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(99, 102, 241, 0.12))',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              borderRadius: '8px',
+              padding: '4px 8px',
+              marginBottom: '8px',
+              fontSize: '10px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#34D399', fontWeight: 700 }}>
+              <Sparkles size={11} color="#34D399" />
+              <span>+{recoveryRate}% Courtesy Recovered</span>
+            </div>
+            <div
+              style={{
+                color: '#F8FAFC',
+                fontWeight: 700,
+                fontSize: '10px',
+                fontFamily: "'JetBrains Mono', monospace"
+              }}
+            >
+              +{recoveredTakes} {recoveredTakes === 1 ? 'order' : 'orders'} • +${Math.round(recoveredRevenue)}
+            </div>
+          </div>
+        ) : totalDeclines > 0 ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '8px',
+              padding: '4px 8px',
+              marginBottom: '8px',
+              fontSize: '10px',
+              color: '#94A3B8'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <Clock size={11} color="#94A3B8" />
+              <span>{totalDeclines} {totalDeclines === 1 ? 'client' : 'clients'} in courtesy recovery</span>
+            </div>
+            <span style={{ fontSize: '9px', color: '#64748B', fontWeight: 600 }}>18h delay</span>
+          </div>
+        ) : null}
+
         <div
           style={{
             fontSize: '12px',
@@ -299,6 +357,11 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
           <div style={{ fontSize: '12px', fontWeight: 700, color: '#34D399' }}>
             +${Math.round(revenue).toLocaleString()}
           </div>
+          {recoveredRevenue > 0 && (
+            <div style={{ fontSize: '9px', color: '#34D399', fontWeight: 600 }}>
+              incl. +${Math.round(recoveredRevenue)} rec.
+            </div>
+          )}
         </div>
       </div>
     </div>

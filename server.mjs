@@ -10938,11 +10938,30 @@ app.post('/api/funnel/stats', requireUser, (req, res) => {
       const accepts = events.filter(e => e.type === 'upsell_accept' && (e.offerType || 'upsell') === offer);
       const takes = accepts.length;
       const attributedRevenue = Number(accepts.reduce((sum, e) => sum + Number(e.amount || 0), 0).toFixed(2));
+      const declines = events.filter(e => e.type === 'upsell_decline' && (e.offerType || 'upsell') === offer);
+      const totalDeclines = declines.length;
+      const declinedEmails = new Set(declines.map(d => String(d.email || '').toLowerCase()).filter(Boolean));
+      const recoveryEnrollments = (drips.enrollments || []).filter(e => e.sequenceId === 'drip_seq_upsell_recovery');
+      const recoveryConvertedEmails = new Set(
+        recoveryEnrollments.filter(e => e.status === 'converted_exit' && e.customerEmail).map(e => e.customerEmail.toLowerCase())
+      );
+      const recoveredAccepts = accepts.filter(a => {
+        const em = String(a.email || '').toLowerCase();
+        return (em && (declinedEmails.has(em) || recoveryConvertedEmails.has(em))) || (a.discountCode && a.discountCode === 'SAVE10');
+      });
+      const recoveredTakes = recoveredAccepts.length;
+      const recoveredRevenue = Number(recoveredAccepts.reduce((sum, e) => sum + Number(e.amount || 0), 0).toFixed(2));
+      const recoveryRate = totalDeclines > 0 ? round1((recoveredTakes / totalDeclines) * 100) : 0;
+
       nodeStats[node.id] = {
         views,
         takes,
         conversionRate: views > 0 ? round1((takes / views) * 100) : 0,
-        attributedRevenue
+        attributedRevenue,
+        totalDeclines,
+        recoveredTakes,
+        recoveredRevenue,
+        recoveryRate
       };
     } else if (node.type === 'ab-split') {
       const splitSlug = String(node.slug || '');

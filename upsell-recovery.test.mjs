@@ -290,3 +290,52 @@ test('Option A: recovery offerUrl incorporates pre-applied voucher and customer 
   assert.equal(parsed.searchParams.get('ref'), 'recovery');
 });
 
+test('Option C1: /api/funnel/stats computes upsell recovery metrics and applies to nodeData', () => {
+  const offer = 'upsell';
+  const events = [
+    { type: 'upsell_view', offerType: 'upsell' },
+    { type: 'upsell_view', offerType: 'upsell' },
+    { type: 'upsell_view', offerType: 'upsell' },
+    { type: 'upsell_view', offerType: 'upsell' },
+    { type: 'upsell_accept', offerType: 'upsell', amount: 48, email: 'initial@ex.com' },
+    { type: 'upsell_decline', offerType: 'upsell', email: 'recovery1@ex.com' },
+    { type: 'upsell_decline', offerType: 'upsell', email: 'recovery2@ex.com' },
+    { type: 'upsell_accept', offerType: 'upsell', amount: 43.20, email: 'recovery1@ex.com', discountCode: 'SAVE10' }
+  ];
+
+  const drips = {
+    enrollments: [
+      { sequenceId: 'drip_seq_upsell_recovery', status: 'converted_exit', customerEmail: 'recovery1@ex.com' }
+    ]
+  };
+
+  const views = events.filter(e => e.type === 'upsell_view' && (e.offerType || 'upsell') === offer).length;
+  const accepts = events.filter(e => e.type === 'upsell_accept' && (e.offerType || 'upsell') === offer);
+  const takes = accepts.length;
+  const attributedRevenue = Number(accepts.reduce((sum, e) => sum + Number(e.amount || 0), 0).toFixed(2));
+  const declines = events.filter(e => e.type === 'upsell_decline' && (e.offerType || 'upsell') === offer);
+  const totalDeclines = declines.length;
+  const declinedEmails = new Set(declines.map(d => String(d.email || '').toLowerCase()).filter(Boolean));
+  const recoveryEnrollments = (drips.enrollments || []).filter(e => e.sequenceId === 'drip_seq_upsell_recovery');
+  const recoveryConvertedEmails = new Set(
+    recoveryEnrollments.filter(e => e.status === 'converted_exit' && e.customerEmail).map(e => e.customerEmail.toLowerCase())
+  );
+  const recoveredAccepts = accepts.filter(a => {
+    const em = String(a.email || '').toLowerCase();
+    return (em && (declinedEmails.has(em) || recoveryConvertedEmails.has(em))) || (a.discountCode && a.discountCode === 'SAVE10');
+  });
+  const recoveredTakes = recoveredAccepts.length;
+  const recoveredRevenue = Number(recoveredAccepts.reduce((sum, e) => sum + Number(e.amount || 0), 0).toFixed(2));
+  const round1 = (n) => Math.round(n * 10) / 10;
+  const recoveryRate = totalDeclines > 0 ? round1((recoveredTakes / totalDeclines) * 100) : 0;
+
+  assert.equal(views, 4);
+  assert.equal(takes, 2);
+  assert.equal(attributedRevenue, 91.20);
+  assert.equal(totalDeclines, 2);
+  assert.equal(recoveredTakes, 1);
+  assert.equal(recoveredRevenue, 43.20);
+  assert.equal(recoveryRate, 50.0);
+});
+
+
