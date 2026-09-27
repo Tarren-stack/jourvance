@@ -1454,11 +1454,10 @@ function saveTemplates(rows) {
   hubStorage.set('store.templates', 'templates.json', Array.isArray(rows) ? rows : []);
 }
 
-function rememberRedirect(uid, url, meta) {
+function rememberRedirect(uid, url, meta, batchCollector = null) {
   const code = crypto.randomBytes(9).toString('base64url');
   const sentAt = new Date().toISOString();
-  const rows = loadRedirects();
-  rows.push({
+  const row = {
     code,
     uid: uid || '',
     url,
@@ -1472,16 +1471,39 @@ function rememberRedirect(uid, url, meta) {
     sentAt,
     expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
     utm: meta?.utm || {}
-  });
-  saveRedirects(rows);
+  };
+  if (Array.isArray(batchCollector)) {
+    batchCollector.push(row);
+  } else {
+    const rows = loadRedirects();
+    rows.push(row);
+    saveRedirects(rows);
+  }
   return `${publicBase()}/r/${code}`;
 }
 
-function rewritePlainMailLinks(html, meta) {
+function rememberRedirectsBatch(newRows) {
+  if (!Array.isArray(newRows) || !newRows.length) return;
+  const rows = loadRedirects();
+  rows.push(...newRows);
+  saveRedirects(rows);
+}
+
+function rewritePlainMailLinks(html, meta, batchCollector = null) {
   let next = String(html || '');
+  const internalBatch = Array.isArray(batchCollector) ? null : [];
+  const targetBatch = batchCollector || internalBatch;
   for (const url of linksToRewrite(next)) {
-    const short = rememberRedirect(meta.userId, url, { ...meta, channel: 'email', utm: { utm_source: 'email', utm_medium: meta.medium || 'email' } });
+    const short = rememberRedirect(
+      meta.userId,
+      url,
+      { ...meta, channel: 'email', utm: { utm_source: 'email', utm_medium: meta.medium || 'email' } },
+      targetBatch
+    );
     next = next.split(`href="${url}"`).join(`href="${short}"`);
+  }
+  if (internalBatch && internalBatch.length > 0) {
+    rememberRedirectsBatch(internalBatch);
   }
   return next;
 }
@@ -2040,7 +2062,7 @@ app.post('/api/workspace/:wsId/shopify/create-discount', requireUser, async (req
 });
 
 // ── Real-Time Shopify Order Ingestion Webhook (Closed-Loop Attribution) ────────
-app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-created'], async (req, res) => {
+app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-created', '/api/webhooks/shopify/orders-paid'], async (req, res) => {
   const shopWs = acceptShopifyWebhook(req, res);
   if (!shopWs) return;
   const payload = req.body || {};
@@ -2057,8 +2079,12 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
   const lineItems = Array.isArray(payload.line_items) ? payload.line_items : (payload.lineItems || []);
 
   const orders = loadOrders();
-  const existingOrder = orders.find(o => String(o.id) === orderId);
+  const existingOrder = orders.find(o => String(o.id) === orderId && o.userId === shopWs.userId);
   if (existingOrder) {
+    if (payload.financial_status && existingOrder.financialStatus !== payload.financial_status) {
+      existingOrder.financialStatus = payload.financial_status;
+      saveOrders(orders);
+    }
     return res.status(200).json({ success: true, duplicate: true, message: 'Order already recorded (idempotent)', orderId });
   }
 
@@ -2182,19 +2208,30 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
     }
     saveContacts(contacts);
 
-    // Smart Exit on Purchase for Drip Sequences
+    // Smart Exit on Purchase for Drip Sequences (Pre-purchase / recovery sequences only)
     try {
       const dripsData = loadDrips();
       let modifiedDrip = false;
       for (const enr of dripsData.enrollments) {
         if (enr.customerEmail === customerEmail && enr.status === 'active' && (!enr.userId || enr.userId === shopWs.userId)) {
-          enr.status = 'converted_exit';
-          enr.convertedAt = new Date().toISOString();
-          modifiedDrip = true;
           const seq = dripsData.sequences.find(s => s.id === enr.sequenceId);
-          if (seq) {
-            seq.activeEnrollments = Math.max(0, (seq.activeEnrollments || 1) - 1);
-            seq.totalExitedPurchased = (seq.totalExitedPurchased || 0) + 1;
+          const isPrePurchaseOrExit = Boolean(
+            seq && (
+              seq.smartExitOnPurchase ||
+              seq.triggerType === 'checkout_abandonment' ||
+              seq.triggerType === 'abandoned_checkout' ||
+              seq.triggerType === 'browse_abandonment' ||
+              seq.triggerType === 'upsell_recovery'
+            )
+          );
+          if (isPrePurchaseOrExit) {
+            enr.status = 'converted_exit';
+            enr.convertedAt = new Date().toISOString();
+            modifiedDrip = true;
+            if (seq) {
+              seq.activeEnrollments = Math.max(0, (seq.activeEnrollments || 1) - 1);
+              seq.totalExitedPurchased = (seq.totalExitedPurchased || 0) + 1;
+            }
           }
         }
       }
@@ -2218,12 +2255,26 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
     const checkouts = loadCheckouts();
     let checkoutModified = false;
     for (const chk of checkouts) {
-      if ((chk.customerEmail === customerEmail || (payload.cart_token && chk.token === payload.cart_token) || (payload.token && chk.token === payload.token)) && chk.recoveryStatus !== 'recovered') {
-        chk.recoveryStatus = 'recovered';
-        chk.recoveredAt = new Date().toISOString();
-        chk.recoveredOrderId = orderId;
-        recoveredCheckoutId = chk.id;
-        checkoutModified = true;
+      if (chk.userId === shopWs.userId && chk.recoveryStatus !== 'recovered') {
+        const matchesEmail = chk.customerEmail && customerEmail && chk.customerEmail.toLowerCase() === customerEmail.toLowerCase();
+        const matchesCartToken = payload.cart_token && chk.token === payload.cart_token;
+        const matchesToken = payload.token && chk.token === payload.token;
+        const matchesCheckoutToken = payload.checkout_token && chk.token === payload.checkout_token;
+        if (matchesEmail || matchesCartToken || matchesToken || matchesCheckoutToken) {
+          chk.recoveryStatus = 'recovered';
+          chk.recoveredAt = new Date().toISOString();
+          chk.recoveredOrderId = orderId;
+          recoveredCheckoutId = chk.id;
+          checkoutModified = true;
+          recordEvent({
+            type: 'checkout_recovered',
+            userId: shopWs.userId,
+            email: customerEmail,
+            orderId,
+            checkoutId: chk.id,
+            value: totalPrice
+          });
+        }
       }
     }
     if (checkoutModified) {
@@ -2243,6 +2294,8 @@ app.post(['/api/webhooks/shopify/orders-create', '/api/webhooks/shopify/order-cr
     customerEmail,
     customerName,
     discountCode: discountCodes[0] || '',
+    financialStatus: payload.financial_status || 'paid',
+    recoveredCheckoutId: recoveredCheckoutId || undefined,
     lineItems: lineItems.map(it => ({
       title: it.title || it.name || 'Product',
       productId: String(it.product_id || it.productId || '').replace(/\D/g, '').slice(0, 40),
@@ -3832,7 +3885,7 @@ function orderMailVars(order, extra) {
   };
 }
 
-async function deliverLetter({ to, name, subject, text, html, userId, visitorId, medium, previewText, marketing = true, campaignId = '', flowId = '', nodeId = '', sequenceId = '' }) {
+async function deliverLetter({ to, name, subject, text, html, userId, visitorId, medium, previewText, marketing = true, campaignId = '', flowId = '', nodeId = '', sequenceId = '', redirectBatch = null }) {
   if (!to || !String(to).includes('@')) return { ok: false, status: 'no_address' };
   const bag = userId ? userProgramBag(userId) : { suppressions: [] };
   const known = userId ? contactsForUser(userId).find((row) => String(row.email || '').toLowerCase() === String(to).toLowerCase()) : null;
@@ -3844,7 +3897,7 @@ async function deliverLetter({ to, name, subject, text, html, userId, visitorId,
   if (!hubReady) return { ok: false, status: 'not_connected', error: 'Email sending is not connected, so nothing was sent.' };
   const messageId = `msg_${crypto.randomBytes(6).toString('hex')}`;
   const tracked = describeSentHtml(html);
-  const outbound = tracked.pixel || tracked.rewritten ? rewritePlainMailLinks(html, { userId, email: to, messageId, campaignId, flowId, nodeId, sequenceId }) : html;
+  const outbound = tracked.pixel || tracked.rewritten ? rewritePlainMailLinks(html, { userId, email: to, messageId, campaignId, flowId, nodeId, sequenceId }, redirectBatch) : html;
   const sent = await hub.email.send({
     subject,
     text,
@@ -4867,6 +4920,7 @@ async function deliverCampaignParts(uid, record, emailPeople, smsPeople, now) {
     }
     emailPeople = split.send;
   }
+  const broadcastRedirectBatch = [];
   for (const person of emailPeople) {
     const recent = await recentMarketing(uid, person.email, now);
     if (smartSkipReason('email', { enabled: record.smartSkip === true, ...recent })) {
@@ -4896,7 +4950,8 @@ async function deliverCampaignParts(uid, record, emailPeople, smsPeople, now) {
       visitorId: contact.visitorId,
       medium: 'broadcast',
       marketing: true,
-      campaignId: record.id
+      campaignId: record.id,
+      redirectBatch: broadcastRedirectBatch
     });
     if (!result.ok) {
       if (result.status === 'unsubscribed' || result.status === 'suppressed') record.skipped.push(person.email);
@@ -4906,6 +4961,9 @@ async function deliverCampaignParts(uid, record, emailPeople, smsPeople, now) {
     }
     record.sentTo.push(person.email);
     sent += 1;
+  }
+  if (broadcastRedirectBatch.length) {
+    rememberRedirectsBatch(broadcastRedirectBatch);
   }
   for (const person of smsPeople) {
     const until = smsQuietEnabled({ transactional: false, quietHours: record.sms?.quietHours }) ? quietOpenAt(now, userProgramBag(uid).timezone) : null;
@@ -5583,6 +5641,7 @@ async function processUserAutomationsTick(uid) {
   let convertedExitCount = 0;
   let completedCount = 0;
 
+  const dripRedirectBatch = [];
   for (const enr of dripsData.enrollments) {
     if (holdForKlaviyo) break;
     if (enr.status !== 'active' || enr.userId !== uid) continue;
@@ -5663,7 +5722,8 @@ async function processUserAutomationsTick(uid) {
           visitorId: dripContact.visitorId,
           medium: 'drip',
           marketing: true,
-          sequenceId: seq.id
+          sequenceId: seq.id,
+          redirectBatch: dripRedirectBatch
         });
         if (!result.ok) {
           enr.history.push({
@@ -5698,6 +5758,9 @@ async function processUserAutomationsTick(uid) {
         }
       }
     }
+  }
+  if (dripRedirectBatch.length) {
+    rememberRedirectsBatch(dripRedirectBatch);
   }
 
   // 3. Wave 8: Abandoned Checkout Recovery Processing

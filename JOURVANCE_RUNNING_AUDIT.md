@@ -171,19 +171,16 @@ This document inventories every identified issue, categorized by severity, along
 ---
 
 ### 2.3 Redirect Shortlink Lookup Rewrites File Multiple Times Per Render
-- **File / Lines:** `server.mjs:1396-1435`
+- **File / Lines:** `server.mjs:1457-1488`
 - **Issue:** 
-  `rewritePlainMailLinks` iterates through all links in an email template. For each link found, it calls `rememberRedirect()`. Inside `rememberRedirect`:
-  ```javascript
-  const rows = loadRedirects();
-  rows.push({...});
-  saveRedirects(rows);
-  ```
-  `saveRedirects` calls synchronous `fs.writeFileSync(redirectsFilePath, ...)`.
+  `rewritePlainMailLinks` iterates through all links in an email template. For each link found, it called `rememberRedirect()`. Inside `rememberRedirect`, it called `loadRedirects()`, pushed, and called `saveRedirects()`.
 - **Impact:** 
-  If a newsletter contains 6 links, `redirects.json` is read and rewritten 6 times synchronously. Across a broadcast of 500 recipients, this triggers thousands of redundant disk writes.
-- **Recommended Improvement:**
-  Batch shortlink generations in memory and write to storage once per email broadcast.
+  If a newsletter contained 6 links, `redirects.json` was read and rewritten 6 times synchronously. Across a broadcast of 500 recipients, this triggered thousands of redundant disk writes and sliced a 20,000-item array thousands of times.
+- **Resolution:** **RESOLVED**
+  - Updated `rememberRedirect(uid, url, meta, batchCollector)` to support in-memory batch accumulation without touching disk when a collector array is provided.
+  - Introduced `rememberRedirectsBatch(newRows)` for single atomic bulk commits.
+  - Updated `rewritePlainMailLinks(html, meta, batchCollector)` to batch all links locally for single sends (1 write instead of N), and pass through `batchCollector` for multi-recipient broadcasts and drip ticks (1 bulk commit for the entire campaign).
+  - Verified with comprehensive test suite in `redirect-batch.test.mjs`.
 
 ---
 
@@ -576,6 +573,7 @@ This document inventories every identified issue, categorized by severity, along
 | **P1** | **SMS / Carrier Verification & Roadmap** | Unregistered 10DLC A2P SMS sending causes immediate mobile carrier rejection (Twilio Error 30034) while approval is pending | Broken merchant experience and failed message delivery if premature live sending buttons are exposed | **RESOLVED** (Option 2 Elevated Coming Soon & Interactive Telecom Roadmap: transformed `SmsPanel.tsx` into a luxury preview suite with "Carrier Verification in Progress" status badge, 3-step Telecom Gateway Roadmap card, interactive Campaign Sandbox with 3 beauty presets (`At-Risk 15% Winback`, `VIP Whale Drop`, `Cart Recovery`), real-time GSM-7 character meter, iPhone mockup rendering speech bubble with dynamic shortlinks, and CRM phone number readiness counter. Added subtle `Soon` badge to Texts tab in `HubEmailSuite.tsx`. Backend SMS endpoints (`/api/sms/preview`, `/api/sms/consent`, `/api/sms/send`, `/r/:code`) remain fully wired for zero-refactoring activation once approval clears) |
 | **P1** | **Email / Inbox Polish & Visual Builder** | Email preview text bled into body/legal footer; visual builder lacked luxury product showcase cards | Low mobile open rates from cluttered inbox previews and inability to display featured products without synced Shopify store | **RESOLVED** (Option A Bulletproof Preheader Snippet & Luxury Product Showcase Card: implemented bulletproof preview text buffer with 40-repeat zero-width non-joiner & non-breaking space sequence (`&#847; &zwnj; &nbsp; `) in `email-doc.mjs` to block inbox snippet bleed in Gmail/Apple Mail/Outlook; added dynamic token interpolation (`{{first_name}}`, `{{store_name}}`, `{{discount_code}}`, `{{email}}`) in broadcast campaigns and drip runners with 1-click token insertion bar; elevated visual builder with Luxury Product Card block container (`EmailBlocks.tsx`) featuring 1-click beauty presets (*Rosewater Hydration Elixir*, *Silk Peptide Restorative Serum*, *Velvet Botanical Night Balm*), custom manual product creator, badge pills, strikethrough compare-at pricing, and responsive thumbnail cards; added live Gmail & iPhone Inbox Snippet Simulation card to Broadcast Composer modal in `HubEmailSuite.tsx`) |
 | **P1** | **CRM / Customer 360 Deep-Dive** | CRM customer table rows were static dead-ends with no way to inspect past orders, active drips, or timeline events | Inability to diagnose at-risk VIP whales or take targeted 1-click personal retention actions | **RESOLVED** (Option 1 Customer 360 Profile Slide-Over Drawer: built `CustomerProfileDrawer.tsx` with dedicated backend APIs `GET /api/email/contact-details`, `POST /api/email/contact-tags`, and `POST /api/drips/enrollment-toggle`. Features 4-metric customer ribbon (LTV, Orders, AOV, Recency), RFM intelligence hero card with strategic retention callouts, past Shopify orders breakdown with line items and fulfillment status, abandoned checkouts alert, active drip sequence manager with 1-click pause/resume/unenroll and manual sequence enrollment, live tag manager, chronological event timeline, and 1-click personalized VIP broadcast drafting in `HubEmailSuite.tsx`) |
-| **P1** | **Conversion / Visual Popup & Exit-Intent Studio** | Storefront signup forms lacked visual preview, device simulation, instant coupon reveal, and beauty presets | Merchants unable to preview or test exit-intent rescue forms, resulting in lost top-of-funnel lead conversions | **RESOLVED** (Option 2 Visual Storefront Popup & Exit-Intent Studio: transformed `SignupForms.tsx` into a full studio with 1-Click Luxury Beauty Presets (*15% Welcome Ritual*, *VIP Sanctuary Early Access*, *Free Express Shipping Bar*), interactive Storefront Simulator modal with desktop vs mobile iPhone toggle, real-time visual rendering of center popups, floating sticky bars, and flyout drawers, and interactive submission testing with instant coupon code voucher reveal, dashed discount card, and 1-click "Copy Code & Shop" button) |
+| **P1** | **Performance / I/O** | Shortlink generation performed synchronous disk reads & writes per URL inside loop (`Audit 2.3`) | Thousands of redundant disk writes & CPU array slicing during broadcasts | **RESOLVED** (In-Memory Batch Accumulation: `rememberRedirect` accepts `batchCollector`, `rememberRedirectsBatch` bulk-commits once, `rewritePlainMailLinks` batches single-email links in 1 write, and broadcast/drip send loops collect all links across recipients for 1 atomic flush) |
+| **P1** | **Commerce / Ingestion** | Order webhooks lacked `orders/paid` route alias, tenant-isolated idempotency, and over-aggressively exited all active drips | Dropped `orders/paid` hooks, possible cross-tenant checkout recovery collision, and premature cancellation of post-purchase onboarding drips | **RESOLVED** (Shopify Order Webhook Live Auto-Sync Hardening: added `POST /api/webhooks/shopify/orders-paid`, tenant-scoped duplicate detection updating `financialStatus` idempotently, selective drip exit targeting pre-purchase recovery sequences while protecting post-purchase welcome drips, tenant-scoped abandoned checkout recovery emitting `checkout_recovered` event, and automated CRM RFM tier & bump tag synchronization) |
 
 
