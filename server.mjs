@@ -5653,10 +5653,129 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
     { id: 'bumps', name: 'Orders With a Bump', count: bumpCount, percentage: share(bumpCount, viewCount), dropoffRate: drop(bumpCount, totalOrders) }
   ];
 
+  // Multi-Offer Revenue Breakdown & AOV Expansion Lift
+  const totalFrontEndOrders = filteredOrders.length;
+  let bumpRevenue = 0;
+  let bumpOrdersCount = 0;
+  let coreRevenue = 0;
+
+  for (const o of filteredOrders) {
+    const orderTotal = Number(o.totalPrice || 0);
+    if (o.orderBumpIncluded) {
+      bumpOrdersCount++;
+      let bPrice = 0;
+      if (Array.isArray(o.lineItems) && o.lineItems.length > 1) {
+        const bumpItem = o.lineItems.find(it => /bump/i.test(it.title || '')) || o.lineItems[1];
+        if (bumpItem && Number(bumpItem.price) > 0) {
+          bPrice = Number(bumpItem.price) * Number(bumpItem.quantity || 1);
+        }
+      }
+      if (bPrice <= 0 && o.attributedSlug && publicPageCache[o.attributedSlug]?.data?.orderBumpPrice) {
+        const parsed = parseFloat(String(publicPageCache[o.attributedSlug].data.orderBumpPrice).replace(/[^0-9.]/g, ''));
+        if (!isNaN(parsed) && parsed > 0) bPrice = parsed;
+      }
+      if (bPrice <= 0) {
+        bPrice = Math.min(orderTotal * 0.35, 28.00);
+      }
+      bPrice = Math.min(orderTotal, bPrice);
+      bumpRevenue += bPrice;
+      coreRevenue += Math.max(0, orderTotal - bPrice);
+    } else {
+      coreRevenue += orderTotal;
+    }
+  }
+
+  const upsellEvents = reportEvents.filter(e => e.type === 'upsell_accept' && (e.offerType || 'upsell') === 'upsell');
+  const downsellEvents = reportEvents.filter(e => e.type === 'upsell_accept' && e.offerType === 'downsell');
+
+  const upsellTakes = upsellEvents.length;
+  const upsellRevenue = Number(upsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
+
+  const downsellTakes = downsellEvents.length;
+  const downsellRevenue = Number(downsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
+
+  bumpRevenue = Number(bumpRevenue.toFixed(2));
+  coreRevenue = Number(coreRevenue.toFixed(2));
+
+  const combinedRevenue = Number((coreRevenue + bumpRevenue + upsellRevenue + downsellRevenue).toFixed(2));
+  const baseAov = totalFrontEndOrders > 0 ? Number((coreRevenue / totalFrontEndOrders).toFixed(2)) : 0;
+  const effectiveAov = totalFrontEndOrders > 0 ? Number((combinedRevenue / totalFrontEndOrders).toFixed(2)) : 0;
+  const aovLiftDollars = Number((effectiveAov - baseAov).toFixed(2));
+  const aovLiftPercent = baseAov > 0 ? Number(((aovLiftDollars / baseAov) * 100).toFixed(1)) : 0;
+
+  const aovExpansion = {
+    totalOrders: totalFrontEndOrders,
+    combinedRevenue,
+    baseAov,
+    effectiveAov,
+    aovLiftDollars,
+    aovLiftPercent,
+    streams: [
+      {
+        tier: 'core',
+        name: 'Core Front-End Product',
+        orderCount: totalFrontEndOrders,
+        revenue: coreRevenue,
+        percentageOfTotal: combinedRevenue > 0 ? Number(((coreRevenue / combinedRevenue) * 100).toFixed(1)) : 100,
+        attachRate: totalFrontEndOrders > 0 ? 100 : 0,
+        aovContribution: baseAov
+      },
+      {
+        tier: 'bump',
+        name: 'Checkout Order Bump Add-on',
+        orderCount: bumpOrdersCount,
+        revenue: bumpRevenue,
+        percentageOfTotal: combinedRevenue > 0 ? Number(((bumpRevenue / combinedRevenue) * 100).toFixed(1)) : 0,
+        attachRate: totalFrontEndOrders > 0 ? Number(((bumpOrdersCount / totalFrontEndOrders) * 100).toFixed(1)) : 0,
+        aovContribution: totalFrontEndOrders > 0 ? Number((bumpRevenue / totalFrontEndOrders).toFixed(2)) : 0
+      },
+      {
+        tier: 'upsell',
+        name: '1-Click Post-Purchase Upsell (OTO)',
+        orderCount: upsellTakes,
+        revenue: upsellRevenue,
+        percentageOfTotal: combinedRevenue > 0 ? Number(((upsellRevenue / combinedRevenue) * 100).toFixed(1)) : 0,
+        attachRate: totalFrontEndOrders > 0 ? Number(((upsellTakes / totalFrontEndOrders) * 100).toFixed(1)) : 0,
+        aovContribution: totalFrontEndOrders > 0 ? Number((upsellRevenue / totalFrontEndOrders).toFixed(2)) : 0
+      },
+      {
+        tier: 'downsell',
+        name: 'Post-Purchase Downsell (OTO)',
+        orderCount: downsellTakes,
+        revenue: downsellRevenue,
+        percentageOfTotal: combinedRevenue > 0 ? Number(((downsellRevenue / combinedRevenue) * 100).toFixed(1)) : 0,
+        attachRate: totalFrontEndOrders > 0 ? Number(((downsellTakes / totalFrontEndOrders) * 100).toFixed(1)) : 0,
+        aovContribution: totalFrontEndOrders > 0 ? Number((downsellRevenue / totalFrontEndOrders).toFixed(2)) : 0
+      }
+    ]
+  };
+
   const countOrBlank = (type) => {
     const count = reportEvents.filter((event) => event.type === type).length;
     return count > 0 ? count : null;
   };
+
+  const upsellViewCount = reportEvents.filter(e => e.type === 'upsell_view' && (e.offerType || 'upsell') === 'upsell').length;
+  if (upsellViewCount > 0 || upsellTakes > 0) {
+    funnelSteps.push({
+      id: 'upsells',
+      name: '1-Click Upsell Taken',
+      count: upsellTakes,
+      percentage: share(upsellTakes, viewCount),
+      dropoffRate: drop(upsellTakes, Math.max(1, Math.round(totalOrders)))
+    });
+  }
+  const downsellViewCount = reportEvents.filter(e => e.type === 'upsell_view' && e.offerType === 'downsell').length;
+  if (downsellViewCount > 0 || downsellTakes > 0) {
+    funnelSteps.push({
+      id: 'downsells',
+      name: 'Downsell Offer Taken',
+      count: downsellTakes,
+      percentage: share(downsellTakes, viewCount),
+      dropoffRate: drop(downsellTakes, Math.max(1, upsellViewCount - upsellTakes))
+    });
+  }
+
   res.json({
     success: true,
     report: {
@@ -5670,7 +5789,8 @@ app.get('/api/reports/attribution', requireUser, async (req, res) => {
         emailSends: countOrBlank('email_sent'),
         emailClicks: countOrBlank('email_clicked')
       },
-      recentAttributions: recentAttributions.slice(0, 10)
+      recentAttributions: recentAttributions.slice(0, 10),
+      aovExpansion
     }
   });
 });
@@ -5692,7 +5812,7 @@ app.get('/api/reports/attribution/export-csv', requireUser, async (req, res) => 
     }
     return true;
   });
-  const lines = ['Order,Email,Amount,Created,Discount,Slug,Visitor,Channel'];
+  const lines = ['Order,Email,Amount,Created,Discount,Slug,Visitor,Channel,OrderBump'];
   for (const o of orders) {
     lines.push([
       o.orderNumber || o.id,
@@ -5702,7 +5822,8 @@ app.get('/api/reports/attribution/export-csv', requireUser, async (req, res) => 
       o.discountCode || '',
       o.attributedSlug || '',
       o.visitorId || '',
-      o.checkoutChannel || channelOf(o)
+      o.checkoutChannel || channelOf(o),
+      o.orderBumpIncluded ? 'Yes' : 'No'
     ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
   }
   res.setHeader('Content-Type', 'text/csv');

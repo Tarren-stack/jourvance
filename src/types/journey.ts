@@ -544,6 +544,26 @@ export interface FunnelDropoffStep {
   dropoffRate: number;
 }
 
+export interface OfferRevenueStream {
+  tier: 'core' | 'bump' | 'upsell' | 'downsell';
+  name: string;
+  orderCount: number;
+  revenue: number;
+  percentageOfTotal: number;
+  attachRate: number;
+  aovContribution: number;
+}
+
+export interface FunnelAovExpansion {
+  totalOrders: number;
+  combinedRevenue: number;
+  baseAov: number;
+  effectiveAov: number;
+  aovLiftDollars: number;
+  aovLiftPercent: number;
+  streams: OfferRevenueStream[];
+}
+
 export interface AttributionReport {
   timeframe: '7d' | '30d' | 'all';
   model: AttributionModelType;
@@ -570,6 +590,7 @@ export interface AttributionReport {
     touchpointCount: number;
     createdAt: string;
   }>;
+  aovExpansion?: FunnelAovExpansion;
 }
 
 export interface ShopifyDiscountRule {
