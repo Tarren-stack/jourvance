@@ -2605,10 +2605,84 @@ ${unsub}`;
                 />
               </div>
 
+              {/* Live Gmail & iPhone Inbox Snippet Simulation */}
+              <div
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <Mail size={12} /> Live Gmail & iPhone Inbox Snippet
+                  </span>
+                  <span style={{ fontSize: '10px', color: '#6b7280' }}>How subscribers see your note before opening</span>
+                </div>
+                <div
+                  style={{
+                    backgroundColor: '#0a0a0f',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    fontSize: '12px',
+                    lineHeight: 1.4
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <span style={{ fontWeight: 700, color: '#f3f4f6' }}>
+                      {workspace?.shopifyConfig?.shopName || workspace?.name || 'Jourvance Studio'}
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#6b7280' }}>10:42 AM</span>
+                  </div>
+                  <div style={{ fontWeight: 600, color: '#ffffff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {broadcastSubject.trim() || 'VIP Access: 20% Off Our New Serum'}
+                  </div>
+                  <div style={{ color: '#9ca3af', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                    {broadcastPreviewText.trim()
+                      ? broadcastPreviewText.trim()
+                      : (broadcastBody.trim().slice(0, 90) || 'Your private preview is waiting inside...')}
+                  </div>
+                </div>
+              </div>
+
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  Letter & Offer Content
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' }}>
+                    Letter & Offer Content
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ fontSize: '10px', color: '#6b7280' }}>Insert:</span>
+                    {[
+                      { label: '{{first_name}}', code: '{{first_name}}' },
+                      { label: '{{store_name}}', code: '{{store_name}}' },
+                      { label: '{{discount_code}}', code: '{{discount_code}}' },
+                      { label: '{{email}}', code: '{{email}}' }
+                    ].map(tok => (
+                      <button
+                        key={tok.code}
+                        type="button"
+                        onClick={() => setBroadcastBody(prev => `${prev} ${tok.code}`)}
+                        style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid rgba(236, 72, 153, 0.3)',
+                          backgroundColor: 'rgba(236, 72, 153, 0.08)',
+                          color: '#f9a8d4',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {tok.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <textarea
                   rows={6}
                   placeholder="Write your email announcement or special offer details..."

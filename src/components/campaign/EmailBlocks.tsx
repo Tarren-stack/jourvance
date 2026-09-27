@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { Sparkles, Plus, Trash2, ShoppingBag, Tag } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
-import { card, field, ghostBtn, label } from './emailChrome';
+import { card, field, ghostBtn, label, solidBtn } from './emailChrome';
 
 export type DisplayClause = { kind: 'profile' | 'event_field'; field: string; op: 'eq' | 'neq' | 'set' | 'unset' | 'contains'; value?: string };
 export type DisplayGroup = { join: 'all' | 'any'; clauses: DisplayClause[] };
@@ -35,7 +36,7 @@ export type MailBlock = {
   logoUrl?: string;
   logoAlt?: string;
   thumbnail?: string;
-  products?: { id?: string; title?: string; image?: string; price?: string; compareAt?: string; url?: string; currency?: string; buttonLabel?: string }[];
+  products?: { id?: string; title?: string; image?: string; price?: string; compareAt?: string; url?: string; currency?: string; buttonLabel?: string; badge?: string }[];
   mode?: 'static' | 'feed';
   feed?: { source?: string; fallback?: string; limit?: number; category?: string; minPrice?: number | null; maxPrice?: number | null; minStock?: number | null; hideMissingImage?: boolean; hideOutOfStock?: boolean; hidePurchased?: boolean; hideTrigger?: boolean };
   name?: string;
@@ -384,6 +385,36 @@ const FEED_CHOICES = [
   ['checkout', 'This checkout']
 ] as const;
 
+const BEAUTY_PRESETS = [
+  {
+    title: 'Rosewater Hydration Elixir',
+    price: '$38.00',
+    compareAt: '$48.00',
+    badge: 'Best Seller',
+    image: 'https://images.unsplash.com/photo-1608248597359-009d17d478ad?auto=format&fit=crop&w=600&q=80',
+    url: 'https://jourvance.com/r/rose-elixir',
+    buttonLabel: 'Shop Now'
+  },
+  {
+    title: 'Silk Peptide Restorative Serum',
+    price: '$62.00',
+    compareAt: '$75.00',
+    badge: 'VIP Favorite',
+    image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=600&q=80',
+    url: 'https://jourvance.com/r/silk-serum',
+    buttonLabel: 'Claim Treat'
+  },
+  {
+    title: 'Velvet Botanical Night Balm',
+    price: '$46.00',
+    compareAt: '$54.00',
+    badge: 'Award Winner',
+    image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=600&q=80',
+    url: 'https://jourvance.com/r/night-balm',
+    buttonLabel: 'Shop Ritual'
+  }
+];
+
 const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<MailBlock>) => void }> = ({ block, onChange }) => {
   const products = block.products || [];
   const feed = block.feed || { source: 'best_90', fallback: 'best_90', limit: 3 };
@@ -391,11 +422,23 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
   const [catalog, setCatalog] = useState<CatalogProduct[] | null>(null);
   const [notice, setNotice] = useState('');
   const [preview, setPreview] = useState<{ title?: string; price?: string }[]>([]);
+
+  // Manual product addition form state
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [customTitle, setCustomTitle] = useState('');
+  const [customPrice, setCustomPrice] = useState('$38.00');
+  const [customCompareAt, setCustomCompareAt] = useState('$48.00');
+  const [customBadge, setCustomBadge] = useState('Best Seller');
+  const [customImage, setCustomImage] = useState('https://images.unsplash.com/photo-1608248597359-009d17d478ad?auto=format&fit=crop&w=600&q=80');
+  const [customUrl, setCustomUrl] = useState('https://jourvance.com/r/treat');
+  const [customButton, setCustomButton] = useState('Shop Now');
+
   const load = async () => {
     const data = await fetch('/api/email/products', { headers: await authHeaders() }).then((res) => res.json()).catch(() => ({}));
     setCatalog(Array.isArray(data?.products) ? data.products : []);
     setNotice(data?.notice || (Array.isArray(data?.products) && data.products.length ? '' : 'No products were returned.'));
   };
+
   const previewFeed = async () => {
     const res = await fetch('/api/email/feed-preview', {
       method: 'POST',
@@ -406,16 +449,216 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
     setPreview(Array.isArray(data?.products) ? data.products : []);
     setNotice(data?.notice || (data?.label ? data.label : ''));
   };
+
   const patchFeed = (patch: NonNullable<MailBlock['feed']>) => onChange({ mode: 'feed', feed: { ...feed, ...patch } });
+
+  const handleAddPreset = (preset: typeof BEAUTY_PRESETS[0]) => {
+    if (products.length >= 9) {
+      setNotice('A letter can show up to 9 products.');
+      return;
+    }
+    const row: NonNullable<MailBlock['products']>[number] = {
+      id: `prod_${Date.now().toString(36)}`,
+      title: preset.title,
+      price: preset.price,
+      compareAt: preset.compareAt,
+      badge: preset.badge,
+      image: preset.image,
+      url: preset.url,
+      buttonLabel: preset.buttonLabel
+    };
+    onChange({ mode: 'static', products: [...products, row] });
+    setNotice(`Added ${preset.title} to product showcase.`);
+  };
+
+  const handleAddCustom = () => {
+    if (!customTitle.trim()) {
+      setNotice('Please enter a product title.');
+      return;
+    }
+    if (products.length >= 9) {
+      setNotice('A letter can show up to 9 products.');
+      return;
+    }
+    const row: NonNullable<MailBlock['products']>[number] = {
+      id: `prod_${Date.now().toString(36)}`,
+      title: customTitle.trim(),
+      price: customPrice.trim(),
+      compareAt: customCompareAt.trim() || undefined,
+      badge: customBadge.trim() || undefined,
+      image: customImage.trim() || undefined,
+      url: customUrl.trim() || undefined,
+      buttonLabel: customButton.trim() || 'Shop Now'
+    };
+    onChange({ mode: 'static', products: [...products, row] });
+    setCustomTitle('');
+    setShowManualForm(false);
+    setNotice(`Added ${row.title} to product showcase.`);
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <label style={label}>
-        Products
+        Products Display Mode
         <select aria-label="Product source" style={field} value={block.mode === 'feed' ? 'feed' : 'static'} onChange={(e) => onChange(e.target.value === 'feed' ? { mode: 'feed', feed } : { mode: 'static' })}>
-          <option value="static">Chosen products</option>
-          <option value="feed">A feed from this store</option>
+          <option value="static">Handpicked Showcase Products</option>
+          <option value="feed">Dynamic Feed (Best Sellers / Cart / Views)</option>
         </select>
       </label>
+
+      {/* 1-Click Beauty Presets */}
+      {block.mode !== 'feed' && (
+        <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <Sparkles size={13} /> 1-Click Luxury Beauty Presets
+            </span>
+            <span style={{ fontSize: '11px', color: '#9ca3af' }}>Instant high-converting card</span>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {BEAUTY_PRESETS.map((preset) => (
+              <button
+                key={preset.title}
+                type="button"
+                onClick={() => handleAddPreset(preset)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '7px',
+                  border: '1px solid rgba(236, 72, 153, 0.3)',
+                  backgroundColor: 'rgba(236, 72, 153, 0.08)',
+                  color: '#f9a8d4',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px'
+                }}
+              >
+                <Plus size={12} /> {preset.title} ({preset.price})
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Active Included Products */}
+      {block.mode !== 'feed' && products.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, marginBottom: 8 }}>
+          <span style={label}>Included Product Cards ({products.length}/9)</span>
+          {products.map((product, index) => (
+            <div
+              key={`${product.id || product.title || index}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 14px',
+                borderRadius: 8,
+                backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                gap: 12
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {product.image ? (
+                  <img src={product.image} alt={product.title || ''} style={{ width: 42, height: 42, borderRadius: 6, objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)' }} />
+                ) : (
+                  <div style={{ width: 42, height: 42, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <ShoppingBag size={18} style={{ color: '#9ca3af' }} />
+                  </div>
+                )}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: '#f3f4f6' }}>{product.title || 'Product'}</span>
+                    {product.badge && (
+                      <span style={{ fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: 10, backgroundColor: 'rgba(236,72,153,0.15)', color: '#f472b6', border: '1px solid rgba(236,72,153,0.3)' }}>
+                        {product.badge}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: 2 }}>
+                    <span style={{ color: '#f472b6', fontWeight: 600 }}>{product.price || ''}</span>
+                    {product.compareAt && <span style={{ textDecoration: 'line-through', color: '#6b7280', marginLeft: 6 }}>{product.compareAt}</span>}
+                    {product.buttonLabel && <span style={{ color: '#9ca3af', marginLeft: 8 }}>CTA: "{product.buttonLabel}"</span>}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                style={{ ...ghostBtn, padding: '4px 8px', color: '#f87171' }}
+                onClick={() => onChange({ products: products.filter((_, i) => i !== index) })}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Manual Product Customization Drawer / Accordion */}
+      {block.mode !== 'feed' && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+          <button
+            type="button"
+            style={showManualForm ? solidBtn : ghostBtn}
+            onClick={() => setShowManualForm(!showManualForm)}
+          >
+            <Plus size={13} style={{ display: 'inline', marginRight: 4 }} />
+            {showManualForm ? 'Close Manual Creator' : 'Add Custom Product Card'}
+          </button>
+          <button type="button" style={ghostBtn} onClick={load}>
+            <ShoppingBag size={13} style={{ display: 'inline', marginRight: 4 }} /> Choose from Shopify Catalog
+          </button>
+        </div>
+      )}
+
+      {/* Manual Product Form */}
+      {block.mode !== 'feed' && showManualForm && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 14, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)', marginTop: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#f3f4f6' }}>Create Custom Product Card</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <span style={label}>Product Title</span>
+              <input style={field} placeholder="e.g. Luminous Peptide Serum" value={customTitle} onChange={(e) => setCustomTitle(e.target.value)} />
+            </div>
+            <div>
+              <span style={label}>Badge (Optional)</span>
+              <input style={field} placeholder="e.g. Best Seller / VIP Pick" value={customBadge} onChange={(e) => setCustomBadge(e.target.value)} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <span style={label}>Offer Price</span>
+              <input style={field} placeholder="$38.00" value={customPrice} onChange={(e) => setCustomPrice(e.target.value)} />
+            </div>
+            <div>
+              <span style={label}>Compare-At Price (Strikethrough)</span>
+              <input style={field} placeholder="$48.00" value={customCompareAt} onChange={(e) => setCustomCompareAt(e.target.value)} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
+            <div>
+              <span style={label}>Product or Checkout URL</span>
+              <input style={field} placeholder="https://yourstore.com/products/serum" value={customUrl} onChange={(e) => setCustomUrl(e.target.value)} />
+            </div>
+            <div>
+              <span style={label}>Button Label</span>
+              <input style={field} placeholder="Shop Now" value={customButton} onChange={(e) => setCustomButton(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <span style={label}>Product Image URL</span>
+            <input style={field} placeholder="https://images.unsplash.com/..." value={customImage} onChange={(e) => setCustomImage(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+            <button type="button" style={ghostBtn} onClick={() => setShowManualForm(false)}>Cancel</button>
+            <button type="button" style={solidBtn} onClick={handleAddCustom}>Add Card to Email</button>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Feed Settings */}
       {block.mode === 'feed' && (
         <>
           <select aria-label="Feed" style={field} value={feed.source || 'best_90'} onChange={(e) => patchFeed({ source: e.target.value })}>
@@ -452,15 +695,11 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
           ))}
         </>
       )}
-      {block.mode !== 'feed' && products.map((product, index) => (
-        <div key={`${product.id || product.title || index}`} style={{ color: '#e5e7eb', fontSize: 13 }}>
-          {product.title || 'Product'}{product.price ? ` · ${product.price}${product.currency ? ` ${product.currency}` : ''}` : ''}{product.compareAt ? ` · was ${product.compareAt}` : ''}
-          <button type="button" style={{ ...ghostBtn, marginLeft: 8 }} onClick={() => onChange({ products: products.filter((_, i) => i !== index) })}>Remove</button>
-        </div>
-      ))}
+
       {block.mode !== 'feed' && <PageLink ariaLabel="Product page link" slug={block.pageSlug || ''} onChange={(pageSlug) => onChange({ mode: 'static', pageSlug })} />}
-      {block.mode !== 'feed' && <button type="button" style={ghostBtn} onClick={load}>Choose from the store</button>}
       {notice && <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>{notice}</p>}
+
+      {/* Catalog items picker */}
       {block.mode !== 'feed' && catalog && catalog.map((product) => (
         <button key={product.id} type="button" style={{ ...ghostBtn, textAlign: 'left' }} onClick={() => {
           if (products.length >= 9) {
@@ -475,7 +714,7 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
           if (product.compareAt) row.compareAt = product.compareAt;
           if (product.url) row.url = product.url;
           if (product.currency) row.currency = product.currency;
-          if (product.url) row.buttonLabel = 'View';
+          if (product.url) row.buttonLabel = 'Shop Now';
           onChange({ mode: 'static', products: [...products, row] });
         }}>{product.title || product.id}</button>
       ))}

@@ -183,6 +183,8 @@ function cleanProduct(input) {
   if (currency) row.currency = currency;
   const buttonLabel = String(input.buttonLabel || '').trim().slice(0, 40);
   if (buttonLabel && url) row.buttonLabel = buttonLabel;
+  const badge = String(input.badge || '').trim().slice(0, 40);
+  if (badge) row.badge = badge;
   if (!row.title && !row.image && !row.price && !row.url) return null;
   return row;
 }
@@ -1015,30 +1017,38 @@ function renderBlock(block, env) {
     return { html: `<p style="margin:0 0 16px;"><a href="${escapeMailHtml(href)}">Watch</a></p>`, text: href };
   }
   if (block.kind === 'product') {
-    const caption = block.feedLabel === 'This checkout' ? '<p style="margin:0 0 8px;font-size:13px;">From this checkout</p>' : '';
+    const caption = block.feedLabel === 'This checkout' ? '<p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#6b7280;">From this checkout</p>' : '';
     const captionText = block.feedLabel === 'This checkout' ? 'From this checkout' : '';
     const pageUrl = blockPageUrl(block, env);
     const cards = (block.products || []).slice(0, 9).map((product) => {
       const bits = [];
       const textBits = [];
-      if (product.image) bits.push(`<img src="${escapeMailHtml(product.image)}" alt="${escapeMailHtml(product.title || '')}" style="max-width:100%;height:auto;border:0;">`);
+      if (product.badge) {
+        bits.push(`<div style="margin-bottom:10px;"><span style="display:inline-block;padding:3px 10px;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:20px;color:#db2777;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">${escapeMailHtml(product.badge)}</span></div>`);
+      }
+      if (product.image) {
+        bits.push(`<div style="margin:0 auto 12px;max-width:240px;"><img src="${escapeMailHtml(product.image)}" alt="${escapeMailHtml(product.title || '')}" style="max-width:100%;height:auto;max-height:220px;object-fit:contain;border-radius:8px;border:0;display:block;margin:0 auto;"></div>`);
+      }
       if (product.title) {
-        bits.push(`<div style="font-weight:600;margin-top:6px;">${escapeMailHtml(product.title)}</div>`);
+        bits.push(`<div style="font-size:16px;font-weight:700;color:#111827;line-height:1.3;margin-bottom:6px;">${escapeMailHtml(product.title)}</div>`);
         textBits.push(product.title);
       }
       if (product.compareAt || product.price) {
         const price = [product.price, product.currency].filter(Boolean).join(' ');
-        const struck = product.compareAt ? `<span style="text-decoration:line-through;color:#6b7280;margin-right:6px;">${escapeMailHtml(product.compareAt)}</span>` : '';
-        bits.push(`<div style="margin-top:4px;">${struck}${price ? escapeMailHtml(price) : ''}</div>`);
+        const struck = product.compareAt ? `<span style="text-decoration:line-through;color:#9ca3af;font-weight:400;font-size:13px;margin-right:6px;">${escapeMailHtml(product.compareAt)}</span>` : '';
+        bits.push(`<div style="font-size:15px;font-weight:700;color:#db2777;margin-bottom:12px;">${struck}${price ? escapeMailHtml(price) : ''}</div>`);
         if (price) textBits.push(price);
       }
       const href = pageUrl || product.url;
-      const buttonLabel = product.buttonLabel || (pageUrl ? 'View' : '');
+      const buttonLabel = product.buttonLabel || (pageUrl ? 'View' : 'Shop Now');
       if (href && buttonLabel) {
-        bits.push(`<p style="margin:8px 0 0;"><a href="${escapeMailHtml(href)}" style="display:inline-block;padding:12px 18px;background:#111111;color:#ffffff;text-decoration:none;border-radius:6px;">${escapeMailHtml(buttonLabel)}</a></p>`);
+        bits.push(`<div style="margin-top:10px;"><a href="${escapeMailHtml(href)}" style="display:inline-block;padding:10px 22px;background:#111827;color:#ffffff;text-decoration:none;border-radius:24px;font-size:13px;font-weight:600;letter-spacing:0.02em;">${escapeMailHtml(buttonLabel)}</a></div>`);
         textBits.push(`${buttonLabel} ${href}`);
       }
-      return { html: `<div style="margin:0 0 16px;">${bits.join('')}</div>`, text: textBits.join('\n') };
+      return {
+        html: `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:18px;text-align:center;background:#ffffff;margin:0 0 16px;box-shadow:0 2px 6px rgba(0,0,0,0.03);">${bits.join('')}</div>`,
+        text: textBits.join('\n')
+      };
     });
     return { html: `${caption}${cards.map((card) => card.html).join('')}`, text: [captionText, cards.map((card) => card.text).filter(Boolean).join('\n\n')].filter(Boolean).join('\n\n') };
   }
@@ -1080,7 +1090,8 @@ function tagHtmlHrefs(html, contact) {
 export function preheaderHtml(previewText) {
   const line = String(previewText || '').trim().slice(0, 140);
   if (!line) return '';
-  return `<div lang="en" style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff;">${escapeMailHtml(line)}</div>`;
+  const buffer = '&#847; &zwnj; &nbsp; '.repeat(40);
+  return `<div lang="en" style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#ffffff;opacity:0;">${escapeMailHtml(line)}${buffer}</div>`;
 }
 
 export function footerHtml({ physicalAddress, unsubscribeUrl, marketing }) {
@@ -1157,7 +1168,8 @@ export function renderLetter({ blocks, vars, keepUnknown, previewText, physicalA
     textParts.push(columns.map((column) => column.text).filter(Boolean).join('\n\n'));
   }
   const css = '<style>.jv-mobile{display:none;max-height:0;overflow:hidden;}@media only screen and (max-width:480px){.jv-stack{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;}.jv-desktop{display:none!important;max-height:0!important;overflow:hidden!important;}.jv-mobile{display:block!important;max-height:none!important;overflow:visible!important;}}</style>';
-  let html = `${css}<div style="font-family:Georgia,serif;color:#111111;max-width:560px;margin:0 auto;">${embedPreheader ? preheaderHtml(previewText) : ''}${htmlParts.join('')}${footerHtml({ physicalAddress, unsubscribeUrl, marketing })}</div>`;
+  const shouldEmbedPreheader = (embedPreheader !== false) && Boolean(String(previewText || '').trim());
+  let html = `${css}<div style="font-family:Georgia,serif;color:#111111;max-width:560px;margin:0 auto;">${shouldEmbedPreheader ? preheaderHtml(previewText) : ''}${htmlParts.join('')}${footerHtml({ physicalAddress, unsubscribeUrl, marketing })}</div>`;
   if (contact) html = tagHtmlHrefs(html, contact);
   const textFooter = [
     'Sent by Jourvance for this store.',

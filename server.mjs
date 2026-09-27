@@ -3719,7 +3719,7 @@ function composeLetter(uid, contact, blocks, vars, options = {}) {
     physicalAddress: options.physicalAddress ?? bag.postalAddress,
     unsubscribeUrl,
     marketing,
-    embedPreheader: options.embedPreheader === true,
+    embedPreheader: options.embedPreheader !== false && Boolean(String(options.previewText || '').trim()),
     contact,
     event,
     person,
@@ -4633,7 +4633,12 @@ async function deliverCampaignParts(uid, record, emailPeople, smsPeople, now) {
     const body = person.side === 'b' && record.ab?.variable === 'content' ? record.ab.bodyB : (record.body || '');
     const useBlocks = Array.isArray(record.blocks) && record.blocks.length && !(person.side === 'b' && record.ab?.variable === 'content');
     const sourceBlocks = useBlocks ? record.blocks : [{ kind: 'text', text: body || record.html || '' }];
-    const letter = await composeForSend(uid, contact, sourceBlocks, {}, { previewText: record.previewText, marketing: true });
+    const ws = Object.values(workspaceCache).find((w) => w.userId === uid);
+    const storeName = ws?.shopifyConfig?.shopName || ws?.name || 'our store';
+    const letter = await composeForSend(uid, contact, sourceBlocks, {
+      store_name: storeName,
+      discount_code: 'WELCOMEBACK15'
+    }, { previewText: record.previewText, marketing: true, embedPreheader: true });
     const result = await deliverLetter({
       to: person.email,
       name: person.name,
