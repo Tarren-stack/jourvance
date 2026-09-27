@@ -60,6 +60,12 @@ import {
   attributionTouches, channelOf, cleanHoldout, emailTouchFields, enrollChoice,
   enrollmentCount, holdoutReport, inHoldout, linkedFlowIds, orderBelongsTo, splitHoldout
 } from './email-map.mjs';
+import {
+  buildDiscountCheckoutUrl,
+  buildShopifyCartPermalink,
+  renderLineItemCardsHtml,
+  resolveCheckoutRecoveryUrl
+} from './checkout-recovery.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1214,19 +1220,19 @@ const INITIAL_DRIP_SEQUENCES = [
         id: 'cart_step_1',
         stepNumber: 1,
         delayHours: 1,
-        subject: 'Your checkout is still open',
-        previewText: 'You can pick up where you left off',
-        body: 'Hey {{first_name}},\n\nYou started a checkout and did not finish it. The items were not held aside.\n\nYou can return to the checkout here:\n{{abandoned_checkout_url}}',
+        subject: 'We saved your beauty essentials',
+        previewText: 'Your order is waiting for you',
+        body: 'Hi {{first_name}},\n\nWe noticed you didn’t get a chance to finish your order. Your selected items have been carefully saved so you can pick right back up where you left off.\n\nReturn to your checkout here:\n{{abandoned_checkout_url}}',
         discountVoucher: ''
       },
       {
         id: 'cart_step_2',
         stepNumber: 2,
         delayHours: 24,
-        subject: 'Your checkout is still open',
-        previewText: 'A reminder to finish the checkout if you still want it',
-        body: 'Hey {{first_name}},\n\nThis is a reminder that the checkout was not completed. Nothing was held in inventory.\n\nYou can return to it here:\n{{abandoned_checkout_url}}',
-        discountVoucher: ''
+        subject: 'A complimentary 10% courtesy for your bag',
+        previewText: 'A little gift to complete your ritual',
+        body: 'Hi {{first_name}},\n\nWe want to make sure you get the best experience with us. As a special courtesy, enjoy 10% off your saved beauty items with code SAVE10.\n\nClaim your 10% courtesy discount here:\n{{abandoned_checkout_url}}',
+        discountVoucher: 'SAVE10'
       }
     ],
     activeEnrollments: 0,
@@ -2304,6 +2310,8 @@ app.post(['/api/webhooks/shopify/checkouts-create', '/api/webhooks/shopify/check
     checkouts[existingIdx].totalPrice = totalPrice || checkouts[existingIdx].totalPrice;
     checkouts[existingIdx].lineItems = lineItems.length ? lineItems.map(li => ({
       title: li.title || li.name || '',
+      variantTitle: li.variant_title || li.variantTitle || '',
+      image: li.image_url || li.featured_image?.url || (typeof li.image === 'string' ? li.image : (li.image?.src || '')),
       variantId: String(li.variant_id || li.variantId || ''),
       quantity: Number(li.quantity || 1),
       price: Number(li.price || 0)
@@ -2326,6 +2334,8 @@ app.post(['/api/webhooks/shopify/checkouts-create', '/api/webhooks/shopify/check
       currency,
       lineItems: lineItems.map(li => ({
         title: li.title || li.name || '',
+        variantTitle: li.variant_title || li.variantTitle || '',
+        image: li.image_url || li.featured_image?.url || (typeof li.image === 'string' ? li.image : (li.image?.src || '')),
         variantId: String(li.variant_id || li.variantId || ''),
         quantity: Number(li.quantity || 1),
         price: Number(li.price || 0)
@@ -5101,10 +5111,13 @@ async function processUserAutomationsTick(uid) {
       if (step) {
         if (!hubReady || !enr.customerEmail) continue;
         const dripContact = loadContacts().find(c => c.email === enr.customerEmail && contactOwnerId(c) === uid) || { email: enr.customerEmail, name: enr.customerName };
-        const checkout = loadCheckouts().find((row) => row.userId === uid && String(row.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase() && row.abandonedCheckoutUrl);
+        const checkout = loadCheckouts().find((row) => row.userId === uid && String(row.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase());
+        const userStore = Object.values(workspaceCache).find(ws => ws.userId === uid && realStoreDomain(ws?.shopifyConfig))?.shopifyConfig;
+        const defaultDomain = realStoreDomain(userStore) || '';
         const customerOrder = orders.find(o => String(o.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase());
         let offerUrl = enr.offerUrl || (enr.sourceSlug ? `${publicBase()}/p/${enr.sourceSlug}` : '');
         const discountCode = step.discountVoucher || enr.discountCode || 'SAVE10';
+        const resolvedCheckoutUrl = checkout ? resolveCheckoutRecoveryUrl(checkout, defaultDomain, (seq.triggerType === 'checkout_abandonment' && step.stepNumber > 1) ? discountCode : '') : '';
         if (offerUrl && seq.triggerType === 'upsell_recovery') {
           const sep = offerUrl.includes('?') ? '&' : '?';
           const expTime = Date.now() + 24 * 3600000;
@@ -5114,8 +5127,10 @@ async function processUserAutomationsTick(uid) {
             offerUrl += `&exp=${expTime}`;
           }
         }
+        const effectiveCheckoutUrl = resolvedCheckoutUrl || checkout?.abandonedCheckoutUrl || offerUrl;
         const letter = await composeForSend(uid, dripContact, [{ kind: 'text', text: step.body || '' }], {
-          checkout_url: checkout?.abandonedCheckoutUrl || offerUrl,
+          checkout_url: effectiveCheckoutUrl,
+          abandoned_checkout_url: effectiveCheckoutUrl,
           offer_url: offerUrl,
           discount_code: discountCode,
           order_number: customerOrder?.orderNumber || (customerOrder?.id ? `#${String(customerOrder.id).slice(-6)}` : ''),
@@ -5174,6 +5189,9 @@ async function processUserAutomationsTick(uid) {
   const checkouts = loadCheckouts();
   let checkoutsModified = false;
   let cartRecoverySentCount = 0;
+  const shops = Object.values(workspaceCache).filter(ws => ws.userId === uid);
+  const shop = shops.find(ws => realStoreDomain(ws?.shopifyConfig) && ws?.shopifyConfig?.status === 'connected') || shops[0];
+  const userStoreDomain = realStoreDomain(shop?.shopifyConfig) || '';
 
   for (const chk of checkouts) {
     if (chk.userId !== uid) continue;
@@ -5195,23 +5213,28 @@ async function processUserAutomationsTick(uid) {
       if (now - abandonedTime >= 2700000) {
         if (!holdForKlaviyo && hubReady && chk.customerEmail) {
           const recoveryContact = loadContacts().find(c => c.email === chk.customerEmail && contactOwnerId(c) === uid) || { email: chk.customerEmail };
-          const itemsSummary = Array.isArray(chk.lineItems) && chk.lineItems.length > 0
-            ? chk.lineItems.map(item => `• ${item.title || 'Item'}${item.quantity ? ` (Qty: ${item.quantity})` : ''}`).join('\n')
-            : '';
+          const resolvedUrl = resolveCheckoutRecoveryUrl(chk, userStoreDomain, '');
+          const cartCardsHtml = renderLineItemCardsHtml(chk.lineItems, chk.totalPrice, chk.currency, {
+            discountPercent: 0,
+            discountCode: '',
+            catalog: catalogFor(uid)
+          });
           const recoveryBlocks = [
-            { kind: 'heading', text: 'You left something in your bag' },
-            { kind: 'text', text: `Hi ${recoveryContact.name || 'there'},\n\nWe noticed you didn't finish completing your order. Your items are currently saved, but inventory is limited.` },
-            ...(itemsSummary ? [{ kind: 'text', text: `Saved items:\n${itemsSummary}` }] : []),
-            { kind: 'button', label: 'Complete Your Order Now', url: chk.abandonedCheckoutUrl || '', color: '#EC4899', radius: 8, padding: 12 },
-            { kind: 'text', text: 'If you had any trouble or need assistance, simply reply directly to this email and our team will be glad to assist you.' }
+            { kind: 'heading', text: 'We saved your beauty essentials' },
+            { kind: 'text', text: `Hi ${recoveryContact.name || 'there'},\n\nWe noticed you didn't finish completing your order. Your items are currently saved and waiting for you, but inventory is limited.` },
+            ...(cartCardsHtml ? [{ kind: 'html', text: cartCardsHtml }] : []),
+            { kind: 'button', label: 'Resume My Bag & Checkout', url: resolvedUrl, color: '#EC4899', radius: 8, padding: 12 },
+            { kind: 'text', text: 'If you have any questions or need assistance with your selection, simply reply directly to this email and our team will be glad to assist you.' }
           ];
           const letter = composeLetter(uid, recoveryContact, recoveryBlocks, {
-            checkout_url: chk.abandonedCheckoutUrl || ''
+            checkout_url: resolvedUrl,
+            abandoned_checkout_url: resolvedUrl,
+            eventLineItems: chk.lineItems || []
           }, { marketing: true });
           const result = await deliverLetter({
             to: chk.customerEmail,
             name: recoveryContact.name || '',
-            subject: 'Your checkout is still open',
+            subject: 'We saved your beauty essentials',
             text: letter.text,
             html: letter.html,
             userId: uid,
@@ -5234,20 +5257,29 @@ async function processUserAutomationsTick(uid) {
       if (now - sentTime >= 86400000) {
         if (!holdForKlaviyo && hubReady && chk.customerEmail) {
           const recoveryContact = loadContacts().find(c => c.email === chk.customerEmail && contactOwnerId(c) === uid) || { email: chk.customerEmail };
+          const resolvedUrl2 = resolveCheckoutRecoveryUrl(chk, userStoreDomain, 'SAVE10');
+          const cartCardsHtml2 = renderLineItemCardsHtml(chk.lineItems, chk.totalPrice, chk.currency, {
+            discountPercent: 10,
+            discountCode: 'SAVE10',
+            catalog: catalogFor(uid)
+          });
           const incentiveBlocks = [
             { kind: 'heading', text: 'A courtesy incentive for your order' },
             { kind: 'text', text: `Hi ${recoveryContact.name || 'there'},\n\nWe want to make sure you get the best experience. As a special courtesy, use code SAVE10 at checkout to take 10% off your saved items today.` },
-            { kind: 'button', label: 'Claim 10% Off & Complete Checkout', url: chk.abandonedCheckoutUrl || '', color: '#EC4899', radius: 8, padding: 12 },
-            { kind: 'text', text: 'This code is active for 48 hours. Let us know if you need any help completing your purchase!' }
+            ...(cartCardsHtml2 ? [{ kind: 'html', text: cartCardsHtml2 }] : []),
+            { kind: 'button', label: 'Claim 10% Off & Complete Checkout', url: resolvedUrl2, color: '#EC4899', radius: 8, padding: 12 },
+            { kind: 'text', text: 'Your 10% courtesy discount will be automatically pre-applied to your cart. This code is active for 48 hours. Let us know if you need any help completing your purchase!' }
           ];
           const letter2 = composeLetter(uid, recoveryContact, incentiveBlocks, {
-            checkout_url: chk.abandonedCheckoutUrl || '',
-            discount_code: 'SAVE10'
+            checkout_url: resolvedUrl2,
+            abandoned_checkout_url: resolvedUrl2,
+            discount_code: 'SAVE10',
+            eventLineItems: chk.lineItems || []
           }, { marketing: true });
           const result2 = await deliverLetter({
             to: chk.customerEmail,
             name: recoveryContact.name || '',
-            subject: 'Courtesy incentive: 10% off your saved cart',
+            subject: 'A complimentary 10% courtesy for your bag',
             text: letter2.text,
             html: letter2.html,
             userId: uid,
