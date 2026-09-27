@@ -13,7 +13,8 @@ import {
   Gift,
   Layers,
   Settings,
-  FileText
+  FileText,
+  Webhook
 } from 'lucide-react';
 import type { Node } from '@xyflow/react';
 import type {
@@ -37,6 +38,8 @@ interface Props {
   onClose: () => void;
   nodes: Node[];
   journeyTitle: string;
+  workspaceId?: string;
+  journeyId?: string;
 }
 
 interface ExportableHtmlPage {
@@ -50,7 +53,14 @@ interface ExportableHtmlPage {
   getContent: () => string;
 }
 
-export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, journeyTitle }) => {
+export const ExportAssetsModal: React.FC<Props> = ({
+  isOpen,
+  onClose,
+  nodes,
+  journeyTitle,
+  workspaceId,
+  journeyId
+}) => {
   const [activeTab, setActiveTab] = useState<'page' | 'emails' | 'ads' | 'json'>('page');
   const [copied, setCopied] = useState(false);
   const [targetAUrl, setTargetAUrl] = useState<string>('');
@@ -87,6 +97,19 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
 
   const effectiveTargetA = targetAUrl.trim() || defaultTargetA;
   const effectiveTargetB = targetBUrl.trim() || defaultTargetB;
+
+  // Ingestion Endpoint & Webhook Dual-Sync configuration
+  const defaultLeadEndpoint = typeof window !== 'undefined'
+    ? `${window.location.origin}/api/public/lead`
+    : 'https://jourvance.com/api/public/lead';
+
+  const [leadEndpointUrl, setLeadEndpointUrl] = useState<string>('');
+  const [externalWebhookUrl, setExternalWebhookUrl] = useState<string>(primaryPageNode?.webhookUrl || '');
+
+  const effectiveLeadEndpoint = leadEndpointUrl.trim() || defaultLeadEndpoint;
+  const effectiveExternalWebhook = externalWebhookUrl.trim();
+  const effectiveWorkspaceId = workspaceId || (primaryPageNode as any)?.workspaceId;
+  const effectiveJourneyId = journeyId || (primaryPageNode as any)?.journeyId;
 
   // Build dynamic list of exportable HTML pages
   const exportablePages = useMemo<ExportableHtmlPage[]>(() => {
@@ -125,7 +148,16 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
           sublabel: dataA.headline || 'Branch A Landing Page',
           badge: 'Variant A',
           filename: `${splitNode.branchAPageSlug || dataA.slug || 'variant-a'}.html`,
-          getContent: () => generateLandingPageHtml({ pageNode: dataA, formNode, variantOverride: 'a' })
+          getContent: () =>
+            generateLandingPageHtml({
+              pageNode: dataA,
+              formNode,
+              variantOverride: 'a',
+              leadEndpointUrl: effectiveLeadEndpoint,
+              externalWebhookUrl: effectiveExternalWebhook,
+              workspaceId: effectiveWorkspaceId,
+              journeyId: effectiveJourneyId
+            })
         });
       }
 
@@ -137,7 +169,16 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
           sublabel: dataB.headline || 'Branch B Landing Page',
           badge: 'Variant B',
           filename: `${splitNode.branchBPageSlug || dataB.slug || 'variant-b'}.html`,
-          getContent: () => generateLandingPageHtml({ pageNode: dataB, formNode, variantOverride: 'b' })
+          getContent: () =>
+            generateLandingPageHtml({
+              pageNode: dataB,
+              formNode,
+              variantOverride: 'b',
+              leadEndpointUrl: effectiveLeadEndpoint,
+              externalWebhookUrl: effectiveExternalWebhook,
+              workspaceId: effectiveWorkspaceId,
+              journeyId: effectiveJourneyId
+            })
         });
       }
 
@@ -151,7 +192,15 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
             sublabel: d.headline || 'Offer Page',
             badge: 'Offer Page',
             filename: `${d.slug || `page-${idx + 1}`}.html`,
-            getContent: () => generateLandingPageHtml({ pageNode: d, formNode })
+            getContent: () =>
+              generateLandingPageHtml({
+                pageNode: d,
+                formNode,
+                leadEndpointUrl: effectiveLeadEndpoint,
+                externalWebhookUrl: effectiveExternalWebhook,
+                workspaceId: effectiveWorkspaceId,
+                journeyId: effectiveJourneyId
+              })
           });
         }
       });
@@ -164,7 +213,16 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
           sublabel: primaryPageNode.headline || 'Primary Offer Headline',
           badge: 'Variant A',
           filename: `${primaryPageNode.slug || 'variant-a'}.html`,
-          getContent: () => generateLandingPageHtml({ pageNode: primaryPageNode, formNode, variantOverride: 'a' })
+          getContent: () =>
+            generateLandingPageHtml({
+              pageNode: primaryPageNode,
+              formNode,
+              variantOverride: 'a',
+              leadEndpointUrl: effectiveLeadEndpoint,
+              externalWebhookUrl: effectiveExternalWebhook,
+              workspaceId: effectiveWorkspaceId,
+              journeyId: effectiveJourneyId
+            })
         });
         pages.push({
           id: 'variant-b',
@@ -172,7 +230,16 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
           sublabel: primaryPageNode.variantB.headline || primaryPageNode.headline || 'Challenger Offer Headline',
           badge: 'Variant B',
           filename: `${primaryPageNode.slug ? `${primaryPageNode.slug}-b` : 'variant-b'}.html`,
-          getContent: () => generateLandingPageHtml({ pageNode: primaryPageNode, formNode, variantOverride: 'b' })
+          getContent: () =>
+            generateLandingPageHtml({
+              pageNode: primaryPageNode,
+              formNode,
+              variantOverride: 'b',
+              leadEndpointUrl: effectiveLeadEndpoint,
+              externalWebhookUrl: effectiveExternalWebhook,
+              workspaceId: effectiveWorkspaceId,
+              journeyId: effectiveJourneyId
+            })
         });
         pages.push({
           id: 'single-page-swap',
@@ -180,7 +247,15 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
           sublabel: 'Self-contained page with embedded in-DOM switcher',
           badge: 'Smart DOM',
           filename: `${primaryPageNode.slug || 'offer'}-smart.html`,
-          getContent: () => generateLandingPageHtml({ pageNode: primaryPageNode, formNode })
+          getContent: () =>
+            generateLandingPageHtml({
+              pageNode: primaryPageNode,
+              formNode,
+              leadEndpointUrl: effectiveLeadEndpoint,
+              externalWebhookUrl: effectiveExternalWebhook,
+              workspaceId: effectiveWorkspaceId,
+              journeyId: effectiveJourneyId
+            })
         });
       } else {
         // Standard single landing page or list of pages
@@ -192,7 +267,15 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
             sublabel: d.headline || 'High-Converting Offer',
             badge: 'Offer Page',
             filename: `${d.slug || `page-${idx + 1}`}.html`,
-            getContent: () => generateLandingPageHtml({ pageNode: d, formNode })
+            getContent: () =>
+              generateLandingPageHtml({
+                pageNode: d,
+                formNode,
+                leadEndpointUrl: effectiveLeadEndpoint,
+                externalWebhookUrl: effectiveExternalWebhook,
+                workspaceId: effectiveWorkspaceId,
+                journeyId: effectiveJourneyId
+              })
           });
         });
       }
@@ -212,7 +295,19 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
     }
 
     return pages;
-  }, [splitNode, primaryPageNode, pageNodes, effectiveTargetA, effectiveTargetB, formNode, thankYouNode]);
+  }, [
+    splitNode,
+    primaryPageNode,
+    pageNodes,
+    effectiveTargetA,
+    effectiveTargetB,
+    formNode,
+    thankYouNode,
+    effectiveLeadEndpoint,
+    effectiveExternalWebhook,
+    effectiveWorkspaceId,
+    effectiveJourneyId
+  ]);
 
   const [selectedPageId, setSelectedPageId] = useState<string>('split-router');
 
@@ -582,6 +677,78 @@ export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, jou
                   value={targetBUrl}
                   placeholder={defaultTargetB}
                   onChange={e => setTargetBUrl(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.45rem 0.65rem',
+                    borderRadius: '6px',
+                    backgroundColor: '#070A12',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#F8FAFC',
+                    fontSize: '0.8rem',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Lead Ingestion & Webhook Dual-Sync Configuration Strip (shown on landing page variants) */}
+        {activeTab === 'page' && activeHtmlPage && !activeHtmlPage.isRouter && !activeHtmlPage.isThankYou && (
+          <div
+            style={{
+              padding: '0.85rem 1.75rem',
+              backgroundColor: 'rgba(16, 185, 129, 0.06)',
+              borderBottom: '1px solid rgba(16, 185, 129, 0.18)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#6EE7B7', fontSize: '0.8rem', fontWeight: 700 }}>
+                <Webhook size={14} color="#10B981" />
+                <span>Lead Ingestion & Webhook Dual-Sync (Self-Hosted Integration)</span>
+              </div>
+              <span style={{ fontSize: '0.725rem', color: '#94A3B8' }}>
+                Saves to Jourvance CRM + triggers drips + relays to your external webhook
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                  Jourvance Ingestion Endpoint (CORS Enabled)
+                </label>
+                <input
+                  type="text"
+                  value={leadEndpointUrl}
+                  placeholder={defaultLeadEndpoint}
+                  onChange={e => setLeadEndpointUrl(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.45rem 0.65rem',
+                    borderRadius: '6px',
+                    backgroundColor: '#070A12',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#F8FAFC',
+                    fontSize: '0.8rem',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                  External Webhook Relay (Optional — Zapier / Make / Klaviyo)
+                </label>
+                <input
+                  type="text"
+                  value={externalWebhookUrl}
+                  placeholder="https://hooks.zapier.com/hooks/catch/..."
+                  onChange={e => setExternalWebhookUrl(e.target.value)}
                   style={{
                     width: '100%',
                     padding: '0.45rem 0.65rem',

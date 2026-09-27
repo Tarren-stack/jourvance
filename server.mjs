@@ -9348,8 +9348,17 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
+// Public Lead Ingestion CORS Preflight
+app.options('/api/public/lead', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, X-Requested-With');
+  res.sendStatus(204);
+});
+
 // Public Lead Ingestion
 app.post('/api/public/lead', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const clientIp = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
   if (isLeadRateLimited(clientIp)) {
     return res.status(429).json({ success: false, error: 'Too many submissions. Please wait a moment and try again.' });
@@ -9360,7 +9369,13 @@ app.post('/api/public/lead', async (req, res) => {
     return res.json({ success: true, message: 'Thank you! Your submission has been received.' });
   }
 
-  const { slug, email, name, phone, variant, order_bump_selected, orderBumpAccepted, utm_source, utm_medium, utm_campaign, utm_content, utm_term, fbclid, ttclid, gclid, visitorId } = req.body || {};
+  const {
+    slug, email, name, phone, variant,
+    order_bump_selected, orderBumpAccepted,
+    utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+    fbclid, ttclid, gclid, visitorId,
+    workspaceId, journeyId, webhookUrl: customWebhookUrl, externalWebhookUrl
+  } = req.body || {};
   if (!email || !email.includes('@')) {
     return res.status(400).json({ success: false, error: 'A valid email address is required.' });
   }
@@ -9411,8 +9426,9 @@ app.post('/api/public/lead', async (req, res) => {
     ttclid: ttclid || '',
     gclid: gclid || '',
     visitorId: String(visitorId || '').slice(0, 80),
-    userId: page?.userId || '',
-    journeyId: page?.journeyId || '',
+    userId: page?.userId || (workspaceId ? (Object.values(workspaceCache).find(w => w?.id === workspaceId)?.userId || '') : '') || req.body?.userId || '',
+    journeyId: page?.journeyId || journeyId || '',
+    workspaceId: page?.workspaceId || workspaceId || '',
     acceptsMarketing: doubleOpt ? false : true,
     pendingConfirm: doubleOpt ? signupForm.id : '',
     subscribedAt: new Date().toISOString()
@@ -9613,7 +9629,7 @@ app.post('/api/public/lead', async (req, res) => {
   if (qs && checkoutUrl) checkoutUrl += `?${qs}`;
 
   // Wave 3 & 4: Outbound Webhook Relay (Klaviyo / Zapier / Make / Custom Webhook with variant)
-  const webhookUrl = page?.data?.webhookUrl;
+  const webhookUrl = customWebhookUrl || externalWebhookUrl || page?.data?.webhookUrl;
   if (webhookUrl && (webhookUrl.startsWith('http://') || webhookUrl.startsWith('https://'))) {
     const bumpTitle = (page?.data?.orderBumpTitle || page?.data?.orderBumpHeadline || '').trim();
     fetch(webhookUrl, {

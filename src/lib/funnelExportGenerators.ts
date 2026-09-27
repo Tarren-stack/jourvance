@@ -149,11 +149,19 @@ export function generateSplitRouterHtml({
 export function generateLandingPageHtml({
   pageNode,
   formNode,
-  variantOverride
+  variantOverride,
+  leadEndpointUrl,
+  externalWebhookUrl,
+  workspaceId,
+  journeyId
 }: {
   pageNode?: Partial<PageNodeData>;
   formNode?: Partial<FormNodeData>;
   variantOverride?: 'a' | 'b';
+  leadEndpointUrl?: string;
+  externalWebhookUrl?: string;
+  workspaceId?: string;
+  journeyId?: string;
 }): string {
   const isStaticVariantB = variantOverride === 'b' && Boolean(pageNode?.variantB);
   const vB = pageNode?.variantB || {};
@@ -402,8 +410,8 @@ export function generateLandingPageHtml({
           phone: phoneInput ? phoneInput.value : '',
           website_url_hp: hpInput ? hpInput.value : '',
           slug: '${slug}',
-          variant: window.__jvActiveVariant || 'a',
-          utm_source: 'exported_html'
+          variant: window.__jvActiveVariant || '${isStaticVariantB ? 'b' : 'a'}',
+          utm_source: 'exported_html'${externalWebhookUrl ? `,\n          externalWebhookUrl: ${JSON.stringify(externalWebhookUrl)}` : ''}${workspaceId ? `,\n          workspaceId: ${JSON.stringify(workspaceId)}` : ''}${journeyId ? `,\n          journeyId: ${JSON.stringify(journeyId)}` : ''}
         };
 
         btn.disabled = true;
@@ -411,10 +419,10 @@ export function generateLandingPageHtml({
         msg.style.display = 'none';
 
         try {
-          var targetUrl = window.location.origin + '/api/public/lead';
+          var targetUrl = ${JSON.stringify(leadEndpointUrl || 'https://jourvance.com/api/public/lead')};
           var res = await fetch(targetUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify(payload)
           });
           var data = await res.json();
@@ -425,6 +433,9 @@ export function generateLandingPageHtml({
             msg.style.color = '#10B981';
             msg.style.border = '1px solid rgba(16, 185, 129, 0.3)';
             msg.innerHTML = '<strong>✨ Thank you!</strong> We have received your information.';
+            if (data.checkoutUrl) {
+              msg.innerHTML += '<div style="margin-top:0.75rem;"><a href="' + data.checkoutUrl + '" style="color:#818CF8; font-weight:700; text-decoration:underline;">Proceed to Complete Order &rarr;</a></div>';
+            }
           } else {
             throw new Error(data.error || 'Submission failed');
           }

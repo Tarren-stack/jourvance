@@ -831,6 +831,8 @@ export const App: React.FC = () => {
           onClose={() => setShowExportModal(false)}
           nodes={project.nodes as any}
           journeyTitle={project.name}
+          workspaceId={currentWorkspace?.id}
+          journeyId={project.id}
         />
 
         {/* Funnel Publish Modal */}
