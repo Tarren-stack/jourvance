@@ -8,6 +8,8 @@ const MEASURED_KEYS = [
   'liveRevenue', 'liveOrders', 'liveBumpOrders',
   'variantAVisitors', 'variantAConversions', 'variantAGrossRevenue',
   'variantBVisitors', 'variantBConversions', 'variantBGrossRevenue',
+  'branchAVisitors', 'branchAConversions', 'branchAGrossRevenue',
+  'branchBVisitors', 'branchBConversions', 'branchBGrossRevenue',
   'views', 'submissions', 'completionRate',
   'contactsEnrolled', 'avgOpenRate', 'avgClickRate',
   'pageViews', 'bounceBackClaims',

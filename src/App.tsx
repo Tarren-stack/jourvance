@@ -411,6 +411,23 @@ export const App: React.FC = () => {
           attributedRevenue: 0
         };
         break;
+      case 'ab-split':
+        newNodeData = {
+          type: 'ab-split',
+          label: 'A/B Traffic Splitter',
+          slug: `split-${Date.now().toString(36)}`,
+          splitRatio: 50,
+          goal: 'conversion_rate',
+          branchALabel: 'Branch A (Control)',
+          branchBLabel: 'Branch B (Challenger)',
+          branchAVisitors: 0,
+          branchAConversions: 0,
+          branchAGrossRevenue: 0,
+          branchBVisitors: 0,
+          branchBConversions: 0,
+          branchBGrossRevenue: 0
+        };
+        break;
     }
 
     const newNode: JourneyNode = {
@@ -517,8 +534,23 @@ export const App: React.FC = () => {
 
       if (!pubPages.length) {
         pubPages = project.nodes
-          .filter(n => n.type === 'landing-page')
+          .filter(n => n.type === 'landing-page' || n.type === 'ab-split')
           .map(n => {
+            if (n.type === 'ab-split') {
+              const d = n.data as any;
+              const cleanSlug = (d.slug || n.id)
+                .toLowerCase()
+                .replace(/[^a-z0-9_-]/g, '-')
+                .replace(/^-+|-+$/g, '') || `split-${n.id.slice(0, 6)}`;
+              return {
+                nodeId: n.id,
+                slug: cleanSlug,
+                url: `/p/split/${cleanSlug}`,
+                headline: d.label || 'A/B Traffic Splitter',
+                productTitle: `A/B Split (${d.splitRatio ?? 50}% / ${100 - (d.splitRatio ?? 50)}%)`,
+                checkoutMode: 'ab-split'
+              };
+            }
             const d = n.data as PageNodeData;
             const cleanSlug = (d.slug || n.id)
               .toLowerCase()

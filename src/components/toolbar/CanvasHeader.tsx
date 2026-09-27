@@ -960,6 +960,15 @@ export const CanvasHeader: React.FC<Props> = ({
                 <span>+ Landing Page</span>
               </button>
               <button
+                onClick={() => { onAddNode('ab-split'); setShowAddMenu(false); }}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#8B5CF6' }} />
+                <span>+ A/B Traffic Splitter</span>
+              </button>
+              <button
                 onClick={() => { onAddNode('lead-form'); setShowAddMenu(false); }}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}

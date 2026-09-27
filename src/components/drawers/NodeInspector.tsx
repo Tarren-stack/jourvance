@@ -7,6 +7,7 @@ import { FormEditor } from './FormEditor';
 import { SequenceEditor } from './SequenceEditor';
 import { ThankYouEditor } from './ThankYouEditor';
 import { UpsellEditor } from './UpsellEditor';
+import { AbSplitEditor } from './AbSplitEditor';
 
 interface Props {
   node: JourneyNode | null;
@@ -43,6 +44,7 @@ export const NodeInspector: React.FC<Props> = ({
       case 'follow-up-sequence': return 'Follow-up Nurture Flow';
       case 'thank-you': return 'VIP Thank-You Portal';
       case 'upsell': return 'Upsell & Downsell Offer Editor';
+      case 'ab-split': return 'A/B Traffic Splitter';
       default: return 'Node Configuration';
     }
   };
@@ -170,6 +172,12 @@ export const NodeInspector: React.FC<Props> = ({
             data={data}
             onChange={updated => onUpdateNode(node.id, updated)}
             workspace={workspace}
+          />
+        )}
+        {data.type === 'ab-split' && (
+          <AbSplitEditor
+            data={data}
+            onChange={updated => onUpdateNode(node.id, updated)}
           />
         )}
       </div>

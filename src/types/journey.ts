@@ -1,6 +1,6 @@
 import type { Node, Edge } from '@xyflow/react';
 
-export type NodeType = 'ad-source' | 'landing-page' | 'lead-form' | 'follow-up-sequence' | 'thank-you' | 'upsell';
+export type NodeType = 'ad-source' | 'landing-page' | 'lead-form' | 'follow-up-sequence' | 'thank-you' | 'upsell' | 'ab-split';
 
 export interface AdNodeData extends Record<string, unknown> {
   type: 'ad-source';
@@ -289,7 +289,29 @@ export interface UpsellNodeData extends Record<string, unknown> {
   attributedRevenue?: number;
 }
 
-export type JourneyNodeData = AdNodeData | PageNodeData | FormNodeData | SequenceNodeData | ThankYouNodeData | UpsellNodeData;
+export interface AbSplitNodeData extends Record<string, unknown> {
+  type: 'ab-split';
+  label: string;
+  slug: string;
+  splitRatio: number; // Percentage sent to Branch A (0-100, default 50)
+  goal: 'conversion_rate' | 'revenue' | 'aov';
+  winner?: 'a' | 'b' | null;
+  branchALabel?: string;
+  branchBLabel?: string;
+  branchAPageSlug?: string;
+  branchBPageSlug?: string;
+  branchANodeId?: string;
+  branchBNodeId?: string;
+  // Metrics & Financials
+  branchAVisitors: number;
+  branchAConversions: number;
+  branchAGrossRevenue?: number;
+  branchBVisitors: number;
+  branchBConversions: number;
+  branchBGrossRevenue?: number;
+}
+
+export type JourneyNodeData = AdNodeData | PageNodeData | FormNodeData | SequenceNodeData | ThankYouNodeData | UpsellNodeData | AbSplitNodeData;
 
 export type JourneyNode = Node<JourneyNodeData, NodeType>;
 

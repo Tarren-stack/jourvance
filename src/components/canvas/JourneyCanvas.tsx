@@ -24,6 +24,7 @@ import { FormNode } from './nodes/FormNode';
 import { SequenceNode } from './nodes/SequenceNode';
 import { ThankYouNode } from './nodes/ThankYouNode';
 import { UpsellNode } from './nodes/UpsellNode';
+import { AbSplitNode } from './nodes/AbSplitNode';
 import { ConversionEdge } from './edges/ConversionEdge';
 
 interface Props {
@@ -55,7 +56,8 @@ export const JourneyCanvas: React.FC<Props> = ({
     'lead-form': FormNode,
     'follow-up-sequence': SequenceNode,
     'thank-you': ThankYouNode,
-    'upsell': UpsellNode
+    'upsell': UpsellNode,
+    'ab-split': AbSplitNode
   }), []);
 
   const edgeTypes: EdgeTypes = useMemo(() => ({
@@ -157,6 +159,8 @@ export const JourneyCanvas: React.FC<Props> = ({
         id: `e-${params.source}-${params.target}-${Date.now()}`,
         source: params.source,
         target: params.target,
+        sourceHandle: params.sourceHandle,
+        targetHandle: params.targetHandle,
         type: 'conversion',
         data: {
           sourceThroughput: 0,

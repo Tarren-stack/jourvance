@@ -30,13 +30,20 @@ export function getStepBenchmark(
   let topThreshold = 40.0;
   let industryBenchmarkDesc = 'Typical multi-step funnel transition baseline (15–30%).';
 
-  if (sourceType === 'ad-source' && targetType === 'landing-page') {
+  if (sourceType === 'ad-source' && (targetType === 'landing-page' || targetType === 'ab-split')) {
     metricName = 'Click-Through Rate';
     metricShort = 'CTR';
     poorThreshold = 1.2;
     healthyThreshold = 2.0;
     topThreshold = 3.2;
     industryBenchmarkDesc = 'Direct-response ad traffic averages 1.2%–2.5% CTR across Meta & Google.';
+  } else if (sourceType === 'ab-split') {
+    metricName = 'Traffic Split Allocation';
+    metricShort = 'SPLIT';
+    poorThreshold = 20.0;
+    healthyThreshold = 40.0;
+    topThreshold = 50.0;
+    industryBenchmarkDesc = 'Portion of total funnel traffic routed down this testing branch.';
   } else if (sourceType === 'landing-page' && targetType === 'lead-form') {
     metricName = 'Opt-In Rate';
     metricShort = 'OPT-IN';
@@ -241,6 +248,21 @@ export function getStepOptimizationTips(
         title: 'Add a Downsell Safety Net',
         description: 'Route declined upsell traffic to a lower-barrier downsell offer to preserve additional average order value.',
         badge: 'DOWNSELL'
+      }
+    ];
+  }
+
+  if (sourceType === 'ab-split') {
+    return [
+      {
+        title: 'Check Statistical Sample Size',
+        description: 'Aim for at least 100 visitors and 10+ conversions per branch before declaring a definitive winning variation.',
+        badge: 'CONFIDENCE'
+      },
+      {
+        title: 'Lock In the Winning Branch',
+        description: 'Once a variant demonstrates clear conversion or revenue lift, declare the winner to direct 100% of future traffic to it.',
+        badge: 'TRAFFIC LOCK'
       }
     ];
   }

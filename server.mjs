@@ -9209,6 +9209,65 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
         shopifyConfig
       };
       await savePublicPage(cleanSlug, publicRecord);
+    } else if (node.type === 'ab-split') {
+      const d = node.data || {};
+      const cleanSlug = (d.slug || `${node.id}-split`)
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '-')
+        .replace(/^-+|-+$/g, '') || `split-${node.id.slice(0, 6)}`;
+      const pubUrl = `/p/split/${cleanSlug}`;
+
+      // Resolve target pages from outgoing edges or data fields
+      const edges = Array.isArray(journey.edges) ? journey.edges : [];
+      const outgoingEdges = edges.filter(e => e.source === node.id);
+      const edgeA = outgoingEdges.find(e => e.sourceHandle === 'branch-a') || outgoingEdges[0];
+      const edgeB = outgoingEdges.find(e => e.sourceHandle === 'branch-b') || outgoingEdges[1];
+
+      let targetASlug = d.branchAPageSlug || '';
+      let targetBSlug = d.branchBPageSlug || '';
+
+      if (edgeA) {
+        const targetNodeA = nodes.find(n => n.id === edgeA.target);
+        if (targetNodeA?.data?.slug) targetASlug = targetNodeA.data.slug;
+      }
+      if (edgeB) {
+        const targetNodeB = nodes.find(n => n.id === edgeB.target);
+        if (targetNodeB?.data?.slug) targetBSlug = targetNodeB.data.slug;
+      }
+
+      node.data = {
+        ...d,
+        slug: cleanSlug,
+        branchAPageSlug: targetASlug,
+        branchBPageSlug: targetBSlug,
+        published: true,
+        publishedAt: new Date().toISOString(),
+        publishedUrl: pubUrl
+      };
+
+      const publicRecord = {
+        type: 'ab-split',
+        slug: cleanSlug,
+        journeyId: journey.id,
+        workspaceId: wsId || 'default',
+        userId: req.user.uid,
+        nodeId: node.id,
+        publishedAt: new Date().toISOString(),
+        data: node.data,
+        shopifyConfig
+      };
+
+      await savePublicPage(`split:${cleanSlug}`, publicRecord);
+      publicPageCache[`split:${cleanSlug}`] = publicRecord;
+
+      publishedPages.push({
+        nodeId: node.id,
+        slug: cleanSlug,
+        url: pubUrl,
+        headline: d.label || 'A/B Traffic Splitter',
+        productTitle: `A/B Split (${d.splitRatio ?? 50}% / ${100 - (d.splitRatio ?? 50)}%)`,
+        checkoutMode: 'ab-split'
+      });
     }
   }
 
@@ -10066,6 +10125,100 @@ app.get(['/p/:slug/thank-you', '/p/:wsId/:slug/thank-you'], async (req, res) => 
   res.send(html);
 });
 
+// Public A/B Split Traffic Router SSR Route
+app.get(['/p/split/:slug', '/p/:wsId/split/:slug'], async (req, res) => {
+  const slug = (req.params.slug || '').toLowerCase().trim();
+  let split = publicPageCache[`split:${slug}`] || await loadPublicPage(`split:${slug}`);
+  if (!split) {
+    for (const record of Object.values(publicPageCache)) {
+      if (record && typeof record === 'object' && record.type === 'ab-split' && record.slug?.toLowerCase() === slug) {
+        split = record;
+        break;
+      }
+    }
+  }
+
+  if (!split || !split.data) {
+    return res.status(404).send(render404Html(slug));
+  }
+
+  const d = split.data || {};
+
+  // 1. Check query parameter override: ?jv_var=a|b or ?var=a|b
+  const qVar = String(req.query.jv_var || req.query.var || '').toLowerCase();
+  let variant = '';
+  if (qVar === 'a' || qVar === 'b') {
+    variant = qVar;
+  }
+
+  // 2. Check sticky cookie: jv_split_<slug>=a|b
+  if (!variant) {
+    const cookieHeader = req.headers.cookie || '';
+    const cookieMatch = cookieHeader.match(new RegExp(`jv_split_${slug}=(a|b)`, 'i'));
+    if (cookieMatch && cookieMatch[1]) {
+      variant = cookieMatch[1].toLowerCase();
+    }
+  }
+
+  // 3. Check winner or 100/0 lock
+  if (!variant) {
+    if (d.winner === 'a' || d.splitRatio === 100) {
+      variant = 'a';
+    } else if (d.winner === 'b' || d.splitRatio === 0) {
+      variant = 'b';
+    }
+  }
+
+  // 4. Deterministic random allocation based on splitRatio (default 50)
+  if (!variant) {
+    const ratio = typeof d.splitRatio === 'number' ? Math.max(0, Math.min(100, d.splitRatio)) : 50;
+    variant = (Math.random() * 100 < ratio) ? 'a' : 'b';
+  }
+
+  // Set 30-day sticky cookie
+  res.setHeader('Set-Cookie', `jv_split_${slug}=${variant}; Path=/; Max-Age=2592000; SameSite=Lax`);
+
+  // Update telemetry
+  if (variant === 'a') {
+    d.branchAVisitors = (d.branchAVisitors || 0) + 1;
+  } else {
+    d.branchBVisitors = (d.branchBVisitors || 0) + 1;
+  }
+  persistPublicPages();
+
+  recordEvent({
+    type: 'split_route',
+    slug,
+    journeyId: split.journeyId || '',
+    nodeId: split.nodeId || '',
+    userId: split.userId || '',
+    variant,
+    visitorId: String(req.query.jv_vid || '').slice(0, 80),
+    utm_source: String(req.query.utm_source || ''),
+    utm_medium: String(req.query.utm_medium || ''),
+    utm_campaign: String(req.query.utm_campaign || ''),
+    utm_content: String(req.query.utm_content || '')
+  });
+
+  // Resolve target slug
+  const targetSlug = (variant === 'b' ? d.branchBPageSlug : d.branchAPageSlug) || d.branchAPageSlug || d.branchBPageSlug;
+  if (!targetSlug) {
+    return res.status(404).send(render404Html(`${slug} (no target page connected for variant ${variant.toUpperCase()})`));
+  }
+
+  // Forward query parameters + jv_split & jv_var
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(req.query)) {
+    params.set(k, String(v));
+  }
+  params.set('jv_split', slug);
+  params.set('jv_var', variant);
+
+  const targetPath = `/p/${targetSlug}`;
+  const destination = `${targetPath}?${params.toString()}`;
+  return res.redirect(302, destination);
+});
+
 // Public Landing Page SSR Route (must be before catch-all static handler)
 app.get(['/p/:slug', '/p/:wsId/:slug'], async (req, res) => {
   const slug = (req.params.slug || '').toLowerCase();
@@ -10355,12 +10508,43 @@ app.post('/api/funnel/stats', requireUser, (req, res) => {
         conversionRate: views > 0 ? round1((takes / views) * 100) : 0,
         attributedRevenue
       };
+    } else if (node.type === 'ab-split') {
+      const splitSlug = String(node.slug || '');
+      const splitEvents = events.filter(e => e.nodeId === node.id || (splitSlug && (e.slug === splitSlug || e.splitSlug === splitSlug)));
+      const visA = splitEvents.filter(e => (e.type === 'split_route' || e.type === 'page_view') && e.variant !== 'b').length;
+      const visB = splitEvents.filter(e => (e.type === 'split_route' || e.type === 'page_view') && e.variant === 'b').length;
+
+      const outgoingEdges = edges.filter(e => e.source === node.id);
+      const edgeA = outgoingEdges.find(e => e.sourceHandle === 'branch-a') || outgoingEdges[0];
+      const edgeB = outgoingEdges.find(e => e.sourceHandle === 'branch-b') || outgoingEdges[1];
+      const nodeA = edgeA ? byId[edgeA.target] : null;
+      const nodeB = edgeB ? byId[edgeB.target] : null;
+
+      const eventsA = nodeA ? eventsFor(nodeA) : [];
+      const ordersA = nodeA ? ordersFor(nodeA) : [];
+      const convA = (ordersA.length || eventsA.filter(e => e.type === 'lead').length) || splitEvents.filter(e => (e.type === 'lead' || e.type === 'order') && e.variant !== 'b').length;
+      const revA = Number(ordersA.reduce((sum, o) => sum + Number(o.totalPrice || 0), 0).toFixed(2));
+
+      const eventsB = nodeB ? eventsFor(nodeB) : [];
+      const ordersB = nodeB ? ordersFor(nodeB) : [];
+      const convB = (ordersB.length || eventsB.filter(e => e.type === 'lead').length) || splitEvents.filter(e => (e.type === 'lead' || e.type === 'order') && e.variant === 'b').length;
+      const revB = Number(ordersB.reduce((sum, o) => sum + Number(o.totalPrice || 0), 0).toFixed(2));
+
+      nodeStats[node.id] = {
+        branchAVisitors: visA,
+        branchAConversions: convA,
+        branchAGrossRevenue: revA,
+        branchBVisitors: visB,
+        branchBConversions: convB,
+        branchBGrossRevenue: revB
+      };
     }
   }
 
   const throughput = (node) => {
     const s = nodeStats[node.id] || {};
     if (node.type === 'ad-source') return s.clicks || 0;
+    if (node.type === 'ab-split') return (s.branchAVisitors || 0) + (s.branchBVisitors || 0);
     if (node.type === 'landing-page') return s.visitors || 0;
     if (node.type === 'lead-form') return s.submissions || 0;
     if (node.type === 'follow-up-sequence') return s.flowEnrolled || 0;
@@ -10372,7 +10556,15 @@ app.post('/api/funnel/stats', requireUser, (req, res) => {
   for (const edge of edges) {
     const source = byId[edge.source];
     const target = byId[edge.target];
-    const sourceThroughput = source ? throughput(source) : 0;
+    let sourceThroughput = source ? throughput(source) : 0;
+    if (source?.type === 'ab-split') {
+      const splitStats = nodeStats[source.id] || {};
+      if (edge.sourceHandle === 'branch-b') {
+        sourceThroughput = splitStats.branchBVisitors || 0;
+      } else {
+        sourceThroughput = splitStats.branchAVisitors || 0;
+      }
+    }
     const targetCount = target ? throughput(target) : 0;
     edgeStats[edge.id] = {
       sourceThroughput,

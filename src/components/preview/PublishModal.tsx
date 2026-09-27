@@ -180,13 +180,13 @@ export const PublishModal: React.FC<Props> = ({
                           fontSize: '10px',
                           fontWeight: 700,
                           textTransform: 'uppercase',
-                          color: '#34D399',
-                          backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                          color: page.checkoutMode === 'ab-split' ? '#C4B5FD' : '#34D399',
+                          backgroundColor: page.checkoutMode === 'ab-split' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(16, 185, 129, 0.15)',
                           padding: '2px 8px',
                           borderRadius: '9999px'
                         }}
                       >
-                        {page.checkoutMode === 'lead-gate' ? '2-Step Lead Gate' : '1-Click Direct Checkout'}
+                        {page.checkoutMode === 'ab-split' ? 'A/B Traffic Splitter' : page.checkoutMode === 'lead-gate' ? '2-Step Lead Gate' : '1-Click Direct Checkout'}
                       </span>
                     </div>
 
