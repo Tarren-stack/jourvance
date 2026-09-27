@@ -1,7 +1,36 @@
-import React, { useState } from 'react';
-import { X, Copy, Check, Download, Globe, Mail, Share2, Code, CheckCircle2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import {
+  X,
+  Copy,
+  Check,
+  Download,
+  Globe,
+  Mail,
+  Share2,
+  Code,
+  CheckCircle2,
+  Split,
+  Gift,
+  Layers,
+  Settings,
+  FileText
+} from 'lucide-react';
 import type { Node } from '@xyflow/react';
-import type { PageNodeData, AdNodeData, SequenceNodeData, FormNodeData, SequenceStep } from '../../types/journey';
+import type {
+  PageNodeData,
+  AdNodeData,
+  SequenceNodeData,
+  FormNodeData,
+  ThankYouNodeData,
+  AbSplitNodeData
+} from '../../types/journey';
+import {
+  generateSplitRouterHtml,
+  generateLandingPageHtml,
+  generateThankYouHtml,
+  generateEmailSequenceText,
+  generateAdCopyText
+} from '../../lib/funnelExportGenerators';
 
 interface Props {
   isOpen: boolean;
@@ -10,321 +39,217 @@ interface Props {
   journeyTitle: string;
 }
 
+interface ExportableHtmlPage {
+  id: string;
+  label: string;
+  sublabel: string;
+  badge: string;
+  filename: string;
+  isRouter?: boolean;
+  isThankYou?: boolean;
+  getContent: () => string;
+}
+
 export const ExportAssetsModal: React.FC<Props> = ({ isOpen, onClose, nodes, journeyTitle }) => {
   const [activeTab, setActiveTab] = useState<'page' | 'emails' | 'ads' | 'json'>('page');
   const [copied, setCopied] = useState(false);
+  const [targetAUrl, setTargetAUrl] = useState<string>('');
+  const [targetBUrl, setTargetBUrl] = useState<string>('');
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+
+  // Extract typed nodes from canvas
+  const pageNodes = useMemo(() => nodes.filter(n => n.type === 'landing-page'), [nodes]);
+  const primaryPageNode = pageNodes[0]?.data as PageNodeData | undefined;
+  const splitNode = useMemo(
+    () => nodes.find(n => n.type === 'ab-split')?.data as AbSplitNodeData | undefined,
+    [nodes]
+  );
+  const thankYouNode = useMemo(
+    () => nodes.find(n => n.type === 'thank-you')?.data as ThankYouNodeData | undefined,
+    [nodes]
+  );
+  const adNode = useMemo(
+    () => nodes.find(n => n.type === 'ad-source')?.data as AdNodeData | undefined,
+    [nodes]
+  );
+  const sequenceNode = useMemo(
+    () => nodes.find(n => n.type === 'follow-up-sequence')?.data as SequenceNodeData | undefined,
+    [nodes]
+  );
+  const formNode = useMemo(
+    () => nodes.find(n => n.type === 'lead-form')?.data as FormNodeData | undefined,
+    [nodes]
+  );
+
+  // Default target destination URLs for router
+  const defaultTargetA = `./${splitNode?.branchAPageSlug || primaryPageNode?.slug || 'variant-a'}.html`;
+  const defaultTargetB = `./${splitNode?.branchBPageSlug || (primaryPageNode?.slug ? `${primaryPageNode.slug}-b` : 'variant-b')}.html`;
+
+  const effectiveTargetA = targetAUrl.trim() || defaultTargetA;
+  const effectiveTargetB = targetBUrl.trim() || defaultTargetB;
+
+  // Build dynamic list of exportable HTML pages
+  const exportablePages = useMemo<ExportableHtmlPage[]>(() => {
+    const pages: ExportableHtmlPage[] = [];
+
+    // 1. Split Router (Available whenever ab-split exists, or if abTestingEnabled on page, or user has multiple pages)
+    const hasSplitCapability = Boolean(splitNode || primaryPageNode?.abTestingEnabled || pageNodes.length > 1);
+    if (hasSplitCapability) {
+      pages.push({
+        id: 'split-router',
+        label: splitNode?.label || 'A/B Traffic Split Router',
+        sublabel: 'Deterministic sticky client-side redirect',
+        badge: `${splitNode?.splitRatio ?? 50}/${100 - (splitNode?.splitRatio ?? 50)} Split`,
+        filename: 'split-router.html',
+        isRouter: true,
+        getContent: () =>
+          generateSplitRouterHtml({
+            splitNode,
+            targetAUrl: effectiveTargetA,
+            targetBUrl: effectiveTargetB
+          })
+      });
+    }
+
+    // 2. Landing Pages
+    if (splitNode && pageNodes.length >= 2) {
+      // Multiple dedicated page nodes connected to split branches
+      const nodeA = pageNodes.find(n => n.id === splitNode.branchANodeId) || pageNodes[0];
+      const nodeB = pageNodes.find(n => n.id === splitNode.branchBNodeId) || pageNodes[1];
+
+      if (nodeA) {
+        const dataA = nodeA.data as PageNodeData;
+        pages.push({
+          id: 'variant-a',
+          label: splitNode.branchALabel || dataA.label || 'Variant A Offer',
+          sublabel: dataA.headline || 'Branch A Landing Page',
+          badge: 'Variant A',
+          filename: `${splitNode.branchAPageSlug || dataA.slug || 'variant-a'}.html`,
+          getContent: () => generateLandingPageHtml({ pageNode: dataA, formNode, variantOverride: 'a' })
+        });
+      }
+
+      if (nodeB) {
+        const dataB = nodeB.data as PageNodeData;
+        pages.push({
+          id: 'variant-b',
+          label: splitNode.branchBLabel || dataB.label || 'Variant B Offer',
+          sublabel: dataB.headline || 'Branch B Landing Page',
+          badge: 'Variant B',
+          filename: `${splitNode.branchBPageSlug || dataB.slug || 'variant-b'}.html`,
+          getContent: () => generateLandingPageHtml({ pageNode: dataB, formNode, variantOverride: 'b' })
+        });
+      }
+
+      // Any additional landing pages beyond branches A & B
+      pageNodes.forEach((node, idx) => {
+        if (node !== nodeA && node !== nodeB) {
+          const d = node.data as PageNodeData;
+          pages.push({
+            id: `page-${node.id}`,
+            label: d.label || `Landing Page ${idx + 1}`,
+            sublabel: d.headline || 'Offer Page',
+            badge: 'Offer Page',
+            filename: `${d.slug || `page-${idx + 1}`}.html`,
+            getContent: () => generateLandingPageHtml({ pageNode: d, formNode })
+          });
+        }
+      });
+    } else if (primaryPageNode) {
+      if (primaryPageNode.abTestingEnabled && primaryPageNode.variantB) {
+        // Single page node configured with Variant B challenger
+        pages.push({
+          id: 'variant-a',
+          label: 'Variant A (Control)',
+          sublabel: primaryPageNode.headline || 'Primary Offer Headline',
+          badge: 'Variant A',
+          filename: `${primaryPageNode.slug || 'variant-a'}.html`,
+          getContent: () => generateLandingPageHtml({ pageNode: primaryPageNode, formNode, variantOverride: 'a' })
+        });
+        pages.push({
+          id: 'variant-b',
+          label: 'Variant B (Challenger)',
+          sublabel: primaryPageNode.variantB.headline || primaryPageNode.headline || 'Challenger Offer Headline',
+          badge: 'Variant B',
+          filename: `${primaryPageNode.slug ? `${primaryPageNode.slug}-b` : 'variant-b'}.html`,
+          getContent: () => generateLandingPageHtml({ pageNode: primaryPageNode, formNode, variantOverride: 'b' })
+        });
+        pages.push({
+          id: 'single-page-swap',
+          label: 'Single-Page Dynamic Swap',
+          sublabel: 'Self-contained page with embedded in-DOM switcher',
+          badge: 'Smart DOM',
+          filename: `${primaryPageNode.slug || 'offer'}-smart.html`,
+          getContent: () => generateLandingPageHtml({ pageNode: primaryPageNode, formNode })
+        });
+      } else {
+        // Standard single landing page or list of pages
+        pageNodes.forEach((node, idx) => {
+          const d = node.data as PageNodeData;
+          pages.push({
+            id: `page-${node.id || idx}`,
+            label: d.label || (idx === 0 ? 'Primary Landing Page' : `Landing Page ${idx + 1}`),
+            sublabel: d.headline || 'High-Converting Offer',
+            badge: 'Offer Page',
+            filename: `${d.slug || `page-${idx + 1}`}.html`,
+            getContent: () => generateLandingPageHtml({ pageNode: d, formNode })
+          });
+        });
+      }
+    }
+
+    // 3. VIP Thank-You Portal
+    if (thankYouNode) {
+      pages.push({
+        id: 'thank-you',
+        label: thankYouNode.label || 'VIP Order Confirmation Portal',
+        sublabel: thankYouNode.headline || 'Onboarding & Discount Courtesy Voucher',
+        badge: 'VIP Portal',
+        filename: `${thankYouNode.slug || 'thank-you'}.html`,
+        isThankYou: true,
+        getContent: () => generateThankYouHtml({ thankYouNode })
+      });
+    }
+
+    return pages;
+  }, [splitNode, primaryPageNode, pageNodes, effectiveTargetA, effectiveTargetB, formNode, thankYouNode]);
+
+  const [selectedPageId, setSelectedPageId] = useState<string>('split-router');
+
+  // Ensure active page points to an existing item
+  const activeHtmlPage = useMemo(() => {
+    return exportablePages.find(p => p.id === selectedPageId) || exportablePages[0];
+  }, [exportablePages, selectedPageId]);
 
   if (!isOpen) return null;
 
-  // Extract nodes
-  const pageNode = nodes.find(n => n.type === 'landing-page')?.data as PageNodeData | undefined;
-  const adNode = nodes.find(n => n.type === 'ad-source')?.data as AdNodeData | undefined;
-  const sequenceNode = nodes.find(n => n.type === 'follow-up-sequence')?.data as SequenceNodeData | undefined;
-  const formNode = nodes.find(n => n.type === 'lead-form')?.data as FormNodeData | undefined;
-
-  // Generate HTML for Landing Page
-  const generateLandingPageHtml = () => {
-    const headline = pageNode?.headline || 'High-Converting Offer Headline';
-    const subhead = pageNode?.subhead || 'Clear, concise subheadline addressing customer pain and immediate value.';
-    const buttonText = pageNode?.buttonText || formNode?.submitButtonText || 'Get Started Free';
-    const bullets = pageNode?.bullets || ['Proven 3-step execution framework', 'Instant access upon qualification', 'Zero long-term contracts or lock-ins'];
-    const fields = formNode?.fields || [
-      { id: '1', label: 'Full Name', type: 'text', placeholder: 'Jane Doe', required: true },
-      { id: '2', label: 'Work Email', type: 'email', placeholder: 'jane@company.com', required: true }
-    ];
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${headline} — Powered by Jourvance</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      background-color: #070A12;
-      color: #F1F5F9;
-      line-height: 1.6;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem 1.5rem;
-    }
-    .container {
-      max-width: 640px;
-      width: 100%;
-      background: #111827;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 20px;
-      padding: 2.75rem 2.25rem;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-    }
-    .badge {
-      display: inline-block;
-      font-size: 0.75rem;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #818CF8;
-      background: rgba(99, 102, 241, 0.12);
-      padding: 0.35rem 0.85rem;
-      border-radius: 9999px;
-      margin-bottom: 1.25rem;
-    }
-    h1 {
-      font-size: 2.15rem;
-      font-weight: 800;
-      line-height: 1.25;
-      letter-spacing: -0.025em;
-      margin-bottom: 0.85rem;
-      color: #FFFFFF;
-    }
-    .subhead {
-      font-size: 1.05rem;
-      color: #94A3B8;
-      margin-bottom: 2rem;
-    }
-    .bullets {
-      list-style: none;
-      margin-bottom: 2.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-    }
-    .bullets li {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      font-size: 0.95rem;
-      color: #E2E8F0;
-    }
-    .bullets li::before {
-      content: "✓";
-      color: #10B981;
-      font-weight: 800;
-    }
-    .form-group {
-      margin-bottom: 1.15rem;
-    }
-    label {
-      display: block;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: #CBD5E1;
-      margin-bottom: 0.4rem;
-    }
-    input {
-      width: 100%;
-      padding: 0.85rem 1rem;
-      border-radius: 10px;
-      background: #1E293B;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: #FFFFFF;
-      font-size: 0.95rem;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-    input:focus {
-      border-color: #6366F1;
-    }
-    button.submit-btn {
-      width: 100%;
-      padding: 1rem;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
-      color: #FFFFFF;
-      font-size: 1rem;
-      font-weight: 700;
-      border: none;
-      cursor: pointer;
-      margin-top: 0.5rem;
-      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
-    }
-    .guarantee {
-      text-align: center;
-      font-size: 0.8rem;
-      color: #64748B;
-      margin-top: 1.25rem;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <span class="badge">Limited Intake</span>
-    <h1>${headline}</h1>
-    <p class="subhead">${subhead}</p>
-
-    <ul class="bullets">
-      ${bullets.map(b => `<li>${b}</li>`).join('\n      ')}
-    </ul>
-
-    <form id="leadCaptureForm" onsubmit="handleLeadSubmit(event)">
-      ${fields.map(f => `
-      <div class="form-group">
-        <label>${f.label}</label>
-        <input name="${f.type === 'email' ? 'email' : (f.type === 'tel' ? 'phone' : 'name')}" type="${f.type}" placeholder="${f.placeholder}" ${f.required ? 'required' : ''} />
-      </div>`).join('')}
-      <input type="text" name="website_url_hp" style="display:none !important; position:absolute; left:-9999px;" tabindex="-1" autocomplete="off" aria-hidden="true" />
-      <button type="submit" id="submitBtn" class="submit-btn">${buttonText}</button>
-      <div id="formMsg" style="display:none; margin-top:1rem; padding:0.75rem; border-radius:6px; font-size:0.875rem; text-align:center;"></div>
-      <p class="guarantee">🔒 Your information is confidential and never shared.</p>
-    </form>
-
-    <script>
-      async function handleLeadSubmit(e) {
-        e.preventDefault();
-        var form = e.target;
-        var btn = document.getElementById('submitBtn');
-        var msg = document.getElementById('formMsg');
-        var emailInput = form.querySelector('input[type="email"]');
-        var nameInput = form.querySelector('input[type="text"]');
-        var phoneInput = form.querySelector('input[type="tel"]');
-        var hpInput = form.querySelector('input[name="website_url_hp"]');
-
-        var payload = {
-          email: emailInput ? emailInput.value : '',
-          name: nameInput ? nameInput.value : '',
-          phone: phoneInput ? phoneInput.value : '',
-          website_url_hp: hpInput ? hpInput.value : '',
-          slug: '${(pageNode as any)?.slug || 'export'}',
-          utm_source: 'exported_html'
-        };
-
-        btn.disabled = true;
-        btn.innerText = 'Submitting...';
-        msg.style.display = 'none';
-
-        try {
-          var targetUrl = window.location.origin + '/api/public/lead';
-          var res = await fetch(targetUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          var data = await res.json();
-          if (res.ok && data.success) {
-            form.style.display = 'none';
-            msg.style.display = 'block';
-            msg.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
-            msg.style.color = '#10B981';
-            msg.style.border = '1px solid rgba(16, 185, 129, 0.3)';
-            msg.innerHTML = '<strong>✨ Thank you!</strong> We have received your information.';
-          } else {
-            throw new Error(data.error || 'Submission failed');
-          }
-        } catch (err) {
-          btn.disabled = false;
-          btn.innerText = '${buttonText}';
-          msg.style.display = 'block';
-          msg.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
-          msg.style.color = '#EF4444';
-          msg.style.border = '1px solid rgba(239, 68, 68, 0.3)';
-          msg.innerText = err.message || 'Something went wrong. Please try again.';
-        }
-      }
-    </script>
-  </div>
-</body>
-</html>`;
-  };
-
-  // Generate Email Drip Markdown
-  const generateEmailSequenceText = () => {
-    const steps: SequenceStep[] = sequenceNode?.steps || [
-      {
-        id: '1',
-        channel: 'email',
-        delay: 'Instant',
-        subject: 'Your intake confirmation + next steps',
-        previewText: 'Thank you for reaching out.',
-        body: 'Hi {{first_name}},\n\nThank you for requesting access to our pipeline blueprint. We have received your details and our team is reviewing your intake questions right now.\n\nIn the meantime, take 3 minutes to review our case study: {{case_study_link}}.\n\nBest,\nYour Team'
-      },
-      {
-        id: '2',
-        channel: 'email',
-        delay: '24 Hours',
-        subject: 'The 3 hidden conversion bottlenecks cost you pipeline',
-        previewText: 'How fragmented funnels leak 40% of ad spend.',
-        body: 'Hi {{first_name}},\n\nYesterday we shared your initial confirmation. Today I want to show you the single biggest mistake service businesses make when spending on Meta ads:\n\nSending traffic to a generic homepage instead of a dedicated single-offer landing page.\n\nWhen leads land on an unfocused page, they leave. That is why our visual pipeline maps every click from first impression to follow-up.\n\nReady to map yours? Reply to this email or book a call here: {{calendar_link}}.\n\nBest,\nYour Team'
-      },
-      {
-        id: '3',
-        channel: 'email',
-        delay: '72 Hours',
-        subject: 'Are we still on for this week?',
-        previewText: 'Holding your spot in our intake queue.',
-        body: 'Hi {{first_name}},\n\nJust checking in to see if you had any questions on our proposal. We are finalizing our onboarding schedule for this week and have 2 slots remaining.\n\nLet me know if you would like me to hold a slot for you.\n\nBest,\nYour Team'
-      }
-    ];
-
-    return steps
-      .map(
-        (e: SequenceStep, i: number) =>
-          `═══════════════════════════════════════════════════════════════\nEMAIL #${i + 1} — TIMING: ${e.delay.toUpperCase()}\n═══════════════════════════════════════════════════════════════\nSUBJECT: ${e.subject}\nPREVIEW TEXT: ${e.previewText || ''}\n\nBODY:\n${e.body}\n`
-      )
-      .join('\n\n');
-  };
-
-  // Generate Ad Copy & UTM Links
-  const generateAdCopyText = () => {
-    const headline = adNode?.headline || 'Stop Leaking 40% of Your Ad Spend';
-    const primaryText = adNode?.primaryText || 'Most businesses run great ads but send visitors to a confusing homepage. Jourvance lets you build connected customer journeys that turn clicks into qualified leads.';
-    const hook = adNode?.hook || 'Stop losing leads between your ad and your calendar.';
-    const cta = adNode?.ctaText || 'Learn More';
-    const destinationUrl = 'https://jourvance.com/p/offer';
-
-    const utmMeta = `${destinationUrl}?utm_source=meta&utm_medium=cpc&utm_campaign=lead_intake&utm_content=hook_angle_1`;
-    const utmGoogle = `${destinationUrl}?utm_source=google&utm_medium=search&utm_campaign=brand_conversion&utm_term=customer_journey_builder`;
-    const utmTikTok = `${destinationUrl}?utm_source=tiktok&utm_medium=video&utm_campaign=founder_story&utm_content=problem_agitation`;
-
-    return `═══════════════════════════════════════════════════════════════
-AD CREATIVE & COPY SPECIFICATION
-═══════════════════════════════════════════════════════════════
-HOOK ANGLE:
-"${hook}"
-
-PRIMARY AD COPY:
-${primaryText}
-
-HEADLINE:
-${headline}
-
-CALL TO ACTION (CTA):
-${cta}
-
-═══════════════════════════════════════════════════════════════
-PRE-CONFIGURED UTM TRACKING DESTINATION URLS
-═══════════════════════════════════════════════════════════════
-
-1. META (FACEBOOK / INSTAGRAM FEED & REELS):
-${utmMeta}
-
-2. GOOGLE SEARCH / PMAX:
-${utmGoogle}
-
-3. TIKTOK ADS:
-${utmTikTok}
-`;
-  };
-
-  // Get current text content
+  // Retrieve current content for preview & download
   const getCurrentContent = () => {
     switch (activeTab) {
       case 'page':
-        return generateLandingPageHtml();
+        return activeHtmlPage ? activeHtmlPage.getContent() : '<!-- No pages found on canvas -->';
       case 'emails':
-        return generateEmailSequenceText();
+        return generateEmailSequenceText({ sequenceNode });
       case 'ads':
-        return generateAdCopyText();
+        return generateAdCopyText({
+          adNode,
+          destinationUrl: primaryPageNode?.publishedUrl || (splitNode ? './split-router.html' : './variant-a.html')
+        });
       case 'json':
         return JSON.stringify({ title: journeyTitle, exportedAt: new Date().toISOString(), nodes }, null, 2);
     }
+  };
+
+  const downloadBlob = (filename: string, content: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleCopy = () => {
@@ -339,7 +264,7 @@ ${utmTikTok}
     let mimeType = 'text/plain';
 
     if (activeTab === 'page') {
-      filename += '-landing-page.html';
+      filename = activeHtmlPage ? activeHtmlPage.filename : `${filename}-page.html`;
       mimeType = 'text/html';
     } else if (activeTab === 'emails') {
       filename += '-email-sequence.txt';
@@ -350,15 +275,22 @@ ${utmTikTok}
       mimeType = 'application/json';
     }
 
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(filename, content, mimeType);
+  };
+
+  const handleDownloadAllPages = async () => {
+    if (exportablePages.length === 0) return;
+    setIsDownloadingAll(true);
+    try {
+      for (let i = 0; i < exportablePages.length; i++) {
+        const page = exportablePages[i];
+        downloadBlob(page.filename, page.getContent(), 'text/html');
+        // Minor delay to prevent browser download flood throttling
+        await new Promise(resolve => setTimeout(resolve, 220));
+      }
+    } finally {
+      setTimeout(() => setIsDownloadingAll(false), 1000);
+    }
   };
 
   return (
@@ -382,8 +314,8 @@ ${utmTikTok}
           border: '1px solid rgba(255, 255, 255, 0.12)',
           borderRadius: '18px',
           width: '100%',
-          maxWidth: '850px',
-          maxHeight: '90vh',
+          maxWidth: '880px',
+          maxHeight: '92vh',
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.7)',
@@ -393,7 +325,7 @@ ${utmTikTok}
         {/* Header */}
         <div
           style={{
-            padding: '1.5rem 1.75rem',
+            padding: '1.4rem 1.75rem',
             borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
             display: 'flex',
             alignItems: 'center',
@@ -402,18 +334,27 @@ ${utmTikTok}
           }}
         >
           <div>
-            <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-              Production Handoff
+            <span
+              style={{
+                fontSize: '0.725rem',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                color: '#818CF8',
+                letterSpacing: '0.08em'
+              }}
+            >
+              Self-Hosted Funnel Export Engine
             </span>
             <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#FFFFFF', marginTop: '0.2rem' }}>
               Export Production Assets
             </h2>
             <p style={{ fontSize: '0.825rem', color: '#94A3B8' }}>
-              One-click exports for your landing pages, emails, ad copy, and tracking URLs.
+              Export complete, deterministic A/B split funnels, email automations, and ad links for zero-cost self-hosting.
             </p>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close export modal"
             style={{
               background: 'rgba(255, 255, 255, 0.06)',
               border: 'none',
@@ -427,7 +368,7 @@ ${utmTikTok}
           </button>
         </div>
 
-        {/* Navigation Tabs */}
+        {/* Primary Tabs */}
         <div
           style={{
             display: 'flex',
@@ -456,7 +397,7 @@ ${utmTikTok}
             }}
           >
             <Globe size={15} />
-            <span>Landing Page HTML</span>
+            <span>HTML Funnel Pages ({exportablePages.length})</span>
           </button>
 
           <button
@@ -520,6 +461,144 @@ ${utmTikTok}
           </button>
         </div>
 
+        {/* Sub-Navigation Pill Bar (when viewing HTML Funnel Pages) */}
+        {activeTab === 'page' && exportablePages.length > 0 && (
+          <div
+            style={{
+              padding: '0.75rem 1.75rem',
+              backgroundColor: 'rgba(15, 23, 42, 0.7)',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.6rem',
+              overflowX: 'auto'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#64748B', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginRight: '0.25rem', whiteSpace: 'nowrap' }}>
+              <Layers size={13} />
+              <span>Funnel Pages:</span>
+            </div>
+
+            {exportablePages.map(page => {
+              const isSelected = (activeHtmlPage?.id === page.id);
+              return (
+                <button
+                  key={page.id}
+                  onClick={() => setSelectedPageId(page.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    padding: '0.4rem 0.75rem',
+                    borderRadius: '8px',
+                    fontSize: '0.775rem',
+                    fontWeight: isSelected ? 700 : 500,
+                    border: isSelected ? '1px solid #6366F1' : '1px solid rgba(255, 255, 255, 0.08)',
+                    backgroundColor: isSelected ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                    color: isSelected ? '#FFFFFF' : '#94A3B8',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {page.isRouter ? (
+                    <Split size={13} color={isSelected ? '#818CF8' : '#64748B'} />
+                  ) : page.isThankYou ? (
+                    <Gift size={13} color={isSelected ? '#34D399' : '#64748B'} />
+                  ) : (
+                    <FileText size={13} color={isSelected ? '#60A5FA' : '#64748B'} />
+                  )}
+                  <span>{page.label}</span>
+                  <span
+                    style={{
+                      fontSize: '0.675rem',
+                      fontFamily: "'JetBrains Mono', monospace",
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                      padding: '0.1rem 0.35rem',
+                      borderRadius: '4px',
+                      color: isSelected ? '#C7D2FE' : '#64748B'
+                    }}
+                  >
+                    {page.filename}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Router Target URL Configuration Strip (shown only when split-router is selected) */}
+        {activeTab === 'page' && activeHtmlPage?.isRouter && (
+          <div
+            style={{
+              padding: '0.85rem 1.75rem',
+              backgroundColor: 'rgba(99, 102, 241, 0.06)',
+              borderBottom: '1px solid rgba(99, 102, 241, 0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#C7D2FE', fontSize: '0.8rem', fontWeight: 700 }}>
+                <Settings size={14} color="#818CF8" />
+                <span>Router Target Destination URLs (Self-Hosted Path or Full CDN URL)</span>
+              </div>
+              <span style={{ fontSize: '0.725rem', color: '#94A3B8' }}>
+                Pre-configured for local side-by-side files or remote hosting
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                  Branch A Destination ({splitNode?.branchALabel || 'Variant A'})
+                </label>
+                <input
+                  type="text"
+                  value={targetAUrl}
+                  placeholder={defaultTargetA}
+                  onChange={e => setTargetAUrl(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.45rem 0.65rem',
+                    borderRadius: '6px',
+                    backgroundColor: '#070A12',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#F8FAFC',
+                    fontSize: '0.8rem',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                  Branch B Destination ({splitNode?.branchBLabel || 'Variant B'})
+                </label>
+                <input
+                  type="text"
+                  value={targetBUrl}
+                  placeholder={defaultTargetB}
+                  onChange={e => setTargetBUrl(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.45rem 0.65rem',
+                    borderRadius: '6px',
+                    backgroundColor: '#070A12',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#F8FAFC',
+                    fontSize: '0.8rem',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Code/Text Viewer Box */}
         <div style={{ flex: 1, padding: '1.25rem 1.75rem', overflowY: 'auto' }}>
           <div
@@ -550,7 +629,7 @@ ${utmTikTok}
         {/* Action Footer */}
         <div
           style={{
-            padding: '1.25rem 1.75rem',
+            padding: '1.2rem 1.75rem',
             borderTop: '1px solid rgba(255, 255, 255, 0.08)',
             display: 'flex',
             alignItems: 'center',
@@ -558,8 +637,22 @@ ${utmTikTok}
             backgroundColor: '#0B1120'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#10B981', fontSize: '0.825rem', fontWeight: 600 }}>
-            <CheckCircle2 size={16} /> Ready to publish & launch
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              color: '#10B981',
+              fontSize: '0.825rem',
+              fontWeight: 600
+            }}
+          >
+            <CheckCircle2 size={16} />
+            <span>
+              {activeTab === 'page'
+                ? `${exportablePages.length} production page file${exportablePages.length !== 1 ? 's' : ''} ready for zero-cost self-hosting`
+                : 'Ready to publish & launch'}
+            </span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -569,7 +662,7 @@ ${utmTikTok}
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.45rem',
-                padding: '0.65rem 1.25rem',
+                padding: '0.65rem 1.15rem',
                 borderRadius: '8px',
                 backgroundColor: 'rgba(255, 255, 255, 0.08)',
                 border: '1px solid rgba(255, 255, 255, 0.12)',
@@ -580,8 +673,31 @@ ${utmTikTok}
               }}
             >
               {copied ? <Check size={16} color="#10B981" /> : <Copy size={16} />}
-              <span>{copied ? 'Copied to Clipboard' : 'Copy All'}</span>
+              <span>{copied ? 'Copied to Clipboard' : 'Copy Code'}</span>
             </button>
+
+            {activeTab === 'page' && exportablePages.length > 1 && (
+              <button
+                onClick={handleDownloadAllPages}
+                disabled={isDownloadingAll}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  padding: '0.65rem 1.15rem',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(99, 102, 241, 0.18)',
+                  border: '1px solid rgba(99, 102, 241, 0.4)',
+                  color: '#C7D2FE',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  cursor: isDownloadingAll ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <Download size={15} />
+                <span>{isDownloadingAll ? 'Downloading Files...' : `Download All (${exportablePages.length})`}</span>
+              </button>
+            )}
 
             <button
               onClick={handleDownload}
@@ -601,7 +717,9 @@ ${utmTikTok}
               }}
             >
               <Download size={16} />
-              <span>Download File</span>
+              <span>
+                Download {activeTab === 'page' && activeHtmlPage ? activeHtmlPage.filename : 'File'}
+              </span>
             </button>
           </div>
         </div>
