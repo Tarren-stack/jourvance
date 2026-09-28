@@ -279,12 +279,22 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
         </div>
       </div>
 
-      {/* Source Handle (to Form) */}
+      {/* Source Handle (to Form / Checkout) */}
       <Handle
         type="source"
         position={Position.Right}
         className="custom-handle"
         style={{ right: -6, top: '50%' }}
+      />
+
+      {/* Source Handle (Checkout Abandonment -> Retention Sequence) */}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="abandon"
+        className="custom-handle"
+        style={{ bottom: -6, left: '50%', background: '#F59E0B' }}
+        title="Cart Abandonment: Route to Checkout Recovery Sequence"
       />
     </div>
   );

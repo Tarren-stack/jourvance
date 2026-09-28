@@ -121,56 +121,123 @@ export const SequenceEditor: React.FC<Props> = ({
     setActiveStepIdx(Math.max(0, idx - 1));
   };
 
-  const loadEcommerceTemplate = (type: 'vip-welcome' | 'cart-recovery') => {
-    if (type === 'vip-welcome') {
+  const loadEcommerceTemplate = (type: 'vip-welcome' | 'cart-recovery' | 'upsell-recovery' | 'winback') => {
+    if (type === 'upsell-recovery') {
+      const rescueSteps: SequenceStep[] = [
+        {
+          id: `step-${Date.now()}-1`,
+          channel: 'email',
+          delay: '18 Hours',
+          subject: 'A private courtesy reservation for your recent order',
+          previewText: 'We held a private reservation on your companion formula',
+          body: `Hi [First Name],\n\nThank you again for your recent order! When preparing your allocation, our clinical team noticed you passed on the companion formula.\n\nBecause pairing the ritual together accelerates visible results, we held a private 24-hour courtesy reservation for your account with an extra 10% privilege.\n\nUse code [Voucher Code] at checkout:\n[Offer Link]\n\nWarmly,\nThe Concierge Team`
+        },
+        {
+          id: `step-${Date.now()}-2`,
+          channel: 'email',
+          delay: '36 Hours',
+          subject: 'Final reminder: Your courtesy reservation releases tonight',
+          previewText: 'Your reserved 10% privilege code is expiring',
+          body: `Hi [First Name],\n\nJust a gentle reminder that your private reservation and courtesy code [Voucher Code] expire tonight at midnight.\n\nIf you would like to complete your daily ritual with your reserved allocation, you can finalize it here:\n[Offer Link]\n\nWarmly,\nCustomer Concierge`
+        }
+      ];
+      onChange({
+        ...data,
+        sequenceTitle: '24h Courtesy Rescue (Upsell Decline)',
+        sequenceType: 'upsell_recovery',
+        isRetentionBranch: true,
+        delayHours: 18,
+        voucherCode: data.voucherCode || 'SAVE10',
+        smartExitOnPurchase: true,
+        steps: rescueSteps
+      });
+      setActiveStepIdx(0);
+    } else if (type === 'winback') {
+      const winbackSteps: SequenceStep[] = [
+        {
+          id: `step-${Date.now()}-1`,
+          channel: 'email',
+          delay: '72 Hours',
+          subject: 'We miss you — a special VIP invitation inside',
+          previewText: 'A personalized replenishment privilege for your routine',
+          body: `Hi [First Name],\n\nIt has been a little while since your last replenishment ritual, and we wanted to make sure your results are continuing smoothly.\n\nTo welcome you back, we added an exclusive 15% VIP credit to your account with code [Voucher Code].\n\nExplore your replenishment:\n[Offer Link]\n\nWarmly,\nThe Care Team`
+        }
+      ];
+      onChange({
+        ...data,
+        sequenceTitle: 'VIP Winback & Re-Engagement',
+        sequenceType: 'at_risk_winback',
+        isRetentionBranch: true,
+        delayHours: 72,
+        voucherCode: data.voucherCode || 'WELCOMEBACK15',
+        smartExitOnPurchase: true,
+        steps: winbackSteps
+      });
+      setActiveStepIdx(0);
+    } else if (type === 'vip-welcome') {
       const vipSteps: SequenceStep[] = [
         {
           id: `step-${Date.now()}-1`,
           channel: 'email',
           delay: 'Instant (0m)',
-          subject: 'You are on the list',
-          previewText: 'Replace this before anyone receives it',
-          body: `Hi [First Name],\n\nThanks for signing up. Replace this note with the real next step. Add a discount code only if you have created one.\n\nBest,\nThe Team`
+          subject: 'Welcome to our inner circle',
+          previewText: 'Your welcome privilege and ritual guide',
+          body: `Hi [First Name],\n\nWelcome to our community. We are delighted to have you with us.\n\nBest,\nThe Team`
         },
         {
           id: `step-${Date.now()}-2`,
           channel: 'email',
           delay: '24 Hours',
-          subject: 'A note about ' + offerHeadline,
-          previewText: 'Replace this before anyone receives it',
-          body: `Hi [First Name],\n\nThis is a placeholder for a real detail about ${offerHeadline}. Replace it before anyone receives it.\n\nBest,\nThe Team`
+          subject: 'A guide to ' + offerHeadline,
+          previewText: 'How to maximize your everyday results',
+          body: `Hi [First Name],\n\nHere are the top three principles to keep in mind when starting your ritual with ${offerHeadline}.\n\nWarmly,\nThe Team`
         },
         {
           id: `step-${Date.now()}-3`,
           channel: 'email',
           delay: '48 Hours',
-          subject: 'Still thinking it over?',
-          previewText: 'Replace this before anyone receives it',
-          body: `Hi [First Name],\n\nThis is the last note in the sequence. Mention a deadline only if you actually have one.\n\nWarmly,\nThe Team`
+          subject: 'Still deciding on your selection?',
+          previewText: 'Our concierge is here to help with any questions',
+          body: `Hi [First Name],\n\nIf you have any questions about choosing the right formula or routine, reply directly to this email.\n\nWarmly,\nThe Team`
         }
       ];
-      onChange({ ...data, sequenceTitle: 'Welcome sequence', steps: vipSteps });
+      onChange({
+        ...data,
+        sequenceTitle: 'VIP Welcome Sequence',
+        sequenceType: 'lead_nurture',
+        isRetentionBranch: false,
+        steps: vipSteps
+      });
       setActiveStepIdx(0);
     } else {
       const abandonSteps: SequenceStep[] = [
         {
           id: `step-${Date.now()}-1`,
           channel: 'email',
-          delay: '2 Hours',
-          subject: 'Your checkout is still open',
-          previewText: 'Nothing was held aside',
-          body: `Hi [First Name],\n\nYou started a checkout and did not finish it. The items were not held aside.\n\nYou can return here: [Checkout Link]\n\nThe Team`
+          delay: '1 Hour',
+          subject: 'Your selections are waiting for you',
+          previewText: 'We held your cart so you do not lose your items',
+          body: `Hi [First Name],\n\nWe noticed you started your checkout but did not get to finish. Your items are temporarily held for you.\n\nYou can return directly to your cart here:\n[Checkout Link]\n\nWarmly,\nThe Team`
         },
         {
           id: `step-${Date.now()}-2`,
           channel: 'email',
           delay: '24 Hours',
-          subject: 'Can we answer any questions about your order?',
-          previewText: 'Reply directly to our team',
-          body: `Hi [First Name],\n\nThis is a reminder that the checkout was not completed. Nothing was held in inventory.\n\nYou can return here: [Checkout Link]\n\nThe Team`
+          subject: 'A courtesy gift to complete your routine',
+          previewText: 'Enjoy a courtesy discount on your reserved cart',
+          body: `Hi [First Name],\n\nWe would love to help you get started. Enjoy courtesy code [Voucher Code] for extra savings on your order:\n\nReturn to checkout:\n[Checkout Link]\n\nBest,\nThe Team`
         }
       ];
-      onChange({ ...data, sequenceTitle: 'Abandoned Checkout Recovery', steps: abandonSteps });
+      onChange({
+        ...data,
+        sequenceTitle: 'Abandoned Checkout Recovery',
+        sequenceType: 'checkout_recovery',
+        isRetentionBranch: true,
+        delayHours: 1,
+        voucherCode: data.voucherCode || 'COMPLETE10',
+        smartExitOnPurchase: true,
+        steps: abandonSteps
+      });
       setActiveStepIdx(0);
     }
   };
@@ -195,11 +262,14 @@ export const SequenceEditor: React.FC<Props> = ({
   };
 
   const copyForKlaviyo = () => {
+    const vCode = data.voucherCode || 'SAVE10';
     const text = steps
       .map(
         (s, i) =>
-          `EMAIL #${i + 1} (${s.delay})\nSubject: ${s.subject}\nPreview: ${s.previewText || ''}\n\n${s.body
+          `EMAIL #${i + 1} (${s.delay})\nSubject: ${s.subject.replace(/\[Voucher Code\]/g, vCode)}\nPreview: ${(s.previewText || '').replace(/\[Voucher Code\]/g, vCode)}\n\n${s.body
             .replace(/\[First Name\]/g, "{{ first_name|default:'there' }}")
+            .replace(/\[Voucher Code\]/g, vCode)
+            .replace(/\[Offer Link\]/g, '{{ event.extra.offer_url|default:shop.url }}')
             .replace(/\[Checkout Link\]/g, '{{ event.checkout_url }}')}\n-----------------------------------\n`
       )
       .join('\n');
@@ -209,12 +279,15 @@ export const SequenceEditor: React.FC<Props> = ({
   };
 
   const copyForShopify = () => {
+    const vCode = data.voucherCode || 'SAVE10';
     const html = steps
       .map(
         (s, i) =>
-          `<!-- EMAIL #${i + 1} (${s.delay}) -->\n<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b;">\n  <h2>${s.subject}</h2>\n  <p>${s.body
+          `<!-- EMAIL #${i + 1} (${s.delay}) -->\n<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b;">\n  <h2>${s.subject.replace(/\[Voucher Code\]/g, vCode)}</h2>\n  <p>${s.body
             .replace(/\n/g, '<br/>')
             .replace(/\[First Name\]/g, '{{ customer.first_name }}')
+            .replace(/\[Voucher Code\]/g, vCode)
+            .replace(/\[Offer Link\]/g, '<a href="{{ offer_url }}">Claim Courtesy Reservation</a>')
             .replace(/\[Checkout Link\]/g, '<a href="{{ checkout_url }}">Complete Checkout</a>')}</p>\n</div>\n\n`
       )
       .join('\n');
@@ -586,17 +659,21 @@ export const SequenceEditor: React.FC<Props> = ({
 
             <div style={{ marginBottom: '12px' }}>
               <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF', marginBottom: '4px' }}>
-                {currentStep.subject}
+                {currentStep.subject.replace(/\[Voucher Code\]/g, data.voucherCode || 'SAVE10')}
               </div>
               {currentStep.previewText && (
                 <div style={{ fontSize: '12px', color: '#94A3B8', fontStyle: 'italic' }}>
-                  Preview: {currentStep.previewText}
+                  Preview: {currentStep.previewText.replace(/\[Voucher Code\]/g, data.voucherCode || 'SAVE10')}
                 </div>
               )}
             </div>
 
             <div style={{ whiteSpace: 'pre-wrap', fontSize: '13px', color: '#E2E8F0', lineHeight: 1.6, padding: '12px', backgroundColor: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-              {currentStep.body}
+              {currentStep.body
+                .replace(/\[First Name\]/g, 'Sophia')
+                .replace(/\[Voucher Code\]/g, data.voucherCode || 'SAVE10')
+                .replace(/\[Offer Link\]/g, 'https://yourstore.com/p/courtesy-ritual')
+                .replace(/\[Checkout Link\]/g, 'https://yourstore.com/checkout/c8f2a1')}
             </div>
           </div>
         </div>
@@ -605,42 +682,215 @@ export const SequenceEditor: React.FC<Props> = ({
       {/* SETTINGS TAB */}
       {editorTab === 'settings' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {/* E-Commerce Flow Presets */}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              type="button"
-              onClick={() => loadEcommerceTemplate('vip-welcome')}
-              style={{
-                flex: 1,
-                padding: '6px 10px',
-                borderRadius: '6px',
-                backgroundColor: 'rgba(236, 72, 153, 0.1)',
-                border: '1px solid rgba(236, 72, 153, 0.3)',
-                color: '#f472b6',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Load welcome sequence
-            </button>
-            <button
-              type="button"
-              onClick={() => loadEcommerceTemplate('cart-recovery')}
-              style={{
-                flex: 1,
-                padding: '6px 10px',
-                borderRadius: '6px',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                color: '#34d399',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Load Cart Recovery Flow
-            </button>
+          {/* E-Commerce Flow Presets Grid */}
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8', marginBottom: '6px' }}>
+              Pre-built Sequence Blueprints
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => loadEcommerceTemplate('upsell-recovery')}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: data.sequenceType === 'upsell_recovery' ? 'rgba(245, 158, 11, 0.25)' : 'rgba(245, 158, 11, 0.1)',
+                  border: `1px solid ${data.sequenceType === 'upsell_recovery' ? '#F59E0B' : 'rgba(245, 158, 11, 0.3)'}`,
+                  color: '#FBBF24',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                ✦ 24h Courtesy Rescue
+              </button>
+              <button
+                type="button"
+                onClick={() => loadEcommerceTemplate('cart-recovery')}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: data.sequenceType === 'checkout_recovery' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.1)',
+                  border: `1px solid ${data.sequenceType === 'checkout_recovery' ? '#10B981' : 'rgba(16, 185, 129, 0.3)'}`,
+                  color: '#34d399',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                ✦ Cart Recovery
+              </button>
+              <button
+                type="button"
+                onClick={() => loadEcommerceTemplate('vip-welcome')}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: data.sequenceType === 'lead_nurture' && !data.isRetentionBranch ? 'rgba(236, 72, 153, 0.25)' : 'rgba(236, 72, 153, 0.1)',
+                  border: `1px solid ${data.sequenceType === 'lead_nurture' && !data.isRetentionBranch ? '#ec4899' : 'rgba(236, 72, 153, 0.3)'}`,
+                  color: '#f472b6',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                ✦ VIP Welcome Series
+              </button>
+              <button
+                type="button"
+                onClick={() => loadEcommerceTemplate('winback')}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: data.sequenceType === 'at_risk_winback' ? 'rgba(139, 92, 246, 0.25)' : 'rgba(139, 92, 246, 0.1)',
+                  border: `1px solid ${data.sequenceType === 'at_risk_winback' ? '#8B5CF6' : 'rgba(139, 92, 246, 0.3)'}`,
+                  color: '#C4B5FD',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+              >
+                ✦ VIP Winback Series
+              </button>
+            </div>
+          </div>
+
+          {/* Retention & Recovery Controls Card */}
+          <div
+            style={{
+              padding: '12px',
+              borderRadius: '10px',
+              backgroundColor: 'rgba(15, 23, 42, 0.7)',
+              border: '1px solid rgba(245, 158, 11, 0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: '#F8FAFC' }}>
+                <Clock size={13} color="#FBBF24" />
+                <span>Retention & Recovery Branch Settings</span>
+              </div>
+              <span
+                style={{
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  padding: '2px 6px',
+                  borderRadius: '9999px',
+                  background: 'rgba(245, 158, 11, 0.2)',
+                  color: '#FBBF24'
+                }}
+              >
+                Active Branch
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '10px', color: '#94A3B8', marginBottom: '3px' }}>
+                  Sequence Branch Role
+                </label>
+                <select
+                  value={data.sequenceType || 'lead_nurture'}
+                  onChange={e => {
+                    const nextType = e.target.value as SequenceNodeData['sequenceType'];
+                    const isRet = nextType !== 'lead_nurture';
+                    onChange({
+                      ...data,
+                      sequenceType: nextType,
+                      isRetentionBranch: isRet,
+                      delayHours: data.delayHours || (nextType === 'upsell_recovery' ? 18 : nextType === 'checkout_recovery' ? 1 : 24)
+                    });
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    backgroundColor: '#0a0a0f',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#ffffff',
+                    fontSize: '11px',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="lead_nurture">Standard Lead Nurture</option>
+                  <option value="upsell_recovery">24h Courtesy Rescue (Decline)</option>
+                  <option value="checkout_recovery">Cart Abandon Recovery</option>
+                  <option value="at_risk_winback">VIP Winback Series</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '10px', color: '#94A3B8', marginBottom: '3px' }}>
+                  Trigger Delay Hours
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="720"
+                  value={data.delayHours ?? 18}
+                  onChange={e => onChange({ ...data, delayHours: parseInt(e.target.value, 10) || 0 })}
+                  placeholder="e.g. 18"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    backgroundColor: '#0a0a0f',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#ffffff',
+                    fontSize: '11px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', alignItems: 'center' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '10px', color: '#94A3B8', marginBottom: '3px' }}>
+                  Discount Voucher Code
+                </label>
+                <input
+                  type="text"
+                  value={data.voucherCode || ''}
+                  onChange={e => onChange({ ...data, voucherCode: e.target.value.toUpperCase() })}
+                  placeholder="e.g. SAVE10"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    backgroundColor: '#0a0a0f',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#FBBF24',
+                    fontWeight: 700,
+                    fontSize: '11px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ paddingTop: '14px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#E2E8F0' }}>
+                  <input
+                    type="checkbox"
+                    checked={data.smartExitOnPurchase !== false}
+                    onChange={e => onChange({ ...data, smartExitOnPurchase: e.target.checked })}
+                    style={{ accentColor: '#10B981', cursor: 'pointer' }}
+                  />
+                  <span>Smart Exit on Purchase</span>
+                </label>
+              </div>
+            </div>
+            <p style={{ margin: 0, fontSize: '10px', color: '#94A3B8', lineHeight: 1.4 }}>
+              Clients automatically exit this sequence the moment Shopify records an order.
+            </p>
           </div>
 
           {/* Sequence Steps Bar */}
@@ -805,6 +1055,35 @@ export const SequenceEditor: React.FC<Props> = ({
                   resize: 'vertical'
                 }}
               />
+              {/* Merge Tag Helpers */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: '6px' }}>
+                <span style={{ fontSize: '10px', color: '#64748B' }}>Insert Tag:</span>
+                {[
+                  ['First Name', '[First Name]'],
+                  ['Voucher Code', '[Voucher Code]'],
+                  ['Offer Link', '[Offer Link]'],
+                  ['Checkout Link', '[Checkout Link]']
+                ].map(([lbl, tag]) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => handleStepChange('body', `${currentStep.body}${currentStep.body ? ' ' : ''}${tag}`)}
+                    style={{
+                      padding: '2px 7px',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      color: '#E2E8F0',
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                    title={`Insert ${tag} into message body`}
+                  >
+                    +{lbl}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

@@ -69,6 +69,16 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
         title="If Declined: Route to Downsell or Thank-You"
       />
 
+      {/* Source Handle (Declined -> 24h Courtesy Rescue Flow) */}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="rescue"
+        className="custom-handle"
+        style={{ bottom: -6, left: '50%', background: '#F59E0B' }}
+        title="Courtesy Rescue: Connect to 24h Post-Decline Retention Sequence"
+      />
+
       {/* Top Banner */}
       <div
         style={{

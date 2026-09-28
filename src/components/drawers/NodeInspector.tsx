@@ -41,7 +41,14 @@ export const NodeInspector: React.FC<Props> = ({
       case 'ad-source': return 'Ad Campaign Settings';
       case 'landing-page': return 'Landing Page Editor';
       case 'lead-form': return 'Lead Capture Form';
-      case 'follow-up-sequence': return 'Follow-up Nurture Flow';
+      case 'follow-up-sequence': {
+        const seq = data as any;
+        if (seq.sequenceType === 'upsell_recovery') return '24h Courtesy Rescue Flow';
+        if (seq.sequenceType === 'checkout_recovery') return 'Abandoned Checkout Rescue';
+        if (seq.sequenceType === 'at_risk_winback') return 'VIP Winback Retention Flow';
+        if (seq.isRetentionBranch) return 'Customer Retention Sequence';
+        return 'Follow-up Nurture Flow';
+      }
       case 'thank-you': return 'VIP Thank-You Portal';
       case 'upsell': return 'Upsell & Downsell Offer Editor';
       case 'ab-split': return 'A/B Traffic Splitter';

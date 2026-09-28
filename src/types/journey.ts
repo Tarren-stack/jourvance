@@ -237,6 +237,12 @@ export interface SequenceNodeData extends Record<string, unknown> {
   flowClicked?: number | null;
   flowOpened?: number | null;
   flowRevenue?: number | null;
+  // Phase 3: Visual Retention Flow Canvas metadata
+  sequenceType?: 'lead_nurture' | 'checkout_recovery' | 'upsell_recovery' | 'at_risk_winback';
+  isRetentionBranch?: boolean;
+  delayHours?: number; // e.g. 18 for upsell recovery, 1 for checkout recovery, 72 for winback
+  voucherCode?: string; // e.g. 'SAVE10', 'COURTESY15'
+  smartExitOnPurchase?: boolean; // automatically exits sequence upon client purchase
 }
 
 export interface ThankYouNodeData extends Record<string, unknown> {
@@ -332,6 +338,9 @@ export interface ConversionEdgeData extends Record<string, unknown> {
   targetNodeData?: JourneyNodeData;
   onSelectEdge?: (id: string) => void;
   isSelected?: boolean;
+  sourceHandle?: string;
+  targetHandle?: string;
+  isRetentionEdge?: boolean;
 }
 
 export type JourneyEdge = Edge<ConversionEdgeData>;

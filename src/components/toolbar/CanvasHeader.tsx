@@ -32,6 +32,8 @@ interface Props {
   onSaveBlueprint?: () => void;
   canvasViewMode?: CanvasViewMode;
   onToggleCanvasViewMode?: (mode: CanvasViewMode) => void;
+  showRetentionBranches?: boolean;
+  onToggleRetentionBranches?: () => void;
   onOpenShopifySync?: () => void;
   onOpenSimulator?: () => void;
   onSelectNode?: (nodeId: string) => void;
@@ -65,6 +67,8 @@ export const CanvasHeader: React.FC<Props> = ({
   onSaveBlueprint,
   canvasViewMode = 'edit',
   onToggleCanvasViewMode,
+  showRetentionBranches = true,
+  onToggleRetentionBranches,
   onOpenShopifySync,
   onOpenSimulator,
   onSelectNode
@@ -349,6 +353,33 @@ export const CanvasHeader: React.FC<Props> = ({
               <span>Live ROAS</span>
             </button>
           </div>
+        )}
+
+        {/* Phase 3: Visual Retention Flow Canvas Filter Toggle */}
+        {onToggleRetentionBranches && (
+          <button
+            type="button"
+            onClick={onToggleRetentionBranches}
+            title={showRetentionBranches ? 'Hide courtesy rescue and retention flows from canvas' : 'Show courtesy rescue and retention flows on canvas'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+              border: showRetentionBranches ? '1px solid rgba(245, 158, 11, 0.45)' : '1px solid rgba(255, 255, 255, 0.12)',
+              cursor: 'pointer',
+              backgroundColor: showRetentionBranches ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0, 0, 0, 0.25)',
+              color: showRetentionBranches ? '#FBBF24' : '#94A3B8',
+              boxShadow: showRetentionBranches ? '0 0 10px rgba(245, 158, 11, 0.2)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <Sparkles size={12} color={showRetentionBranches ? '#FBBF24' : '#64748B'} />
+            <span>{showRetentionBranches ? 'Retention: On' : 'Retention: Off'}</span>
+          </button>
         )}
 
         {/* Live Pipeline Telemetry OR ROAS Ribbon */}

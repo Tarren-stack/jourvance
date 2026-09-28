@@ -119,6 +119,7 @@ export const App: React.FC = () => {
   const [showShopifySyncModal, setShowShopifySyncModal] = useState(false);
   const [activeView, setActiveView] = useState<ActiveAppView>('canvas');
   const [canvasViewMode, setCanvasViewMode] = useState<CanvasViewMode>('edit');
+  const [showRetentionBranches, setShowRetentionBranches] = useState<boolean>(true);
 
   // Modals & Authentication
   const [user, setUser] = useState<User | null>(null);
@@ -663,6 +664,8 @@ export const App: React.FC = () => {
             onSaveBlueprint={() => setShowSaveBlueprintModal(true)}
             canvasViewMode={canvasViewMode}
             onToggleCanvasViewMode={setCanvasViewMode}
+            showRetentionBranches={showRetentionBranches}
+            onToggleRetentionBranches={() => setShowRetentionBranches(prev => !prev)}
             onOpenShopifySync={() => setShowShopifySyncModal(true)}
             onOpenSimulator={() => setShowSimulatorDrawer(true)}
             onSelectNode={nodeId => setSelectedNodeId(nodeId)}
@@ -700,6 +703,8 @@ export const App: React.FC = () => {
                     if (edge) setSelectedNodeId(null);
                   }}
                   canvasViewMode={canvasViewMode}
+                  showRetentionBranches={showRetentionBranches}
+                  onToggleRetentionBranches={setShowRetentionBranches}
                 />
 
                 {/* Slide-Over Drawer Inspector */}
