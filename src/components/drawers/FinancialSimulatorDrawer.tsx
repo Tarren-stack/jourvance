@@ -43,13 +43,26 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
 
   // Active forecast state
   const [forecast, setForecast] = useState<FunnelForecast>(() => {
-    if (initialForecast) return initialForecast;
+    if (initialForecast) {
+      return {
+        ...DEFAULT_FORECAST,
+        ...initialForecast,
+        cartRecoveryEnabled: initialForecast.cartRecoveryEnabled !== undefined 
+          ? initialForecast.cartRecoveryEnabled 
+          : extractedNodes.hasCartRecovery,
+        upsellRescueEnabled: initialForecast.upsellRescueEnabled !== undefined 
+          ? initialForecast.upsellRescueEnabled 
+          : extractedNodes.hasUpsellRescue
+      };
+    }
     return {
       ...DEFAULT_FORECAST,
       corePrice: extractedNodes.corePrice,
       bumpPrice: extractedNodes.bumpPrice,
       upsellPrice: extractedNodes.upsellPrice,
-      downsellPrice: extractedNodes.downsellPrice
+      downsellPrice: extractedNodes.downsellPrice,
+      cartRecoveryEnabled: extractedNodes.hasCartRecovery,
+      upsellRescueEnabled: extractedNodes.hasUpsellRescue
     };
   });
 
@@ -74,7 +87,11 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
       bumpTakeRate: p.bumpTakeRate,
       upsellTakeRate: p.upsellTakeRate,
       downsellTakeRate: p.downsellTakeRate,
-      cogsPercentage: p.cogsPercentage
+      cogsPercentage: p.cogsPercentage,
+      cartRecoveryRate: p.cartRecoveryRate ?? prev.cartRecoveryRate,
+      cartRecoveryDiscount: p.cartRecoveryDiscount ?? prev.cartRecoveryDiscount,
+      upsellRescueRate: p.upsellRescueRate ?? prev.upsellRescueRate,
+      upsellRescueDiscount: p.upsellRescueDiscount ?? prev.upsellRescueDiscount
     }));
   };
 
@@ -86,12 +103,16 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
       corePrice: extracted.corePrice,
       bumpPrice: extracted.bumpPrice,
       upsellPrice: extracted.upsellPrice,
-      downsellPrice: extracted.downsellPrice
+      downsellPrice: extracted.downsellPrice,
+      cartRecoveryEnabled: extracted.hasCartRecovery,
+      upsellRescueEnabled: extracted.hasUpsellRescue
     }));
     const parts = [`Core: $${extracted.corePrice.toFixed(2)}`];
     if (extracted.hasBump) parts.push(`Bump: $${extracted.bumpPrice.toFixed(2)}`);
     if (extracted.hasUpsell) parts.push(`Upsell: $${extracted.upsellPrice.toFixed(2)}`);
     if (extracted.hasDownsell) parts.push(`Downsell: $${extracted.downsellPrice.toFixed(2)}`);
+    if (extracted.hasCartRecovery) parts.push(`Cart Recovery: Active`);
+    if (extracted.hasUpsellRescue) parts.push(`Courtesy Rescue: Active`);
     setSyncNotice(`Synced: ${parts.join(' | ')}`);
     setTimeout(() => setSyncNotice(null), 4000);
   };
@@ -126,8 +147,22 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
       ['Post-Purchase Downsell Take Rate', `${(forecast.downsellTakeRate ?? 0).toFixed(1)}%`],
       ['Post-Purchase Downsell Price', `$${(forecast.downsellPrice ?? 0).toFixed(2)}`],
       ['Downsell Units', sim.downsellSales.toString()],
+      ['Cart Recovery Enabled', forecast.cartRecoveryEnabled ? 'Yes' : 'No'],
+      ['Cart Recovery Rate', `${(forecast.cartRecoveryRate ?? 18).toFixed(1)}%`],
+      ['Cart Courtesy Discount', `${(forecast.cartRecoveryDiscount ?? 10).toFixed(0)}%`],
+      ['Recovered Abandoned Carts', sim.recoveredCartOrders.toString()],
+      ['Recovered Cart Revenue', `$${sim.recoveredCartRevenue.toFixed(2)}`],
+      ['24h Courtesy Rescue Enabled', forecast.upsellRescueEnabled ? 'Yes' : 'No'],
+      ['24h Courtesy Rescue Rate', `${(forecast.upsellRescueRate ?? 15).toFixed(1)}%`],
+      ['24h Rescue Discount', `${(forecast.upsellRescueDiscount ?? 10).toFixed(0)}%`],
+      ['Recovered Courtesy Upsells', sim.recoveredUpsellOrders.toString()],
+      ['Recovered Upsell Revenue', `$${sim.recoveredUpsellRevenue.toFixed(2)}`],
+      ['Total Retention Revenue Recovered', `$${sim.totalRetentionRevenue.toFixed(2)}`],
+      ['Total Retention Net Profit', `$${sim.totalRetentionProfit.toFixed(2)}`],
       ['Product COGS %', `${forecast.cogsPercentage.toFixed(1)}%`],
       ['Gross Projected Revenue', `$${sim.grossRevenue.toFixed(2)}`],
+      ['Day 0 ROAS (Direct Only)', `${sim.dayZeroRoas.toFixed(2)}x`],
+      ['Effective ROAS (With Retention)', `${sim.effectiveRoasWithRetention.toFixed(2)}x`],
       ['Effective AOV', `$${sim.effectiveAov.toFixed(2)}`],
       ['AOV Lift vs Base', `+$${sim.aovLift.toFixed(2)}`],
       ['Net Profit After Ads & COGS', `$${sim.netProfit.toFixed(2)}`],
@@ -598,6 +633,164 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               </div>
             </div>
 
+            {/* Section 4: Automated Retention & Courtesy Rescue (Jourvance Advantage) */}
+            <div className="space-y-4 pt-2 border-t border-slate-800/80">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  <h3 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                    Automated Retention Safety Nets
+                  </h3>
+                </div>
+                <span className="text-[10px] text-amber-400/90 font-medium px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800/40">
+                  $0 Extra Ad Cost
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 -mt-2">
+                Simulate revenue recovered from cart abandoners and initial upsell decliners using automated courtesy follow-ups.
+              </p>
+
+              {/* Cart Abandonment Recovery Card */}
+              <div className={`p-3.5 rounded-xl border transition-all ${
+                forecast.cartRecoveryEnabled 
+                  ? 'bg-slate-950/70 border-amber-500/40 shadow-sm' 
+                  : 'bg-slate-950/30 border-slate-800/60 opacity-75'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="enable-cart-recovery"
+                      checked={!!forecast.cartRecoveryEnabled}
+                      onChange={e => updateField('cartRecoveryEnabled', e.target.checked)}
+                      className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-amber-500"
+                    />
+                    <label htmlFor="enable-cart-recovery" className="text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                      <span>Cart Abandonment Recovery</span>
+                      {extractedNodes.hasCartRecovery && (
+                        <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/50">
+                          Active on Canvas
+                        </span>
+                      )}
+                    </label>
+                  </div>
+                  {forecast.cartRecoveryEnabled && (
+                    <span className="text-xs font-mono font-bold text-amber-400">
+                      +{sim.recoveredCartOrders} orders (+${sim.recoveredCartRevenue.toFixed(0)})
+                    </span>
+                  )}
+                </div>
+
+                {forecast.cartRecoveryEnabled && (
+                  <div className="mt-3 space-y-3 pt-2.5 border-t border-slate-800/60">
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center text-xs text-slate-400">
+                        <span>Recovery Rate: {forecast.cartRecoveryRate ?? 18}%</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          of ~{sim.abandonedCartCount} abandoned carts
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="40"
+                        step="1"
+                        value={forecast.cartRecoveryRate ?? 18}
+                        onChange={e => updateField('cartRecoveryRate', parseFloat(e.target.value))}
+                        className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] text-slate-400">Courtesy Voucher Discount:</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="30"
+                          step="1"
+                          value={forecast.cartRecoveryDiscount ?? 10}
+                          onChange={e => updateField('cartRecoveryDiscount', Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)))}
+                          className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+                        />
+                        <span className="text-xs font-mono text-slate-400">% off</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 24h Courtesy Upsell Rescue Card */}
+              <div className={`p-3.5 rounded-xl border transition-all ${
+                forecast.upsellRescueEnabled 
+                  ? 'bg-slate-950/70 border-amber-500/40 shadow-sm' 
+                  : 'bg-slate-950/30 border-slate-800/60 opacity-75'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="enable-upsell-rescue"
+                      checked={!!forecast.upsellRescueEnabled}
+                      onChange={e => updateField('upsellRescueEnabled', e.target.checked)}
+                      className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-amber-500"
+                    />
+                    <label htmlFor="enable-upsell-rescue" className="text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5">
+                      <span>24h Courtesy Upsell Rescue</span>
+                      {extractedNodes.hasUpsellRescue && (
+                        <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/50">
+                          Active on Canvas
+                        </span>
+                      )}
+                    </label>
+                  </div>
+                  {forecast.upsellRescueEnabled && (
+                    <span className="text-xs font-mono font-bold text-amber-400">
+                      +{sim.recoveredUpsellOrders} upgrades (+${sim.recoveredUpsellRevenue.toFixed(0)})
+                    </span>
+                  )}
+                </div>
+
+                {forecast.upsellRescueEnabled && (
+                  <div className="mt-3 space-y-3 pt-2.5 border-t border-slate-800/60">
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center text-xs text-slate-400">
+                        <span>Rescue Rate: {forecast.upsellRescueRate ?? 15}%</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          of {Math.max(0, sim.declinedUpsellCount - sim.downsellSales)} decliners
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="40"
+                        step="1"
+                        value={forecast.upsellRescueRate ?? 15}
+                        onChange={e => updateField('upsellRescueRate', parseFloat(e.target.value))}
+                        className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] text-slate-400">Courtesy Voucher Discount:</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="30"
+                          step="1"
+                          value={forecast.upsellRescueDiscount ?? 10}
+                          onChange={e => updateField('upsellRescueDiscount', Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)))}
+                          className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+                        />
+                        <span className="text-xs font-mono text-slate-400">% off</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
 
           {/* RIGHT COLUMN: Live Projections & Decision Intelligence (7 Cols) */}
@@ -615,7 +808,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   ${sim.grossRevenue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
-                  <span>{sim.frontEndOrders} orders</span>
+                  <span>{sim.frontEndOrders + sim.recoveredCartOrders} buyers</span>
                   <span>•</span>
                   <span>${forecast.monthlyAdSpend.toLocaleString()} spend</span>
                 </div>
@@ -644,8 +837,13 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
 
               {/* Card 3: Blended ROAS */}
               <div className="bg-slate-900/90 border border-slate-800/80 rounded-xl p-3.5 relative overflow-hidden">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                  Blended ROAS
+                <div className="flex justify-between items-center text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  <span>Blended ROAS</span>
+                  {sim.totalRetentionRevenue > 0 && (
+                    <span className="text-[9px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+                      Incl. Retention
+                    </span>
+                  )}
                 </div>
                 <div className="text-2xl font-black font-mono text-white mt-1 flex items-baseline gap-2">
                   <span>{sim.blendedRoas.toFixed(2)}x</span>
@@ -659,8 +857,11 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     {sim.blendedRoas >= 2.2 ? 'Scaling Zone' : sim.blendedRoas >= 1.3 ? 'Modest Margin' : 'Unprofitable'}
                   </span>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1 font-mono">
-                  ${(sim.blendedRoas).toFixed(2)} return per $1 spent
+                <div className="text-[10px] text-slate-400 mt-1 font-mono flex items-center justify-between">
+                  <span>${sim.blendedRoas.toFixed(2)} return per $1 spent</span>
+                  {sim.totalRetentionRevenue > 0 && (
+                    <span className="text-slate-500">Day-0: {sim.dayZeroRoas.toFixed(2)}x</span>
+                  )}
                 </div>
               </div>
 
@@ -683,6 +884,34 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               </div>
 
             </div>
+
+            {/* Retention Engine Advantage Banner */}
+            {sim.totalRetentionRevenue > 0 && (
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-950/40 via-slate-900 to-amber-950/30 border border-amber-500/40 shadow-sm flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>✦ Jourvance Retention Advantage</span>
+                      <span className="text-[10px] font-mono text-amber-300 bg-amber-950/80 px-1.5 py-0.2 rounded border border-amber-800/40">
+                        Zero Extra Ad Cost
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-300 mt-0.5">
+                      Automated rescue flows recapture <strong className="text-amber-300 font-mono">${Math.round(sim.totalRetentionRevenue).toLocaleString()}</strong> in gross sales (<strong className="text-emerald-400 font-mono">+${Math.round(sim.totalRetentionProfit).toLocaleString()}</strong> net profit).
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0 pl-3">
+                  <div className="text-[10px] uppercase font-bold text-amber-400/80">Net Profit Lift</div>
+                  <div className="text-base font-black font-mono text-emerald-400">
+                    +${Math.round(sim.retentionProfitLift).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Breakeven & Acquisition CAC Safety Line */}
             <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 space-y-3">
@@ -774,6 +1003,26 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   </div>
                 )}
 
+                {sim.recoveredCartRevenue > 0 && (
+                  <div className="flex justify-between py-1 border-b border-slate-800/60 text-amber-300">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                      <span>↳ Recovered Abandoned Carts ({sim.recoveredCartOrders} @ ${(forecast.corePrice * (1 - (forecast.cartRecoveryDiscount || 10) / 100)).toFixed(2)})</span>
+                    </span>
+                    <span className="text-amber-400">+${sim.recoveredCartRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+
+                {sim.recoveredUpsellRevenue > 0 && (
+                  <div className="flex justify-between py-1 border-b border-slate-800/60 text-amber-300">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                      <span>↳ 24h Courtesy Upsell Rescue ({sim.recoveredUpsellOrders} @ ${(forecast.upsellPrice * (1 - (forecast.upsellRescueDiscount || 10) / 100)).toFixed(2)})</span>
+                    </span>
+                    <span className="text-amber-400">+${sim.recoveredUpsellRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+
                 <div className="flex justify-between py-1 border-b border-slate-800/60 text-slate-200 font-bold bg-slate-950/40 px-2 rounded">
                   <span>Gross Cash Collected</span>
                   <span>${sim.grossRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
@@ -818,6 +1067,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     <ChevronRight className="w-3.5 h-3.5 text-amber-300 shrink-0 mt-0.5" />
                     <span>
                       <strong>Downsell Recovery Net:</strong> Your downsell recaptures <strong className="text-amber-300">{sim.downsellSales} otherwise-declining buyers</strong>, injecting <strong className="text-white">+${sim.downsellRevenue.toFixed(0)}/mo</strong> into total revenue.
+                    </span>
+                  </li>
+                )}
+                {sim.totalRetentionRevenue > 0 && (
+                  <li className="flex items-start gap-2">
+                    <ChevronRight className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Automated Retention Multiplier:</strong> Your automated courtesy recovery safety nets add <strong className="text-emerald-400 font-mono">+${sim.totalRetentionProfit.toFixed(0)}/mo in pure profit</strong>, lifting your effective ROAS from <strong className="text-slate-300 font-mono">{sim.dayZeroRoas.toFixed(2)}x</strong> to <strong className="text-amber-300 font-mono">{sim.effectiveRoasWithRetention.toFixed(2)}x</strong> without spending an additional penny on advertising.
                     </span>
                   </li>
                 )}

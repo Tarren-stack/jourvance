@@ -387,6 +387,13 @@ export interface FunnelForecast {
   upsellPrice: number;
   downsellTakeRate?: number; // percentage (e.g. 15% of non-upsell buyers)
   downsellPrice?: number;
+  // Automated Retention & Second-Chance Economics
+  cartRecoveryEnabled?: boolean;
+  cartRecoveryRate?: number; // percentage of abandoned checkouts recovered (e.g. 18)
+  cartRecoveryDiscount?: number; // percentage courtesy discount (e.g. 10)
+  upsellRescueEnabled?: boolean;
+  upsellRescueRate?: number; // percentage of declined upsells recovered (e.g. 15)
+  upsellRescueDiscount?: number; // percentage courtesy discount (e.g. 10)
   savedAt?: string;
 }
 
@@ -415,6 +422,20 @@ export interface FunnelSimulationResults {
   isProfitable: boolean;
   leverage5PctUpsellRevenue: number;
   leverage5PctUpsellProfit: number;
+  // Automated Retention & Second-Chance Outputs
+  abandonedCartCount: number;
+  recoveredCartOrders: number;
+  recoveredCartRevenue: number;
+  declinedUpsellCount: number;
+  recoveredUpsellOrders: number;
+  recoveredUpsellRevenue: number;
+  totalRetentionRevenue: number;
+  totalRetentionProfit: number;
+  dayZeroGrossRevenue: number;
+  dayZeroNetProfit: number;
+  dayZeroRoas: number;
+  effectiveRoasWithRetention: number;
+  retentionProfitLift: number;
 }
 
 // ── Wave 6: Unified Customer, Order & Campaign CRM Models ──────────────────────

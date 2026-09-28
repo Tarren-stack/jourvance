@@ -11,14 +11,20 @@ export const DEFAULT_FORECAST: FunnelForecast = {
   upsellTakeRate: 22,
   upsellPrice: 38.00,
   downsellTakeRate: 15,
-  downsellPrice: 19.00
+  downsellPrice: 19.00,
+  cartRecoveryEnabled: false,
+  cartRecoveryRate: 18,
+  cartRecoveryDiscount: 10,
+  upsellRescueEnabled: false,
+  upsellRescueRate: 15,
+  upsellRescueDiscount: 10
 };
 
 export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', {
   name: string;
   badge: string;
   description: string;
-  values: Pick<FunnelForecast, 'monthlyAdSpend' | 'cpc' | 'conversionRate' | 'bumpTakeRate' | 'upsellTakeRate' | 'downsellTakeRate' | 'cogsPercentage'>;
+  values: Pick<FunnelForecast, 'monthlyAdSpend' | 'cpc' | 'conversionRate' | 'bumpTakeRate' | 'upsellTakeRate' | 'downsellTakeRate' | 'cogsPercentage' | 'cartRecoveryRate' | 'cartRecoveryDiscount' | 'upsellRescueRate' | 'upsellRescueDiscount'>;
 }> = {
   conservative: {
     name: 'Conservative / Testing',
@@ -31,7 +37,11 @@ export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', 
       bumpTakeRate: 16,
       upsellTakeRate: 12,
       downsellTakeRate: 10,
-      cogsPercentage: 25
+      cogsPercentage: 25,
+      cartRecoveryRate: 12,
+      cartRecoveryDiscount: 10,
+      upsellRescueRate: 10,
+      upsellRescueDiscount: 10
     }
   },
   target: {
@@ -45,7 +55,11 @@ export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', 
       bumpTakeRate: 28,
       upsellTakeRate: 22,
       downsellTakeRate: 15,
-      cogsPercentage: 20
+      cogsPercentage: 20,
+      cartRecoveryRate: 18,
+      cartRecoveryDiscount: 10,
+      upsellRescueRate: 15,
+      upsellRescueDiscount: 10
     }
   },
   aggressive: {
@@ -59,7 +73,11 @@ export const SCENARIO_PRESETS: Record<'conservative' | 'target' | 'aggressive', 
       bumpTakeRate: 38,
       upsellTakeRate: 32,
       downsellTakeRate: 22,
-      cogsPercentage: 18
+      cogsPercentage: 18,
+      cartRecoveryRate: 24,
+      cartRecoveryDiscount: 15,
+      upsellRescueRate: 20,
+      upsellRescueDiscount: 15
     }
   }
 };
@@ -76,7 +94,8 @@ export function parseNumericPrice(val: unknown, fallback: number = 0): number {
 }
 
 /**
- * Inspects visual canvas nodes to auto-extract core product, bump, upsell, and downsell pricing.
+ * Inspects visual canvas nodes to auto-extract core product, bump, upsell, downsell pricing,
+ * and automated retention safety nets (cart recovery & 24h courtesy rescue).
  */
 export function extractPricingFromNodes(nodes: JourneyNode[]): {
   corePrice: number;
@@ -86,10 +105,14 @@ export function extractPricingFromNodes(nodes: JourneyNode[]): {
   hasBump: boolean;
   hasUpsell: boolean;
   hasDownsell: boolean;
+  hasCartRecovery: boolean;
+  hasUpsellRescue: boolean;
   coreTitle?: string;
   bumpTitle?: string;
   upsellTitle?: string;
   downsellTitle?: string;
+  cartVoucherCode?: string;
+  upsellVoucherCode?: string;
 } {
   let corePrice = 58.00;
   let bumpPrice = 28.00;
@@ -98,10 +121,14 @@ export function extractPricingFromNodes(nodes: JourneyNode[]): {
   let hasBump = false;
   let hasUpsell = false;
   let hasDownsell = false;
+  let hasCartRecovery = false;
+  let hasUpsellRescue = false;
   let coreTitle: string | undefined;
   let bumpTitle: string | undefined;
   let upsellTitle: string | undefined;
   let downsellTitle: string | undefined;
+  let cartVoucherCode: string | undefined;
+  let upsellVoucherCode: string | undefined;
 
   for (const node of nodes) {
     if (node.data.type === 'landing-page') {
@@ -138,6 +165,18 @@ export function extractPricingFromNodes(nodes: JourneyNode[]): {
           }
         }
       }
+    } else if (node.data.type === 'follow-up-sequence') {
+      const seqData = node.data as any;
+      const sType = seqData?.sequenceType;
+      const sTitle = String(seqData?.sequenceTitle || seqData?.label || '');
+      if (sType === 'checkout_recovery' || /cart|checkout/i.test(sTitle)) {
+        hasCartRecovery = true;
+        if (seqData.voucherCode) cartVoucherCode = seqData.voucherCode;
+      }
+      if (sType === 'upsell_recovery' || /rescue|second.?chance|oto.?recovery/i.test(sTitle)) {
+        hasUpsellRescue = true;
+        if (seqData.voucherCode) upsellVoucherCode = seqData.voucherCode;
+      }
     }
   }
 
@@ -149,15 +188,20 @@ export function extractPricingFromNodes(nodes: JourneyNode[]): {
     hasBump,
     hasUpsell,
     hasDownsell,
+    hasCartRecovery,
+    hasUpsellRescue,
     coreTitle,
     bumpTitle,
     upsellTitle,
-    downsellTitle
+    downsellTitle,
+    cartVoucherCode,
+    upsellVoucherCode
   };
 }
 
 /**
- * Calculates end-to-end unit economics, profit margins, ROAS, and breakeven safety metrics.
+ * Calculates end-to-end unit economics, profit margins, ROAS, and breakeven safety metrics,
+ * incorporating automated retention recovery from cart abandonment and 24h courtesy upsell rescue.
  */
 export function calculateFunnelForecast(forecast: FunnelForecast): FunnelSimulationResults {
   const {
@@ -171,7 +215,13 @@ export function calculateFunnelForecast(forecast: FunnelForecast): FunnelSimulat
     upsellTakeRate,
     upsellPrice,
     downsellTakeRate = 0,
-    downsellPrice = 0
+    downsellPrice = 0,
+    cartRecoveryEnabled = false,
+    cartRecoveryRate = 18,
+    cartRecoveryDiscount = 10,
+    upsellRescueEnabled = false,
+    upsellRescueRate = 15,
+    upsellRescueDiscount = 10
   } = forecast;
 
   // 1. Traffic & Front-End Orders
@@ -185,35 +235,64 @@ export function calculateFunnelForecast(forecast: FunnelForecast): FunnelSimulat
   const declinedUpsellCount = Math.max(0, frontEndOrders - upsellSales);
   const downsellSales = Math.round(declinedUpsellCount * (downsellTakeRate / 100));
 
-  // 3. Revenue Breakdown
+  // 3. Day 0 Front-End Revenue Breakdown
   const coreRevenue = frontEndOrders * corePrice;
   const bumpRevenue = bumpSales * bumpPrice;
   const upsellRevenue = upsellSales * upsellPrice;
   const downsellRevenue = downsellSales * downsellPrice;
-  const grossRevenue = coreRevenue + bumpRevenue + upsellRevenue + downsellRevenue;
+  const dayZeroGrossRevenue = coreRevenue + bumpRevenue + upsellRevenue + downsellRevenue;
 
-  // 4. AOV & Lift
+  // 4. Automated Retention Recovery Calculations ($0 additional ad spend)
+  // Checkout abandonment estimation: In e-commerce, ~70% of initiated checkouts are abandoned.
+  // When frontEndOrders complete at a ~30% checkout completion rate, estimated abandoned checkouts:
+  const estimatedInitiatedCheckouts = frontEndOrders > 0 ? Math.round(frontEndOrders / 0.30) : 0;
+  const abandonedCartCount = Math.max(0, estimatedInitiatedCheckouts - frontEndOrders);
+
+  const recoveredCartOrders = cartRecoveryEnabled
+    ? Math.round(abandonedCartCount * (Math.max(0, cartRecoveryRate) / 100))
+    : 0;
+  const effectiveCartRecoveryPrice = Math.max(0, corePrice * (1 - Math.max(0, cartRecoveryDiscount) / 100));
+  const recoveredCartRevenue = recoveredCartOrders * effectiveCartRecoveryPrice;
+
+  // 24h Courtesy Upsell Rescue: Targeted at buyers who declined the initial upsell and did not take downsell
+  const unconvertedDeclinePool = Math.max(0, declinedUpsellCount - downsellSales);
+  const recoveredUpsellOrders = upsellRescueEnabled
+    ? Math.round(unconvertedDeclinePool * (Math.max(0, upsellRescueRate) / 100))
+    : 0;
+  const effectiveUpsellRescuePrice = Math.max(0, upsellPrice * (1 - Math.max(0, upsellRescueDiscount) / 100));
+  const recoveredUpsellRevenue = recoveredUpsellOrders * effectiveUpsellRescuePrice;
+
+  const totalRetentionRevenue = recoveredCartRevenue + recoveredUpsellRevenue;
+
+  // 5. Blended Gross Totals
+  const grossRevenue = dayZeroGrossRevenue + totalRetentionRevenue;
   const baseAov = corePrice;
-  const effectiveAov = frontEndOrders > 0 ? grossRevenue / frontEndOrders : baseAov;
+  const totalCompletedBuyers = frontEndOrders + recoveredCartOrders;
+  const effectiveAov = totalCompletedBuyers > 0 ? grossRevenue / totalCompletedBuyers : baseAov;
   const aovLift = Math.max(0, effectiveAov - baseAov);
 
-  // 5. Cost Structure & Margins
+  // 6. Cost Structure & Margins
   const cogsFraction = Math.max(0, Math.min(1, cogsPercentage / 100));
+  const dayZeroCogs = dayZeroGrossRevenue * cogsFraction;
+  const totalRetentionCogs = totalRetentionRevenue * cogsFraction;
   const estimatedCogs = grossRevenue * cogsFraction;
-  const netProfit = grossRevenue - monthlyAdSpend - estimatedCogs;
-  const blendedRoas = monthlyAdSpend > 0 ? grossRevenue / monthlyAdSpend : 0;
 
-  // 6. Breakeven & Acquisition CAC Guardrails
-  // Max ad spend affordable per customer before going into the red
+  const dayZeroNetProfit = dayZeroGrossRevenue - monthlyAdSpend - dayZeroCogs;
+  const totalRetentionProfit = totalRetentionRevenue - totalRetentionCogs;
+  const netProfit = grossRevenue - monthlyAdSpend - estimatedCogs;
+  const retentionProfitLift = totalRetentionProfit;
+
+  const dayZeroRoas = monthlyAdSpend > 0 ? dayZeroGrossRevenue / monthlyAdSpend : 0;
+  const blendedRoas = monthlyAdSpend > 0 ? grossRevenue / monthlyAdSpend : 0;
+  const effectiveRoasWithRetention = blendedRoas;
+
+  // 7. Breakeven & Acquisition CAC Guardrails
   const breakevenCac = effectiveAov * (1 - cogsFraction);
-  // Current projected cost per customer
   const projectedCac = frontEndOrders > 0
     ? monthlyAdSpend / frontEndOrders
     : (cpc > 0 && conversionRate > 0 ? cpc / (conversionRate / 100) : 0);
   const profitBuffer = breakevenCac - projectedCac;
 
-  // 7. Breakeven Conversion Rate %
-  // What minimum landing page CVR is needed to achieve net profit = 0
   const breakevenCvr = breakevenCac > 0 ? (cpc / breakevenCac) * 100 : 0;
   const cvrBuffer = conversionRate - breakevenCvr;
 
@@ -248,6 +327,21 @@ export function calculateFunnelForecast(forecast: FunnelForecast): FunnelSimulat
     cvrBuffer,
     isProfitable,
     leverage5PctUpsellRevenue,
-    leverage5PctUpsellProfit
+    leverage5PctUpsellProfit,
+    // Automated Retention & Second-Chance Outputs
+    abandonedCartCount,
+    recoveredCartOrders,
+    recoveredCartRevenue,
+    declinedUpsellCount,
+    recoveredUpsellOrders,
+    recoveredUpsellRevenue,
+    totalRetentionRevenue,
+    totalRetentionProfit,
+    dayZeroGrossRevenue,
+    dayZeroNetProfit,
+    dayZeroRoas,
+    effectiveRoasWithRetention,
+    retentionProfitLift
   };
 }
+
