@@ -533,8 +533,8 @@ This document inventories every identified issue, categorized by severity, along
 ---
 
 ### 8.3 Route Modularization of `server.mjs`
-- **File / Lines:** `server.mjs`, `server/routes/domainRoutes.mjs`, `server/routes/journeyRoutes.mjs`, `server/routes/shopifyRoutes.mjs`, `server/routes/emailRoutes.mjs`
-- **Status:** **PHASE 1 & PHASE 2 COMPLETE**
+- **File / Lines:** `server.mjs`, `server/routes/domainRoutes.mjs`, `server/routes/journeyRoutes.mjs`, `server/routes/shopifyRoutes.mjs`, `server/routes/emailRoutes.mjs`, `server/routes/analyticsRoutes.mjs`, `server/routes/publicRoutes.mjs`, `server/routes/authWorkspaceRoutes.mjs`
+- **Status:** **PHASE 1, PHASE 2, & PHASE 3 COMPLETE**
 - **Completed:** 
   - **Phase 1**:
     - Extracted Custom Domain Verification, Challenge Tokens, Live TLS SNI Handshakes, and Email DNS Health Check into dedicated controller [server/routes/domainRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/domainRoutes.mjs).
@@ -542,8 +542,11 @@ This document inventories every identified issue, categorized by severity, along
   - **Phase 2**:
     - Extracted Shopify Admin & Real-Time Webhooks into dedicated controller [server/routes/shopifyRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/shopifyRoutes.mjs) (`/connect`, `/disconnect`, `/signals`, `/webhooks`, `/products`, `/sync-customers`, `/sync-orders`, `/discounts`, `/create-discount`, `/abandoned-checkouts`, plus 11 real-time webhook endpoints).
     - Extracted Hub Email Suite, CRM 360, RFM settings, audience segments, campaigns & drips into dedicated controller [server/routes/emailRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/emailRoutes.mjs) (38 route endpoints including CRM 360 profile, tags, RFM config, audience segments, campaign sends, AB winner lock, drip enrollments, and predictions).
-    - All 181 automated tests across 24 test suites pass with 100% precision. `server.mjs` reduced from ~11,950 lines to ~9,160 lines (~2,800 lines extracted).
-- **Next Phases:** Continue gradual modularization for remaining subsystems (Phase 3: `analyticsRoutes.mjs`, public funnel/page routes, and auth/workspace routes).
+  - **Phase 3**:
+    - Extracted Analytics & Attribution into dedicated controller [server/routes/analyticsRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/analyticsRoutes.mjs) (Multi-touch attribution models, funnel edge/node live telemetry, CSV export, message delivery stats, operator analytics).
+    - Extracted Public Funnel SSR & Ingestion into dedicated controller [server/routes/publicRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/publicRoutes.mjs) (Landing page HTML, Thank-You portal HTML, Post-Purchase Upsell/Downsell HTML, A/B split router, Subdomain Host-Header middleware, lead capture CORS, rate-limiting, exit-intent rescue, Shopify web pixel beacon, back-in-stock notifications, waitlist, inquiries).
+    - Extracted Auth & Workspace Multi-Tenancy into dedicated controller [server/routes/authWorkspaceRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/authWorkspaceRoutes.mjs) (Google RS256 token verification, `requireUser`, `requireOperator`, workspace CRUD, admin journey overview, AI copywriter rate-limiting & template fallback).
+    - All 181 automated tests across 24 test suites pass with 100% precision. `server.mjs` reduced from ~11,950 lines to 4,694 lines (>7,250 lines modularized). Production bundle builds cleanly in 1.36s.
 
 ---
 
@@ -576,7 +579,7 @@ This document inventories every identified issue, categorized by severity, along
 | **P2** | **Security**    | Hardcoded operator email in client bundle | Configuration inflexibility and PII exposure | **RESOLVED** (Configurable via `VITE_OPERATOR_EMAIL`) |
 | **P2** | **UX / Onboarding** | First-time merchants lack clear path from canvas to launch | Decision paralysis and lower funnel completion | **RESOLVED** (Interactive 3-step Launch Readiness Checklist in `CanvasHeader`) |
 | **P3** | **Performance** | 1.17 MB monolithic bundle with no code-splitting | Slow mobile load times | **RESOLVED** (Code-split with React.lazy; entry chunk reduced to 184 kB) |
-| **P3** | **Architecture** | Monolithic `server.mjs` | Maintenance and regression risk | **RESOLVED - PHASE 1 & 2** (Extracted `domainRoutes.mjs`, `journeyRoutes.mjs`, `shopifyRoutes.mjs`, and `emailRoutes.mjs`; ~2,800 lines extracted with 100% test pass rate) |
+| **P3** | **Architecture** | Monolithic `server.mjs` | Maintenance and regression risk | **RESOLVED - PHASE 1, 2 & 3** (Extracted `domainRoutes.mjs`, `journeyRoutes.mjs`, `shopifyRoutes.mjs`, `emailRoutes.mjs`, `analyticsRoutes.mjs`, `publicRoutes.mjs`, `authWorkspaceRoutes.mjs`; >7,250 lines modularized with 100% test pass rate) |
 | **P1** | **Conversion / Positioning** | Narrow "beauty-only" copy locked out all other business verticals | Restricts market to beauty only | **RESOLVED** (Universal turnkey blueprints: D2C, High-Ticket Consulting, Digital SaaS, VIP Magnet, OTO Upsell) |
 | **P1** | **Conversion / Mobile** | Mobile visitors scroll past hero CTA with no persistent action bar | Mobile bounce & lost conversions | **RESOLVED** (Mobile Sticky Action Bar with per-page toggle switch in `PageEditor.tsx` & auto-scroll trigger) |
 | **P1** | **Automation / Commerce** | Single-touch abandoned checkout recovery with no items summary or courtesy discount | Low cart recovery conversion | **RESOLVED** (2-Stage Recovery Engine: 45m items reminder + 24h `SAVE10` 10% courtesy discount) |
