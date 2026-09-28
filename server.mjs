@@ -8053,7 +8053,11 @@ async function savePublicPage(slug, data) {
   publicPageCache[slug] = data;
   const customDomain = (data.customDomain || data.data?.customDomain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   if (customDomain) {
-    publicPageCache[`domain:${customDomain}`] = slug;
+    const existingDomainSlug = publicPageCache[`domain:${customDomain}`];
+    const existingDomainPage = existingDomainSlug ? (publicPageCache[existingDomainSlug] || await loadPublicPage(existingDomainSlug)) : null;
+    if (!existingDomainPage || !existingDomainPage.userId || existingDomainPage.userId === data.userId) {
+      publicPageCache[`domain:${customDomain}`] = slug;
+    }
   }
   persistPublicPages();
   if (hubReady) {
@@ -8106,6 +8110,89 @@ async function loadPublicPage(identifier) {
   }
 
   return null;
+}
+
+const RESERVED_PUBLIC_SLUGS = new Set([
+  'api', 'admin', 'r', 'o', 'u', 'p', 'split', 'assets', 'favicon.ico', 
+  'health', 'webhooks', 'login', 'signup', 'dashboard', 'preview', 'checkout', 'cart'
+]);
+
+async function validateSlugAvailability(slug, requestingUserId, { type = 'page', customDomain = '' } = {}) {
+  const cleanSlug = String(slug || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!cleanSlug) {
+    return { available: false, error: 'Slug cannot be empty.' };
+  }
+  if (RESERVED_PUBLIC_SLUGS.has(cleanSlug)) {
+    return { available: false, error: `The slug "${cleanSlug}" is reserved by the system. Please pick another name.` };
+  }
+
+  // Check direct slug ownership across all page types
+  const lookupKey = type === 'ab-split' ? `split:${cleanSlug}` : cleanSlug;
+  const existingPage = publicPageCache[lookupKey] || await loadPublicPage(lookupKey);
+
+  if (existingPage && existingPage.userId && existingPage.userId !== requestingUserId) {
+    return {
+      available: false,
+      error: `The ${type === 'ab-split' ? 'split-test' : 'page'} slug "${cleanSlug}" is already claimed by another store. Please choose a unique custom slug.`
+    };
+  }
+
+  // If registering a page or upsell, verify direct slug is not taken by another user's page or upsell
+  if (type !== 'ab-split') {
+    const directExisting = publicPageCache[cleanSlug] || await loadPublicPage(cleanSlug);
+    if (directExisting && directExisting.userId && directExisting.userId !== requestingUserId) {
+      return {
+        available: false,
+        error: `The page slug "${cleanSlug}" is already claimed by another store. Please choose a unique custom slug.`
+      };
+    }
+  }
+
+  // Custom Domain validation: Ensure the custom domain is not already bound to another tenant's page
+  if (customDomain) {
+    const cleanDomain = String(customDomain).toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (cleanDomain) {
+      const existingDomainSlug = publicPageCache[`domain:${cleanDomain}`];
+      if (existingDomainSlug) {
+        const existingDomainPage = publicPageCache[existingDomainSlug] || await loadPublicPage(existingDomainSlug);
+        if (existingDomainPage && existingDomainPage.userId && existingDomainPage.userId !== requestingUserId) {
+          return {
+            available: false,
+            error: `The custom domain "${cleanDomain}" is already connected to another store. Please use a unique domain or remove it from the other store first.`
+          };
+        }
+      }
+    }
+  }
+
+  return { available: true, cleanSlug };
+}
+
+async function removePublicPage(slug, requestingUserId) {
+  if (!slug) return false;
+  const cleanSlug = String(slug).toLowerCase().trim();
+  const page = publicPageCache[cleanSlug] || await loadPublicPage(cleanSlug);
+  if (page && page.userId && page.userId !== requestingUserId) {
+    return false; // Unauthorized removal attempt
+  }
+  const customDomain = (page?.customDomain || page?.data?.customDomain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (customDomain && publicPageCache[`domain:${customDomain}`] === cleanSlug) {
+    delete publicPageCache[`domain:${customDomain}`];
+    if (hubReady) {
+      try { await hub.store.docs.delete(pubDocName(`domain.${customDomain}`)); } catch {}
+    }
+  }
+  delete publicPageCache[cleanSlug];
+  persistPublicPages();
+  if (hubReady) {
+    try { await hub.store.docs.delete(pubDocName(cleanSlug)); } catch {}
+  }
+  return true;
 }
 
 function escapeHtml(str) {
@@ -10201,11 +10288,11 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
   for (const node of nodes) {
     if (node.type === 'landing-page') {
       const d = node.data || {};
-      const cleanSlug = (d.slug || node.id)
+      const isCustomSlug = Boolean(d.slug && String(d.slug).trim());
+      let cleanSlug = (d.slug || node.id)
         .toLowerCase()
         .replace(/[^a-z0-9_-]/g, '-')
         .replace(/^-+|-+$/g, '') || `offer-${node.id.slice(0, 6)}`;
-      const pubUrl = `/p/${cleanSlug}`;
 
       const customDomain = (d.customDomain || '')
         .toLowerCase()
@@ -10213,6 +10300,19 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
         .replace(/^https?:\/\//, '')
         .replace(/\/.*$/, '');
 
+      let slugCheck = await validateSlugAvailability(cleanSlug, req.user.uid, { type: 'page', customDomain });
+      if (!slugCheck.available) {
+        if (isCustomSlug) {
+          return res.status(409).json({ success: false, error: slugCheck.error });
+        }
+        cleanSlug = `${cleanSlug}-${crypto.randomBytes(2).toString('hex')}`;
+        slugCheck = await validateSlugAvailability(cleanSlug, req.user.uid, { type: 'page', customDomain });
+        if (!slugCheck.available) {
+          return res.status(409).json({ success: false, error: slugCheck.error });
+        }
+      }
+
+      const pubUrl = `/p/${cleanSlug}`;
       const upsellNode = upsellNodes.find(u => u.data?.offerType !== 'downsell');
       const downsellNode = upsellNodes.find(u => u.data?.offerType === 'downsell');
       const thankYouNode = thankYouNodes[0];
@@ -10242,18 +10342,13 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
         customDomain: customDomain || undefined
       };
 
-      // Multi-tenancy slug protection: prevent hijacking another tenant's page
-      const existingPage = publicPageCache[cleanSlug] || await loadPublicPage(cleanSlug);
-      if (existingPage && existingPage.userId && existingPage.userId !== req.user.uid) {
-        return res.status(409).json({
-          success: false,
-          error: `The page slug "${cleanSlug}" is already claimed by another store. Please choose a unique custom slug in page settings.`
-        });
-      }
-
       await savePublicPage(cleanSlug, publicRecord);
       if (customDomain) {
-        publicPageCache[`domain:${customDomain}`] = cleanSlug;
+        const existingDomainSlug = publicPageCache[`domain:${customDomain}`];
+        const existingDomainPage = existingDomainSlug ? (publicPageCache[existingDomainSlug] || await loadPublicPage(existingDomainSlug)) : null;
+        if (!existingDomainPage || !existingDomainPage.userId || existingDomainPage.userId === req.user.uid) {
+          publicPageCache[`domain:${customDomain}`] = cleanSlug;
+        }
       }
       publishedPages.push({
         nodeId: node.id,
@@ -10265,10 +10360,24 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
       });
     } else if (node.type === 'upsell') {
       const d = node.data || {};
-      const cleanSlug = (d.slug || `${node.id}-upsell`)
+      const isCustomSlug = Boolean(d.slug && String(d.slug).trim());
+      let cleanSlug = (d.slug || `${node.id}-upsell`)
         .toLowerCase()
         .replace(/[^a-z0-9_-]/g, '-')
-        .replace(/^-+|-+$/g, '');
+        .replace(/^-+|-+$/g, '') || `upsell-${node.id.slice(0, 6)}`;
+
+      let slugCheck = await validateSlugAvailability(cleanSlug, req.user.uid, { type: 'page' });
+      if (!slugCheck.available) {
+        if (isCustomSlug) {
+          return res.status(409).json({ success: false, error: slugCheck.error });
+        }
+        cleanSlug = `${cleanSlug}-${crypto.randomBytes(2).toString('hex')}`;
+        slugCheck = await validateSlugAvailability(cleanSlug, req.user.uid, { type: 'page' });
+        if (!slugCheck.available) {
+          return res.status(409).json({ success: false, error: slugCheck.error });
+        }
+      }
+
       const pubUrl = `/p/${cleanSlug}`;
       node.data = {
         ...d,
@@ -10294,10 +10403,24 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
       await savePublicPage(cleanSlug, publicRecord);
     } else if (node.type === 'ab-split') {
       const d = node.data || {};
-      const cleanSlug = (d.slug || `${node.id}-split`)
+      const isCustomSlug = Boolean(d.slug && String(d.slug).trim());
+      let cleanSlug = (d.slug || `${node.id}-split`)
         .toLowerCase()
         .replace(/[^a-z0-9_-]/g, '-')
         .replace(/^-+|-+$/g, '') || `split-${node.id.slice(0, 6)}`;
+
+      let slugCheck = await validateSlugAvailability(cleanSlug, req.user.uid, { type: 'ab-split' });
+      if (!slugCheck.available) {
+        if (isCustomSlug) {
+          return res.status(409).json({ success: false, error: slugCheck.error });
+        }
+        cleanSlug = `${cleanSlug}-${crypto.randomBytes(2).toString('hex')}`;
+        slugCheck = await validateSlugAvailability(cleanSlug, req.user.uid, { type: 'ab-split' });
+        if (!slugCheck.available) {
+          return res.status(409).json({ success: false, error: slugCheck.error });
+        }
+      }
+
       const pubUrl = `/p/split/${cleanSlug}`;
 
       // Resolve target pages from outgoing edges or data fields
@@ -10363,16 +10486,33 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
   });
 });
 
+app.get('/api/journey/check-slug', requireUser, async (req, res) => {
+  const slug = String(req.query.slug || '').trim();
+  const type = String(req.query.type || 'page').trim();
+  const customDomain = String(req.query.customDomain || '').trim();
+  const result = await validateSlugAvailability(slug, req.user.uid, { type, customDomain });
+  if (!result.available) {
+    return res.status(409).json({ success: false, error: result.error });
+  }
+  return res.json({ success: true, cleanSlug: result.cleanSlug });
+});
+
 app.post('/api/journey/:id/unpublish', requireUser, async (req, res) => {
   const journey = await loadJourney(req.user.uid, req.params.id);
   if (!journey) return res.status(404).json({ success: false, error: 'Journey not found.' });
 
   const nodes = journey.nodes || [];
   for (const node of nodes) {
-    if (node.type === 'landing-page') {
+    if (node.type === 'landing-page' || node.type === 'upsell') {
       const slug = node.data?.slug;
-      if (slug && publicPageCache[slug]) {
-        delete publicPageCache[slug];
+      if (slug) {
+        await removePublicPage(slug, req.user.uid);
+      }
+      if (node.data) node.data.published = false;
+    } else if (node.type === 'ab-split') {
+      const slug = node.data?.slug;
+      if (slug) {
+        await removePublicPage(`split:${slug}`, req.user.uid);
       }
       if (node.data) node.data.published = false;
     }

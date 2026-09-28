@@ -187,20 +187,31 @@ This document inventories every identified issue, categorized by severity, along
 ## 3. Multi-Tenancy, Security & Isolation Loopholes
 
 ### 3.1 Public Page Hijacking via Flat Slug Namespace
-- **File / Lines:** `server.mjs:6747-6762`, `server.mjs:8657-8712`
+- **File / Lines:** `server.mjs:8052-8195`, `server.mjs:10288-10515`
 - **Issue:** 
   Public pages are stored in a flat dictionary: `publicPageCache[cleanSlug] = data`.
-  When a user publishes a page via `/api/journey/:id/publish`, the server generates a clean slug (e.g., `offer-1`, `summer-glow`, `vip-deal`). The route does **not** check whether `cleanSlug` is already owned by another `userId`.
+  When a user published a page via `/api/journey/:id/publish`, the server generated a clean slug (e.g., `offer-1`, `summer-glow`, `vip-deal`). The route did **not** check whether `cleanSlug` was already owned by another `userId`. Furthermore, `customDomain` pointers (`domain:${customDomain}`) could be overwritten by any caller, and reserved system routes were unreserved.
 - **Impact:** 
-  Tenant B can intentionally or accidentally publish a page with the same slug as Tenant A, overwriting Tenant A's live landing page, stealing their traffic, and capturing their customer leads.
-- **Recommended Improvement:**
-  Enforce unique slug ownership or namespace public URLs by workspace/subdomain:
-  ```javascript
-  const existing = publicPageCache[cleanSlug];
-  if (existing && existing.userId !== req.user.uid) {
-    return res.status(409).json({ success: false, error: 'That slug is already taken by another brand.' });
-  }
-  ```
+  Tenant B could intentionally or accidentally publish a page with the same slug as Tenant A, overwriting Tenant A's live landing page, stealing their traffic, capturing their customer leads, or hijacking custom domains.
+- **Resolution (RESOLVED):**
+  1. **Strict Multi-Tenant Slug Isolation (`validateSlugAvailability`)**:
+     - Enforced caller ownership validation across all publishable node types (`landing-page`, `upsell`, and `ab-split`).
+     - Cross-node route collision protection: because both `landing-page` and `upsell` serve from `/p/:slug`, an upsell slug registered by Tenant A blocks Tenant B from claiming it as either a landing page or an upsell.
+     - Split router isolation: `ab-split` nodes check `split:${cleanSlug}` to prevent cross-tenant split route collisions.
+  2. **Reserved System Slugs Blacklist**:
+     - Enforced `RESERVED_PUBLIC_SLUGS` Set (`api`, `admin`, `r`, `o`, `u`, `p`, `split`, `assets`, `favicon.ico`, `health`, `webhooks`, `login`, `signup`, `dashboard`, `preview`, `checkout`, `cart`), immediately rejecting attempts to claim core routing keywords.
+  3. **Custom Domain Hijacking Prevention**:
+     - When publishing or validating a page with `customDomain`, the server checks whether `domain:${cleanDomain}` is already bound to another tenant's page, blocking unauthorized domain takeovers with descriptive 409 errors.
+  4. **Auto-Resolution vs Explicit Custom Slug Conflict Policy**:
+     - If a user explicitly specifies a custom slug that is owned by another store, the server returns an explicit `409 Conflict` error.
+     - If a user leaves the slug as default system-generated (`node.id`), the server automatically appends a random hex suffix (`${cleanSlug}-${hex}`) to ensure smooth publishing without friction.
+  5. **Secure Unpublishing & Cleanup (`removePublicPage`)**:
+     - `POST /api/journey/:id/unpublish` iterates through `landing-page`, `upsell`, and `ab-split` nodes.
+     - `removePublicPage` verifies `requestingUserId === page.userId` before deletion, cleanly removing the slug document and clearing any registered `domain:${customDomain}` pointer.
+  6. **Real-Time Pre-Flight Check Endpoint**:
+     - Added `GET /api/journey/check-slug` with `requireUser` authentication so page and journey settings UI can validate slug availability in real time before publishing.
+  7. **Automated Verification**:
+     - Implemented unit test suite in `slug-protection.test.mjs` (8 passing tests covering reserved slugs, cross-tenant isolation, cross-node protection, custom domain protection, auto-resolution, and unpublish cleanup).
 
 ---
 
@@ -575,5 +586,7 @@ This document inventories every identified issue, categorized by severity, along
 | **P1** | **CRM / Customer 360 Deep-Dive** | CRM customer table rows were static dead-ends with no way to inspect past orders, active drips, or timeline events | Inability to diagnose at-risk VIP whales or take targeted 1-click personal retention actions | **RESOLVED** (Option 1 Customer 360 Profile Slide-Over Drawer: built `CustomerProfileDrawer.tsx` with dedicated backend APIs `GET /api/email/contact-details`, `POST /api/email/contact-tags`, and `POST /api/drips/enrollment-toggle`. Features 4-metric customer ribbon (LTV, Orders, AOV, Recency), RFM intelligence hero card with strategic retention callouts, past Shopify orders breakdown with line items and fulfillment status, abandoned checkouts alert, active drip sequence manager with 1-click pause/resume/unenroll and manual sequence enrollment, live tag manager, chronological event timeline, and 1-click personalized VIP broadcast drafting in `HubEmailSuite.tsx`) |
 | **P1** | **Performance / I/O** | Shortlink generation performed synchronous disk reads & writes per URL inside loop (`Audit 2.3`) | Thousands of redundant disk writes & CPU array slicing during broadcasts | **RESOLVED** (In-Memory Batch Accumulation: `rememberRedirect` accepts `batchCollector`, `rememberRedirectsBatch` bulk-commits once, `rewritePlainMailLinks` batches single-email links in 1 write, and broadcast/drip send loops collect all links across recipients for 1 atomic flush) |
 | **P1** | **Commerce / Ingestion** | Order webhooks lacked `orders/paid` route alias, tenant-isolated idempotency, and over-aggressively exited all active drips | Dropped `orders/paid` hooks, possible cross-tenant checkout recovery collision, and premature cancellation of post-purchase onboarding drips | **RESOLVED** (Shopify Order Webhook Live Auto-Sync Hardening: added `POST /api/webhooks/shopify/orders-paid`, tenant-scoped duplicate detection updating `financialStatus` idempotently, selective drip exit targeting pre-purchase recovery sequences while protecting post-purchase welcome drips, tenant-scoped abandoned checkout recovery emitting `checkout_recovered` event, and automated CRM RFM tier & bump tag synchronization) |
+| **P1** | **Security / Multi-Tenancy** | Flat slug namespace permits page & domain hijacking (`Audit 3.1`) | Tenant traffic & lead theft, custom domain takeovers, and reserved route collision | **RESOLVED** (Multi-tenant slug isolation across `landing-page`, `upsell`, and `ab-split`, reserved keywords blacklist, custom domain ownership guards on `domain:${customDomain}`, auto-resolution for default slugs, tenant-verified unpublishing, and preflight check endpoint `GET /api/journey/check-slug`) |
+
 
 
