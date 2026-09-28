@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Mail, Clock, Users, ShieldAlert, Sparkles, ShoppingBag, Gift, CheckCircle } from 'lucide-react';
+import { Mail, Clock, Users, ShieldAlert, Sparkles, ShoppingBag, Gift, CheckCircle, Star } from 'lucide-react';
 import type { SequenceNodeData } from '../../../types/journey';
 
 export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
@@ -12,7 +12,8 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
     d.isRetentionBranch ||
     seqType === 'upsell_recovery' ||
     seqType === 'checkout_recovery' ||
-    seqType === 'at_risk_winback'
+    seqType === 'at_risk_winback' ||
+    seqType === 'fulfillment_review'
   );
 
   let themeColor = '#FBBF24';
@@ -39,6 +40,12 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
     borderColor = selected ? '#8B5CF6' : 'rgba(139, 92, 246, 0.35)';
     headerLabel = 'VIP Winback Journey';
     IconComponent = Gift;
+  } else if (seqType === 'fulfillment_review') {
+    themeColor = '#EC4899';
+    badgeBg = 'rgba(236, 72, 153, 0.2)';
+    borderColor = selected ? '#EC4899' : 'rgba(236, 72, 153, 0.35)';
+    headerLabel = '7-Day Review & VIP Reward';
+    IconComponent = Star;
   } else if (selected) {
     borderColor = '#6366F1';
   }

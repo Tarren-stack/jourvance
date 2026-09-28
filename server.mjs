@@ -842,6 +842,39 @@ const INITIAL_DRIP_SEQUENCES = [
     attributedSales: null,
     createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
     updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'drip_seq_review_request',
+    name: 'Post-Purchase Review & Social Proof Engine',
+    description: 'Invites verified buyers 7 days after fulfillment to share their ritual feedback in exchange for a complimentary $10 courtesy gift voucher (REVIEW10).',
+    triggerType: 'fulfillment_review',
+    smartExitOnPurchase: false,
+    steps: [
+      {
+        id: 'review_step_1',
+        stepNumber: 1,
+        delayHours: 168,
+        subject: 'How is your new ritual feeling? (A $10 treat inside)',
+        previewText: 'We would love your thoughts on your recent order',
+        body: 'Hi {{first_name}},\n\nIt has been a week since your order {{order_number}} arrived, and we hope your new ritual is treating you wonderfully.\n\nCould you take 60 seconds to share your honest experience? As a heartfelt thank you, we will instantly gift you $10 toward your next replenishment.\n\nShare your review & claim your $10 treat here:\n{{review_url}}\n\nWith gratitude,\nThe Jourvance Team',
+        discountVoucher: 'REVIEW10'
+      },
+      {
+        id: 'review_step_2',
+        stepNumber: 2,
+        delayHours: 72,
+        subject: 'Quick reminder: Your $10 beauty treat is waiting',
+        previewText: 'A fast 60 seconds to claim your courtesy voucher',
+        body: 'Hi {{first_name}},\n\nJust a gentle reminder that your private $10 courtesy gift is still waiting for you.\n\nWhenever you have a quiet moment, let us know how your formulas are working for your skin:\n\nShare your review & get $10:\n{{review_url}}\n\nWarmly,\nThe Jourvance Team',
+        discountVoucher: 'REVIEW10'
+      }
+    ],
+    activeEnrollments: 0,
+    totalCompleted: 0,
+    totalExitedPurchased: 0,
+    attributedSales: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -2824,12 +2857,14 @@ async function processUserAutomationsTick(uid) {
           }
         }
         const effectiveCheckoutUrl = resolvedCheckoutUrl || checkout?.abandonedCheckoutUrl || offerUrl;
+        const reviewUrl = enr.reviewUrl || (enr.orderId ? `/review?order=${encodeURIComponent(enr.orderId)}&email=${encodeURIComponent(enr.customerEmail || '')}` : '/review');
         const letter = await composeForSend(uid, dripContact, [{ kind: 'text', text: step.body || '' }], {
           checkout_url: effectiveCheckoutUrl,
           abandoned_checkout_url: effectiveCheckoutUrl,
           offer_url: offerUrl,
+          review_url: reviewUrl,
           discount_code: discountCode,
-          order_number: customerOrder?.orderNumber || (customerOrder?.id ? `#${String(customerOrder.id).slice(-6)}` : ''),
+          order_number: customerOrder?.orderNumber || (customerOrder?.id ? `#${String(customerOrder.id).slice(-6)}` : (enr.orderId ? `#${String(enr.orderId).slice(-6)}` : '')),
           first_name: personFields(dripContact.name || enr.customerName).first_name,
           eventLineItems: Array.isArray(checkout?.lineItems) ? checkout.lineItems : []
         }, { marketing: true, previewText: step.previewText });

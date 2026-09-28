@@ -121,8 +121,38 @@ export const SequenceEditor: React.FC<Props> = ({
     setActiveStepIdx(Math.max(0, idx - 1));
   };
 
-  const loadEcommerceTemplate = (type: 'vip-welcome' | 'cart-recovery' | 'upsell-recovery' | 'winback') => {
-    if (type === 'upsell-recovery') {
+  const loadEcommerceTemplate = (type: 'vip-welcome' | 'cart-recovery' | 'upsell-recovery' | 'winback' | 'review-request') => {
+    if (type === 'review-request') {
+      const reviewSteps: SequenceStep[] = [
+        {
+          id: `step-${Date.now()}-1`,
+          channel: 'email',
+          delay: '7 Days (168h)',
+          subject: 'How is your new ritual feeling? (A $10 treat inside)',
+          previewText: 'We would love your thoughts on your recent order',
+          body: `Hi [First Name],\n\nIt has been a week since your order arrived, and we hope your new ritual is already treating you wonderfully.\n\nCould you take 60 seconds to share your honest thoughts? As a thank you for helping fellow beauty lovers, we will instantly gift you $10 toward your next restock.\n\nLeave your review & claim your $10 treat:\n[Review Link]\n\nWith gratitude,\nCustomer Care`
+        },
+        {
+          id: `step-${Date.now()}-2`,
+          channel: 'email',
+          delay: '3 Days (72h)',
+          subject: 'Quick reminder: Your $10 beauty treat is waiting',
+          previewText: 'A fast 60 seconds to claim your courtesy voucher',
+          body: `Hi [First Name],\n\nJust a gentle reminder that your private $10 courtesy gift is still waiting for you.\n\nWhenever you have a quiet moment, let us know how your formulas are working for your skin:\n\nShare your review & get $10:\n[Review Link]\n\nWarmly,\nCustomer Care`
+        }
+      ];
+      onChange({
+        ...data,
+        sequenceTitle: 'Post-Purchase Review & Social Proof Engine',
+        sequenceType: 'fulfillment_review',
+        isRetentionBranch: true,
+        delayHours: 168,
+        voucherCode: data.voucherCode || 'REVIEW10',
+        smartExitOnPurchase: false,
+        steps: reviewSteps
+      });
+      setActiveStepIdx(0);
+    } else if (type === 'upsell-recovery') {
       const rescueSteps: SequenceStep[] = [
         {
           id: `step-${Date.now()}-1`,
@@ -756,6 +786,24 @@ export const SequenceEditor: React.FC<Props> = ({
               >
                 ✦ VIP Winback Series
               </button>
+              <button
+                type="button"
+                onClick={() => loadEcommerceTemplate('review-request')}
+                style={{
+                  padding: '7px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: data.sequenceType === 'fulfillment_review' ? 'rgba(236, 72, 153, 0.25)' : 'rgba(236, 72, 153, 0.1)',
+                  border: `1px solid ${data.sequenceType === 'fulfillment_review' ? '#ec4899' : 'rgba(236, 72, 153, 0.3)'}`,
+                  color: '#f472b6',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  gridColumn: 'span 2'
+                }}
+              >
+                ✦ 7-Day Review & VIP Reward ($10 Gift)
+              </button>
             </div>
           </div>
 
@@ -804,7 +852,7 @@ export const SequenceEditor: React.FC<Props> = ({
                       ...data,
                       sequenceType: nextType,
                       isRetentionBranch: isRet,
-                      delayHours: data.delayHours || (nextType === 'upsell_recovery' ? 18 : nextType === 'checkout_recovery' ? 1 : 24)
+                      delayHours: data.delayHours || (nextType === 'upsell_recovery' ? 18 : nextType === 'checkout_recovery' ? 1 : nextType === 'fulfillment_review' ? 168 : 24)
                     });
                   }}
                   style={{
@@ -822,6 +870,7 @@ export const SequenceEditor: React.FC<Props> = ({
                   <option value="upsell_recovery">24h Courtesy Rescue (Decline)</option>
                   <option value="checkout_recovery">Cart Abandon Recovery</option>
                   <option value="at_risk_winback">VIP Winback Series</option>
+                  <option value="fulfillment_review">7-Day Review & VIP Reward (Fulfillment)</option>
                 </select>
               </div>
 

@@ -6,6 +6,8 @@
  * 2. Real-Time Webhook Engine: orders-create/paid, checkouts-create/update, fulfillments, orders-cancelled, refunds, product & inventory updates, customer profile updates.
  */
 
+import { generateReviewToken } from '../reviewEngine.mjs';
+
 /**
  * Creates or updates a discount rule in Jourvance and provisions the price rule + discount code in Shopify via Admin API.
  */
@@ -96,7 +98,8 @@ export async function ensureShopifyCoreDiscounts(ws, allowUnlimited = false, ctx
   const coreCodes = [
     { code: 'WELCOMEBACK15', value: 15, discountType: 'percentage', oncePerCustomer },
     { code: 'SAVE10', value: 10, discountType: 'percentage', oncePerCustomer },
-    { code: 'SANCTUARY', value: 10, discountType: 'percentage', oncePerCustomer }
+    { code: 'SANCTUARY', value: 10, discountType: 'percentage', oncePerCustomer },
+    { code: 'REVIEW10', value: 10, discountType: 'fixed_amount', oncePerCustomer }
   ];
   const results = [];
   for (const c of coreCodes) {
@@ -1203,6 +1206,46 @@ export function setupShopifyRoutes(app, ctx) {
         event: { order_id: orderId, fulfillment_status: String(payload.fulfillment_status || payload.status || '') }
       });
       enrolled = result.added;
+
+      // Post-Purchase Review & Social Proof Drip Enrollment (7-day / 168h delay)
+      try {
+        const dripsData = loadDrips();
+        const reviewSeq = (dripsData.sequences || []).find(s => s.id === 'drip_seq_review_request' || s.triggerType === 'fulfillment_review');
+        if (reviewSeq) {
+          const alreadyEnrolled = (dripsData.enrollments || []).some(
+            e => e.userId === shopWs.userId &&
+                 String(e.customerEmail || '').toLowerCase() === email &&
+                 (e.sequenceId === reviewSeq.id || e.orderId === orderId) &&
+                 (e.status === 'active' || e.status === 'completed' || e.status === 'reviewed_exit')
+          );
+          if (!alreadyEnrolled) {
+            const token = generateReviewToken(orderId, email);
+            const reviewUrl = `/review?order=${encodeURIComponent(orderId)}&email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
+            const firstStepDelayHours = reviewSeq.steps?.[0]?.delayHours ?? 168;
+            const dueAt = new Date(Date.now() + firstStepDelayHours * 3600000).toISOString();
+            dripsData.enrollments.unshift({
+              id: `enr_rev_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              sequenceId: reviewSeq.id,
+              userId: shopWs.userId,
+              visitorId: order?.visitorId || '',
+              customerEmail: email,
+              customerName: name,
+              orderId,
+              reviewUrl,
+              currentStepIndex: 0,
+              status: 'active',
+              enrolledAt: new Date().toISOString(),
+              nextStepDueAt: dueAt,
+              discountCode: 'REVIEW10',
+              history: []
+            });
+            reviewSeq.activeEnrollments = (reviewSeq.activeEnrollments || 0) + 1;
+            saveDrips(dripsData);
+          }
+        }
+      } catch (revErr) {
+        console.warn('[Jourvance] Failed to enroll fulfillment review drip:', revErr.message);
+      }
     }
     res.status(200).json({ success: true, transactional: mail, trigger: kind, enrolled });
   });

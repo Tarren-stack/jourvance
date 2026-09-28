@@ -37,6 +37,11 @@ import {
   detectVisitorCurrency,
   buildLocalizedShopifyCartUrl
 } from '../../src/lib/geoCurrency.ts';
+import {
+  verifyReviewToken,
+  submitCustomerReview,
+  renderReviewPortalHtml
+} from '../reviewEngine.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -4548,6 +4553,91 @@ app.post('/api/public/restock-request', (req, res) => {
   }
   saveContacts(contacts);
   res.json({ success: true, message: 'Request saved. Nothing was sent yet.' });
+});
+
+// ── 14. Review & UGC Portal Routes (Wave 12) ──
+app.get(['/review', '/r/review'], (req, res) => {
+  const orderId = String(req.query.order || req.query.order_id || req.query.orderId || '').trim();
+  const email = String(req.query.email || '').toLowerCase().trim();
+  const token = String(req.query.token || '').trim();
+
+  const orders = loadOrders();
+  const order = orders.find(o => String(o.id) === orderId || (email && String(o.customerEmail || '').toLowerCase() === email));
+  const verified = Boolean(orderId && email && token && verifyReviewToken(orderId, email, token));
+
+  let storeName = 'Jourvance';
+  let storeDomain = '';
+  if (order?.userId) {
+    const ws = Object.values(workspaceCache).find(w => w.userId === order.userId);
+    if (ws?.brandName) storeName = ws.brandName;
+    if (ws?.shopifyConfig) storeDomain = realStoreDomain(ws.shopifyConfig);
+  }
+
+  const html = renderReviewPortalHtml({
+    orderId: orderId || order?.id || 'VIP',
+    email: email || order?.customerEmail || '',
+    token,
+    storeName,
+    storeDomain,
+    verified,
+    discountCode: 'REVIEW10'
+  });
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+});
+
+app.post('/api/public/review', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const orderId = String(body.orderId || body.order_id || '').trim();
+    const email = String(body.email || body.customerEmail || '').toLowerCase().trim();
+    const token = String(body.token || '').trim();
+    const rating = Number(body.rating) || 5;
+    const reviewTitle = String(body.reviewTitle || body.title || '').trim();
+    const reviewText = String(body.reviewText || body.body || body.text || '').trim();
+    const tags = Array.isArray(body.tags) ? body.tags : [];
+    const customerName = String(body.customerName || body.name || '').trim();
+
+    if (!orderId || !email) {
+      return res.status(400).json({ error: 'Order ID and email are required to verify your review.' });
+    }
+
+    // Cryptographic token validation
+    const tokenValid = token ? verifyReviewToken(orderId, email, token) : false;
+    if (!tokenValid && process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ error: 'Invalid or expired review verification token.' });
+    }
+
+    const orders = loadOrders();
+    const order = orders.find(o => String(o.id) === orderId || String(o.customerEmail || '').toLowerCase() === email);
+    const userId = order?.userId || 'usr_default';
+    const ws = Object.values(workspaceCache).find(w => w.userId === userId);
+    const storeDomain = ws?.shopifyConfig ? realStoreDomain(ws.shopifyConfig) : '';
+
+    const submissionResult = submitCustomerReview({
+      orderId,
+      customerEmail: email,
+      customerName: customerName || order?.customerName || email.split('@')[0],
+      rating,
+      reviewTitle,
+      reviewText,
+      tags,
+      storeDomain,
+      userId,
+      discountCode: 'REVIEW10',
+      hubStorage: hub,
+      loadDrips,
+      saveDrips,
+      loadContacts,
+      saveContacts
+    });
+
+    return res.status(200).json(submissionResult);
+  } catch (err) {
+    console.error('[Jourvance Review Engine] Error submitting review:', err);
+    return res.status(500).json({ error: 'Failed to process review submission: ' + err.message });
+  }
 });
 
 

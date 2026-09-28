@@ -241,11 +241,11 @@ export interface SequenceNodeData extends Record<string, unknown> {
   flowClicked?: number | null;
   flowOpened?: number | null;
   flowRevenue?: number | null;
-  // Phase 3: Visual Retention Flow Canvas metadata
-  sequenceType?: 'lead_nurture' | 'checkout_recovery' | 'upsell_recovery' | 'at_risk_winback';
+  // Phase 3 & 12: Visual Retention Flow Canvas metadata
+  sequenceType?: 'lead_nurture' | 'checkout_recovery' | 'upsell_recovery' | 'at_risk_winback' | 'fulfillment_review';
   isRetentionBranch?: boolean;
-  delayHours?: number; // e.g. 18 for upsell recovery, 1 for checkout recovery, 72 for winback
-  voucherCode?: string; // e.g. 'SAVE10', 'COURTESY15'
+  delayHours?: number; // e.g. 18 for upsell recovery, 1 for checkout recovery, 72 for winback, 168 for fulfillment review
+  voucherCode?: string; // e.g. 'SAVE10', 'COURTESY15', 'REVIEW10'
   smartExitOnPurchase?: boolean; // automatically exits sequence upon client purchase
 }
 
