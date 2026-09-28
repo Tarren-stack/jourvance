@@ -158,6 +158,10 @@ export function setupShopifyRoutes(app, ctx) {
     loadDiscounts,
     saveDiscounts,
     acceptShopifyWebhook,
+    recordWebhookDelivery,
+    getWebhookHealth,
+    summarizeWebhookPayload,
+    simulateTestPing,
     noteAttrMap,
     pageOwnedBy,
     publicPageCache,
@@ -299,8 +303,31 @@ export function setupShopifyRoutes(app, ctx) {
       todayCount: summary.todayCount,
       pixelSnippet: connected && pixelKey ? pixelSnippet({ endpoint: `${base}/api/public/shopify-pixel`, shop: domain, key: pixelKey }) : '',
       restockSnippet: connected && pixelKey ? restockSnippet({ endpoint: `${base}/api/public/restock-request`, shop: domain, key: pixelKey }) : '',
-      notice: topics.publicUrl ? '' : 'These webhooks are not registered. Shopify cannot reach this app until PUBLIC_BASE_URL is a public https address.'
+      notice: topics.publicUrl ? '' : 'These webhooks are not registered. Shopify cannot reach this app until PUBLIC_BASE_URL is a public https address.',
+      webhookHealth: typeof getWebhookHealth === 'function' ? getWebhookHealth(ws.id, ws.shopifyConfig) : undefined
     });
+  });
+
+  // ── 3.1 Webhook Health & Live Delivery Diagnostic Log ─────────────────────
+  app.get('/api/workspace/:wsId/shopify/webhook-health', requireUser, async (req, res) => {
+    const ws = await loadWorkspace(req.user.uid, req.params.wsId);
+    if (!ws) return res.status(404).json({ success: false, error: 'Workspace not found.' });
+    const health = typeof getWebhookHealth === 'function'
+      ? getWebhookHealth(ws.id, ws.shopifyConfig)
+      : { status: 'idle', message: 'Ready', metrics: { total24h: 0, valid24h: 0, failed24h: 0, successRate: 100 }, recentDeliveries: [] };
+    res.json({ success: true, ...health });
+  });
+
+  // ── 3.2 Webhook Test Ping Simulation ──────────────────────────────────────
+  app.post('/api/workspace/:wsId/shopify/webhook-test-ping', requireUser, async (req, res) => {
+    const ws = await loadWorkspace(req.user.uid, req.params.wsId);
+    if (!ws) return res.status(404).json({ success: false, error: 'Workspace not found.' });
+    const topic = String(req.body?.topic || 'orders/create').trim();
+    if (typeof simulateTestPing !== 'function') {
+      return res.status(500).json({ success: false, error: 'Test ping simulator is not configured.' });
+    }
+    const result = simulateTestPing({ wsId: ws.id, shopifyConfig: ws.shopifyConfig, topic });
+    res.json(result);
   });
 
   // ── 4. Webhook Registration API ───────────────────────────────────────────

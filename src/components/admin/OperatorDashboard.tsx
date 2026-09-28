@@ -406,6 +406,18 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
                     <p>Target CNAME: <code style={{ color: '#818CF8' }}>jourvance.onrender.com</code></p>
                   </div>
                 </div>
+
+                <div style={{ backgroundColor: '#111827', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)', padding: '1.75rem' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.75rem' }}>
+                    Shopify Webhook Ingestion & In-Memory Telemetry
+                  </h3>
+                  <div style={{ fontSize: '0.85rem', color: '#94A3B8', lineHeight: 1.6 }}>
+                    <p>Ingestion Topics: <code style={{ color: '#818CF8' }}>orders, checkouts, fulfillments, refunds, products, inventory</code></p>
+                    <p>Security: <span style={{ color: '#10B981', fontWeight: 700 }}>HMAC-SHA256 Timing-Safe Enforced</span></p>
+                    <p>Diagnostic Storage: <span style={{ color: '#818CF8' }}>Zero-cost 50-event FIFO rolling ring buffer</span></p>
+                    <p>Telemetry Engine: <span style={{ color: '#10B981', fontWeight: 700 }}>Active (Studio Diagnostic Drawer & Test Ping Ready)</span></p>
+                  </div>
+                </div>
               </div>
             </div>
           )}

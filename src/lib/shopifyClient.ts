@@ -69,6 +69,30 @@ export async function connectShopifyStore(
   }
 }
 
+export interface WebhookDeliveryReceipt {
+  id: string;
+  topic: string;
+  shopDomain: string;
+  receivedAt: string;
+  hmacStatus: 'valid' | 'invalid_signature' | 'missing_secret' | 'store_not_found';
+  latencyMs: number;
+  summary: string;
+  isTest?: boolean;
+}
+
+export interface WebhookHealthData {
+  status: 'healthy' | 'degraded' | 'failing' | 'idle' | 'missing_secret' | 'disconnected';
+  message: string;
+  lastReceivedAt: string | null;
+  metrics: {
+    total24h: number;
+    valid24h: number;
+    failed24h: number;
+    successRate: number;
+  };
+  recentDeliveries: WebhookDeliveryReceipt[];
+}
+
 export async function fetchShopifySignals(workspaceId: string): Promise<{
   success: boolean;
   connected?: boolean;
@@ -79,12 +103,48 @@ export async function fetchShopifySignals(workspaceId: string): Promise<{
   pixelSnippet?: string;
   restockSnippet?: string;
   notice?: string;
+  webhookHealth?: WebhookHealthData;
   error?: string;
 }> {
   try {
     const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/shopify/signals`, { headers: await authHeaders() });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.success === false) return { success: false, error: data.error || 'Store signals could not be loaded.' };
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function fetchWebhookHealth(workspaceId: string): Promise<{
+  success: boolean;
+  error?: string;
+} & Partial<WebhookHealthData>> {
+  try {
+    const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/shopify/webhook-health`, { headers: await authHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.success === false) return { success: false, error: data.error || 'Webhook health could not be loaded.' };
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function sendWebhookTestPing(workspaceId: string, topic?: string): Promise<{
+  success: boolean;
+  message?: string;
+  delivery?: WebhookDeliveryReceipt;
+  health?: WebhookHealthData;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/shopify/webhook-test-ping`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ topic: topic || 'orders/create' })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.success === false) return { success: false, error: data.error || 'Test ping could not be delivered.' };
     return data;
   } catch (err: any) {
     return { success: false, error: err.message };

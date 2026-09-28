@@ -75,6 +75,12 @@ import {
 } from './rfm-engine.mjs';
 import { setupDomainRoutes, checkSslCertificate } from './server/routes/domainRoutes.mjs';
 import { setupShopifyRoutes, ensureShopifyCoreDiscounts as ensureShopifyCoreDiscountsModular } from './server/routes/shopifyRoutes.mjs';
+import {
+  recordWebhookDelivery,
+  getWebhookHealth,
+  summarizeWebhookPayload,
+  simulateTestPing
+} from './server/webhookHealth.mjs';
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 
 import { setupJourneyRoutes } from './server/routes/journeyRoutes.mjs';
@@ -265,17 +271,62 @@ const summarize = (j) => ({
 
 // ── Workspace & Shopify Tenancy ──────────────────────────────────────────────
 function acceptShopifyWebhook(req, res) {
+  const startTime = performance.now();
   const shopDomain = cleanDomain(req.get('x-shopify-shop-domain') || '');
   const ws = workspaceByShopDomain(shopDomain);
   const secret = String(ws?.shopifyConfig?.webhookSecret || '').trim();
-  if (!ws || !secret) {
+  const topic = req.get('x-shopify-topic') || req.path.replace(/^\/api\/webhooks\/shopify\//, '');
+  const webhookId = req.get('x-shopify-webhook-id') || `wh_${Date.now()}`;
+
+  if (!ws) {
+    recordWebhookDelivery('unknown', {
+      topic,
+      webhookId,
+      shopDomain,
+      hmacStatus: 'store_not_found',
+      latencyMs: Math.max(1, Math.round(performance.now() - startTime)),
+      summary: `Refused: Store ${shopDomain || 'unknown'} not found in any workspace`
+    });
     res.status(401).json({ success: false, error: 'This store has no app API secret saved, so the webhook was refused.' });
     return null;
   }
-  if (!shopifyHmacOk(req.rawBody, req.get('x-shopify-hmac-sha256') || '', secret)) {
+
+  if (!secret) {
+    recordWebhookDelivery(ws.id, {
+      topic,
+      webhookId,
+      shopDomain,
+      hmacStatus: 'missing_secret',
+      latencyMs: Math.max(1, Math.round(performance.now() - startTime)),
+      summary: 'Refused: No App API secret saved on store connection'
+    });
+    res.status(401).json({ success: false, error: 'This store has no app API secret saved, so the webhook was refused.' });
+    return null;
+  }
+
+  const hmacHeader = req.get('x-shopify-hmac-sha256') || '';
+  if (!shopifyHmacOk(req.rawBody, hmacHeader, secret)) {
+    recordWebhookDelivery(ws.id, {
+      topic,
+      webhookId,
+      shopDomain,
+      hmacStatus: 'invalid_signature',
+      latencyMs: Math.max(1, Math.round(performance.now() - startTime)),
+      summary: 'Refused: Shopify signature mismatch (verify App API Secret)'
+    });
     res.status(401).json({ success: false, error: 'Shopify signature did not match this store’s app API secret.' });
     return null;
   }
+
+  recordWebhookDelivery(ws.id, {
+    topic,
+    webhookId,
+    shopDomain,
+    hmacStatus: 'valid',
+    latencyMs: Math.max(1, Math.round(performance.now() - startTime)),
+    summary: summarizeWebhookPayload(topic, req.body)
+  });
+
   return ws;
 }
 
@@ -1176,6 +1227,10 @@ const shopifyCtx = {
   loadDiscounts,
   saveDiscounts,
   acceptShopifyWebhook,
+  recordWebhookDelivery,
+  getWebhookHealth,
+  summarizeWebhookPayload,
+  simulateTestPing,
   noteAttrMap,
   pageOwnedBy,
   publicPageCache,
