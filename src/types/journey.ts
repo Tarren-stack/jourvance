@@ -146,6 +146,10 @@ export interface PageNodeData extends Record<string, unknown> {
   cookieConsentEnabled?: boolean;
   cookieConsentGeoTarget?: 'eu_uk_only' | 'all_visitors';
   privacyPolicyUrl?: string;
+  // Live UGC & Verified Social Proof Wall (Phase 13)
+  socialProofWallEnabled?: boolean;
+  socialProofMinRating?: number;
+  socialProofHeadline?: string;
   // Metrics & Financials (Wave 3 & Wave 6 Live Closed Loop)
   visitors: number;
   conversions: number;

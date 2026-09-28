@@ -40,7 +40,10 @@ import {
 import {
   verifyReviewToken,
   submitCustomerReview,
-  renderReviewPortalHtml
+  renderReviewPortalHtml,
+  getPublicVerifiedReviews,
+  toggleReviewVisibility,
+  renderSocialProofWallHtml
 } from '../reviewEngine.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -928,6 +931,19 @@ function renderPublicFunnelHtml(page, req, res) {
   const convertedBump = bumpPrice ? convertCurrencyCharm(bumpPrice, initialCurrency, 'USD') : null;
   const initialBumpPrice = convertedBump ? convertedBump.formatted : bumpPrice;
 
+  // Phase 13: Live Verified UGC Social Proof Wall (Option 1A & 2A)
+  const socialProofEnabled = data.socialProofWallEnabled !== false;
+  const socialProofMinRating = Number(data.socialProofMinRating) || 4;
+  const socialProofTitle = data.socialProofHeadline || 'Loved by Thousands of Radiant Routines';
+  const socialProofData = socialProofEnabled
+    ? getPublicVerifiedReviews({
+        userId: page.userId,
+        storeDomain,
+        minRating: socialProofMinRating,
+        hubStorage: hub
+      })
+    : { summary: {}, reviews: [] };
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1703,6 +1719,8 @@ function renderPublicFunnelHtml(page, req, res) {
 
       </div>
     </div>
+
+    ${socialProofEnabled ? renderSocialProofWallHtml(socialProofData.summary, socialProofData.reviews, { brandColor: '#ec4899', title: socialProofTitle }) : ''}
   </main>
 
   <div id="lead-modal" class="modal-overlay">
@@ -4637,6 +4655,50 @@ app.post('/api/public/review', async (req, res) => {
   } catch (err) {
     console.error('[Jourvance Review Engine] Error submitting review:', err);
     return res.status(500).json({ error: 'Failed to process review submission: ' + err.message });
+  }
+});
+
+// ── 15. Live Verified UGC Social Proof Public API ──
+app.get('/api/public/reviews/:slug', async (req, res) => {
+  try {
+    const slug = String(req.params.slug || '').trim();
+    const page = await loadPublicPage(slug);
+    const userId = page?.userId || 'usr_default';
+    const storeDomain = page?.shopifyConfig ? realStoreDomain(page.shopifyConfig) : '';
+    const minRating = Number(req.query.minRating || page?.data?.socialProofMinRating || 4);
+
+    const reviewsData = getPublicVerifiedReviews({
+      userId,
+      storeDomain,
+      minRating,
+      limit: 15,
+      hubStorage: hub
+    });
+
+    return res.status(200).json({
+      success: true,
+      slug,
+      summary: reviewsData.summary,
+      reviews: reviewsData.reviews
+    });
+  } catch (err) {
+    console.error('[Jourvance UGC API] Error fetching public reviews:', err);
+    return res.status(500).json({ error: 'Failed to retrieve reviews' });
+  }
+});
+
+app.post('/api/reviews/:id/visibility', async (req, res) => {
+  try {
+    const reviewId = String(req.params.id || '').trim();
+    const hidden = req.body?.hidden !== false;
+    const updated = toggleReviewVisibility(reviewId, hidden, hub);
+    if (!updated) {
+      return res.status(404).json({ error: 'Review not found' });
+    }
+    return res.status(200).json({ success: true, review: updated });
+  } catch (err) {
+    console.error('[Jourvance Review Visibility] Error:', err);
+    return res.status(500).json({ error: 'Failed to update review visibility' });
   }
 });
 

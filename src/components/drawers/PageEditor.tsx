@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Sparkles, RefreshCw, Plus, Trash2, Globe, ExternalLink,
   ShoppingBag, Link2, CheckCircle2, Copy, Check, Tag,
-  Activity, Eye, Share2, Zap, GitFork, Clock, ShieldAlert, ShieldCheck
+  Activity, Eye, Share2, Zap, GitFork, Clock, ShieldAlert, ShieldCheck, Star
 } from 'lucide-react';
 import type { PageNodeData, PageVariantData, Workspace, ShopifyProduct } from '../../types/journey';
 import { requestAICopy } from '../../lib/hubClient';
@@ -2231,6 +2231,115 @@ export const PageEditor: React.FC<Props> = ({
                       color: '#f8fafc'
                     }}
                   />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* SECTION: LIVE VERIFIED UGC SOCIAL PROOF WALL (PHASE 13) */}
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: '10px',
+              backgroundColor: data.socialProofWallEnabled !== false ? 'rgba(236, 72, 153, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+              border: data.socialProofWallEnabled !== false ? '1px solid rgba(236, 72, 153, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Star size={14} style={{ color: '#fbbf24', fill: '#fbbf24' }} />
+                  <span>Verified Buyer Social Proof Wall (UGC)</span>
+                  <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(236, 72, 153, 0.2)', color: '#f472b6' }}>
+                    SOCIAL PROOF
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                  Swipeable mobile carousel + 3-column desktop grid of verified 4-star & 5-star customer reviews.
+                </div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={data.socialProofWallEnabled !== false}
+                  onChange={e => handleFieldChange('socialProofWallEnabled', e.target.checked)}
+                  style={{ accentColor: '#ec4899', width: '16px', height: '16px' }}
+                />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: data.socialProofWallEnabled !== false ? '#ec4899' : '#64748b' }}>
+                  {data.socialProofWallEnabled !== false ? 'Enabled' : 'Off'}
+                </span>
+              </label>
+            </div>
+
+            {data.socialProofWallEnabled !== false && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                {/* Minimum Star Filter */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8' }}>
+                    Minimum Star Rating Filter
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleFieldChange('socialProofMinRating', 4)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        border: (data.socialProofMinRating !== 5) ? '1px solid #ec4899' : '1px solid rgba(255,255,255,0.1)',
+                        background: (data.socialProofMinRating !== 5) ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255,255,255,0.02)',
+                        color: (data.socialProofMinRating !== 5) ? '#f472b6' : '#94a3b8'
+                      }}
+                    >
+                      ★★★★☆ 4+ Stars (Recommended)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleFieldChange('socialProofMinRating', 5)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        border: data.socialProofMinRating === 5 ? '1px solid #ec4899' : '1px solid rgba(255,255,255,0.1)',
+                        background: data.socialProofMinRating === 5 ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255,255,255,0.02)',
+                        color: data.socialProofMinRating === 5 ? '#f472b6' : '#94a3b8'
+                      }}
+                    >
+                      ★★★★★ 5 Stars Only
+                    </button>
+                  </div>
+                </div>
+
+                {/* Custom Wall Headline */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8' }}>
+                    Wall Section Headline
+                  </label>
+                  <input
+                    type="text"
+                    value={data.socialProofHeadline ?? 'Loved by Thousands of Radiant Routines'}
+                    placeholder="Loved by Thousands of Radiant Routines"
+                    onChange={e => handleFieldChange('socialProofHeadline', e.target.value)}
+                    style={{
+                      padding: '7px 10px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: '#f8fafc'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
+                  <span>✦ Dynamic UGC Active: pulls authentic reviews from completed orders with beauty preview fallback.</span>
                 </div>
               </div>
             )}
