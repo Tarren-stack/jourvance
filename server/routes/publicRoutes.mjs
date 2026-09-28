@@ -19,7 +19,8 @@ import {
   pageBeaconScript,
   allowPixel,
   pixelKeyOk,
-  configuredPublicBase
+  configuredPublicBase,
+  commerceBeaconCall
 } from '../../shopify-signals.mjs';
 import {
   formVariant,
@@ -30,6 +31,12 @@ import {
 import {
   storedCoupon
 } from '../../email-doc.mjs';
+import {
+  SUPPORTED_CURRENCIES,
+  convertCurrencyCharm,
+  detectVisitorCurrency,
+  buildLocalizedShopifyCartUrl
+} from '../../src/lib/geoCurrency.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -580,6 +587,19 @@ function renderPublicFunnelHtml(page, req, res) {
   const bumpDescription = data.orderBumpDescription || '';
   const bumpImage = data.orderBumpImage || '';
 
+  // Phase 2: Multi-Currency Geo-Pricing & Charm Pricing (Option A)
+  const queryCurrency = String(req?.query?.currency || '').trim().toUpperCase();
+  const cookieHeader = req?.headers?.cookie || '';
+  const countryHeader = req?.headers?.['cf-ipcountry'] || req?.headers?.['x-country-code'] || '';
+  const initialCurrency = (['USD', 'EUR', 'GBP', 'CAD', 'AUD'].includes(queryCurrency))
+    ? queryCurrency
+    : detectVisitorCurrency({ cookie: cookieHeader, countryCode: countryHeader });
+
+  const convertedProduct = productPrice ? convertCurrencyCharm(productPrice, initialCurrency, 'USD') : null;
+  const initialProductPrice = convertedProduct ? convertedProduct.formatted : productPrice;
+  const convertedBump = bumpPrice ? convertCurrencyCharm(bumpPrice, initialCurrency, 'USD') : null;
+  const initialBumpPrice = convertedBump ? convertedBump.formatted : bumpPrice;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -703,6 +723,50 @@ function renderPublicFunnelHtml(page, req, res) {
       padding: 4px 10px;
       border-radius: 9999px;
       font-weight: 600;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .currency-select-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .currency-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #E2E8F0;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 22px 4px 10px;
+      border-radius: 9999px;
+      cursor: pointer;
+      outline: none;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    .currency-select:hover, .currency-select:focus {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(236, 72, 153, 0.4);
+      color: #FFFFFF;
+    }
+    .currency-select-wrap::after {
+      content: '▾';
+      position: absolute;
+      right: 8px;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.6);
+      pointer-events: none;
+    }
+    .currency-select option {
+      background: #0F172A;
+      color: #FFFFFF;
     }
 
     main {
@@ -1111,14 +1175,25 @@ function renderPublicFunnelHtml(page, req, res) {
 
   <header>
     <div class="brand">${escapeHtml(storeDomain.split('.')[0] || 'JOURVANCE')}</div>
-    ${storeDomain ? `<div class="secure-pill"><span>Checkout continues on ${escapeHtml(storeDomain)}</span></div>` : ''}
+    <div class="header-actions">
+      <div class="currency-select-wrap">
+        <select id="jv-currency-select" class="currency-select" aria-label="Select currency">
+          ${Object.values(SUPPORTED_CURRENCIES).map(c => `
+            <option value="${c.code}" ${c.code === initialCurrency ? 'selected' : ''}>
+              ${c.flag} ${c.code} (${c.symbol})
+            </option>
+          `).join('')}
+        </select>
+      </div>
+      ${storeDomain ? `<div class="secure-pill"><span>Checkout continues on ${escapeHtml(storeDomain)}</span></div>` : ''}
+    </div>
   </header>
 
   <main>
     <div class="offer-card">
       <div class="image-wrap">
         <img src="${escapeHtml(heroImage)}" alt="${escapeHtml(headline)}" id="product-img">
-        ${productPrice ? `<div class="price-tag" id="product-price">${escapeHtml(productPrice)}</div>` : ''}
+        ${productPrice ? `<div class="price-tag" id="product-price" data-base-price="${escapeHtml(productPrice)}">${escapeHtml(initialProductPrice)}</div>` : ''}
       </div>
 
       <div class="content-area">
@@ -1160,7 +1235,7 @@ function renderPublicFunnelHtml(page, req, res) {
               <p>${escapeHtml(bumpDescription)}</p>
               <div class="bump-price-row">
                 <span class="bump-product-title">${escapeHtml(bumpTitle)}</span>
-                <span class="bump-product-price">${escapeHtml(bumpPrice)}</span>
+                <span class="bump-product-price" data-base-price="${escapeHtml(bumpPrice)}">${escapeHtml(initialBumpPrice)}</span>
               </div>
             </div>
           </div>
@@ -1218,7 +1293,7 @@ function renderPublicFunnelHtml(page, req, res) {
               <p>${escapeHtml(bumpDescription)}</p>
               <div class="bump-price-row">
                 <span class="bump-product-title">${escapeHtml(bumpTitle)}</span>
-                <span class="bump-product-price">${escapeHtml(bumpPrice)}</span>
+                <span class="bump-product-price" data-base-price="${escapeHtml(bumpPrice)}">${escapeHtml(initialBumpPrice)}</span>
               </div>
             </div>
           </div>
@@ -1288,6 +1363,85 @@ function renderPublicFunnelHtml(page, req, res) {
         updateTimer();
       }
 
+      // Phase 2: Client-Side Multi-Currency Switcher & Charm Pricing Engine
+      const CURRENCY_CONFIG = {
+        USD: { rate: 1.0, prefix: '$' },
+        EUR: { rate: 0.92, prefix: '€' },
+        GBP: { rate: 0.79, prefix: '£' },
+        CAD: { rate: 1.36, prefix: 'CA$' },
+        AUD: { rate: 1.52, prefix: 'A$' }
+      };
+      let activeCurrency = ${JSON.stringify(initialCurrency)};
+
+      function formatCharmPrice(baseStr, targetCurr) {
+        if (!baseStr) return '';
+        var cfg = CURRENCY_CONFIG[targetCurr] || CURRENCY_CONFIG.USD;
+        var num = parseFloat(String(baseStr).replace(/[^0-9.-]/g, ''));
+        if (!num || isNaN(num) || num <= 0) return baseStr;
+        var rawClean = String(baseStr);
+        var hasDecimals = rawClean.indexOf('.') !== -1;
+        var ending = 'raw';
+        if (rawClean.endsWith('.99') || rawClean.endsWith('99')) ending = '99';
+        else if (rawClean.endsWith('.95') || rawClean.endsWith('95')) ending = '95';
+        else if (!hasDecimals || rawClean.endsWith('.00')) ending = '00';
+
+        var rawConverted = num * cfg.rate;
+        var charmAmount = rawConverted;
+        if (ending === '99') {
+          charmAmount = Math.max(1, Math.round(rawConverted - 0.99)) + 0.99;
+        } else if (ending === '95') {
+          charmAmount = Math.max(1, Math.round(rawConverted - 0.95)) + 0.95;
+        } else {
+          charmAmount = Math.max(1, Math.round(rawConverted));
+        }
+        var numStr = (hasDecimals || ending !== '00') ? charmAmount.toFixed(2) : Math.round(charmAmount).toString();
+        return cfg.prefix + numStr;
+      }
+
+      function applyCurrency(code) {
+        if (!CURRENCY_CONFIG[code]) return;
+        activeCurrency = code;
+        try {
+          document.cookie = 'jv_currency=' + encodeURIComponent(code) + '; path=/; max-age=2592000; SameSite=Lax';
+        } catch(e){}
+
+        var selectEl = document.getElementById('jv-currency-select');
+        if (selectEl && selectEl.value !== code) {
+          selectEl.value = code;
+        }
+
+        var priceElements = document.querySelectorAll('[data-base-price]');
+        priceElements.forEach(function(el) {
+          var base = el.getAttribute('data-base-price');
+          if (base) {
+            el.textContent = formatCharmPrice(base, code);
+          }
+        });
+      }
+
+      var currencySelect = document.getElementById('jv-currency-select');
+      if (currencySelect) {
+        currencySelect.addEventListener('change', function(e) {
+          applyCurrency(e.target.value);
+        });
+      }
+
+      // Timezone fallback if initial is USD and no sticky cookie is saved
+      (function() {
+        if (document.cookie.indexOf('jv_currency=') !== -1) return;
+        try {
+          var tz = Intl.DateTimeFormat().resolvedOptions().timeZone.toLowerCase();
+          var detected = null;
+          if (tz.indexOf('london') !== -1 || tz.indexOf('belfast') !== -1) detected = 'GBP';
+          else if (tz.indexOf('europe/') === 0) detected = 'EUR';
+          else if (tz.indexOf('australia/') === 0 || tz.indexOf('pacific/auckland') === 0) detected = 'AUD';
+          else if (tz.indexOf('toronto') !== -1 || tz.indexOf('vancouver') !== -1 || tz.indexOf('montreal') !== -1) detected = 'CAD';
+          if (detected && detected !== activeCurrency) {
+            applyCurrency(detected);
+          }
+        } catch(e){}
+      })();
+
       const mainCta = document.getElementById('main-cta-btn');
       const modal = document.getElementById('lead-modal');
       const closeBtn = document.getElementById('modal-close-btn');
@@ -1336,6 +1490,7 @@ function renderPublicFunnelHtml(page, req, res) {
 
         const out = new URLSearchParams();
         if (discountCode) out.set('discount', discountCode);
+        if (activeCurrency && activeCurrency !== 'USD') out.set('currency', activeCurrency);
         if (utm_source) out.set('utm_source', utm_source);
         if (utm_medium) out.set('utm_medium', utm_medium);
         if (utm_campaign) out.set('utm_campaign', utm_campaign);
@@ -1366,13 +1521,13 @@ function renderPublicFunnelHtml(page, req, res) {
 
       function fireInitiateCheckout() {
         if (window.fbq) {
-          try { fbq('track', 'InitiateCheckout', { content_name: '${escapeHtml(productTitle)}', currency: 'USD' }); } catch(e){}
+          try { fbq('track', 'InitiateCheckout', { content_name: '${escapeHtml(productTitle)}', currency: activeCurrency || 'USD' }); } catch(e){}
         }
         if (window.ttq) {
-          try { ttq.track('InitiateCheckout', { content_name: '${escapeHtml(productTitle)}', currency: 'USD' }); } catch(e){}
+          try { ttq.track('InitiateCheckout', { content_name: '${escapeHtml(productTitle)}', currency: activeCurrency || 'USD' }); } catch(e){}
         }
         if (window.gtag) {
-          try { gtag('event', 'begin_checkout', { items: [{ item_name: '${escapeHtml(productTitle)}' }] }); } catch(e){}
+          try { gtag('event', 'begin_checkout', { items: [{ item_name: '${escapeHtml(productTitle)}' }], currency: activeCurrency || 'USD' }); } catch(e){}
         }
         ${commerceBeaconCall(cartAction)}
       }
@@ -1462,6 +1617,7 @@ function renderPublicFunnelHtml(page, req, res) {
                 phone: phoneInput.value,
                 order_bump_selected: isBumpChecked,
                 variant: activeVariant,
+                currency: activeCurrency,
                 utm_source,
                 utm_medium,
                 utm_campaign,
@@ -1562,6 +1718,7 @@ function renderPublicFunnelHtml(page, req, res) {
                   email: val,
                   variant: activeVariant,
                   exit_intent: true,
+                  currency: activeCurrency,
                   utm_source: utm_source,
                   utm_campaign: utm_campaign,
                   fbclid: fbclid,
@@ -1648,8 +1805,8 @@ function renderPublicFunnelHtml(page, req, res) {
         ${escapeHtml(productTitle || headline)}
       </div>
       ${productPrice ? `
-      <div style="font-size:12px; font-weight:800; color:#34D399; margin-top:1px;">
-        ${escapeHtml(productPrice)}
+      <div id="jv-sticky-product-price" data-base-price="${escapeHtml(productPrice)}" style="font-size:12px; font-weight:800; color:#34D399; margin-top:1px;">
+        ${escapeHtml(initialProductPrice)}
       </div>` : ''}
     </div>
     <button id="jv-mobile-sticky-btn" type="button" style="flex-shrink:0; padding:10px 18px; border-radius:10px; border:none; background:linear-gradient(135deg, #EC4899, #DB2777); color:#FFFFFF; font-size:13px; font-weight:800; letter-spacing:0.02em; cursor:pointer; box-shadow:0 4px 15px rgba(236, 72, 153, 0.4);">
@@ -1992,16 +2149,24 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   const declineText = upsell.declineButtonText || (isDownsell ? 'No thanks, continue to my order confirmation' : 'No thanks, skip this offer');
   const variantId = realVariantId(upsell.shopifyVariantId || d.upsellVariantId);
 
-  // Price calculations with optional courtesy discount
+  // Phase 2: Multi-Currency Geo-Pricing
+  const queryCurrency = String(req?.query?.currency || '').trim().toUpperCase();
+  const cookieHeader = req?.headers?.cookie || '';
+  const countryHeader = req?.headers?.['cf-ipcountry'] || req?.headers?.['x-country-code'] || '';
+  const activeCurrency = (['USD', 'EUR', 'GBP', 'CAD', 'AUD'].includes(queryCurrency))
+    ? queryCurrency
+    : detectVisitorCurrency({ cookie: cookieHeader, countryCode: countryHeader });
+
+  // Price calculations with optional courtesy discount & Option A charm pricing
   const numericBasePrice = parseFloat(String(rawProductPrice).replace(/[^0-9.]/g, '')) || 0;
-  let finalPriceStr = rawProductPrice;
-  let finalStrikethroughStr = regularPrice;
+  let finalPriceStr = rawProductPrice ? convertCurrencyCharm(rawProductPrice, activeCurrency, 'USD').formatted : rawProductPrice;
+  let finalStrikethroughStr = regularPrice ? convertCurrencyCharm(regularPrice, activeCurrency, 'USD').formatted : regularPrice;
   let recordedAmount = numericBasePrice;
 
   if (isCourtesyRecovery && numericBasePrice > 0 && !isCourtesyExpired) {
     const discountedNum = Number((numericBasePrice * 0.9).toFixed(2));
-    finalPriceStr = `$${discountedNum.toFixed(2)}`;
-    finalStrikethroughStr = rawProductPrice || regularPrice;
+    finalPriceStr = convertCurrencyCharm(discountedNum, activeCurrency, 'USD').formatted;
+    finalStrikethroughStr = rawProductPrice ? convertCurrencyCharm(rawProductPrice, activeCurrency, 'USD').formatted : regularPrice;
     recordedAmount = discountedNum;
   }
 
@@ -2014,10 +2179,12 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   const badgeBg = isDownsell ? 'rgba(245, 158, 11, 0.18)' : 'rgba(16, 185, 129, 0.18)';
   const badgeBorder = isDownsell ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)';
 
-  const nextDeclineUrl = (!isDownsell && (d.hasDownsell || d.downsell)) ? `/p/${slug}/downsell` : `/p/${slug}/thank-you`;
-  const checkoutUrl = storeDomain && variantId
+  const nextDeclineBase = (!isDownsell && (d.hasDownsell || d.downsell)) ? `/p/${slug}/downsell` : `/p/${slug}/thank-you`;
+  const nextDeclineUrl = activeCurrency !== 'USD' ? `${nextDeclineBase}?currency=${activeCurrency}` : nextDeclineBase;
+  const rawCheckoutUrl = storeDomain && variantId
     ? `https://${storeDomain}/cart/${variantId}:1${(effectiveCoupon && !isCourtesyExpired) ? `?discount=${encodeURIComponent(effectiveCoupon)}` : ''}`
     : '';
+  const checkoutUrl = rawCheckoutUrl ? buildLocalizedShopifyCartUrl(rawCheckoutUrl, activeCurrency) : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -2442,6 +2609,7 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
               action: 'accept',
               offerType: ${JSON.stringify(isDownsell ? 'downsell' : 'upsell')},
               amount: ${recordedAmount},
+              currency: ${JSON.stringify(activeCurrency)},
               customerEmail: emailFromQuery,
               discountCode: ${JSON.stringify(effectiveCoupon)},
               visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
@@ -3001,6 +3169,15 @@ app.post('/api/public/lead', async (req, res) => {
   const qs = outParams.toString();
   if (qs && checkoutUrl) checkoutUrl += `?${qs}`;
 
+  // Phase 2: Localize checkout permalink with visitor/selected currency
+  const requestedCurrency = req.body?.currency || detectVisitorCurrency({
+    cookie: req.headers?.cookie,
+    countryCode: req.headers?.['cf-ipcountry'] || req.headers?.['x-country-code']
+  });
+  if (checkoutUrl) {
+    checkoutUrl = buildLocalizedShopifyCartUrl(checkoutUrl, requestedCurrency);
+  }
+
   // Wave 3 & 4: Outbound Webhook Relay (Klaviyo / Zapier / Make / Custom Webhook with variant)
   const webhookUrl = customWebhookUrl || externalWebhookUrl || page?.data?.webhookUrl;
   if (webhookUrl && (webhookUrl.startsWith('http://') || webhookUrl.startsWith('https://'))) {
@@ -3015,6 +3192,7 @@ app.post('/api/public/lead', async (req, res) => {
         phone: contact.phone,
         pageSlug: slug,
         variant: activeVariant,
+        currency: requestedCurrency,
         exitIntent,
         bumpAccepted: Boolean(bumpSelected),
         bumpProductTitle: bumpSelected ? bumpTitle : null,

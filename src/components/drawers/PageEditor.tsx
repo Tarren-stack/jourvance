@@ -9,6 +9,11 @@ import { requestAICopy } from '../../lib/hubClient';
 import { fetchShopifyProducts, buildCheckoutPermalink, buildMultiItemCheckoutPermalink, verifyCustomDomain, type DomainVerifyResult } from '../../lib/shopifyClient';
 import { authHeaders } from '../../lib/firebase';
 import { ShopifyProductPickerModal, type SelectedProductPayload } from '../modals/ShopifyProductPickerModal';
+import {
+  SUPPORTED_CURRENCIES,
+  convertCurrencyCharm,
+  type CurrencyCode
+} from '../../lib/geoCurrency';
 
 interface Props {
   data: PageNodeData;
@@ -30,6 +35,7 @@ export const PageEditor: React.FC<Props> = ({
   const [loadingAI, setLoadingAI] = useState(false);
   const [editorTab, setEditorTab] = useState<'settings' | 'preview'>('settings');
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
+  const [previewCurrency, setPreviewCurrency] = useState<CurrencyCode>('USD');
   const [syncingDisc, setSyncingDisc] = useState(false);
   const [discSyncedMsg, setDiscSyncedMsg] = useState<string | null>(null);
   const [previewBumpChecked, setPreviewBumpChecked] = useState(false);
@@ -461,6 +467,32 @@ export const PageEditor: React.FC<Props> = ({
                 </button>
               </div>
             )}
+
+            {/* Currency Preview Selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 600 }}>Currency:</span>
+              <select
+                value={previewCurrency}
+                onChange={e => setPreviewCurrency(e.target.value as CurrencyCode)}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: '5px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  backgroundColor: '#0F172A',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#FFFFFF',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {Object.values(SUPPORTED_CURRENCIES).map(c => (
+                  <option key={c.code} value={c.code}>
+                    {c.flag} {c.code}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Rendered Live Page Mockup */}
@@ -617,7 +649,9 @@ export const PageEditor: React.FC<Props> = ({
                         </p>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
                           <span style={{ color: '#E2E8F0', fontWeight: 600 }}>{data.orderBumpTitle || 'Complementary Add-on'}</span>
-                          <span style={{ color: '#34D399', fontWeight: 700 }}>{data.orderBumpPrice || '$19.00'}</span>
+                          <span style={{ color: '#34D399', fontWeight: 700 }}>
+                            {previewCurrency === 'USD' ? (data.orderBumpPrice || '$19.00') : convertCurrencyCharm(data.orderBumpPrice || '19.00', previewCurrency).formatted}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -683,7 +717,7 @@ export const PageEditor: React.FC<Props> = ({
                           border: '1px solid rgba(16, 185, 129, 0.3)'
                         }}
                       >
-                        {data.shopifyProductPrice}
+                        {previewCurrency === 'USD' ? data.shopifyProductPrice : convertCurrencyCharm(data.shopifyProductPrice, previewCurrency).formatted}
                       </span>
                     )}
                   </div>
@@ -799,7 +833,9 @@ export const PageEditor: React.FC<Props> = ({
                         </p>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
                           <span style={{ color: '#E2E8F0', fontWeight: 600 }}>{data.orderBumpTitle || 'Complementary Add-on'}</span>
-                          <span style={{ color: '#34D399', fontWeight: 700 }}>{data.orderBumpPrice || '$19.00'}</span>
+                          <span style={{ color: '#34D399', fontWeight: 700 }}>
+                            {previewCurrency === 'USD' ? (data.orderBumpPrice || '$19.00') : convertCurrencyCharm(data.orderBumpPrice || '19.00', previewCurrency).formatted}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -989,6 +1025,60 @@ export const PageEditor: React.FC<Props> = ({
                       {data.shopifyProductPrice || '$0.00'} • <span style={{ color: '#94A3B8', fontFamily: 'monospace' }}>Variant: {data.shopifyVariantId || 'Not Set'}</span>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Multi-Currency Geo-Pricing (Option A Charm) Breakdown */}
+              {data.shopifyProductPrice && (
+                <div
+                  style={{
+                    backgroundColor: 'rgba(236, 72, 153, 0.06)',
+                    border: '1px solid rgba(236, 72, 153, 0.2)',
+                    borderRadius: '8px',
+                    padding: '8px 10px',
+                    margin: '8px 0'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      ✦ Multi-Currency Geo-Pricing (Option A Charm)
+                    </span>
+                    <span style={{ fontSize: '9px', color: '#10B981', fontWeight: 600 }}>$0 API Overhead</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {(['USD', 'EUR', 'GBP', 'CAD', 'AUD'] as CurrencyCode[]).map(code => {
+                      const charm = convertCurrencyCharm(data.shopifyProductPrice || '0', code);
+                      const isCurrent = previewCurrency === code;
+                      return (
+                        <button
+                          key={code}
+                          type="button"
+                          onClick={() => setPreviewCurrency(code)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '3px 8px',
+                            borderRadius: '5px',
+                            backgroundColor: isCurrent ? 'rgba(236, 72, 153, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                            border: `1px solid ${isCurrent ? '#ec4899' : 'rgba(255, 255, 255, 0.1)'}`,
+                            color: isCurrent ? '#FFFFFF' : '#CBD5E1',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>{SUPPORTED_CURRENCIES[code].flag}</span>
+                          <span style={{ color: isCurrent ? '#F472B6' : '#94A3B8' }}>{code}:</span>
+                          <span style={{ fontWeight: 700 }}>{charm.formatted}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p style={{ margin: '6px 0 0', fontSize: '10px', color: '#94A3B8', lineHeight: 1.3 }}>
+                    Visitor geo-location automatically localizes prices with psychological charm endings (.00, .95, .99) and passes native currency to Shopify checkout permalinks.
+                  </p>
                 </div>
               )}
 
