@@ -233,6 +233,11 @@ export interface DomainVerifyResult {
   domain: string;
   cnames?: string[];
   expectedTarget?: string;
+  contested?: boolean;
+  method?: 'cname' | 'txt_challenge';
+  verificationToken?: string;
+  expectedTxtHost?: string;
+  expectedTxtRecord?: string;
   sslActive?: boolean;
   sslDetails?: {
     issuer?: string;
@@ -260,6 +265,28 @@ export async function verifyCustomDomain(domain: string): Promise<DomainVerifyRe
       domain,
       error: err.message || 'DNS check failed'
     };
+  }
+}
+
+export async function getDomainVerificationToken(domain: string): Promise<{
+  success: boolean;
+  domain: string;
+  token?: string;
+  txtHost?: string;
+  txtRecord?: string;
+  cnameHost?: string;
+  cnameTarget?: string;
+  verified?: boolean;
+  contested?: boolean;
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/domain/token?domain=${encodeURIComponent(domain)}`, {
+      headers: await authHeaders()
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, domain, error: err.message || 'Token fetch failed' };
   }
 }
 

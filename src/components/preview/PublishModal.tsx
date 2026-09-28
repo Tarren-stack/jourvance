@@ -35,7 +35,14 @@ export const PublishModal: React.FC<Props> = ({
 }) => {
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const [checkingDomain, setCheckingDomain] = useState<string | null>(null);
-  const [domainStatus, setDomainStatus] = useState<Record<string, { verified: boolean; sslActive?: boolean; message: string }>>({});
+  const [domainStatus, setDomainStatus] = useState<Record<string, {
+    verified: boolean;
+    sslActive?: boolean;
+    message: string;
+    contested?: boolean;
+    expectedTxtHost?: string;
+    verificationToken?: string;
+  }>>({});
 
   if (!isOpen) return null;
 
@@ -60,6 +67,9 @@ export const PublishModal: React.FC<Props> = ({
         [domain]: {
           verified: !!res.verified,
           sslActive: !!res.sslActive,
+          contested: !!res.contested,
+          expectedTxtHost: res.expectedTxtHost,
+          verificationToken: res.verificationToken,
           message: res.message || (res.verified ? 'CNAME points directly to cname.jourvance.com' : 'DNS not propagated yet')
         }
       }));
@@ -369,12 +379,26 @@ export const PublishModal: React.FC<Props> = ({
                           </div>
                         </div>
 
-                        {domainStatus[page.customDomain] && (
+                        {domainStatus[page.customDomain]?.contested ? (
+                          <div style={{
+                            fontSize: '10px',
+                            backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                            border: '1px solid rgba(245, 158, 11, 0.3)',
+                            padding: '6px 8px',
+                            borderRadius: '4px',
+                            color: '#FBBF24',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '3px'
+                          }}>
+                            <span style={{ fontWeight: 700 }}>⚠️ Domain Connected to Another Store</span>
+                            <span>To prove ownership and connect to this store, add a TXT record: <code style={{ color: '#FEF08A' }}>{domainStatus[page.customDomain].expectedTxtHost || `_jourvance.${page.customDomain}`} = {domainStatus[page.customDomain].verificationToken}</code></span>
+                          </div>
+                        ) : domainStatus[page.customDomain] ? (
                           <div style={{ fontSize: '10px', color: domainStatus[page.customDomain].verified ? '#34D399' : '#FBBF24', lineHeight: 1.3 }}>
                             {domainStatus[page.customDomain].message}
                           </div>
-                        )}
-                        {!domainStatus[page.customDomain] && (
+                        ) : (
                           <div style={{ fontSize: '10px', color: '#94A3B8' }}>
                             Ensure CNAME for <code style={{ color: '#E0E7FF' }}>{page.customDomain}</code> points to <code style={{ color: '#EC4899' }}>cname.jourvance.com</code> in your DNS provider.
                           </div>

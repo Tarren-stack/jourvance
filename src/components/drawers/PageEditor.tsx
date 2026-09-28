@@ -1993,9 +1993,9 @@ export const PageEditor: React.FC<Props> = ({
                     fontSize: '11px',
                     padding: '8px 10px',
                     borderRadius: '6px',
-                    backgroundColor: dnsResult.verified ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-                    color: dnsResult.verified ? '#34d399' : '#f87171',
-                    border: `1px solid ${dnsResult.verified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                    backgroundColor: dnsResult.verified ? 'rgba(16, 185, 129, 0.12)' : dnsResult.contested ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                    color: dnsResult.verified ? '#34d399' : dnsResult.contested ? '#fbbf24' : '#f87171',
+                    border: `1px solid ${dnsResult.verified ? 'rgba(16, 185, 129, 0.3)' : dnsResult.contested ? 'rgba(245, 158, 11, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '4px'
@@ -2003,7 +2003,7 @@ export const PageEditor: React.FC<Props> = ({
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontWeight: 700 }}>
-                      {dnsResult.verified ? '✓ CNAME Verified' : '✕ CNAME Target Mismatch'}
+                      {dnsResult.verified ? '✓ Domain Verified' : dnsResult.contested ? '⚠️ Domain Connected to Another Store' : '✕ CNAME Target Mismatch'}
                     </span>
                     {dnsResult.verified && (
                       <span style={{ fontSize: '10px', fontWeight: 800, color: dnsResult.sslActive ? '#34D399' : '#FBBF24' }}>
@@ -2014,6 +2014,11 @@ export const PageEditor: React.FC<Props> = ({
                   <div style={{ fontSize: '10px', opacity: 0.9 }}>
                     {dnsResult.message}
                   </div>
+                  {dnsResult.contested && dnsResult.verificationToken && (
+                    <div style={{ marginTop: '4px', fontSize: '10px', color: '#fef08a' }}>
+                      Add TXT record: <code style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '2px 5px', borderRadius: '3px' }}>{dnsResult.expectedTxtHost || `_jourvance.${data.customDomain}`} = {dnsResult.verificationToken}</code>
+                    </div>
+                  )}
                 </div>
               )}
 

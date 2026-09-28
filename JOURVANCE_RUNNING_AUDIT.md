@@ -216,14 +216,31 @@ This document inventories every identified issue, categorized by severity, along
 ---
 
 ### 3.2 Custom Domain Takeover Without Verification
-- **File / Lines:** `server.mjs:6751-6759`, `server.mjs:8702-8704`, `server.mjs:9179-9215`
+- **File / Lines:** `server.mjs:8049-8225`, `server.mjs:10505-10560`, `server.mjs:11235-11285`
 - **Issue:** 
-  When publishing a page with `customDomain`, the server assigns `publicPageCache['domain:' + customDomain] = cleanSlug` immediately, without requiring DNS CNAME or TXT verification.
-  Furthermore, the verification endpoint `GET /api/domain/verify` has **no authentication middleware** (`requireUser` is absent), allowing arbitrary callers to query DNS records.
+  When publishing a page with `customDomain`, the server previously assigned `publicPageCache['domain:' + customDomain] = cleanSlug` immediately, without requiring DNS CNAME or TXT verification.
+  Furthermore, `loadPublicPage` contained an unverified deep-search fallback that routed traffic to any page matching `pageDomain === host`, allowing arbitrary users to route traffic from domains they did not own.
 - **Impact:** 
-  Any user can input a high-traffic third-party domain (e.g., `shop.competitor.com`). If that domain ever points a CNAME to Jourvance's ingress, the unauthorized user's funnel will be served.
-- **Recommended Improvement:**
-  Enforce DNS ownership via unique TXT verification tokens (e.g., `jourvance-verification=random-hash`) before routing host header traffic, and add `requireUser` to `/api/domain/verify`.
+  Any user could enter a third-party domain (e.g. `offers.competitor.com` or a lapsed brand domain). If that domain pointed to Jourvance's ingress, the unauthorized user's funnel would be served to real customers.
+- **Resolution (RESOLVED):**
+  1. **Persistent Domain Ownership Registry (`domains.json` & `domainRegistryCache`)**:
+     - Tracks verified custom domains, owning `userId`, verification method (`cname` vs `txt_challenge`), timestamp, and SSL status.
+  2. **Deterministic Tenant Verification Token (`getDomainVerificationToken`)**:
+     - Generates a cryptographically derived, tenant-isolated token (`jrv_${hash(userId:domain:secret)}`) for proving real DNS ownership.
+  3. **Option 1 Hybrid Verification Engine (`verifyDomainOwnership`)**:
+     - **Uncontested Domains**: Automatically verified when a CNAME points directly to `cname.jourvance.com`. The first merchant to verify becomes the registered owner with zero extra friction.
+     - **Contested Domains**: If another tenant attempts to claim an already-verified domain, CNAME alone is rejected (`contested: true`, 409). The claimant must create a TXT record `_jourvance.${domain} = jrv_${token}` to prove real DNS control.
+     - **Cryptographic Reclaiming**: Creating the TXT challenge record confirms genuine domain ownership and cleanly transfers registration to the legitimate brand owner.
+  4. **Verified-Only Live Routing Protection**:
+     - `POST /api/journey/:id/publish` and `savePublicPage` only bind `publicPageCache['domain:' + customDomain]` if the domain is verified by the publishing user.
+     - Pages with unverified domains remain immediately live and testable via their default URL (`/p/:slug`), while the custom domain displays as "Pending DNS Verification" without exposing unverified routes to the public.
+     - Removed the unsafe unverified fallback in `loadPublicPage`. Host header routing strictly validates that the domain in registry is verified and belongs to the page's owner.
+  5. **Endpoints & UI Integration**:
+     - Hardened `GET /api/domain/verify` to execute hybrid verification and activate host routing in real time when verified.
+     - Added `GET /api/domain/token` for instant pre-flight token retrieval.
+     - Updated `PageEditor.tsx` and `PublishModal.tsx` to display live HTTPS certificates, pending DNS guidance, and copyable TXT challenge tokens when contested.
+  6. **Automated Verification**:
+     - Implemented unit test suite in `custom-domain-verification.test.mjs` (8 passing tests covering token determinism, uncontested CNAME verification, contested domain defense, TXT challenge reclaiming, unverified host route suppression, verified host routing activation, and tamper protection).
 
 ---
 
@@ -587,6 +604,7 @@ This document inventories every identified issue, categorized by severity, along
 | **P1** | **Performance / I/O** | Shortlink generation performed synchronous disk reads & writes per URL inside loop (`Audit 2.3`) | Thousands of redundant disk writes & CPU array slicing during broadcasts | **RESOLVED** (In-Memory Batch Accumulation: `rememberRedirect` accepts `batchCollector`, `rememberRedirectsBatch` bulk-commits once, `rewritePlainMailLinks` batches single-email links in 1 write, and broadcast/drip send loops collect all links across recipients for 1 atomic flush) |
 | **P1** | **Commerce / Ingestion** | Order webhooks lacked `orders/paid` route alias, tenant-isolated idempotency, and over-aggressively exited all active drips | Dropped `orders/paid` hooks, possible cross-tenant checkout recovery collision, and premature cancellation of post-purchase onboarding drips | **RESOLVED** (Shopify Order Webhook Live Auto-Sync Hardening: added `POST /api/webhooks/shopify/orders-paid`, tenant-scoped duplicate detection updating `financialStatus` idempotently, selective drip exit targeting pre-purchase recovery sequences while protecting post-purchase welcome drips, tenant-scoped abandoned checkout recovery emitting `checkout_recovered` event, and automated CRM RFM tier & bump tag synchronization) |
 | **P1** | **Security / Multi-Tenancy** | Flat slug namespace permits page & domain hijacking (`Audit 3.1`) | Tenant traffic & lead theft, custom domain takeovers, and reserved route collision | **RESOLVED** (Multi-tenant slug isolation across `landing-page`, `upsell`, and `ab-split`, reserved keywords blacklist, custom domain ownership guards on `domain:${customDomain}`, auto-resolution for default slugs, tenant-verified unpublishing, and preflight check endpoint `GET /api/journey/check-slug`) |
+| **P1** | **Security / Domains** | Custom domain takeover without verification (`Audit 3.2`) | Competitor domain takeover, unverified host routing, and traffic interception | **RESOLVED** (Option 1 Hybrid CNAME & TXT challenge verification, persistent domain registry `domains.json`, deterministic tenant tokens `jrv_${hash}`, verified-only live host header routing, unverified deep search removal, and pre-flight token endpoint `GET /api/domain/token`) |
 
 
 

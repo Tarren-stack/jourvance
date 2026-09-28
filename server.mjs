@@ -8047,15 +8047,189 @@ const persistPublicPages = () => {
   }
 };
 
+const domainsFilePath = path.join(__dirname, 'domains.json');
+let domainRegistryCache = {};
+function reloadDomainRegistry() {
+  try {
+    if (fs.existsSync(domainsFilePath)) {
+      domainRegistryCache = JSON.parse(fs.readFileSync(domainsFilePath, 'utf8'));
+    }
+  } catch (e) {}
+  return domainRegistryCache;
+}
+reloadDomainRegistry();
+
+const persistDomainRegistry = () => {
+  try {
+    fs.writeFileSync(domainsFilePath, JSON.stringify(domainRegistryCache, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[Jourvance] Failed to persist domains.json:', e.message);
+  }
+};
+
+function getDomainVerificationToken(userId, domain) {
+  const cleanDomain = String(domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const secret = process.env.SESSION_SECRET || 'jourvance_domain_salt_2026';
+  return 'jrv_' + crypto.createHash('sha256').update(`${userId}:${cleanDomain}:${secret}`).digest('hex').slice(0, 16);
+}
+
+async function verifyDomainOwnership(domain, requestingUserId) {
+  const cleanDomain = String(domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!cleanDomain || !cleanDomain.includes('.')) {
+    return {
+      success: false,
+      verified: false,
+      error: 'A valid subdomain is required (e.g. offer.yourbrand.com).'
+    };
+  }
+
+  const expectedTarget = 'cname.jourvance.com';
+  const expectedToken = getDomainVerificationToken(requestingUserId, cleanDomain);
+  const expectedTxtRecord = `jourvance-verification=${expectedToken}`;
+  const expectedTxtHost = `_jourvance.${cleanDomain}`;
+
+  // 1. Check existing domain registry
+  reloadDomainRegistry();
+  const existingRecord = domainRegistryCache[cleanDomain];
+  const isClaimedByOther = Boolean(existingRecord && existingRecord.verified && existingRecord.userId && existingRecord.userId !== requestingUserId);
+
+  // 2. Query DNS for TXT verification challenge
+  let txtFound = false;
+  try {
+    const txtHostsToCheck = [`_jourvance.${cleanDomain}`, cleanDomain];
+    for (const hostToCheck of txtHostsToCheck) {
+      try {
+        const txtRecords = await dns.promises.resolveTxt(hostToCheck);
+        const flatStrings = (txtRecords || []).map(chunks => chunks.join('').trim());
+        if (flatStrings.some(str => str === expectedToken || str === expectedTxtRecord || str.includes(expectedToken))) {
+          txtFound = true;
+          break;
+        }
+      } catch (e) {}
+    }
+  } catch (err) {}
+
+  // 3. Query DNS for CNAME
+  let cnameMatch = false;
+  let cnames = [];
+  try {
+    cnames = await dns.promises.resolveCname(cleanDomain);
+    cnameMatch = Array.isArray(cnames) && cnames.some(c => {
+      const lower = c.toLowerCase().replace(/\.$/, '');
+      return lower === expectedTarget || lower === 'jourvance.com' || lower.includes('jourvance');
+    });
+  } catch (err) {}
+
+  // 4. Evaluate Ownership based on Hybrid Policy:
+  // Case A: Proven by TXT Challenge (Full Cryptographic Proof)
+  if (txtFound) {
+    let sslStatus = { sslActive: false };
+    if (cnameMatch) {
+      sslStatus = await checkSslCertificate(cleanDomain);
+    }
+    const record = {
+      domain: cleanDomain,
+      userId: requestingUserId,
+      verified: true,
+      verifiedAt: new Date().toISOString(),
+      verificationToken: expectedToken,
+      method: 'txt_challenge',
+      sslActive: !!sslStatus.sslActive
+    };
+    domainRegistryCache[cleanDomain] = record;
+    persistDomainRegistry();
+    if (hubReady) {
+      try { await hub.store.docs.put(`domain_reg.${safe(cleanDomain)}`, record); } catch {}
+    }
+    return {
+      success: true,
+      verified: true,
+      domain: cleanDomain,
+      method: 'txt_challenge',
+      cnameMatch,
+      cnames,
+      expectedTarget,
+      sslActive: !!sslStatus.sslActive,
+      sslDetails: sslStatus,
+      message: `Domain verified via DNS TXT Challenge! Ownership confirmed for your store.`
+    };
+  }
+
+  // Case B: CNAME points to Jourvance, but domain is already registered to another tenant
+  if (cnameMatch && isClaimedByOther) {
+    return {
+      success: true,
+      verified: false,
+      contested: true,
+      domain: cleanDomain,
+      cnames,
+      expectedTarget,
+      verificationToken: expectedToken,
+      expectedTxtHost,
+      expectedTxtRecord,
+      error: `This domain is currently connected to another store. To verify and transfer ownership, please add a TXT DNS record at ${expectedTxtHost} with value "${expectedToken}".`,
+      message: `Contested Domain: To prove you own ${cleanDomain}, add a TXT record in your DNS provider.`
+    };
+  }
+
+  // Case C: CNAME points to Jourvance and domain is UNCONTESTED (or already owned by this user)
+  if (cnameMatch && !isClaimedByOther) {
+    const sslStatus = await checkSslCertificate(cleanDomain);
+    const record = {
+      domain: cleanDomain,
+      userId: requestingUserId,
+      verified: true,
+      verifiedAt: new Date().toISOString(),
+      verificationToken: expectedToken,
+      method: 'cname',
+      sslActive: !!sslStatus.sslActive
+    };
+    domainRegistryCache[cleanDomain] = record;
+    persistDomainRegistry();
+    if (hubReady) {
+      try { await hub.store.docs.put(`domain_reg.${safe(cleanDomain)}`, record); } catch {}
+    }
+    return {
+      success: true,
+      verified: true,
+      domain: cleanDomain,
+      method: 'cname',
+      cnameMatch: true,
+      cnames,
+      expectedTarget,
+      sslActive: !!sslStatus.sslActive,
+      sslDetails: sslStatus,
+      message: sslStatus.sslActive
+        ? `DNS & SSL Active! ${cleanDomain} correctly points to ${expectedTarget} with verified HTTPS certificate (${sslStatus.issuer}, ${sslStatus.daysRemaining} days remaining).`
+        : `CNAME Verified! ${cleanDomain} points to ${expectedTarget}. SSL certificate is currently provisioning.`
+    };
+  }
+
+  // Case D: Not pointed to Jourvance
+  return {
+    success: true,
+    verified: false,
+    domain: cleanDomain,
+    cnameMatch: false,
+    cnames,
+    expectedTarget,
+    verificationToken: expectedToken,
+    expectedTxtHost,
+    expectedTxtRecord,
+    message: `No active CNAME detected for ${cleanDomain}. In your DNS manager, add a CNAME record: Host "${cleanDomain.split('.')[0]}", Points to "${expectedTarget}".`
+  };
+}
+
 const pubDocName = (slug) => `pubpage.${safe(slug)}`;
 
 async function savePublicPage(slug, data) {
   publicPageCache[slug] = data;
   const customDomain = (data.customDomain || data.data?.customDomain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   if (customDomain) {
-    const existingDomainSlug = publicPageCache[`domain:${customDomain}`];
-    const existingDomainPage = existingDomainSlug ? (publicPageCache[existingDomainSlug] || await loadPublicPage(existingDomainSlug)) : null;
-    if (!existingDomainPage || !existingDomainPage.userId || existingDomainPage.userId === data.userId) {
+    reloadDomainRegistry();
+    const reg = domainRegistryCache[customDomain];
+    const isVerifiedForUser = Boolean(reg && reg.verified && reg.userId === data.userId);
+    if (isVerifiedForUser) {
       publicPageCache[`domain:${customDomain}`] = slug;
     }
   }
@@ -8063,7 +8237,7 @@ async function savePublicPage(slug, data) {
   if (hubReady) {
     try {
       await hub.store.docs.put(pubDocName(slug), data);
-      if (customDomain) {
+      if (customDomain && publicPageCache[`domain:${customDomain}`] === slug) {
         await hub.store.docs.put(pubDocName(`domain.${customDomain}`), { targetSlug: slug });
       }
     } catch {}
@@ -8094,18 +8268,28 @@ async function loadPublicPage(identifier) {
     return publicPageCache[cleanId];
   }
 
-  // Domain pointer match
+  // Domain pointer match (ensuring verified ownership)
   if (publicPageCache[`domain:${cleanId}`]) {
     const targetSlug = publicPageCache[`domain:${cleanId}`];
-    return publicPageCache[targetSlug] || null;
+    const targetPage = publicPageCache[targetSlug] || null;
+    if (targetPage) {
+      reloadDomainRegistry();
+      const reg = domainRegistryCache[cleanId];
+      if (reg && reg.verified && reg.userId === targetPage.userId) {
+        return targetPage;
+      }
+    }
   }
 
-  // Deep search cached records for matching customDomain
-  for (const page of Object.values(publicPageCache)) {
-    if (page && typeof page === 'object') {
-      const pageDomain = (page.customDomain || page.data?.customDomain || '').toLowerCase().trim();
-      if (pageDomain && pageDomain === cleanId) return page;
-      if (page.slug?.toLowerCase() === cleanId) return page;
+  // Deep search cached records for matching customDomain ONLY IF verified for that page's owner
+  reloadDomainRegistry();
+  const reg = domainRegistryCache[cleanId];
+  if (reg && reg.verified) {
+    for (const page of Object.values(publicPageCache)) {
+      if (page && typeof page === 'object' && page.userId === reg.userId) {
+        const pageDomain = (page.customDomain || page.data?.customDomain || '').toLowerCase().trim();
+        if (pageDomain && pageDomain === cleanId) return page;
+      }
     }
   }
 
@@ -8157,13 +8341,21 @@ async function validateSlugAvailability(slug, requestingUserId, { type = 'page',
   if (customDomain) {
     const cleanDomain = String(customDomain).toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     if (cleanDomain) {
+      reloadDomainRegistry();
+      const reg = domainRegistryCache[cleanDomain];
+      if (reg && reg.verified && reg.userId && reg.userId !== requestingUserId) {
+        return {
+          available: false,
+          error: `The custom domain "${cleanDomain}" is already connected to another store. To verify and transfer ownership, add the TXT challenge record.`
+        };
+      }
       const existingDomainSlug = publicPageCache[`domain:${cleanDomain}`];
       if (existingDomainSlug) {
         const existingDomainPage = publicPageCache[existingDomainSlug] || await loadPublicPage(existingDomainSlug);
         if (existingDomainPage && existingDomainPage.userId && existingDomainPage.userId !== requestingUserId) {
           return {
             available: false,
-            error: `The custom domain "${cleanDomain}" is already connected to another store. Please use a unique domain or remove it from the other store first.`
+            error: `The custom domain "${cleanDomain}" is already connected to another store. To verify and transfer ownership, add the TXT challenge record.`
           };
         }
       }
@@ -10317,10 +10509,18 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
       const downsellNode = upsellNodes.find(u => u.data?.offerType === 'downsell');
       const thankYouNode = thankYouNodes[0];
 
+      let isDomainVerified = false;
+      if (customDomain) {
+        reloadDomainRegistry();
+        const reg = domainRegistryCache[customDomain];
+        isDomainVerified = Boolean(reg && reg.verified && reg.userId === req.user.uid);
+      }
+
       node.data = {
         ...d,
         slug: cleanSlug,
         customDomain: customDomain || undefined,
+        customDomainVerified: isDomainVerified,
         published: true,
         publishedAt: new Date().toISOString(),
         publishedUrl: pubUrl,
@@ -10339,16 +10539,13 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
         publishedAt: new Date().toISOString(),
         data: node.data,
         shopifyConfig,
-        customDomain: customDomain || undefined
+        customDomain: customDomain || undefined,
+        customDomainVerified: isDomainVerified
       };
 
       await savePublicPage(cleanSlug, publicRecord);
-      if (customDomain) {
-        const existingDomainSlug = publicPageCache[`domain:${customDomain}`];
-        const existingDomainPage = existingDomainSlug ? (publicPageCache[existingDomainSlug] || await loadPublicPage(existingDomainSlug)) : null;
-        if (!existingDomainPage || !existingDomainPage.userId || existingDomainPage.userId === req.user.uid) {
-          publicPageCache[`domain:${customDomain}`] = cleanSlug;
-        }
+      if (customDomain && isDomainVerified) {
+        publicPageCache[`domain:${customDomain}`] = cleanSlug;
       }
       publishedPages.push({
         nodeId: node.id,
@@ -10356,7 +10553,9 @@ app.post('/api/journey/:id/publish', requireUser, async (req, res) => {
         url: pubUrl,
         headline: d.headline,
         productTitle: d.shopifyProductTitle,
-        checkoutMode: d.checkoutMode || 'direct'
+        checkoutMode: d.checkoutMode || 'direct',
+        customDomain: customDomain || undefined,
+        customDomainVerified: isDomainVerified
       });
     } else if (node.type === 'upsell') {
       const d = node.data || {};
@@ -11038,44 +11237,42 @@ app.get('/api/domain/verify', requireUser, async (req, res) => {
     return res.status(400).json({ success: false, error: 'A valid subdomain is required (e.g. offer.yourbrand.com).' });
   }
 
-  const expectedTarget = 'cname.jourvance.com';
-  try {
-    const cnames = await dns.promises.resolveCname(domain);
-    const targetMatch = Array.isArray(cnames) && cnames.some(c => {
-      const lower = c.toLowerCase().replace(/\.$/, '');
-      return lower === expectedTarget || lower === 'jourvance.com' || lower.includes('jourvance');
-    });
-
-    let sslStatus = { sslActive: false };
-    if (targetMatch) {
-      sslStatus = await checkSslCertificate(domain);
+  const result = await verifyDomainOwnership(domain, req.user.uid);
+  if (result.verified) {
+    // If user has published pages using this custom domain, immediately activate domain routing
+    for (const [slug, page] of Object.entries(publicPageCache)) {
+      if (page && typeof page === 'object' && page.userId === req.user.uid) {
+        const pageDomain = (page.customDomain || page.data?.customDomain || '').toLowerCase().trim();
+        if (pageDomain === domain) {
+          publicPageCache[`domain:${domain}`] = slug;
+          persistPublicPages();
+          break;
+        }
+      }
     }
-
-    res.json({
-      success: true,
-      domain,
-      verified: targetMatch,
-      cnames,
-      expectedTarget,
-      sslActive: !!sslStatus.sslActive,
-      sslDetails: sslStatus,
-      message: targetMatch
-        ? (sslStatus.sslActive
-            ? `DNS & SSL Active! ${domain} correctly points to ${expectedTarget} with verified HTTPS certificate (${sslStatus.issuer}, ${sslStatus.daysRemaining} days remaining).`
-            : `CNAME Verified! ${domain} points to ${expectedTarget}. SSL certificate is currently provisioning.`)
-        : `CNAME points to ${cnames.join(', ')}. Expected: ${expectedTarget}`
-    });
-  } catch (err) {
-    res.json({
-      success: true,
-      domain,
-      verified: false,
-      sslActive: false,
-      error: err.code || err.message,
-      expectedTarget,
-      message: `No active CNAME record detected for ${domain}. Please create: CNAME -> ${expectedTarget}`
-    });
   }
+  return res.json(result);
+});
+
+app.get('/api/domain/token', requireUser, (req, res) => {
+  const domain = (req.query.domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!domain || !domain.includes('.')) {
+    return res.status(400).json({ success: false, error: 'A valid subdomain is required.' });
+  }
+  const token = getDomainVerificationToken(req.user.uid, domain);
+  reloadDomainRegistry();
+  const reg = domainRegistryCache[domain];
+  return res.json({
+    success: true,
+    domain,
+    token,
+    txtHost: `_jourvance.${domain}`,
+    txtRecord: `jourvance-verification=${token}`,
+    cnameHost: domain.split('.')[0],
+    cnameTarget: 'cname.jourvance.com',
+    verified: Boolean(reg && reg.verified && reg.userId === req.user.uid),
+    contested: Boolean(reg && reg.verified && reg.userId && reg.userId !== req.user.uid)
+  });
 });
 
 // ── Email Deliverability & DNS Authentication (SPF, DKIM, DMARC, MX) ─────────
