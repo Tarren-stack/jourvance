@@ -492,6 +492,29 @@ export const PageEditor: React.FC<Props> = ({
                   </option>
                 ))}
               </select>
+              <a
+                href={`/p/${data.slug || 'offer'}?preview=true&currency=${previewCurrency}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '2px 7px',
+                  borderRadius: '5px',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  backgroundColor: 'rgba(236, 72, 153, 0.15)',
+                  border: '1px solid rgba(236, 72, 153, 0.35)',
+                  color: '#F472B6',
+                  textDecoration: 'none',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Launch interactive Geo-Pricing Simulator toolbar in a new tab"
+              >
+                <ExternalLink size={10} />
+                <span>Simulate ({previewCurrency})</span>
+              </a>
             </div>
           </div>
 
@@ -1079,6 +1102,27 @@ export const PageEditor: React.FC<Props> = ({
                   <p style={{ margin: '6px 0 0', fontSize: '10px', color: '#94A3B8', lineHeight: 1.3 }}>
                     Visitor geo-location automatically localizes prices with psychological charm endings (.00, .95, .99) and passes native currency to Shopify checkout permalinks.
                   </p>
+                  <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(236, 72, 153, 0.15)', paddingTop: '6px' }}>
+                    <span style={{ fontSize: '10px', color: '#94A3B8' }}>Interactive Simulator:</span>
+                    <a
+                      href={`/p/${data.slug || 'offer'}?preview=true&currency=${previewCurrency}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        color: '#38BDF8',
+                        textDecoration: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '3px'
+                      }}
+                      title="Open page in new tab with Geo-Pricing Simulator Toolbar"
+                    >
+                      <ExternalLink size={10} />
+                      <span>Launch {previewCurrency} Simulator ↗</span>
+                    </a>
+                  </div>
                 </div>
               )}
 
@@ -2271,6 +2315,23 @@ export const PageEditor: React.FC<Props> = ({
                   >
                     <Eye size={12} />
                     <span>View Live</span>
+                  </a>
+                  <a
+                    href={`/p/${data.slug || 'offer'}?preview=true&currency=${previewCurrency}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      color: '#f472b6',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '3px',
+                      textDecoration: 'none'
+                    }}
+                    title="Open live page with Geo-Pricing Simulator Toolbar"
+                  >
+                    <ExternalLink size={12} />
+                    <span>Geo Simulator</span>
                   </a>
                 </div>
               </div>

@@ -791,6 +791,61 @@ function resolveSplitVariant(page, req, res) {
   return chosen;
 }
 
+function renderGeoPricingSimulatorToolbar({
+  activeCurrency = 'USD',
+  slug = 'offer',
+  isUpsell = false,
+  isDownsell = false,
+  hasUpsell = false,
+  storeDomain = ''
+}) {
+  const currentCfg = SUPPORTED_CURRENCIES[activeCurrency] || SUPPORTED_CURRENCIES.USD;
+  const navHref = (isUpsell || isDownsell)
+    ? `/p/${encodeURIComponent(slug)}?preview=true&currency=${activeCurrency}`
+    : `/p/${encodeURIComponent(slug)}/upsell?preview=true&currency=${activeCurrency}`;
+  const navBase = (isUpsell || isDownsell)
+    ? `/p/${encodeURIComponent(slug)}?preview=true`
+    : `/p/${encodeURIComponent(slug)}/upsell?preview=true`;
+  const navLabel = (isUpsell || isDownsell)
+    ? `← Return to Funnel (${activeCurrency})`
+    : (hasUpsell ? `Test Upsell Page (${activeCurrency}) →` : `Preview Node (${activeCurrency}) →`);
+
+  return `
+  <!-- Jourvance Multi-Currency Geo-Pricing Simulator Toolbar (Preview Mode Only) -->
+  <div id="jv-geo-simulator-toolbar" class="jv-geo-simulator-toolbar" role="region" aria-label="Geo-pricing simulator toolbar">
+    <div class="jv-sim-left">
+      <span class="jv-sim-badge">✦ PREVIEW MODE: GEO SIMULATOR</span>
+      <span class="jv-sim-rate" id="jv-sim-rate-badge">Rate: 1 USD = ${currentCfg.rateAgainstUSD} ${currentCfg.code} (${currentCfg.symbol})</span>
+    </div>
+    <div class="jv-sim-currencies">
+      ${Object.values(SUPPORTED_CURRENCIES).map(c => `
+        <button
+          type="button"
+          class="jv-sim-currency-btn ${c.code === activeCurrency ? 'active' : ''}"
+          data-currency="${c.code}"
+          title="Simulate visitor from ${c.name}"
+        >
+          <span>${c.flag}</span>
+          <span class="jv-sim-code">${c.code}</span>
+          <span class="jv-sim-sym">(${c.symbol})</span>
+        </button>
+      `).join('')}
+    </div>
+    <div class="jv-sim-right">
+      <span class="jv-sim-pill" id="jv-sim-checkout-badge">Shopify Cart: ${activeCurrency === 'USD' ? 'USD (default)' : `?currency=${activeCurrency}`}</span>
+      <a
+        id="jv-sim-nav-link"
+        href="${navHref}"
+        data-base-href="${navBase}"
+        class="jv-sim-link"
+      >
+        ${navLabel}
+      </a>
+    </div>
+  </div>
+  `;
+}
+
 function renderPublicFunnelHtml(page, req, res) {
   const rawData = page.data || {};
   const activeVariant = resolveSplitVariant(page, req, res);
@@ -860,6 +915,8 @@ function renderPublicFunnelHtml(page, req, res) {
   const initialCurrency = (['USD', 'EUR', 'GBP', 'CAD', 'AUD'].includes(queryCurrency))
     ? queryCurrency
     : detectVisitorCurrency({ cookie: cookieHeader, countryCode: countryHeader });
+
+  const isPreviewMode = req?.query?.preview === 'true' || req?.query?.jv_qa === '1';
 
   const convertedProduct = productPrice ? convertCurrencyCharm(productPrice, initialCurrency, 'USD') : null;
   const initialProductPrice = convertedProduct ? convertedProduct.formatted : productPrice;
@@ -1423,9 +1480,127 @@ function renderPublicFunnelHtml(page, req, res) {
       background: #EC4899;
       box-shadow: 0 0 6px #EC4899;
     }
+
+    /* Geo-Pricing Simulator Toolbar (Preview Mode Only) */
+    .jv-geo-simulator-toolbar {
+      position: sticky;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 999999;
+      background: rgba(11, 15, 25, 0.96);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(244, 114, 182, 0.3);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 11px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+    .jv-sim-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-badge {
+      background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(147, 51, 234, 0.25));
+      border: 1px solid rgba(236, 72, 153, 0.45);
+      color: #F472B6;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+    }
+    .jv-sim-rate {
+      color: #94A3B8;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .jv-sim-currencies {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-currency-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #CBD5E1;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      outline: none;
+      font-family: inherit;
+    }
+    .jv-sim-currency-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(244, 114, 182, 0.4);
+      color: #FFFFFF;
+      transform: translateY(-1px);
+    }
+    .jv-sim-currency-btn.active {
+      background: rgba(236, 72, 153, 0.25);
+      border-color: #EC4899;
+      color: #FFFFFF;
+      box-shadow: 0 0 10px rgba(236, 72, 153, 0.35);
+    }
+    .jv-sim-code {
+      font-weight: 700;
+    }
+    .jv-sim-sym {
+      color: #94A3B8;
+    }
+    .jv-sim-currency-btn.active .jv-sim-sym {
+      color: #FCE7F3;
+    }
+    .jv-sim-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-pill {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34D399;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .jv-sim-link {
+      color: #38BDF8;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: color 0.15s ease;
+    }
+    .jv-sim-link:hover {
+      color: #7DD3FC;
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
+
+  ${isPreviewMode ? renderGeoPricingSimulatorToolbar({ activeCurrency: initialCurrency, slug, isUpsell: false, isDownsell: false, hasUpsell: Boolean(rawData.hasUpsell || rawData.upsell), storeDomain }) : ''}
 
   ${discountCode ? `<div class="top-bar">Code <strong>${escapeHtml(discountCode)}</strong> is ready at checkout</div>` : ''}
 
@@ -1664,6 +1839,37 @@ function renderPublicFunnelHtml(page, req, res) {
         return cfg.prefix + numStr;
       }
 
+      function syncSimulatorToolbar(code) {
+        var simToolbar = document.getElementById('jv-geo-simulator-toolbar');
+        if (!simToolbar) return;
+        var btns = simToolbar.querySelectorAll('.jv-sim-currency-btn');
+        btns.forEach(function(b) {
+          if (b.getAttribute('data-currency') === code) {
+            b.classList.add('active');
+          } else {
+            b.classList.remove('active');
+          }
+        });
+        var rateBadge = document.getElementById('jv-sim-rate-badge');
+        if (rateBadge) {
+          var cfg = CURRENCY_CONFIG[code] || CURRENCY_CONFIG.USD;
+          rateBadge.textContent = 'Rate: 1 USD = ' + cfg.rate + ' ' + code + ' (' + cfg.symbol + ')';
+        }
+        var navLink = document.getElementById('jv-sim-nav-link');
+        if (navLink) {
+          var baseHref = navLink.getAttribute('data-base-href') || navLink.href;
+          try {
+            var u2 = new URL(baseHref, window.location.origin);
+            u2.searchParams.set('currency', code);
+            navLink.href = u2.toString();
+          } catch(e){}
+        }
+        var checkoutBadge = document.getElementById('jv-sim-checkout-badge');
+        if (checkoutBadge) {
+          checkoutBadge.textContent = 'Shopify Cart: ' + (code === 'USD' ? 'USD (default)' : '?currency=' + code);
+        }
+      }
+
       function applyCurrency(code) {
         if (!CURRENCY_CONFIG[code]) return;
         activeCurrency = code;
@@ -1683,6 +1889,8 @@ function renderPublicFunnelHtml(page, req, res) {
             el.textContent = formatCharmPrice(base, code);
           }
         });
+
+        syncSimulatorToolbar(code);
       }
 
       var currencySelect = document.getElementById('jv-currency-select');
@@ -1691,6 +1899,15 @@ function renderPublicFunnelHtml(page, req, res) {
           applyCurrency(e.target.value);
         });
       }
+
+      var simButtons = document.querySelectorAll('.jv-sim-currency-btn');
+      simButtons.forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          var c = this.getAttribute('data-currency');
+          if (c) applyCurrency(c);
+        });
+      });
 
       // Timezone fallback if initial is USD and no sticky cookie is saved
       (function() {
@@ -2425,6 +2642,8 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
     ? queryCurrency
     : detectVisitorCurrency({ cookie: cookieHeader, countryCode: countryHeader });
 
+  const isPreviewMode = req?.query?.preview === 'true' || req?.query?.jv_qa === '1';
+
   // Price calculations with optional courtesy discount & Option A charm pricing
   const numericBasePrice = parseFloat(String(rawProductPrice).replace(/[^0-9.]/g, '')) || 0;
   let finalPriceStr = rawProductPrice ? convertCurrencyCharm(rawProductPrice, activeCurrency, 'USD').formatted : rawProductPrice;
@@ -2482,6 +2701,180 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
       display: flex;
       flex-direction: column;
       gap: 20px;
+    }
+    .secure-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #34D399;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-weight: 600;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .currency-select-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .currency-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #E2E8F0;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 22px 4px 10px;
+      border-radius: 9999px;
+      cursor: pointer;
+      outline: none;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    .currency-select:hover, .currency-select:focus {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(236, 72, 153, 0.4);
+      color: #FFFFFF;
+    }
+    .currency-select-wrap::after {
+      content: '▾';
+      position: absolute;
+      right: 8px;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.6);
+      pointer-events: none;
+    }
+    .currency-select option {
+      background: #0F172A;
+      color: #FFFFFF;
+    }
+
+    /* Geo-Pricing Simulator Toolbar (Preview Mode Only) */
+    .jv-geo-simulator-toolbar {
+      position: sticky;
+      top: 0;
+      left: 0;
+      right: 0;
+      width: 100%;
+      z-index: 999999;
+      background: rgba(11, 15, 25, 0.96);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(244, 114, 182, 0.3);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 11px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      margin-bottom: 20px;
+    }
+    .jv-sim-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-badge {
+      background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(147, 51, 234, 0.25));
+      border: 1px solid rgba(236, 72, 153, 0.45);
+      color: #F472B6;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+    }
+    .jv-sim-rate {
+      color: #94A3B8;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .jv-sim-currencies {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-currency-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #CBD5E1;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      outline: none;
+      font-family: inherit;
+    }
+    .jv-sim-currency-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(244, 114, 182, 0.4);
+      color: #FFFFFF;
+      transform: translateY(-1px);
+    }
+    .jv-sim-currency-btn.active {
+      background: rgba(236, 72, 153, 0.25);
+      border-color: #EC4899;
+      color: #FFFFFF;
+      box-shadow: 0 0 10px rgba(236, 72, 153, 0.35);
+    }
+    .jv-sim-code {
+      font-weight: 700;
+    }
+    .jv-sim-sym {
+      color: #94A3B8;
+    }
+    .jv-sim-currency-btn.active .jv-sim-sym {
+      color: #FCE7F3;
+    }
+    .jv-sim-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-pill {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34D399;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .jv-sim-link {
+      color: #38BDF8;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: color 0.15s ease;
+    }
+    .jv-sim-link:hover {
+      color: #7DD3FC;
+      text-decoration: underline;
     }
     .recovery-banner {
       background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(99, 102, 241, 0.15));
@@ -2665,7 +3058,24 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   </style>
 </head>
 <body>
+  ${isPreviewMode ? renderGeoPricingSimulatorToolbar({ activeCurrency, slug, isUpsell: !isDownsell, isDownsell, hasUpsell: false, storeDomain }) : ''}
   <div class="container">
+    <header class="upsell-header" style="width: 100%; display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+      <div class="brand" style="font-family: 'Playfair Display', Georgia, serif; font-size: 18px; font-weight: 700; color: #FFFFFF; letter-spacing: 0.02em;">${escapeHtml(storeDomain.split('.')[0] || 'JOURVANCE')}</div>
+      <div class="header-actions" style="display: flex; align-items: center; gap: 10px;">
+        <div class="currency-select-wrap">
+          <select id="jv-currency-select" class="currency-select" aria-label="Select currency">
+            ${Object.values(SUPPORTED_CURRENCIES).map(c => `
+              <option value="${c.code}" ${c.code === activeCurrency ? 'selected' : ''}>
+                ${c.flag} ${c.code} (${c.symbol})
+              </option>
+            `).join('')}
+          </select>
+        </div>
+        ${storeDomain ? `<div class="secure-pill"><span>Checkout continues on ${escapeHtml(storeDomain)}</span></div>` : ''}
+      </div>
+    </header>
+
     ${(isCourtesyRecovery && !isCourtesyExpired) ? `
     <div class="recovery-banner" id="jv-recovery-banner">
       <div style="display:flex; align-items:center; gap:8px;">
@@ -2723,8 +3133,8 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
         <div class="product-info">
           ${productTitle ? `<div class="product-title">${escapeHtml(productTitle)}</div>` : ''}
           ${(finalPriceStr || finalStrikethroughStr) ? `<div class="pricing-row">
-            ${finalPriceStr ? `<span class="price-special">${escapeHtml(finalPriceStr)}</span>` : ''}
-            ${finalStrikethroughStr ? `<span class="price-reg">${escapeHtml(finalStrikethroughStr)}</span>` : ''}
+            ${finalPriceStr ? `<span id="jv-upsell-price" data-base-price="${escapeHtml(rawProductPrice)}" data-discounted-base="${(isCourtesyRecovery && numericBasePrice > 0 && !isCourtesyExpired) ? (numericBasePrice * 0.9).toFixed(2) : ''}" class="price-special">${escapeHtml(finalPriceStr)}</span>` : ''}
+            ${finalStrikethroughStr ? `<span id="jv-regular-price" data-base-price="${escapeHtml(regularPrice || rawProductPrice)}" class="price-reg">${escapeHtml(finalStrikethroughStr)}</span>` : ''}
             ${isCourtesyRecovery ? `<span style="font-size:11px; font-weight:700; color:#34D399; background:rgba(16, 185, 129, 0.15); padding:2px 8px; border-radius:4px; border:1px solid rgba(16, 185, 129, 0.3);">10% OFF PRE-APPLIED</span>` : ''}
           </div>` : ''}
           ${checkoutUrl ? `<div style="font-size:11px; color:#94A3B8; font-weight:600;">Checkout opens on the connected store.</div>` : `<div style="font-size:11px; color:#94A3B8; font-weight:600;">No store checkout is connected for this offer.</div>`}
@@ -2745,6 +3155,7 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
       <a
         id="jv-accept-btn"
         href="${escapeHtml(checkoutUrl || '#')}"
+        data-base-checkout-url="${escapeHtml(rawCheckoutUrl || '')}"
         class="btn-accept"
       >
         ${escapeHtml(acceptText)}
@@ -2754,6 +3165,7 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
       <a
         id="jv-decline-btn"
         href="${escapeHtml(nextDeclineUrl)}"
+        data-base-decline-url="${escapeHtml(nextDeclineBase)}"
         class="decline-link"
       >
         ${escapeHtml(declineText)}
@@ -2763,6 +3175,162 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   </div>
 
   <script>
+    var CURRENCY_CONFIG = {
+      USD: { rate: 1.0, prefix: '$', symbol: '$' },
+      EUR: { rate: 0.92, prefix: '€', symbol: '€' },
+      GBP: { rate: 0.79, prefix: '£', symbol: '£' },
+      CAD: { rate: 1.36, prefix: 'CA$', symbol: 'CA$' },
+      AUD: { rate: 1.52, prefix: 'A$', symbol: 'A$' }
+    };
+
+    let activeCurrency = ${JSON.stringify(activeCurrency)};
+
+    function formatCharmPrice(baseStr, targetCurr) {
+      if (!baseStr) return '';
+      var cfg = CURRENCY_CONFIG[targetCurr] || CURRENCY_CONFIG.USD;
+      var num = parseFloat(String(baseStr).replace(/[^0-9.-]/g, ''));
+      if (!num || isNaN(num) || num <= 0) return baseStr;
+      var rawClean = String(baseStr);
+      var hasDecimals = rawClean.indexOf('.') !== -1;
+      var ending = 'raw';
+      if (rawClean.endsWith('.99') || rawClean.endsWith('99')) ending = '99';
+      else if (rawClean.endsWith('.95') || rawClean.endsWith('95')) ending = '95';
+      else if (!hasDecimals || rawClean.endsWith('.00')) ending = '00';
+
+      var rawConverted = num * cfg.rate;
+      var charmAmount = rawConverted;
+      if (ending === '99') {
+        charmAmount = Math.max(1, Math.round(rawConverted - 0.99)) + 0.99;
+      } else if (ending === '95') {
+        charmAmount = Math.max(1, Math.round(rawConverted - 0.95)) + 0.95;
+      } else {
+        charmAmount = Math.max(1, Math.round(rawConverted));
+      }
+      var numStr = (hasDecimals || ending !== '00') ? charmAmount.toFixed(2) : Math.round(charmAmount).toString();
+      return cfg.prefix + numStr;
+    }
+
+    function syncSimulatorToolbar(code) {
+      var simToolbar = document.getElementById('jv-geo-simulator-toolbar');
+      if (!simToolbar) return;
+      var btns = simToolbar.querySelectorAll('.jv-sim-currency-btn');
+      btns.forEach(function(b) {
+        if (b.getAttribute('data-currency') === code) {
+          b.classList.add('active');
+        } else {
+          b.classList.remove('active');
+        }
+      });
+      var rateBadge = document.getElementById('jv-sim-rate-badge');
+      if (rateBadge) {
+        var cfg = CURRENCY_CONFIG[code] || CURRENCY_CONFIG.USD;
+        rateBadge.textContent = 'Rate: 1 USD = ' + cfg.rate + ' ' + code + ' (' + cfg.symbol + ')';
+      }
+      var navLink = document.getElementById('jv-sim-nav-link');
+      if (navLink) {
+        var baseHref = navLink.getAttribute('data-base-href') || navLink.href;
+        try {
+          var u2 = new URL(baseHref, window.location.origin);
+          u2.searchParams.set('currency', code);
+          navLink.href = u2.toString();
+        } catch(e){}
+      }
+      var checkoutBadge = document.getElementById('jv-sim-checkout-badge');
+      if (checkoutBadge) {
+        checkoutBadge.textContent = 'Shopify Cart: ' + (code === 'USD' ? 'USD (default)' : '?currency=' + code);
+      }
+    }
+
+    function applyCurrency(code) {
+      if (!CURRENCY_CONFIG[code]) return;
+      activeCurrency = code;
+      try {
+        document.cookie = 'jv_currency=' + encodeURIComponent(code) + '; path=/; max-age=2592000; SameSite=Lax';
+      } catch(e){}
+
+      var selectEl = document.getElementById('jv-currency-select');
+      if (selectEl && selectEl.value !== code) {
+        selectEl.value = code;
+      }
+
+      var upsellPriceEl = document.getElementById('jv-upsell-price');
+      if (upsellPriceEl) {
+        var discBase = upsellPriceEl.getAttribute('data-discounted-base');
+        var base = discBase || upsellPriceEl.getAttribute('data-base-price');
+        if (base) {
+          upsellPriceEl.textContent = formatCharmPrice(base, code);
+        }
+      }
+
+      var regPriceEl = document.getElementById('jv-regular-price');
+      if (regPriceEl) {
+        var regBase = regPriceEl.getAttribute('data-base-price');
+        if (regBase) {
+          regPriceEl.textContent = formatCharmPrice(regBase, code);
+        }
+      }
+
+      var acceptBtn = document.getElementById('jv-accept-btn');
+      if (acceptBtn) {
+        var baseCart = acceptBtn.getAttribute('data-base-checkout-url');
+        if (baseCart) {
+          try {
+            var u = new URL(baseCart, window.location.origin);
+            if (code !== 'USD') {
+              u.searchParams.set('currency', code);
+            } else {
+              u.searchParams.delete('currency');
+            }
+            acceptBtn.href = u.toString();
+          } catch(e){
+            var sep = baseCart.indexOf('?') !== -1 ? '&' : '?';
+            acceptBtn.href = code !== 'USD' ? (baseCart + sep + 'currency=' + code) : baseCart;
+          }
+        }
+      }
+
+      var declineBtn = document.getElementById('jv-decline-btn');
+      if (declineBtn) {
+        var baseDecline = declineBtn.getAttribute('data-base-decline-url');
+        if (baseDecline) {
+          declineBtn.href = code !== 'USD' ? (baseDecline + '?currency=' + code) : baseDecline;
+        }
+      }
+
+      syncSimulatorToolbar(code);
+    }
+
+    var currencySelect = document.getElementById('jv-currency-select');
+    if (currencySelect) {
+      currencySelect.addEventListener('change', function(e) {
+        applyCurrency(e.target.value);
+      });
+    }
+
+    var simButtons = document.querySelectorAll('.jv-sim-currency-btn');
+    simButtons.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var c = this.getAttribute('data-currency');
+        if (c) applyCurrency(c);
+      });
+    });
+
+    (function() {
+      if (document.cookie.indexOf('jv_currency=') !== -1) return;
+      try {
+        var tz = Intl.DateTimeFormat().resolvedOptions().timeZone.toLowerCase();
+        var detected = null;
+        if (tz.indexOf('london') !== -1 || tz.indexOf('belfast') !== -1) detected = 'GBP';
+        else if (tz.indexOf('europe/') === 0) detected = 'EUR';
+        else if (tz.indexOf('australia/') === 0 || tz.indexOf('pacific/auckland') === 0) detected = 'AUD';
+        else if (tz.indexOf('toronto') !== -1 || tz.indexOf('vancouver') !== -1 || tz.indexOf('montreal') !== -1) detected = 'CAD';
+        if (detected && detected !== activeCurrency) {
+          applyCurrency(detected);
+        }
+      } catch(e){}
+    })();
+
     ${(!isCourtesyRecovery && urgencyMins > 0) ? `
     (function() {
       var duration = ${urgencyMins} * 60;
@@ -2877,7 +3445,7 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
               action: 'accept',
               offerType: ${JSON.stringify(isDownsell ? 'downsell' : 'upsell')},
               amount: ${recordedAmount},
-              currency: ${JSON.stringify(activeCurrency)},
+              currency: activeCurrency,
               customerEmail: emailFromQuery,
               discountCode: ${JSON.stringify(effectiveCoupon)},
               visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
@@ -2984,6 +3552,7 @@ export {
   renderPublicFunnelHtml,
   renderPublicThankYouHtml,
   renderPublicUpsellHtml,
+  renderGeoPricingSimulatorToolbar,
   confirmUrl,
   grantFormCoupon,
   isLeadRateLimited
@@ -3990,6 +4559,7 @@ app.post('/api/public/restock-request', (req, res) => {
     renderPublicFunnelHtml,
     renderPublicThankYouHtml,
     renderPublicUpsellHtml,
+    renderGeoPricingSimulatorToolbar,
     render404Html,
     resolveSplitVariant,
     withTracking,
