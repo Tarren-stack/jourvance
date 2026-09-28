@@ -1,13 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  submitCustomerReview,
   getPublicVerifiedReviews,
   toggleReviewVisibility,
   renderSocialProofWallHtml,
   DEFAULT_CURATED_REVIEWS
 } from './server/reviewEngine.mjs';
 
-describe('Live Verified UGC Social Proof Wall & Testimonial Injector (Phase 13)', () => {
+describe('Live Verified UGC Social Proof Wall & Testimonial Injector (Phase 13 & 14)', () => {
   it('1. Provides high-converting default curated reviews when storage is empty', () => {
     const mockHub = {
       get: () => []
@@ -126,5 +127,98 @@ describe('Live Verified UGC Social Proof Wall & Testimonial Injector (Phase 13)'
     assert.ok(html.includes('Sarah K.'), 'Must include reviewer name');
     assert.ok(html.includes('Glowing Results'), 'Must include tag');
     assert.ok(html.includes('✓ Verified'), 'Must include verified badge');
+  });
+
+  it('7. submitCustomerReview validates, sanitizes, and stores up to 2 compressed photos', () => {
+    let saved = null;
+    const mockHub = {
+      get: () => [],
+      set: (space, key, val) => { saved = val; }
+    };
+
+    const validPhoto1 = 'data:image/webp;base64,UklGRkAAAABXRUJQVlA4IDQAAADwAQCdASoBAAEAAQAcJaACdLoAAP7/2QAA';
+    const validPhoto2 = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
+    const extraPhoto3 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+    const result = {
+      ...submitCustomerReview({
+        orderId: 'ORD_991',
+        customerEmail: 'alex@glow.com',
+        customerName: 'Alex Rivers',
+        rating: 5,
+        reviewTitle: 'Stunning unboxing experience',
+        reviewText: 'Before and after results speak for themselves.',
+        photos: [validPhoto1, validPhoto2, extraPhoto3],
+        hubStorage: mockHub
+      })
+    };
+
+    assert.ok(result.success);
+    assert.equal(result.review.photos.length, 2, 'Must clamp to maximum 2 photos');
+    assert.equal(result.review.photos[0], validPhoto1);
+    assert.equal(result.review.photos[1], validPhoto2);
+    assert.equal(result.review.photoUrl, validPhoto1, 'photoUrl backward compatibility must point to first photo');
+  });
+
+  it('8. submitCustomerReview rejects oversized photo payloads and non-image strings', () => {
+    let saved = null;
+    const mockHub = {
+      get: () => [],
+      set: (space, key, val) => { saved = val; }
+    };
+
+    const oversizedPhoto = 'data:image/webp;base64,' + 'A'.repeat(360000);
+    const nonImageScript = 'javascript:alert(1)';
+    const validPhoto = 'data:image/webp;base64,UklGRkAAAABXRUJQVlA4IDQAAADwAQCdASoBAAEAAQAcJaACdLoAAP7/2QAA';
+
+    const result = submitCustomerReview({
+      orderId: 'ORD_992',
+      customerEmail: 'taylor@glow.com',
+      photos: [oversizedPhoto, nonImageScript, validPhoto],
+      hubStorage: mockHub
+    });
+
+    assert.ok(result.success);
+    assert.equal(result.review.photos.length, 1, 'Only valid non-oversized image data URIs should be accepted');
+    assert.equal(result.review.photos[0], validPhoto);
+  });
+
+  it('9. renderSocialProofWallHtml renders photo thumbnails and zero-dependency lightbox modal', () => {
+    const summary = { averageRating: 5.0, totalCount: 42 };
+    const reviews = [
+      {
+        id: 'rev_with_photo',
+        customerName: 'Helena P.',
+        rating: 5,
+        reviewTitle: 'Visible difference in 7 days',
+        reviewText: 'See attached texture shot.',
+        photos: ['data:image/webp;base64,testphotodata']
+      }
+    ];
+
+    const html = renderSocialProofWallHtml(summary, reviews, { photosEnabled: true });
+    assert.ok(html.includes('jv-ugc-photos'), 'Must include thumbnail strip');
+    assert.ok(html.includes('jv-ugc-photo-thumb'), 'Must include photo thumbnail card');
+    assert.ok(html.includes('openJvLightbox'), 'Must include lightbox open handler');
+    assert.ok(html.includes('jv-ugc-lightbox'), 'Must include lightbox modal container');
+    assert.ok(html.includes('jv-lightbox-overlay'), 'Must include frosted glass lightbox overlay');
+  });
+
+  it('10. renderSocialProofWallHtml suppresses photo thumbnails when photosEnabled is false', () => {
+    const summary = { averageRating: 5.0, totalCount: 42 };
+    const reviews = [
+      {
+        id: 'rev_with_photo',
+        customerName: 'Helena P.',
+        rating: 5,
+        reviewTitle: 'Visible difference in 7 days',
+        reviewText: 'See attached texture shot.',
+        photos: ['data:image/webp;base64,testphotodata']
+      }
+    ];
+
+    const html = renderSocialProofWallHtml(summary, reviews, { photosEnabled: false });
+    assert.ok(!html.includes('class="jv-ugc-photos"'), 'Must not render photo thumbnail markup when photosEnabled is false');
+    assert.ok(!html.includes('testphotodata'), 'Must not render photo src data when photosEnabled is false');
   });
 });

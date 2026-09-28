@@ -75,6 +75,7 @@ export function submitCustomerReview({
   reviewTitle = '',
   reviewText = '',
   tags = [],
+  photos = [],
   photoUrl = '',
   storeDomain = '',
   userId = 'usr_default',
@@ -88,6 +89,21 @@ export function submitCustomerReview({
   const cleanEmail = String(customerEmail || '').toLowerCase().trim();
   const cleanRating = Math.max(1, Math.min(5, Math.round(Number(rating) || 5)));
 
+  // Validate and sanitize photos (max 2, base64 or https, max 350k chars each)
+  const rawPhotos = Array.isArray(photos) ? photos : (photoUrl ? [photoUrl] : []);
+  const validPhotos = [];
+  for (const p of rawPhotos) {
+    if (typeof p !== 'string') continue;
+    const trimmed = p.trim();
+    if (!trimmed) continue;
+    const isDataUri = /^data:image\/(webp|jpeg|jpg|png|svg\+xml);base64,/i.test(trimmed) || trimmed.startsWith('data:image/svg+xml');
+    const isHttps = /^https:\/\/[^\s]+$/i.test(trimmed);
+    if (!isDataUri && !isHttps) continue;
+    if (trimmed.length > 350000) continue; // Size cap ~250KB binary
+    validPhotos.push(trimmed);
+    if (validPhotos.length >= 2) break;
+  }
+
   const reviewRecord = {
     id: `rev_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     userId: userId || 'usr_default',
@@ -98,7 +114,8 @@ export function submitCustomerReview({
     reviewTitle: String(reviewTitle || '').slice(0, 120),
     reviewText: String(reviewText || '').slice(0, 1500),
     tags: Array.isArray(tags) ? tags.map(t => String(t).trim()).filter(Boolean) : [],
-    photoUrl: String(photoUrl || '').slice(0, 500),
+    photos: validPhotos,
+    photoUrl: validPhotos[0] || String(photoUrl || '').slice(0, 500),
     storeDomain: String(storeDomain || ''),
     discountCodeAwarded: discountCode || 'REVIEW10',
     verifiedBuyer: true,
@@ -399,6 +416,59 @@ export function renderReviewPortalHtml({
       font-size: 14px;
       font-weight: 600;
     }
+    .jv-photo-dropzone {
+      border: 1px dashed rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.02);
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .jv-photo-dropzone:hover {
+      border-color: #ec4899;
+      background: rgba(236, 72, 153, 0.05);
+    }
+    .jv-photo-previews {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .jv-photo-thumb-wrap {
+      position: relative;
+      width: 60px;
+      height: 60px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .jv-photo-thumb-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .jv-photo-remove {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.8);
+      color: #ffffff;
+      border: none;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      line-height: 1;
+    }
   </style>
 </head>
 <body>
@@ -448,6 +518,20 @@ export function renderReviewPortalHtml({
             <span class="jv-tag-chip" data-tag="Fast Absorption">Fast Absorption</span>
             <span class="jv-tag-chip" data-tag="Daily Essential">Daily Essential</span>
           </div>
+        </div>
+
+        <div class="jv-field">
+          <label>Add Photos of Your Ritual (Optional · Up to 2)</label>
+          <input type="file" id="jv-photos-input" accept="image/*" multiple style="display: none;" />
+          <div class="jv-photo-dropzone" id="jv-dropzone" role="button" tabindex="0">
+            <svg width="22" height="22" fill="none" stroke="#f472b6" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span style="font-size: 12px; font-weight: 600; color: #e5e7eb;">+ Add Before &amp; After or Ritual Photo</span>
+            <span style="font-size: 11px; color: #9ca3af;">Auto-compressed for fast upload · Max 2 photos</span>
+          </div>
+          <div class="jv-photo-previews" id="jv-photo-previews"></div>
         </div>
 
         <button type="submit" class="jv-submit-btn" id="jv-submit-btn">
@@ -506,6 +590,96 @@ export function renderReviewPortalHtml({
       chip.addEventListener('click', () => chip.classList.toggle('selected'));
     });
 
+    // Zero-Cost Client-Side WebP Photo Compression
+    let uploadedPhotos = [];
+    const dropzone = document.getElementById('jv-dropzone');
+    const photoInput = document.getElementById('jv-photos-input');
+    const previewsWrap = document.getElementById('jv-photo-previews');
+
+    if (dropzone && photoInput) {
+      dropzone.addEventListener('click', () => {
+        if (uploadedPhotos.length >= 2) {
+          alert('You can upload up to 2 photos per review.');
+          return;
+        }
+        photoInput.click();
+      });
+
+      photoInput.addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files || []);
+        for (const file of files) {
+          if (uploadedPhotos.length >= 2) break;
+          if (!file.type.startsWith('image/')) continue;
+          try {
+            const compressed = await compressImageToWebP(file);
+            if (compressed && uploadedPhotos.length < 2) {
+              uploadedPhotos.push(compressed);
+            }
+          } catch (err) {
+            console.warn('Could not compress photo:', err);
+          }
+        }
+        photoInput.value = '';
+        renderPreviews();
+      });
+    }
+
+    function compressImageToWebP(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (re) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let w = img.width;
+            let h = img.height;
+            const maxDim = 1200;
+            if (w > maxDim || h > maxDim) {
+              if (w > h) {
+                h = Math.round((h * maxDim) / w);
+                w = maxDim;
+              } else {
+                w = Math.round((w * maxDim) / h);
+                h = maxDim;
+              }
+            }
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            let dataUrl = canvas.toDataURL('image/webp', 0.82);
+            if (!dataUrl.startsWith('data:image/webp')) {
+              dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+            }
+            resolve(dataUrl);
+          };
+          img.onerror = reject;
+          img.src = re.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderPreviews() {
+      if (!previewsWrap) return;
+      previewsWrap.innerHTML = '';
+      uploadedPhotos.forEach((src, idx) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'jv-photo-thumb-wrap';
+        wrap.innerHTML = '<img src="' + src + '" alt="Upload preview" /><button type="button" class="jv-photo-remove" title="Remove photo" onclick="removePhoto(' + idx + ')">×</button>';
+        previewsWrap.appendChild(wrap);
+      });
+      if (dropzone) {
+        dropzone.style.display = uploadedPhotos.length >= 2 ? 'none' : 'flex';
+      }
+    }
+
+    window.removePhoto = function(index) {
+      uploadedPhotos.splice(index, 1);
+      renderPreviews();
+    };
+
     const form = document.getElementById('jv-review-form');
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -522,7 +696,8 @@ export function renderReviewPortalHtml({
         customerName: document.getElementById('jv-name').value || '${cleanEmail.split('@')[0]}',
         reviewTitle: document.getElementById('jv-title').value,
         reviewText: document.getElementById('jv-body').value,
-        tags: selectedTags
+        tags: selectedTags,
+        photos: uploadedPhotos
       };
 
       try {
@@ -567,6 +742,10 @@ export function renderReviewPortalHtml({
  * High-converting baseline luxury beauty reviews for new merchants
  * before they collect their first live order submissions.
  */
+export const CURATED_UGC_PHOTO_1 = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><defs><radialGradient id="g1" cx="40%" cy="35%" r="65%"><stop offset="0%" stop-color="%23fce7f3"/><stop offset="45%" stop-color="%23f472b6"/><stop offset="85%" stop-color="%23db2777"/><stop offset="100%" stop-color="%23831843"/></radialGradient></defs><rect width="400" height="400" rx="24" fill="%23181824"/><circle cx="200" cy="190" r="110" fill="url(%23g1)"/><ellipse cx="170" cy="150" rx="35" ry="20" fill="%23ffffff" opacity="0.45" transform="rotate(-25 170 150)"/><text x="200" y="340" fill="%23f9a8d4" font-family="system-ui,sans-serif" font-size="13" font-weight="700" letter-spacing="1.5" text-anchor="middle">ROSEWATER ELIXIR TEXTURE</text></svg>`;
+
+export const CURATED_UGC_PHOTO_2 = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><defs><radialGradient id="g2" cx="35%" cy="30%" r="70%"><stop offset="0%" stop-color="%23fef3c7"/><stop offset="50%" stop-color="%23f59e0b"/><stop offset="85%" stop-color="%23d97706"/><stop offset="100%" stop-color="%2378350f"/></radialGradient></defs><rect width="400" height="400" rx="24" fill="%23181824"/><circle cx="200" cy="190" r="105" fill="url(%23g2)"/><ellipse cx="165" cy="155" rx="30" ry="16" fill="%23ffffff" opacity="0.5" transform="rotate(-20 165 155)"/><text x="200" y="340" fill="%23fcd34d" font-family="system-ui,sans-serif" font-size="13" font-weight="700" letter-spacing="1.5" text-anchor="middle">GOLDEN PEPTIDE GLOW</text></svg>`;
+
 export const DEFAULT_CURATED_REVIEWS = [
   {
     id: 'curated_1',
@@ -575,6 +754,7 @@ export const DEFAULT_CURATED_REVIEWS = [
     reviewTitle: 'My skin hasn’t felt this supple in years',
     reviewText: 'The texture is weightless yet deeply nourishing. Absorbed within seconds and left my morning routine glowing without any greasy residue.',
     tags: ['Glowing Results', 'Luxury Texture'],
+    photos: [CURATED_UGC_PHOTO_1],
     verifiedBuyer: true,
     createdAt: new Date(Date.now() - 86400000 * 3).toISOString()
   },
@@ -585,6 +765,7 @@ export const DEFAULT_CURATED_REVIEWS = [
     reviewTitle: 'Replaced my entire morning serum lineup',
     reviewText: 'Visible reduction in fine dehydration lines within 10 days. Soft, calm, and exquisitely formulated. Worth every single penny.',
     tags: ['Fast Absorption', 'Daily Essential'],
+    photos: [CURATED_UGC_PHOTO_2],
     verifiedBuyer: true,
     createdAt: new Date(Date.now() - 86400000 * 7).toISOString()
   },
@@ -595,6 +776,7 @@ export const DEFAULT_CURATED_REVIEWS = [
     reviewTitle: 'Noticeable morning clarity in under two weeks',
     reviewText: 'Gentle on sensitive skin with noticeable morning clarity. My partner commented on how radiant my complexion looked before I even mentioned switching formulas.',
     tags: ['Gentle & Hydrating', 'Glowing Results'],
+    photos: [],
     verifiedBuyer: true,
     createdAt: new Date(Date.now() - 86400000 * 12).toISOString()
   }
@@ -643,6 +825,7 @@ export function getPublicVerifiedReviews({
       reviewTitle: String(r.reviewTitle || ''),
       reviewText: String(r.reviewText || ''),
       tags: Array.isArray(r.tags) ? r.tags : [],
+      photos: Array.isArray(r.photos) ? r.photos.slice(0, 2) : (r.photoUrl ? [r.photoUrl] : []),
       verifiedBuyer: Boolean(r.verifiedBuyer !== false),
       createdAt: r.createdAt || new Date().toISOString()
     };
@@ -686,7 +869,8 @@ export function toggleReviewVisibility(reviewId, hidden = true, hubStorage) {
  */
 export function renderSocialProofWallHtml(summary = {}, reviews = [], {
   brandColor = '#ec4899',
-  title = 'Loved by Thousands of Radiant Routines'
+  title = 'Loved by Thousands of Radiant Routines',
+  photosEnabled = true
 } = {}) {
   const avg = Number(summary?.averageRating || 4.9).toFixed(1);
   const count = Number(summary?.totalCount || 140);
@@ -830,6 +1014,48 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
       padding: 2px 6px;
       border-radius: 4px;
     }
+    .jv-ugc-photos {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .jv-ugc-photo-thumb {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      cursor: pointer;
+      background: #111;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+      flex-shrink: 0;
+    }
+    .jv-ugc-photo-thumb:hover {
+      transform: scale(1.05);
+      border-color: #ec4899;
+    }
+    .jv-ugc-photo-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .jv-ugc-photo-zoom-icon {
+      position: absolute;
+      bottom: 2px;
+      right: 2px;
+      font-size: 9px;
+      background: rgba(0, 0, 0, 0.65);
+      border-radius: 4px;
+      padding: 1px 2px;
+      line-height: 1;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+    .jv-ugc-photo-thumb:hover .jv-ugc-photo-zoom-icon {
+      opacity: 1;
+    }
     .jv-ugc-author {
       font-size: 11px;
       font-weight: 700;
@@ -865,6 +1091,71 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
         flex: 1 1 auto;
       }
     }
+    /* Luxury Lightbox Overlay */
+    .jv-lightbox-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(8, 7, 12, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      z-index: 999999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      box-sizing: border-box;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .jv-lightbox-overlay.active {
+      display: flex;
+      opacity: 1;
+    }
+    .jv-lightbox-content {
+      position: relative;
+      max-width: 90vw;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      animation: jvZoomIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @keyframes jvZoomIn {
+      from { transform: scale(0.92); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .jv-lightbox-img {
+      max-width: 100%;
+      max-height: 80vh;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.8);
+      object-fit: contain;
+    }
+    .jv-lightbox-close {
+      position: absolute;
+      top: -38px;
+      right: 0;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      transition: background 0.15s ease;
+    }
+    .jv-lightbox-close:hover {
+      background: #ec4899;
+    }
   </style>
 
   <div class="jv-ugc-header">
@@ -891,13 +1182,55 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
             ${r.tags.map(t => `<span class="jv-ugc-tag">${escapeHtml(t)}</span>`).join('')}
           </div>
         ` : ''}
+        ${photosEnabled !== false && r.photos && r.photos.length ? `
+          <div class="jv-ugc-photos">
+            ${r.photos.map(p => `
+              <div class="jv-ugc-photo-thumb" onclick="window.openJvLightbox && window.openJvLightbox('${escapeHtml(p)}')">
+                <img src="${escapeHtml(p)}" alt="Customer photo" loading="lazy" />
+                <span class="jv-ugc-photo-zoom-icon">🔍</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
         <div class="jv-ugc-author">
-          <span class="jv-ugc-author-avatar">${escapeHtml(r.customerName[0] || 'V')}</span>
+          <span class="jv-ugc-author-avatar">${escapeHtml((r.customerName || 'V')[0])}</span>
           <span>${escapeHtml(r.customerName)}</span>
         </div>
       </div>
     `).join('')}
   </div>
+
+  <!-- Lightbox Modal -->
+  <div id="jv-ugc-lightbox" class="jv-lightbox-overlay" onclick="if(event.target===this) window.closeJvLightbox && window.closeJvLightbox()">
+    <div class="jv-lightbox-content">
+      <button type="button" class="jv-lightbox-close" onclick="window.closeJvLightbox && window.closeJvLightbox()" aria-label="Close Lightbox">×</button>
+      <img id="jv-lightbox-target" class="jv-lightbox-img" src="" alt="Verified review photo preview" />
+    </div>
+  </div>
+
+  <script>
+    window.openJvLightbox = function(src) {
+      const modal = document.getElementById('jv-ugc-lightbox');
+      const target = document.getElementById('jv-lightbox-target');
+      if (modal && target) {
+        target.src = src;
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+      }
+    };
+    window.closeJvLightbox = function() {
+      const modal = document.getElementById('jv-ugc-lightbox');
+      const target = document.getElementById('jv-lightbox-target');
+      if (modal && target) {
+        modal.classList.remove('active');
+        target.src = '';
+        document.body.style.overflow = '';
+      }
+    };
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && window.closeJvLightbox) window.closeJvLightbox();
+    });
+  </script>
 </section>
 `;
 }

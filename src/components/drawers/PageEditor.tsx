@@ -2338,6 +2338,29 @@ export const PageEditor: React.FC<Props> = ({
                   />
                 </div>
 
+                {/* UGC Photos Toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#f8fafc' }}>
+                      Show Customer Photos (UGC Media)
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#64748b' }}>
+                      Renders unboxing &amp; texture photos on cards with full-screen lightbox preview.
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={data.socialProofPhotosEnabled !== false}
+                      onChange={e => handleFieldChange('socialProofPhotosEnabled', e.target.checked)}
+                      style={{ accentColor: '#ec4899', width: '15px', height: '15px' }}
+                    />
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: data.socialProofPhotosEnabled !== false ? '#ec4899' : '#64748b' }}>
+                      {data.socialProofPhotosEnabled !== false ? 'Shown' : 'Hidden'}
+                    </span>
+                  </label>
+                </div>
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
                   <span>✦ Dynamic UGC Active: pulls authentic reviews from completed orders with beauty preview fallback.</span>
                 </div>

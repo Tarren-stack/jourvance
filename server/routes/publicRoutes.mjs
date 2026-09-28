@@ -1720,7 +1720,7 @@ function renderPublicFunnelHtml(page, req, res) {
       </div>
     </div>
 
-    ${socialProofEnabled ? renderSocialProofWallHtml(socialProofData.summary, socialProofData.reviews, { brandColor: '#ec4899', title: socialProofTitle }) : ''}
+    ${socialProofEnabled ? renderSocialProofWallHtml(socialProofData.summary, socialProofData.reviews, { brandColor: '#ec4899', title: socialProofTitle, photosEnabled: data.socialProofPhotosEnabled !== false }) : ''}
   </main>
 
   <div id="lead-modal" class="modal-overlay">
@@ -4616,6 +4616,7 @@ app.post('/api/public/review', async (req, res) => {
     const reviewText = String(body.reviewText || body.body || body.text || '').trim();
     const tags = Array.isArray(body.tags) ? body.tags : [];
     const customerName = String(body.customerName || body.name || '').trim();
+    const photos = Array.isArray(body.photos) ? body.photos : (body.photoUrl ? [body.photoUrl] : []);
 
     if (!orderId || !email) {
       return res.status(400).json({ error: 'Order ID and email are required to verify your review.' });
@@ -4641,6 +4642,7 @@ app.post('/api/public/review', async (req, res) => {
       reviewTitle,
       reviewText,
       tags,
+      photos,
       storeDomain,
       userId,
       discountCode: 'REVIEW10',
