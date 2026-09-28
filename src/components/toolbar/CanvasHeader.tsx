@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign, Zap, BarChart3, Circle, ChevronDown, ArrowRight, ExternalLink, BookmarkPlus } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Play, Save, CheckCircle2, Sparkles, Plus, Share2, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, DollarSign, Zap, BarChart3, Circle, ChevronDown, ArrowRight, ExternalLink, BookmarkPlus, Flame } from 'lucide-react';
 import type { JourneyProject, Workspace, CanvasViewMode, NodeType, ActiveAppView } from '../../types/journey';
 import { WorkspaceSelector } from './WorkspaceSelector';
+import { auditFunnel } from '../../lib/funnelAuditor';
 
 interface Props {
   project: JourneyProject;
@@ -36,6 +37,7 @@ interface Props {
   onToggleRetentionBranches?: () => void;
   onOpenShopifySync?: () => void;
   onOpenSimulator?: () => void;
+  onOpenAudit?: () => void;
   onSelectNode?: (nodeId: string) => void;
 }
 
@@ -71,12 +73,16 @@ export const CanvasHeader: React.FC<Props> = ({
   onToggleRetentionBranches,
   onOpenShopifySync,
   onOpenSimulator,
+  onOpenAudit,
   onSelectNode
 }) => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showChecklist, setShowChecklist] = useState(false);
   const isOp = user?.email?.toLowerCase() === 'tlm@tarrenmunoz.com';
+
+  // 100-Point Pre-Flight Funnel Audit evaluation
+  const auditReport = useMemo(() => auditFunnel(project, currentWorkspace), [project, currentWorkspace]);
 
   // First-Run Launch Readiness evaluation
   const landingPageNode = project.nodes.find(n => n.type === 'landing-page');
@@ -451,40 +457,66 @@ export const CanvasHeader: React.FC<Props> = ({
           </div>
         )}
 
-        {/* First-Run Launch Readiness Checklist */}
+        {/* Pre-Flight Conversion Audit & Readiness Score */}
         <div style={{ position: 'relative' }}>
           <button
             type="button"
-            onClick={() => setShowChecklist(!showChecklist)}
-            aria-label="Launch Readiness Checklist"
+            onClick={() => {
+              if (onOpenAudit) {
+                onOpenAudit();
+              } else {
+                setShowChecklist(!showChecklist);
+              }
+            }}
+            aria-label="Pre-Flight Funnel Audit"
+            title={`Funnel Conversion Readiness: ${auditReport.overallScore}/100 (${auditReport.grade} Grade)`}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
               padding: '4px 10px',
               borderRadius: '9999px',
-              background: isAllDone
-                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(5, 150, 105, 0.12))'
-                : 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(139, 92, 246, 0.12))',
-              border: isAllDone
-                ? '1px solid rgba(16, 185, 129, 0.35)'
-                : '1px solid rgba(236, 72, 153, 0.3)',
-              color: isAllDone ? '#34D399' : '#F472B6',
+              background: auditReport.overallScore >= 90
+                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.15))'
+                : auditReport.overallScore >= 70
+                  ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(217, 119, 6, 0.15))'
+                  : 'linear-gradient(135deg, rgba(244, 63, 94, 0.2), rgba(225, 29, 72, 0.15))',
+              border: auditReport.overallScore >= 90
+                ? '1px solid rgba(16, 185, 129, 0.4)'
+                : auditReport.overallScore >= 70
+                  ? '1px solid rgba(245, 158, 11, 0.4)'
+                  : '1px solid rgba(244, 63, 94, 0.4)',
+              color: auditReport.overallScore >= 90 ? '#34D399' : auditReport.overallScore >= 70 ? '#FBBF24' : '#FB7185',
               fontSize: '11px',
               fontWeight: 700,
               cursor: 'pointer',
-              boxShadow: isAllDone
+              boxShadow: auditReport.overallScore >= 90
                 ? '0 2px 8px rgba(16, 185, 129, 0.15)'
-                : '0 2px 8px rgba(236, 72, 153, 0.15)',
+                : auditReport.overallScore >= 70
+                  ? '0 2px 8px rgba(245, 158, 11, 0.15)'
+                  : '0 2px 8px rgba(244, 63, 94, 0.15)',
               transition: 'all 0.15s ease'
             }}
           >
-            {isAllDone ? (
+            {auditReport.overallScore >= 90 ? (
               <CheckCircle2 size={13} color="#34D399" />
+            ) : auditReport.overallScore >= 70 ? (
+              <Sparkles size={13} color="#FBBF24" />
             ) : (
-              <Sparkles size={13} color="#F472B6" />
+              <Flame size={13} color="#FB7185" />
             )}
-            <span>{isAllDone ? 'Funnel Live' : `Launch: ${completedCount}/3 Ready`}</span>
+            <span>{auditReport.overallScore >= 90 ? `Ready: ${auditReport.overallScore}/100` : `Audit: ${auditReport.overallScore}/100`}</span>
+            {auditReport.fixableChecks > 0 && (
+              <span style={{
+                fontSize: '9px',
+                fontWeight: 800,
+                background: auditReport.overallScore >= 90 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)',
+                padding: '1px 5px',
+                borderRadius: '9999px'
+              }}>
+                {auditReport.fixableChecks} wins
+              </span>
+            )}
             <ChevronDown size={11} style={{ transform: showChecklist ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease' }} />
           </button>
 

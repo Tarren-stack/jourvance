@@ -14,6 +14,7 @@ import { auth, onAuthStateChanged, logOut, authHeaders, type User } from './lib/
 import type { PageNodeData, FunnelForecast } from './types/journey';
 import type { PublishedPageInfo } from './components/preview/PublishModal';
 import { injectRetentionFlows, DEFAULT_FORECAST } from './lib/funnelForecaster';
+import { auditFunnel } from './lib/funnelAuditor';
 
 // Code-split heavy interior app and modal bundles to ensure sub-second public page loads
 const JourneyCanvas = lazy(() => import('./components/canvas/JourneyCanvas').then(m => ({ default: m.JourneyCanvas })));
@@ -22,6 +23,7 @@ const EdgeInspector = lazy(() => import('./components/drawers/EdgeInspector').th
 const HubEmailSuite = lazy(() => import('./components/campaign/HubEmailSuite').then(m => ({ default: m.HubEmailSuite })));
 const AttributionReports = lazy(() => import('./components/analytics/AttributionReports').then(m => ({ default: m.AttributionReports })));
 const FinancialSimulatorDrawer = lazy(() => import('./components/drawers/FinancialSimulatorDrawer').then(m => ({ default: m.FinancialSimulatorDrawer })));
+const PreFlightAuditDrawer = lazy(() => import('./components/drawers/PreFlightAuditDrawer').then(m => ({ default: m.PreFlightAuditDrawer })));
 const OperatorDashboard = lazy(() => import('./components/admin/OperatorDashboard').then(m => ({ default: m.OperatorDashboard })));
 const LiveFunnelModal = lazy(() => import('./components/preview/LiveFunnelModal').then(m => ({ default: m.LiveFunnelModal })));
 const ShopifyConnectModal = lazy(() => import('./components/shopify/ShopifyConnectModal').then(m => ({ default: m.ShopifyConnectModal })));
@@ -135,6 +137,7 @@ export const App: React.FC = () => {
   const [blueprintModalTab, setBlueprintModalTab] = useState<'turnkey' | 'custom' | 'import'>('turnkey');
   const [blueprintImportCode, setBlueprintImportCode] = useState<string>('');
   const [showSimulatorDrawer, setShowSimulatorDrawer] = useState(false);
+  const [showAuditDrawer, setShowAuditDrawer] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishedPages, setPublishedPages] = useState<PublishedPageInfo[]>([]);
   const [unpublishing, setUnpublishing] = useState(false);
@@ -545,6 +548,18 @@ export const App: React.FC = () => {
   };
 
   const handlePublishFunnel = async () => {
+    // Option A: Pre-Flight Funnel Audit clearance check
+    const auditReport = auditFunnel(project, currentWorkspace);
+    if (auditReport.overallScore < 80 && auditReport.fixableChecks > 0) {
+      const proceed = window.confirm(
+        `Pre-Flight Funnel Audit: Conversion Readiness Score is ${auditReport.overallScore}/100 with ${auditReport.fixableChecks} quick revenue-protection wins available.\n\nClick Cancel to review the audit and apply 1-click fixes, or OK to publish anyway.`
+      );
+      if (!proceed) {
+        setShowAuditDrawer(true);
+        return;
+      }
+    }
+
     setPublishing(true);
     try {
       await handleSave();
@@ -699,6 +714,7 @@ export const App: React.FC = () => {
             onToggleRetentionBranches={() => setShowRetentionBranches(prev => !prev)}
             onOpenShopifySync={() => setShowShopifySyncModal(true)}
             onOpenSimulator={() => setShowSimulatorDrawer(true)}
+            onOpenAudit={() => setShowAuditDrawer(true)}
             onSelectNode={nodeId => setSelectedNodeId(nodeId)}
           />
 
@@ -919,6 +935,25 @@ export const App: React.FC = () => {
             });
           }}
           onSyncRetentionToCanvas={handleSyncRetentionToCanvas}
+        />
+
+        {/* Pre-Flight Conversion Audit & Readiness Inspector */}
+        <PreFlightAuditDrawer
+          isOpen={showAuditDrawer}
+          onClose={() => setShowAuditDrawer(false)}
+          project={project}
+          workspace={currentWorkspace}
+          onUpdateProject={(updated) => {
+            setProject(updated);
+            saveCurrentJourney(updated);
+          }}
+          onOpenPublish={() => {
+            setShowAuditDrawer(false);
+            handlePublishFunnel();
+          }}
+          onSelectNode={(nodeId) => {
+            setSelectedNodeId(nodeId);
+          }}
         />
       </Suspense>
     </div>
