@@ -29,6 +29,7 @@ interface FinancialSimulatorDrawerProps {
   nodes: JourneyNode[];
   initialForecast?: FunnelForecast;
   onSaveForecast: (forecast: FunnelForecast) => void;
+  onSyncRetentionToCanvas?: (options: { addCartRecovery?: boolean; addUpsellRescue?: boolean }) => void;
 }
 
 export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> = ({
@@ -36,10 +37,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
   onClose,
   nodes,
   initialForecast,
-  onSaveForecast
+  onSaveForecast,
+  onSyncRetentionToCanvas
 }) => {
   // Extract pricing info once from canvas nodes
   const extractedNodes = useMemo(() => extractPricingFromNodes(nodes), [nodes]);
+
+  // One-click retention sync feedback state
+  const [syncToast, setSyncToast] = useState<string | null>(null);
 
   // Active forecast state
   const [forecast, setForecast] = useState<FunnelForecast>(() => {
@@ -650,6 +655,40 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 Simulate revenue recovered from cart abandoners and initial upsell decliners using automated courtesy follow-ups.
               </p>
 
+              {/* Option A: One-Click Retention Sync Banner */}
+              {((!extractedNodes.hasCartRecovery ? 1 : 0) + (!extractedNodes.hasUpsellRescue ? 1 : 0) > 0) && onSyncRetentionToCanvas && (
+                <div className="p-3.5 bg-gradient-to-r from-amber-950/50 via-amber-900/30 to-slate-900/60 border border-amber-500/40 rounded-xl flex items-center justify-between gap-3 shadow-sm">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                      <span>✦ {(!extractedNodes.hasCartRecovery ? 1 : 0) + (!extractedNodes.hasUpsellRescue ? 1 : 0)} Retention Safety {(!extractedNodes.hasCartRecovery ? 1 : 0) + (!extractedNodes.hasUpsellRescue ? 1 : 0) === 1 ? 'Net' : 'Nets'} Missing on Canvas</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300">
+                      Drop pre-configured courtesy follow-up sequences directly onto your visual journey with $0 extra ad cost.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const missingCount = (!extractedNodes.hasCartRecovery ? 1 : 0) + (!extractedNodes.hasUpsellRescue ? 1 : 0);
+                      onSyncRetentionToCanvas({
+                        addCartRecovery: !extractedNodes.hasCartRecovery,
+                        addUpsellRescue: !extractedNodes.hasUpsellRescue
+                      });
+                      setSyncToast(
+                        missingCount === 2 
+                          ? 'Added Cart Recovery and 24h Upsell Rescue to journey canvas.' 
+                          : !extractedNodes.hasCartRecovery 
+                            ? 'Added Cart Abandonment Recovery flow to journey canvas.' 
+                            : 'Added 24h Courtesy Upsell Rescue flow to journey canvas.'
+                      );
+                    }}
+                    className="shrink-0 px-3 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
+                  >
+                    <span>✦ Sync to Canvas</span>
+                  </button>
+                </div>
+              )}
+
               {/* Cart Abandonment Recovery Card */}
               <div className={`p-3.5 rounded-xl border transition-all ${
                 forecast.cartRecoveryEnabled 
@@ -667,11 +706,24 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     />
                     <label htmlFor="enable-cart-recovery" className="text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5">
                       <span>Cart Abandonment Recovery</span>
-                      {extractedNodes.hasCartRecovery && (
+                      {extractedNodes.hasCartRecovery ? (
                         <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/50">
                           Active on Canvas
                         </span>
-                      )}
+                      ) : onSyncRetentionToCanvas ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onSyncRetentionToCanvas({ addCartRecovery: true });
+                            setSyncToast('Added Cart Abandonment Recovery flow to journey canvas.');
+                          }}
+                          className="text-[9px] text-amber-300 hover:text-amber-200 bg-amber-950/80 hover:bg-amber-900/80 border border-amber-600/50 px-2 py-0.5 rounded transition-all font-semibold"
+                        >
+                          ✦ Add to Canvas
+                        </button>
+                      ) : null}
                     </label>
                   </div>
                   {forecast.cartRecoveryEnabled && (
@@ -737,11 +789,24 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     />
                     <label htmlFor="enable-upsell-rescue" className="text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5">
                       <span>24h Courtesy Upsell Rescue</span>
-                      {extractedNodes.hasUpsellRescue && (
+                      {extractedNodes.hasUpsellRescue ? (
                         <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/50">
                           Active on Canvas
                         </span>
-                      )}
+                      ) : onSyncRetentionToCanvas ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onSyncRetentionToCanvas({ addUpsellRescue: true });
+                            setSyncToast('Added 24h Courtesy Upsell Rescue flow to journey canvas.');
+                          }}
+                          className="text-[9px] text-amber-300 hover:text-amber-200 bg-amber-950/80 hover:bg-amber-900/80 border border-amber-600/50 px-2 py-0.5 rounded transition-all font-semibold"
+                        >
+                          ✦ Add to Canvas
+                        </button>
+                      ) : null}
                     </label>
                   </div>
                   {forecast.upsellRescueEnabled && (
@@ -1132,6 +1197,36 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
             </button>
           </div>
         </div>
+
+        {/* Option A: Retention Sync Toast Notification */}
+        {syncToast && (
+          <div className="fixed bottom-6 right-6 z-50 max-w-md bg-slate-900/95 backdrop-blur border border-amber-500/50 shadow-2xl rounded-xl p-3.5 flex items-center justify-between gap-3 text-xs text-white animate-in fade-in slide-in-from-bottom-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse"></span>
+              <span className="text-slate-200 font-medium">{syncToast}</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setSyncToast(null);
+                  onClose();
+                }}
+                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-md text-[11px] transition-all"
+              >
+                View on Canvas
+              </button>
+              <button
+                type="button"
+                onClick={() => setSyncToast(null)}
+                className="text-slate-400 hover:text-white text-xs px-1"
+                aria-label="Dismiss toast"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

@@ -1,4 +1,4 @@
-import type { JourneyNode, FunnelForecast, FunnelSimulationResults, PageNodeData, UpsellNodeData } from '../types/journey';
+import type { JourneyNode, JourneyEdge, FunnelForecast, FunnelSimulationResults, PageNodeData, UpsellNodeData } from '../types/journey';
 
 export const DEFAULT_FORECAST: FunnelForecast = {
   monthlyAdSpend: 3000,
@@ -342,6 +342,212 @@ export function calculateFunnelForecast(forecast: FunnelForecast): FunnelSimulat
     dayZeroRoas,
     effectiveRoasWithRetention,
     retentionProfitLift
+  };
+}
+
+export interface InjectRetentionOptions {
+  nodes: JourneyNode[];
+  edges: JourneyEdge[];
+  addCartRecovery?: boolean;
+  addUpsellRescue?: boolean;
+  cartRecoveryDiscount?: number;
+  upsellRescueDiscount?: number;
+}
+
+export interface InjectRetentionResult {
+  nodes: JourneyNode[];
+  edges: JourneyEdge[];
+  addedNodes: JourneyNode[];
+  addedEdges: JourneyEdge[];
+}
+
+/**
+ * Deterministically injects unconfigured retention flows (Cart Abandonment Recovery
+ * and/or 24h Upsell Rescue) directly into the journey canvas graph, auto-wiring
+ * golden rescue edges and preserving customized courtesy voucher discounts.
+ */
+export function injectRetentionFlows(options: InjectRetentionOptions): InjectRetentionResult {
+  const currentNodes = [...options.nodes];
+  const currentEdges = [...options.edges];
+  const addedNodes: JourneyNode[] = [];
+  const addedEdges: JourneyEdge[] = [];
+
+  const extracted = extractPricingFromNodes(currentNodes);
+
+  // Helper to find a free Y-coordinate directly below a parent node to prevent collisions
+  const getFreePosition = (targetX: number, preferredY: number): { x: number; y: number } => {
+    let y = preferredY;
+    const isOccupied = (testY: number) =>
+      currentNodes.some(n => Math.abs(n.position.x - targetX) < 120 && Math.abs(n.position.y - testY) < 100);
+    while (isOccupied(y)) {
+      y += 120;
+    }
+    return { x: targetX, y };
+  };
+
+  // 1. Inject Cart Abandonment Recovery if requested and missing
+  if (options.addCartRecovery && !extracted.hasCartRecovery) {
+    const landingPage = currentNodes.find(n => n.data.type === 'landing-page');
+    const posX = landingPage ? landingPage.position.x : 420;
+    const posY = landingPage ? landingPage.position.y + 280 : 440;
+    const position = getFreePosition(posX, posY);
+
+    const discount = typeof options.cartRecoveryDiscount === 'number' && options.cartRecoveryDiscount >= 0
+      ? options.cartRecoveryDiscount
+      : 10;
+    const voucherCode = discount > 0 ? `SAVE${discount}` : 'COMPLETE10';
+
+    const cartRecoveryNode: JourneyNode = {
+      id: `node-cr-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+      type: 'follow-up-sequence',
+      position,
+      data: {
+        type: 'follow-up-sequence',
+        label: 'Cart Abandonment Recovery',
+        sequenceTitle: 'Abandoned Checkout Recovery Sequence',
+        sequenceType: 'checkout_recovery',
+        isRetentionBranch: true,
+        delayHours: 1,
+        voucherCode,
+        smartExitOnPurchase: true,
+        contactsEnrolled: 0,
+        avgOpenRate: 0,
+        avgClickRate: 0,
+        steps: [
+          {
+            id: `cr-step-1`,
+            channel: 'email',
+            delay: '1 Hour',
+            subject: 'Did you leave your selection behind? ✨',
+            previewText: 'Your reserved bag is held for 24 hours',
+            body: 'Hi [First Name],\n\nWe noticed you started setting up your order but did not complete checkout.\n\nTo help you get started, we have held your reservation with complimentary shipping:\n[Checkout Link]\n\nWarmly,\nClient Care'
+          },
+          {
+            id: `cr-step-2`,
+            channel: 'email',
+            delay: '20 Hours',
+            subject: `Private courtesy: ${discount}% off your order before it expires`,
+            previewText: `Use voucher ${voucherCode} at checkout`,
+            body: `Hi [First Name],\n\nYour cart reservation is expiring soon. As a courtesy, enjoy ${discount}% off with code ${voucherCode}:\n[Checkout Link]\n\nWith care,\nClient Care Team`
+          }
+        ]
+      }
+    };
+
+    currentNodes.push(cartRecoveryNode);
+    addedNodes.push(cartRecoveryNode);
+
+    // Auto-wire edge from landing page abandon handle -> recovery node retention-in handle
+    if (landingPage) {
+      const cartEdge: JourneyEdge = {
+        id: `e-cr-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+        source: landingPage.id,
+        target: cartRecoveryNode.id,
+        sourceHandle: 'abandon',
+        targetHandle: 'retention-in',
+        data: {
+          isRetentionEdge: true,
+          sourceHandle: 'abandon',
+          targetHandle: 'retention-in',
+          sourceThroughput: 0,
+          targetCount: 0,
+          rate: 0
+        }
+      };
+      currentEdges.push(cartEdge);
+      addedEdges.push(cartEdge);
+    }
+  }
+
+  // 2. Inject 24h Upsell Rescue if requested and missing
+  if (options.addUpsellRescue && !extracted.hasUpsellRescue) {
+    const upsellNode = currentNodes.find(n => n.data.type === 'upsell');
+    const posX = upsellNode ? upsellNode.position.x : 790;
+    const posY = upsellNode ? upsellNode.position.y + 280 : 440;
+    const position = getFreePosition(posX, posY);
+
+    const discount = typeof options.upsellRescueDiscount === 'number' && options.upsellRescueDiscount >= 0
+      ? options.upsellRescueDiscount
+      : 10;
+    const voucherCode = discount > 0 ? `SAVE${discount}` : 'SAVE10';
+
+    const upsellRescueNode: JourneyNode = {
+      id: `node-ur-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+      type: 'follow-up-sequence',
+      position,
+      data: {
+        type: 'follow-up-sequence',
+        label: '24h Courtesy Rescue (Upsell Decline)',
+        sequenceTitle: '24h Post-Decline Companion Rescue',
+        sequenceType: 'upsell_recovery',
+        isRetentionBranch: true,
+        delayHours: 18,
+        voucherCode,
+        smartExitOnPurchase: true,
+        contactsEnrolled: 0,
+        avgOpenRate: 0,
+        avgClickRate: 0,
+        steps: [
+          {
+            id: `ur-step-1`,
+            channel: 'email',
+            delay: '18 Hours',
+            subject: 'A private courtesy reservation for your recent order ✨',
+            previewText: 'We held a companion formula reservation for your ritual',
+            body: `Hi [First Name],\n\nThank you again for your order! While our team prepares your package, we noticed you passed on the companion upgrade.\n\nBecause this formula is designed to complement your order, we held a courtesy bottle with a private ${discount}% privilege.\n\nUse voucher code ${voucherCode} at checkout:\n[Offer Link]\n\nThis courtesy reservation remains active for 24 hours.\n\nWarm regards,\nThe Concierge Team`
+          }
+        ]
+      }
+    };
+
+    currentNodes.push(upsellRescueNode);
+    addedNodes.push(upsellRescueNode);
+
+    // Auto-wire edge from upsell rescue handle -> rescue node retention-in handle
+    if (upsellNode) {
+      const rescueInEdge: JourneyEdge = {
+        id: `e-ur-in-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+        source: upsellNode.id,
+        target: upsellRescueNode.id,
+        sourceHandle: 'rescue',
+        targetHandle: 'retention-in',
+        data: {
+          isRetentionEdge: true,
+          sourceHandle: 'rescue',
+          targetHandle: 'retention-in',
+          sourceThroughput: 0,
+          targetCount: 0,
+          rate: 0
+        }
+      };
+      currentEdges.push(rescueInEdge);
+      addedEdges.push(rescueInEdge);
+
+      // Also wire out to thank you page if present
+      const tyNode = currentNodes.find(n => n.data.type === 'thank-you');
+      if (tyNode) {
+        const rescueOutEdge: JourneyEdge = {
+          id: `e-ur-out-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+          source: upsellRescueNode.id,
+          target: tyNode.id,
+          data: {
+            isRetentionEdge: true,
+            sourceThroughput: 0,
+            targetCount: 0,
+            rate: 0
+          }
+        };
+        currentEdges.push(rescueOutEdge);
+        addedEdges.push(rescueOutEdge);
+      }
+    }
+  }
+
+  return {
+    nodes: currentNodes,
+    edges: currentEdges,
+    addedNodes,
+    addedEdges
   };
 }
 

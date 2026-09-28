@@ -513,3 +513,324 @@ test('calculateFunnelForecast: discount adjustments properly adjust unit revenue
   const sim20 = calculateFunnelForecast({ ...baseParams, cartRecoveryDiscount: 20 });
   assert.equal(sim20.recoveredCartRevenue, 23 * 80);
 });
+
+function injectRetentionFlows(options) {
+  const currentNodes = [...options.nodes];
+  const currentEdges = [...options.edges];
+  const addedNodes = [];
+  const addedEdges = [];
+
+  const extracted = extractPricingFromNodes(currentNodes);
+
+  const getFreePosition = (targetX, preferredY) => {
+    let y = preferredY;
+    const isOccupied = (testY) =>
+      currentNodes.some(n => Math.abs(n.position.x - targetX) < 120 && Math.abs(n.position.y - testY) < 100);
+    while (isOccupied(y)) {
+      y += 120;
+    }
+    return { x: targetX, y };
+  };
+
+  if (options.addCartRecovery && !extracted.hasCartRecovery) {
+    const landingPage = currentNodes.find(n => n?.data?.type === 'landing-page');
+    const posX = landingPage ? landingPage.position.x : 420;
+    const posY = landingPage ? landingPage.position.y + 280 : 440;
+    const position = getFreePosition(posX, posY);
+
+    const discount = typeof options.cartRecoveryDiscount === 'number' && options.cartRecoveryDiscount >= 0
+      ? options.cartRecoveryDiscount
+      : 10;
+    const voucherCode = discount > 0 ? `SAVE${discount}` : 'COMPLETE10';
+
+    const cartRecoveryNode = {
+      id: `node-cr-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+      type: 'follow-up-sequence',
+      position,
+      data: {
+        type: 'follow-up-sequence',
+        label: 'Cart Abandonment Recovery',
+        sequenceTitle: 'Abandoned Checkout Recovery Sequence',
+        sequenceType: 'checkout_recovery',
+        isRetentionBranch: true,
+        delayHours: 1,
+        voucherCode,
+        smartExitOnPurchase: true,
+        contactsEnrolled: 0,
+        avgOpenRate: 0,
+        avgClickRate: 0,
+        steps: [
+          {
+            id: `cr-step-1`,
+            channel: 'email',
+            delay: '1 Hour',
+            subject: 'Did you leave your selection behind? ✨',
+            previewText: 'Your reserved bag is held for 24 hours',
+            body: 'Hi [First Name],\n\nWe noticed you started setting up your order but did not complete checkout.\n\nTo help you get started, we have held your reservation with complimentary shipping:\n[Checkout Link]\n\nWarmly,\nClient Care'
+          },
+          {
+            id: `cr-step-2`,
+            channel: 'email',
+            delay: '20 Hours',
+            subject: `Private courtesy: ${discount}% off your order before it expires`,
+            previewText: `Use voucher ${voucherCode} at checkout`,
+            body: `Hi [First Name],\n\nYour cart reservation is expiring soon. As a courtesy, enjoy ${discount}% off with code ${voucherCode}:\n[Checkout Link]\n\nWith care,\nClient Care Team`
+          }
+        ]
+      }
+    };
+
+    currentNodes.push(cartRecoveryNode);
+    addedNodes.push(cartRecoveryNode);
+
+    if (landingPage) {
+      const cartEdge = {
+        id: `e-cr-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+        source: landingPage.id,
+        target: cartRecoveryNode.id,
+        sourceHandle: 'abandon',
+        targetHandle: 'retention-in',
+        data: {
+          isRetentionEdge: true,
+          sourceHandle: 'abandon',
+          targetHandle: 'retention-in',
+          sourceThroughput: 0,
+          targetCount: 0,
+          rate: 0
+        }
+      };
+      currentEdges.push(cartEdge);
+      addedEdges.push(cartEdge);
+    }
+  }
+
+  if (options.addUpsellRescue && !extracted.hasUpsellRescue) {
+    const upsellNode = currentNodes.find(n => n?.data?.type === 'upsell');
+    const posX = upsellNode ? upsellNode.position.x : 790;
+    const posY = upsellNode ? upsellNode.position.y + 280 : 440;
+    const position = getFreePosition(posX, posY);
+
+    const discount = typeof options.upsellRescueDiscount === 'number' && options.upsellRescueDiscount >= 0
+      ? options.upsellRescueDiscount
+      : 10;
+    const voucherCode = discount > 0 ? `SAVE${discount}` : 'SAVE10';
+
+    const upsellRescueNode = {
+      id: `node-ur-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+      type: 'follow-up-sequence',
+      position,
+      data: {
+        type: 'follow-up-sequence',
+        label: '24h Courtesy Rescue (Upsell Decline)',
+        sequenceTitle: '24h Post-Decline Companion Rescue',
+        sequenceType: 'upsell_recovery',
+        isRetentionBranch: true,
+        delayHours: 18,
+        voucherCode,
+        smartExitOnPurchase: true,
+        contactsEnrolled: 0,
+        avgOpenRate: 0,
+        avgClickRate: 0,
+        steps: [
+          {
+            id: `ur-step-1`,
+            channel: 'email',
+            delay: '18 Hours',
+            subject: 'A private courtesy reservation for your recent order ✨',
+            previewText: 'We held a companion formula reservation for your ritual',
+            body: `Hi [First Name],\n\nThank you again for your order! While our team prepares your package, we noticed you passed on the companion upgrade.\n\nBecause this formula is designed to complement your order, we held a courtesy bottle with a private ${discount}% privilege.\n\nUse voucher code ${voucherCode} at checkout:\n[Offer Link]\n\nThis courtesy reservation remains active for 24 hours.\n\nWarm regards,\nThe Concierge Team`
+          }
+        ]
+      }
+    };
+
+    currentNodes.push(upsellRescueNode);
+    addedNodes.push(upsellRescueNode);
+
+    if (upsellNode) {
+      const rescueInEdge = {
+        id: `e-ur-in-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+        source: upsellNode.id,
+        target: upsellRescueNode.id,
+        sourceHandle: 'rescue',
+        targetHandle: 'retention-in',
+        data: {
+          isRetentionEdge: true,
+          sourceHandle: 'rescue',
+          targetHandle: 'retention-in',
+          sourceThroughput: 0,
+          targetCount: 0,
+          rate: 0
+        }
+      };
+      currentEdges.push(rescueInEdge);
+      addedEdges.push(rescueInEdge);
+
+      const tyNode = currentNodes.find(n => n?.data?.type === 'thank-you');
+      if (tyNode) {
+        const rescueOutEdge = {
+          id: `e-ur-out-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+          source: upsellRescueNode.id,
+          target: tyNode.id,
+          data: {
+            isRetentionEdge: true,
+            sourceThroughput: 0,
+            targetCount: 0,
+            rate: 0
+          }
+        };
+        currentEdges.push(rescueOutEdge);
+        addedEdges.push(rescueOutEdge);
+      }
+    }
+  }
+
+  return {
+    nodes: currentNodes,
+    edges: currentEdges,
+    addedNodes,
+    addedEdges
+  };
+}
+
+test('injectRetentionFlows: injects cart recovery and upsell rescue with custom discounts and golden edges', () => {
+  const initialNodes = [
+    {
+      id: 'page-1',
+      type: 'landing-page',
+      position: { x: 300, y: 150 },
+      data: { type: 'landing-page', label: 'Main Offer', shopifyProductPrice: '$48.00' }
+    },
+    {
+      id: 'upsell-1',
+      type: 'upsell',
+      position: { x: 650, y: 150 },
+      data: { type: 'upsell', label: 'Companion Upgrade', productPrice: '$28.00' }
+    },
+    {
+      id: 'ty-1',
+      type: 'thank-you',
+      position: { x: 1000, y: 150 },
+      data: { type: 'thank-you', label: 'Order Receipt' }
+    }
+  ];
+
+  const initialEdges = [
+    { id: 'e1', source: 'page-1', target: 'upsell-1' },
+    { id: 'e2', source: 'upsell-1', target: 'ty-1' }
+  ];
+
+  const result = injectRetentionFlows({
+    nodes: initialNodes,
+    edges: initialEdges,
+    addCartRecovery: true,
+    addUpsellRescue: true,
+    cartRecoveryDiscount: 15,
+    upsellRescueDiscount: 20
+  });
+
+  // 1. Two new nodes added
+  assert.equal(result.addedNodes.length, 2);
+  assert.equal(result.nodes.length, 5);
+
+  const cartNode = result.addedNodes.find(n => n.data.sequenceType === 'checkout_recovery');
+  assert.ok(cartNode);
+  assert.equal(cartNode.position.x, 300);
+  assert.equal(cartNode.position.y, 430); // 150 + 280
+  assert.equal(cartNode.data.voucherCode, 'SAVE15');
+  assert.equal(cartNode.data.isRetentionBranch, true);
+  assert.ok(cartNode.data.steps[1].subject.includes('15%'));
+
+  const upsellNode = result.addedNodes.find(n => n.data.sequenceType === 'upsell_recovery');
+  assert.ok(upsellNode);
+  assert.equal(upsellNode.position.x, 650);
+  assert.equal(upsellNode.position.y, 430); // 150 + 280
+  assert.equal(upsellNode.data.voucherCode, 'SAVE20');
+  assert.equal(upsellNode.data.isRetentionBranch, true);
+  assert.ok(upsellNode.data.steps[0].body.includes('20%'));
+
+  // 2. Edges auto-wired with golden rescue styling
+  assert.equal(result.addedEdges.length, 3); // cart Edge, upsell in Edge, upsell out Edge
+  assert.equal(result.edges.length, 5);
+
+  const cartEdge = result.addedEdges.find(e => e.target === cartNode.id);
+  assert.ok(cartEdge);
+  assert.equal(cartEdge.source, 'page-1');
+  assert.equal(cartEdge.sourceHandle, 'abandon');
+  assert.equal(cartEdge.targetHandle, 'retention-in');
+  assert.equal(cartEdge.data.isRetentionEdge, true);
+
+  const upsellInEdge = result.addedEdges.find(e => e.target === upsellNode.id);
+  assert.ok(upsellInEdge);
+  assert.equal(upsellInEdge.source, 'upsell-1');
+  assert.equal(upsellInEdge.sourceHandle, 'rescue');
+  assert.equal(upsellInEdge.targetHandle, 'retention-in');
+  assert.equal(upsellInEdge.data.isRetentionEdge, true);
+
+  const upsellOutEdge = result.addedEdges.find(e => e.source === upsellNode.id);
+  assert.ok(upsellOutEdge);
+  assert.equal(upsellOutEdge.target, 'ty-1');
+  assert.equal(upsellOutEdge.data.isRetentionEdge, true);
+});
+
+test('injectRetentionFlows: skips injection if retention nodes already active on canvas (idempotency)', () => {
+  const existingRetentionNodes = [
+    {
+      id: 'page-1',
+      type: 'landing-page',
+      position: { x: 300, y: 150 },
+      data: { type: 'landing-page', label: 'Main Offer' }
+    },
+    {
+      id: 'cr-existing',
+      type: 'follow-up-sequence',
+      position: { x: 300, y: 430 },
+      data: { type: 'follow-up-sequence', sequenceType: 'checkout_recovery', label: 'Existing Cart Recovery' }
+    },
+    {
+      id: 'ur-existing',
+      type: 'follow-up-sequence',
+      position: { x: 650, y: 430 },
+      data: { type: 'follow-up-sequence', sequenceType: 'upsell_recovery', label: 'Existing Upsell Rescue' }
+    }
+  ];
+
+  const result = injectRetentionFlows({
+    nodes: existingRetentionNodes,
+    edges: [],
+    addCartRecovery: true,
+    addUpsellRescue: true
+  });
+
+  assert.equal(result.addedNodes.length, 0);
+  assert.equal(result.addedEdges.length, 0);
+  assert.equal(result.nodes.length, 3);
+});
+
+test('injectRetentionFlows: avoids collision when target coordinates are occupied', () => {
+  const collisionNodes = [
+    {
+      id: 'page-1',
+      type: 'landing-page',
+      position: { x: 300, y: 150 },
+      data: { type: 'landing-page', label: 'Main Offer' }
+    },
+    {
+      id: 'obstacle-node',
+      type: 'lead-form',
+      position: { x: 300, y: 430 }, // exact preferred position
+      data: { type: 'lead-form', label: 'Existing Form' }
+    }
+  ];
+
+  const result = injectRetentionFlows({
+    nodes: collisionNodes,
+    edges: [],
+    addCartRecovery: true
+  });
+
+  assert.equal(result.addedNodes.length, 1);
+  const cartNode = result.addedNodes[0];
+  assert.equal(cartNode.position.x, 300);
+  assert.equal(cartNode.position.y, 550); // shifted down past 430
+});

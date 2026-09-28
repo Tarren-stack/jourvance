@@ -13,6 +13,7 @@ import { fetchWorkspaces, createWorkspace } from './lib/shopifyClient';
 import { auth, onAuthStateChanged, logOut, authHeaders, type User } from './lib/firebase';
 import type { PageNodeData, FunnelForecast } from './types/journey';
 import type { PublishedPageInfo } from './components/preview/PublishModal';
+import { injectRetentionFlows, DEFAULT_FORECAST } from './lib/funnelForecaster';
 
 // Code-split heavy interior app and modal bundles to ensure sub-second public page loads
 const JourneyCanvas = lazy(() => import('./components/canvas/JourneyCanvas').then(m => ({ default: m.JourneyCanvas })));
@@ -499,6 +500,36 @@ export const App: React.FC = () => {
     setSelectedNodeId(null);
   };
 
+  const handleSyncRetentionToCanvas = (options: { addCartRecovery?: boolean; addUpsellRescue?: boolean }) => {
+    setProject(prev => {
+      const result = injectRetentionFlows({
+        nodes: prev.nodes,
+        edges: prev.edges,
+        addCartRecovery: options.addCartRecovery,
+        addUpsellRescue: options.addUpsellRescue,
+        cartRecoveryDiscount: prev.forecast?.cartRecoveryDiscount ?? 10,
+        upsellRescueDiscount: prev.forecast?.upsellRescueDiscount ?? 10
+      });
+
+      const updatedForecast: FunnelForecast = {
+        ...(prev.forecast || DEFAULT_FORECAST),
+        cartRecoveryEnabled: options.addCartRecovery ? true : (prev.forecast?.cartRecoveryEnabled ?? false),
+        upsellRescueEnabled: options.addUpsellRescue ? true : (prev.forecast?.upsellRescueEnabled ?? false)
+      };
+
+      const updatedProject: JourneyProject = {
+        ...prev,
+        nodes: result.nodes,
+        edges: result.edges,
+        forecast: updatedForecast,
+        updatedAt: new Date().toISOString()
+      };
+
+      saveCurrentJourney(updatedProject);
+      return updatedProject;
+    });
+  };
+
   const handleCreateWorkspace = async () => {
     const name = prompt('Enter a name for your new Shopify workspace:');
     if (!name || !name.trim()) return;
@@ -887,6 +918,7 @@ export const App: React.FC = () => {
               return updated;
             });
           }}
+          onSyncRetentionToCanvas={handleSyncRetentionToCanvas}
         />
       </Suspense>
     </div>
