@@ -172,6 +172,7 @@ export const NodeInspector: React.FC<Props> = ({
             data={data}
             onChange={updated => onUpdateNode(node.id, updated)}
             workspace={workspace}
+            onOpenShopifyConnect={onOpenShopifyConnect}
           />
         )}
         {data.type === 'ab-split' && (

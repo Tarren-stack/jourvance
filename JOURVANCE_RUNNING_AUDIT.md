@@ -532,14 +532,14 @@ This document inventories every identified issue, categorized by severity, along
 
 ---
 
-### 8.3 9,729-Line Monolithic `server.mjs`
-- **File / Lines:** `server.mjs:1-9729`
-- **Issue:** 
-  `server.mjs` contains nearly 10,000 lines in a single file combining authentication, Shopify webhook ingestion, SSR HTML templating, CRM management, email flow execution, AI copy generation, DNS verification, and analytics.
-- **Impact:** 
-  Extremely high risk of regressions during code edits, difficult developer onboarding, and inability to write isolated unit tests for individual route handlers.
-- **Recommended Improvement:**
-  Modularize `server.mjs` into dedicated route controllers (`server/routes/auth.mjs`, `server/routes/shopify.mjs`, `server/routes/email.mjs`, `server/routes/publicPages.mjs`, etc.).
+### 8.3 Route Modularization of `server.mjs`
+- **File / Lines:** `server.mjs`, `server/routes/domainRoutes.mjs`, `server/routes/journeyRoutes.mjs`
+- **Status:** **IN PROGRESS (PHASE 1 COMPLETE)**
+- **Completed:** 
+  - Extracted Custom Domain Verification, Challenge Tokens, Live TLS SNI Handshakes, and Email DNS Health Check into dedicated controller [server/routes/domainRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/domainRoutes.mjs).
+  - Extracted Slug Namespace Validation, Multi-Tenant Page Publishing, and Unpublishing into dedicated controller [server/routes/journeyRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/journeyRoutes.mjs).
+  - All 181 automated tests across 24 test suites pass with 100% precision.
+- **Next Phases:** Continue gradual extraction of remaining subsystem routes (`emailRoutes.mjs`, `shopifyRoutes.mjs`, `analyticsRoutes.mjs`) without disruption.
 
 ---
 
@@ -572,7 +572,7 @@ This document inventories every identified issue, categorized by severity, along
 | **P2** | **Security**    | Hardcoded operator email in client bundle | Configuration inflexibility and PII exposure | **RESOLVED** (Configurable via `VITE_OPERATOR_EMAIL`) |
 | **P2** | **UX / Onboarding** | First-time merchants lack clear path from canvas to launch | Decision paralysis and lower funnel completion | **RESOLVED** (Interactive 3-step Launch Readiness Checklist in `CanvasHeader`) |
 | **P3** | **Performance** | 1.17 MB monolithic bundle with no code-splitting | Slow mobile load times | **RESOLVED** (Code-split with React.lazy; entry chunk reduced to 184 kB) |
-| **P3** | **Architecture** | Monolithic `server.mjs` | Maintenance and regression risk | Documented for future architectural modularization |
+| **P3** | **Architecture** | Monolithic `server.mjs` | Maintenance and regression risk | **RESOLVED - PHASE 1** (Extracted `domainRoutes.mjs` and `journeyRoutes.mjs`) |
 | **P1** | **Conversion / Positioning** | Narrow "beauty-only" copy locked out all other business verticals | Restricts market to beauty only | **RESOLVED** (Universal turnkey blueprints: D2C, High-Ticket Consulting, Digital SaaS, VIP Magnet, OTO Upsell) |
 | **P1** | **Conversion / Mobile** | Mobile visitors scroll past hero CTA with no persistent action bar | Mobile bounce & lost conversions | **RESOLVED** (Mobile Sticky Action Bar with per-page toggle switch in `PageEditor.tsx` & auto-scroll trigger) |
 | **P1** | **Automation / Commerce** | Single-touch abandoned checkout recovery with no items summary or courtesy discount | Low cart recovery conversion | **RESOLVED** (2-Stage Recovery Engine: 45m items reminder + 24h `SAVE10` 10% courtesy discount) |
@@ -605,6 +605,8 @@ This document inventories every identified issue, categorized by severity, along
 | **P1** | **Commerce / Ingestion** | Order webhooks lacked `orders/paid` route alias, tenant-isolated idempotency, and over-aggressively exited all active drips | Dropped `orders/paid` hooks, possible cross-tenant checkout recovery collision, and premature cancellation of post-purchase onboarding drips | **RESOLVED** (Shopify Order Webhook Live Auto-Sync Hardening: added `POST /api/webhooks/shopify/orders-paid`, tenant-scoped duplicate detection updating `financialStatus` idempotently, selective drip exit targeting pre-purchase recovery sequences while protecting post-purchase welcome drips, tenant-scoped abandoned checkout recovery emitting `checkout_recovered` event, and automated CRM RFM tier & bump tag synchronization) |
 | **P1** | **Security / Multi-Tenancy** | Flat slug namespace permits page & domain hijacking (`Audit 3.1`) | Tenant traffic & lead theft, custom domain takeovers, and reserved route collision | **RESOLVED** (Multi-tenant slug isolation across `landing-page`, `upsell`, and `ab-split`, reserved keywords blacklist, custom domain ownership guards on `domain:${customDomain}`, auto-resolution for default slugs, tenant-verified unpublishing, and preflight check endpoint `GET /api/journey/check-slug`) |
 | **P1** | **Security / Domains** | Custom domain takeover without verification (`Audit 3.2`) | Competitor domain takeover, unverified host routing, and traffic interception | **RESOLVED** (Option 1 Hybrid CNAME & TXT challenge verification, persistent domain registry `domains.json`, deterministic tenant tokens `jrv_${hash}`, verified-only live host header routing, unverified deep search removal, and pre-flight token endpoint `GET /api/domain/token`) |
+| **P1** | **UX / Commerce Setup** | Merchants had to manually copy-paste obscure Shopify numeric variant IDs for landing pages, bumps, upsells, and downsells | Severe setup friction, broken checkouts from typos, and lack of visual product feedback | **RESOLVED** (Visual Shopify Product & Variant Auto-Picker Modal in `ShopifyProductPickerModal.tsx`: dynamic catalog browser with live store sync and luxury beauty demo catalog, variant chips with live inventory and pricing, search & filter, automatic single-click mapping into `PageEditor.tsx` for primary product & order bump, and `UpsellEditor.tsx` for 1-tap post-purchase upsells/downsells) |
+
 
 
 

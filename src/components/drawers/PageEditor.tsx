@@ -8,6 +8,7 @@ import type { PageNodeData, PageVariantData, Workspace, ShopifyProduct } from '.
 import { requestAICopy } from '../../lib/hubClient';
 import { fetchShopifyProducts, buildCheckoutPermalink, buildMultiItemCheckoutPermalink, verifyCustomDomain, type DomainVerifyResult } from '../../lib/shopifyClient';
 import { authHeaders } from '../../lib/firebase';
+import { ShopifyProductPickerModal, type SelectedProductPayload } from '../modals/ShopifyProductPickerModal';
 
 interface Props {
   data: PageNodeData;
@@ -59,6 +60,8 @@ export const PageEditor: React.FC<Props> = ({
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedLiveUrl, setCopiedLiveUrl] = useState(false);
+  const [isPrimaryPickerOpen, setIsPrimaryPickerOpen] = useState(false);
+  const [isBumpPickerOpen, setIsBumpPickerOpen] = useState(false);
 
   const livePageUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/p/${data.slug || 'offer'}`
@@ -156,6 +159,35 @@ export const PageEditor: React.FC<Props> = ({
       shopifyProductPrice: defaultVariant?.price || p.price,
       shopifyProductImage: p.imageUrl,
       shopifyVariantId: defaultVariant?.id
+    });
+  };
+
+  const handlePrimaryProductPicked = ({ product, variant }: SelectedProductPayload) => {
+    const isDefaultHeadline = !data.headline || data.headline === 'Bioactive Triple Barrier Restorative Crème' || data.headline === 'New Product Offer';
+    onChange({
+      ...data,
+      shopifyProductId: product.id,
+      shopifyVariantId: variant.id,
+      shopifyProductTitle: product.title,
+      shopifyProductPrice: variant.price || product.price,
+      shopifyProductImage: product.imageUrl,
+      heroImageUrl: product.imageUrl || data.heroImageUrl,
+      headline: isDefaultHeadline ? product.title : data.headline,
+      subhead: (!data.subhead || data.subhead.includes('Ceramide NP')) && product.description ? product.description : data.subhead,
+      buttonText: data.checkoutMode === 'lead-gate' ? 'Claim 15% VIP Voucher' : `Buy Now — ${variant.price || product.price}`
+    });
+  };
+
+  const handleBumpProductPicked = ({ product, variant }: SelectedProductPayload) => {
+    const variantSuffix = variant.title && variant.title !== 'Default' ? ` (${variant.title})` : '';
+    onChange({
+      ...data,
+      orderBumpProductId: product.id,
+      orderBumpVariantId: variant.id,
+      orderBumpTitle: `${product.title}${variantSuffix}`,
+      orderBumpPrice: variant.price || product.price,
+      orderBumpImage: product.imageUrl,
+      orderBumpHeadline: data.orderBumpHeadline || `Special Add-on: Complete Your Routine with ${product.title}`
     });
   };
 
@@ -877,32 +909,112 @@ export const PageEditor: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Product Picker Dropdown */}
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af', marginBottom: '6px' }}>
-                Select Product from Catalog:
-              </label>
-              <select
-                value={data.shopifyProductId || ''}
-                onChange={e => handleSelectProduct(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  borderRadius: '6px',
-                  backgroundColor: '#0a0a0f',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  color: '#ffffff',
-                  fontSize: '12px',
-                  outline: 'none'
-                }}
-              >
-                <option value="">-- Choose a Shopify Product --</option>
-                {products.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.title} ({p.price})
-                  </option>
-                ))}
-              </select>
+            {/* Product Picker & Visual Catalog Selector */}
+            <div
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '8px',
+                padding: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label style={{ fontSize: '11px', fontWeight: 600, color: '#9ca3af' }}>
+                  Connected Shopify Product:
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsPrimaryPickerOpen(true)}
+                  style={{
+                    backgroundColor: 'rgba(244, 114, 182, 0.15)',
+                    border: '1px solid rgba(244, 114, 182, 0.35)',
+                    color: '#f472b6',
+                    borderRadius: '6px',
+                    padding: '5px 10px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  <ShoppingBag size={12} />
+                  Browse Catalog
+                </button>
+              </div>
+
+              {data.shopifyProductTitle && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(255, 255, 255, 0.06)'
+                  }}
+                >
+                  {data.shopifyProductImage ? (
+                    <img
+                      src={data.shopifyProductImage}
+                      alt={data.shopifyProductTitle}
+                      style={{ width: '36px', height: '36px', borderRadius: '4px', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(244, 114, 182, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#f472b6'
+                      }}
+                    >
+                      <ShoppingBag size={16} />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#FFFFFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {data.shopifyProductTitle}
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#10B981', fontWeight: 600 }}>
+                      {data.shopifyProductPrice || '$0.00'} • <span style={{ color: '#94A3B8', fontFamily: 'monospace' }}>Variant: {data.shopifyVariantId || 'Not Set'}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <select
+                  value={data.shopifyProductId || ''}
+                  onChange={e => handleSelectProduct(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '7px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: '#0a0a0f',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#ffffff',
+                    fontSize: '11px',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="">-- Or Quick Select from Dropdown --</option>
+                  {products.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.title} ({p.price})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div>
               <label htmlFor="page-collection-id" style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af', marginBottom: '6px' }}>
@@ -1365,9 +1477,30 @@ export const PageEditor: React.FC<Props> = ({
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af', marginBottom: '4px' }}>
-                      Shopify Variant ID:
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 600, color: '#9ca3af' }}>
+                        Shopify Variant ID:
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setIsBumpPickerOpen(true)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#f472b6',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: 0
+                        }}
+                      >
+                        <ShoppingBag size={11} />
+                        Pick from Catalog
+                      </button>
+                    </div>
                     <input
                       type="text"
                       value={data.orderBumpVariantId || ''}
@@ -1388,6 +1521,33 @@ export const PageEditor: React.FC<Props> = ({
                     />
                   </div>
                 </div>
+
+                {data.orderBumpTitle && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      backgroundColor: 'rgba(244, 114, 182, 0.08)',
+                      border: '1px solid rgba(244, 114, 182, 0.25)',
+                      borderRadius: '6px',
+                      padding: '6px 10px',
+                      fontSize: '11px'
+                    }}
+                  >
+                    {data.orderBumpImage && (
+                      <img
+                        src={data.orderBumpImage}
+                        alt={data.orderBumpTitle}
+                        style={{ width: '28px', height: '28px', borderRadius: '4px', objectFit: 'cover' }}
+                      />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ color: '#FFFFFF', fontWeight: 600 }}>{data.orderBumpTitle}</span>
+                      <span style={{ color: '#F472B6', marginLeft: '6px', fontWeight: 700 }}>{data.orderBumpPrice}</span>
+                    </div>
+                  </div>
+                )}
 
                 <div
                   style={{
@@ -2535,6 +2695,30 @@ export const PageEditor: React.FC<Props> = ({
           </div>
         </>
       )}
+
+      {/* Primary Funnel Product Picker Modal */}
+      <ShopifyProductPickerModal
+        isOpen={isPrimaryPickerOpen}
+        onClose={() => setIsPrimaryPickerOpen(false)}
+        onSelectProduct={handlePrimaryProductPicked}
+        workspace={workspace}
+        onOpenShopifyConnect={onOpenShopifyConnect}
+        title="Select Primary Funnel Product"
+        subtitle="Choose a product from your catalog. Jourvance will automatically connect the variant ID to 1-click checkout."
+        selectedVariantId={data.shopifyVariantId}
+      />
+
+      {/* Order Bump Add-on Product Picker Modal */}
+      <ShopifyProductPickerModal
+        isOpen={isBumpPickerOpen}
+        onClose={() => setIsBumpPickerOpen(false)}
+        onSelectProduct={handleBumpProductPicked}
+        workspace={workspace}
+        onOpenShopifyConnect={onOpenShopifyConnect}
+        title="Select Order Bump Add-on"
+        subtitle="Choose a companion product (e.g. travel mini, contour tool) to offer right inside checkout."
+        selectedVariantId={data.orderBumpVariantId}
+      />
     </div>
   );
 };

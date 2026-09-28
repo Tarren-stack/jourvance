@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { Zap, ArrowDownRight, Clock, Plus, Trash2, ExternalLink, ShoppingBag, ShieldCheck } from 'lucide-react';
 import type { UpsellNodeData, Workspace } from '../../types/journey';
+import { ShopifyProductPickerModal, type SelectedProductPayload } from '../modals/ShopifyProductPickerModal';
 
 interface Props {
   data: UpsellNodeData;
   onChange: (updated: UpsellNodeData) => void;
   workspace?: Workspace | null;
+  onOpenShopifyConnect?: () => void;
 }
 
-export const UpsellEditor: React.FC<Props> = ({ data, onChange, workspace }) => {
+export const UpsellEditor: React.FC<Props> = ({ data, onChange, workspace, onOpenShopifyConnect }) => {
   const [editorTab, setEditorTab] = useState<'settings' | 'preview'>('settings');
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
 
   const handleFieldChange = (field: keyof UpsellNodeData, val: any) => {
     onChange({ ...data, [field]: val });
@@ -39,6 +42,24 @@ export const UpsellEditor: React.FC<Props> = ({ data, onChange, workspace }) => 
   const handleRemoveBenefit = (index: number) => {
     const updated = benefits.filter((_, i) => i !== index);
     handleFieldChange('benefits', updated);
+  };
+
+  const handleProductPicked = ({ product, variant }: SelectedProductPayload) => {
+    const variantTitleSuffix = variant.title && variant.title !== 'Default' ? ` (${variant.title})` : '';
+    const numPrice = parseFloat((variant.price || product.price).replace(/[^0-9.]/g, '')) || 38;
+    const calcRegular = `$${(numPrice * 1.6).toFixed(2)}`;
+
+    onChange({
+      ...data,
+      shopifyProductId: product.id,
+      shopifyVariantId: variant.id,
+      productTitle: `${product.title}${variantTitleSuffix}`,
+      productPrice: variant.price || product.price,
+      regularPrice: data.regularPrice || calcRegular,
+      productImage: product.imageUrl || data.productImage,
+      acceptButtonText: `⚡ Yes, Add ${product.title} to My Order`,
+      headline: data.headline || `${isDownsell ? 'Wait! Try' : 'Special Allocation:'} ${product.title} with VIP Savings`
+    });
   };
 
   return (
@@ -263,29 +284,121 @@ export const UpsellEditor: React.FC<Props> = ({ data, onChange, workspace }) => 
 
           {/* Section: Product & Pricing */}
           <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#CBD5E1', marginBottom: '8px', textTransform: 'uppercase' }}>
-              Product & 1-Tap Checkout Setup
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#CBD5E1', textTransform: 'uppercase' }}>
+                Product & 1-Tap Checkout Setup
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPickerOpen(true)}
+                style={{
+                  backgroundColor: 'rgba(244, 114, 182, 0.15)',
+                  border: '1px solid rgba(244, 114, 182, 0.35)',
+                  color: '#f472b6',
+                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px'
+                }}
+              >
+                <ShoppingBag size={12} />
+                Browse Catalog
+              </button>
             </div>
 
-            <div style={{ marginBottom: '10px' }}>
-              <label style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>
-                Offer Product Title
-              </label>
-              <input
-                type="text"
-                value={data.productTitle || ''}
-                onChange={e => handleFieldChange('productTitle', e.target.value)}
-                placeholder="Bioactive Triple Barrier Replenishment Reserve"
+            {data.productTitle && (
+              <div
                 style={{
-                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
                   padding: '8px 10px',
                   borderRadius: '6px',
-                  background: 'rgba(0, 0, 0, 0.4)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  color: '#FFFFFF',
-                  fontSize: '12px'
+                  border: '1px solid rgba(255, 255, 255, 0.06)',
+                  marginBottom: '10px'
                 }}
-              />
+              >
+                {data.productImage ? (
+                  <img
+                    src={data.productImage}
+                    alt={data.productTitle}
+                    style={{ width: '36px', height: '36px', borderRadius: '4px', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(244, 114, 182, 0.1)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#f472b6'
+                    }}
+                  >
+                    <ShoppingBag size={16} />
+                  </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#FFFFFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {data.productTitle}
+                  </div>
+                  <div style={{ fontSize: '10px', color: '#10B981', fontWeight: 600 }}>
+                    {data.productPrice || '$0.00'} • <span style={{ color: '#94A3B8', fontFamily: 'monospace' }}>Variant: {data.shopifyVariantId || 'Not Set'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '8px', marginBottom: '10px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>
+                  Offer Product Title
+                </label>
+                <input
+                  type="text"
+                  value={data.productTitle || ''}
+                  onChange={e => handleFieldChange('productTitle', e.target.value)}
+                  placeholder="Bioactive Triple Barrier Replenishment Reserve"
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    background: 'rgba(0, 0, 0, 0.4)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: '#FFFFFF',
+                    fontSize: '12px'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>
+                  Shopify Variant ID
+                </label>
+                <input
+                  type="text"
+                  value={data.shopifyVariantId || ''}
+                  onChange={e => handleFieldChange('shopifyVariantId', e.target.value)}
+                  placeholder="e.g. 42109840101"
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    background: 'rgba(0, 0, 0, 0.4)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: '#FFFFFF',
+                    fontFamily: 'monospace',
+                    fontSize: '12px'
+                  }}
+                />
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '10px' }}>
@@ -662,6 +775,18 @@ export const UpsellEditor: React.FC<Props> = ({ data, onChange, workspace }) => 
           </div>
         </div>
       )}
+
+      {/* Shopify Product Picker Modal */}
+      <ShopifyProductPickerModal
+        isOpen={isPickerOpen}
+        onClose={() => setIsPickerOpen(false)}
+        onSelectProduct={handleProductPicked}
+        workspace={workspace}
+        onOpenShopifyConnect={onOpenShopifyConnect}
+        title={isDownsell ? 'Select Downsell Product Offer' : 'Select Post-Purchase Upsell Product'}
+        subtitle="Choose a product or variant from your catalog to connect directly to 1-tap post-purchase checkout."
+        selectedVariantId={data.shopifyVariantId}
+      />
     </div>
   );
 };
