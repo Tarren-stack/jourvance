@@ -24,6 +24,7 @@ export function setupAnalyticsRoutes(app, ctx) {
     loadOrders,
     loadContacts,
     loadDrips,
+    loadCheckouts = () => [],
     publicPageCache,
     journeyCache,
     contactsForUser,
@@ -487,6 +488,50 @@ export function setupAnalyticsRoutes(app, ctx) {
       });
     }
 
+    // ── Retention Telemetry (Cart Abandonment Recovery & 24h Courtesy Upsell Rescue) ──
+    const allCheckouts = typeof loadCheckouts === 'function' ? loadCheckouts() : [];
+    const userCheckouts = allCheckouts.filter(chk => {
+      if (chk.userId !== uid) return false;
+      const chkDate = chk.abandonedAt || chk.createdAt || chk.recoveredAt;
+      if (!inWindow(chkDate)) return false;
+      if (workspaceId && chk.workspaceId && chk.workspaceId !== workspaceId) return false;
+      return true;
+    });
+
+    const recoveredCheckouts = userCheckouts.filter(chk => chk.recoveryStatus === 'recovered');
+    const recoveredCheckoutEvents = reportEvents.filter(e => e.type === 'checkout_recovered');
+
+    const recoveredCheckoutsCount = Math.max(recoveredCheckouts.length, recoveredCheckoutEvents.length);
+    let recoveredCheckoutRevenue = recoveredCheckouts.reduce((sum, c) => sum + (Number(c.totalPrice) || 0), 0);
+    if (recoveredCheckoutRevenue <= 0 && recoveredCheckoutEvents.length > 0) {
+      recoveredCheckoutRevenue = recoveredCheckoutEvents.reduce((sum, e) => sum + (Number(e.value || e.amount) || 0), 0);
+    }
+    recoveredCheckoutRevenue = Number(recoveredCheckoutRevenue.toFixed(2));
+
+    const abandonedCheckoutsCount = Math.max(userCheckouts.length, recoveredCheckoutsCount);
+    const checkoutRecoveryRate = abandonedCheckoutsCount > 0
+      ? Number(((recoveredCheckoutsCount / abandonedCheckoutsCount) * 100).toFixed(1))
+      : 0;
+
+    const totalRetentionRevenue = Number((recoveredCheckoutRevenue + recoveredUpsellRevenue).toFixed(2));
+    const totalRetentionOrders = recoveredCheckoutsCount + recoveredUpsellOrders;
+    // Realized Net Profit Saved with zero additional ad spend (estimated 20% COGS deduction)
+    const retentionNetProfit = Number((totalRetentionRevenue * 0.80).toFixed(2));
+
+    const retentionTelemetry = {
+      abandonedCheckoutsCount,
+      recoveredCheckoutsCount,
+      recoveredCheckoutRevenue,
+      checkoutRecoveryRate,
+      upsellDeclinesCount: totalDeclines,
+      recoveredUpsellOrders,
+      recoveredUpsellRevenue,
+      upsellRecoveryRate: recoveryRate,
+      totalRetentionRevenue,
+      totalRetentionOrders,
+      retentionNetProfit
+    };
+
     res.json({
       success: true,
       report: {
@@ -501,7 +546,8 @@ export function setupAnalyticsRoutes(app, ctx) {
           emailClicks: countOrBlank('email_clicked')
         },
         recentAttributions: recentAttributions.slice(0, 10),
-        aovExpansion
+        aovExpansion,
+        retentionTelemetry
       }
     });
   });
@@ -525,8 +571,27 @@ export function setupAnalyticsRoutes(app, ctx) {
       }
       return true;
     });
-    const lines = ['Order,Email,Amount,Created,Discount,Slug,Visitor,Channel,OrderBump'];
+
+    const allCheckouts = typeof loadCheckouts === 'function' ? loadCheckouts() : [];
+    const recoveredOrdersMap = new Set(
+      allCheckouts
+        .filter(c => c.recoveryStatus === 'recovered' && c.recoveredOrderId)
+        .map(c => String(c.recoveredOrderId))
+    );
+    const recoveredCheckoutEvents = loadEvents().filter(e => e.type === 'checkout_recovered');
+    for (const ev of recoveredCheckoutEvents) {
+      if (ev.orderId) recoveredOrdersMap.add(String(ev.orderId));
+    }
+
+    const lines = ['Order,Email,Amount,Created,Discount,Slug,Visitor,Channel,OrderBump,RetentionRescue'];
     for (const o of orders) {
+      let rescueType = 'Direct / Day 0';
+      if (recoveredOrdersMap.has(String(o.id)) || (o.discountCode && /save10|recover|cart/i.test(o.discountCode))) {
+        rescueType = 'Cart Recovery';
+      } else if (o.discountCode && /viprescue|oto.?recovery|courtesy/i.test(o.discountCode)) {
+        rescueType = 'Upsell Rescue';
+      }
+
       lines.push([
         o.orderNumber || o.id,
         o.customerEmail || '',
@@ -536,7 +601,8 @@ export function setupAnalyticsRoutes(app, ctx) {
         o.attributedSlug || '',
         o.visitorId || '',
         o.checkoutChannel || channelOf(o),
-        o.orderBumpIncluded ? 'Yes' : 'No'
+        o.orderBumpIncluded ? 'Yes' : 'No',
+        rescueType
       ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
     }
     res.setHeader('Content-Type', 'text/csv');

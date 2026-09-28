@@ -683,6 +683,7 @@ export const App: React.FC = () => {
               <AttributionReports
                 workspace={currentWorkspace}
                 nodes={project.nodes}
+                forecast={project.forecast}
                 onOpenShopifySync={() => setShowShopifySyncModal(true)}
               />
             ) : (

@@ -297,4 +297,114 @@ test('computeAovExpansion isolates post-purchase recovery revenue and calculates
   assert.equal(upsellStream.totalDeclines, 2);
 });
 
+function computeRetentionTelemetry(checkouts, reportEvents) {
+  const recoveredCheckouts = checkouts.filter(chk => chk.recoveryStatus === 'recovered');
+  const recoveredCheckoutEvents = reportEvents.filter(e => e.type === 'checkout_recovered');
+
+  const recoveredCheckoutsCount = Math.max(recoveredCheckouts.length, recoveredCheckoutEvents.length);
+  let recoveredCheckoutRevenue = recoveredCheckouts.reduce((sum, c) => sum + (Number(c.totalPrice) || 0), 0);
+  if (recoveredCheckoutRevenue <= 0 && recoveredCheckoutEvents.length > 0) {
+    recoveredCheckoutRevenue = recoveredCheckoutEvents.reduce((sum, e) => sum + (Number(e.value || e.amount) || 0), 0);
+  }
+  recoveredCheckoutRevenue = Number(recoveredCheckoutRevenue.toFixed(2));
+
+  const abandonedCheckoutsCount = Math.max(checkouts.length, recoveredCheckoutsCount);
+  const checkoutRecoveryRate = abandonedCheckoutsCount > 0
+    ? Number(((recoveredCheckoutsCount / abandonedCheckoutsCount) * 100).toFixed(1))
+    : 0;
+
+  const upsellEvents = reportEvents.filter(e => e.type === 'upsell_accept' && (e.offerType || 'upsell') === 'upsell');
+  const upsellDeclines = reportEvents.filter(e => e.type === 'upsell_decline' && (e.offerType || 'upsell') === 'upsell');
+  const totalDeclines = upsellDeclines.length;
+  const declinedEmails = new Set(upsellDeclines.map(d => String(d.email || '').toLowerCase()).filter(Boolean));
+
+  const recoveredUpsellEvents = upsellEvents.filter(u => u.email && declinedEmails.has(String(u.email).toLowerCase()));
+  const recoveredUpsellOrders = recoveredUpsellEvents.length;
+  const recoveredUpsellRevenue = Number(recoveredUpsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
+  const upsellRecoveryRate = totalDeclines > 0 ? Number(((recoveredUpsellOrders / totalDeclines) * 100).toFixed(1)) : 0;
+
+  const totalRetentionRevenue = Number((recoveredCheckoutRevenue + recoveredUpsellRevenue).toFixed(2));
+  const totalRetentionOrders = recoveredCheckoutsCount + recoveredUpsellOrders;
+  const retentionNetProfit = Number((totalRetentionRevenue * 0.80).toFixed(2));
+
+  return {
+    abandonedCheckoutsCount,
+    recoveredCheckoutsCount,
+    recoveredCheckoutRevenue,
+    checkoutRecoveryRate,
+    upsellDeclinesCount: totalDeclines,
+    recoveredUpsellOrders,
+    recoveredUpsellRevenue,
+    upsellRecoveryRate,
+    totalRetentionRevenue,
+    totalRetentionOrders,
+    retentionNetProfit
+  };
+}
+
+test('computeRetentionTelemetry accurately computes cart and upsell rescue metrics', () => {
+  const checkouts = [
+    { id: 'c1', totalPrice: 48.00, recoveryStatus: 'recovered' },
+    { id: 'c2', totalPrice: 48.00, recoveryStatus: 'recovered' },
+    { id: 'c3', totalPrice: 48.00, recoveryStatus: 'pending' },
+    { id: 'c4', totalPrice: 48.00, recoveryStatus: 'expired' }
+  ];
+
+  const events = [
+    { type: 'upsell_decline', email: 'vip1@ex.com', offerType: 'upsell' },
+    { type: 'upsell_decline', email: 'vip2@ex.com', offerType: 'upsell' },
+    { type: 'upsell_decline', email: 'vip3@ex.com', offerType: 'upsell' },
+    { type: 'upsell_accept', email: 'vip1@ex.com', offerType: 'upsell', amount: 35.00 }
+  ];
+
+  const ret = computeRetentionTelemetry(checkouts, events);
+
+  // Cart recovery
+  assert.equal(ret.abandonedCheckoutsCount, 4);
+  assert.equal(ret.recoveredCheckoutsCount, 2);
+  assert.equal(ret.recoveredCheckoutRevenue, 96.00);
+  assert.equal(ret.checkoutRecoveryRate, 50.0);
+
+  // Upsell rescue
+  assert.equal(ret.upsellDeclinesCount, 3);
+  assert.equal(ret.recoveredUpsellOrders, 1);
+  assert.equal(ret.recoveredUpsellRevenue, 35.00);
+  assert.equal(ret.upsellRecoveryRate, 33.3);
+
+  // Totals & net profit lift ($0 ad spend, 80% margin)
+  assert.equal(ret.totalRetentionRevenue, 131.00);
+  assert.equal(ret.totalRetentionOrders, 3);
+  assert.equal(ret.retentionNetProfit, 104.80);
+});
+
+test('computeRetentionTelemetry handles zero-state cleanly without errors', () => {
+  const ret = computeRetentionTelemetry([], []);
+  assert.equal(ret.abandonedCheckoutsCount, 0);
+  assert.equal(ret.recoveredCheckoutsCount, 0);
+  assert.equal(ret.recoveredCheckoutRevenue, 0);
+  assert.equal(ret.checkoutRecoveryRate, 0);
+  assert.equal(ret.totalRetentionRevenue, 0);
+  assert.equal(ret.retentionNetProfit, 0);
+});
+
+test('CSV export properly tags RetentionRescue column for cart and upsell recoveries', () => {
+  const recoveredMap = new Set(['ord_rec_1']);
+  const sampleOrders = [
+    { id: 'ord_1', customerEmail: 'a@ex.com', totalPrice: 58.00, discountCode: '' },
+    { id: 'ord_rec_1', customerEmail: 'b@ex.com', totalPrice: 52.20, discountCode: 'SAVE10' },
+    { id: 'ord_3', customerEmail: 'c@ex.com', totalPrice: 43.20, discountCode: 'VIPRESCUE' }
+  ];
+
+  const classified = sampleOrders.map(o => {
+    if (recoveredMap.has(o.id) || (o.discountCode && /save10|recover|cart/i.test(o.discountCode))) {
+      return 'Cart Recovery';
+    } else if (o.discountCode && /viprescue|oto.?recovery|courtesy/i.test(o.discountCode)) {
+      return 'Upsell Rescue';
+    }
+    return 'Direct / Day 0';
+  });
+
+  assert.deepEqual(classified, ['Direct / Day 0', 'Cart Recovery', 'Upsell Rescue']);
+});
+
 

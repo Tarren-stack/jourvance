@@ -3039,6 +3039,7 @@ const analyticsCtx = {
   loadOrders,
   loadContacts,
   loadDrips,
+  loadCheckouts,
   publicPageCache,
   journeyCache,
   contactsForUser,

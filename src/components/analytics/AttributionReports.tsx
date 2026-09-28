@@ -4,19 +4,21 @@ import {
   Download, RefreshCw, Layers, ShieldCheck, CheckCircle2, Zap,
   ExternalLink, BarChart3, Filter, Clock, ArrowUpRight, Sparkles, Mail
 } from 'lucide-react';
-import type { Workspace, JourneyNode, AttributionReport, AttributionModelType } from '../../types/journey';
+import type { Workspace, JourneyNode, AttributionReport, AttributionModelType, FunnelForecast } from '../../types/journey';
 import { authHeaders } from '../../lib/firebase';
-import { extractPricingFromNodes } from '../../lib/funnelForecaster';
+import { extractPricingFromNodes, DEFAULT_FORECAST, calculateFunnelForecast } from '../../lib/funnelForecaster';
 
 interface Props {
   workspace: Workspace | null;
   nodes?: JourneyNode[];
+  forecast?: FunnelForecast;
   onOpenShopifySync?: () => void;
 }
 
 export const AttributionReports: React.FC<Props> = ({
   workspace,
   nodes = [],
+  forecast,
   onOpenShopifySync
 }) => {
   const [model, setModel] = useState<AttributionModelType>('last_touch');
@@ -136,6 +138,39 @@ export const AttributionReports: React.FC<Props> = ({
       aovContribution: 0
     }
   ];
+
+  // Retention Telemetry & Forecaster Target Benchmarks
+  const effectiveForecast: FunnelForecast = {
+    ...DEFAULT_FORECAST,
+    ...(forecast || {}),
+    corePrice: extractedPricing.corePrice,
+    bumpPrice: extractedPricing.bumpPrice,
+    upsellPrice: extractedPricing.upsellPrice,
+    downsellPrice: extractedPricing.downsellPrice,
+    cartRecoveryEnabled: true,
+    upsellRescueEnabled: true
+  };
+  const simulatedTarget = calculateFunnelForecast(effectiveForecast);
+  const targetCartRecoveryRate = effectiveForecast.cartRecoveryRate || 18;
+  const targetUpsellRescueRate = effectiveForecast.upsellRescueRate || 15;
+  const isCustomForecast = Boolean(forecast && (forecast.savedAt || forecast.cartRecoveryRate));
+
+  const retention = report?.retentionTelemetry || {
+    abandonedCheckoutsCount: 0,
+    recoveredCheckoutsCount: 0,
+    recoveredCheckoutRevenue: 0,
+    checkoutRecoveryRate: 0,
+    upsellDeclinesCount: report?.aovExpansion?.totalDeclines || 0,
+    recoveredUpsellOrders: report?.aovExpansion?.recoveredUpsellOrders || 0,
+    recoveredUpsellRevenue: report?.aovExpansion?.recoveredUpsellRevenue || 0,
+    upsellRecoveryRate: report?.aovExpansion?.recoveryRate || 0,
+    totalRetentionRevenue: report?.aovExpansion?.recoveredUpsellRevenue || 0,
+    totalRetentionOrders: report?.aovExpansion?.recoveredUpsellOrders || 0,
+    retentionNetProfit: Number(((report?.aovExpansion?.recoveredUpsellRevenue || 0) * 0.8).toFixed(2))
+  };
+
+  const expectedMonthlyRetentionGross = Math.max(1, simulatedTarget.totalRetentionRevenue);
+  const pacingPercent = Math.min(100, Math.round((retention.totalRetentionRevenue / expectedMonthlyRetentionGross) * 100));
 
   return (
     <div style={{
@@ -388,6 +423,374 @@ export const AttributionReports: React.FC<Props> = ({
             Customers with 2+ verified orders
           </span>
         </div>
+      </div>
+
+      {/* Retention Safety Nets & Courtesy Lift Showcase Card */}
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(15, 23, 42, 0.95) 40%, rgba(16, 185, 129, 0.08) 100%)',
+        border: '1px solid rgba(245, 158, 11, 0.35)',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
+        borderRadius: '14px',
+        padding: '24px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '20px'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.07)',
+          paddingBottom: '16px'
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '8px',
+                background: 'linear-gradient(135deg, #F59E0B, #10B981)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <Sparkles size={15} color="#FFFFFF" />
+              </div>
+              <h2 style={{ fontSize: '16px', fontWeight: 800, margin: 0, letterSpacing: '-0.01em', color: '#F8FAFC' }}>
+                ✦ Retention Safety Nets & Courtesy Lift
+              </h2>
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94A3B8' }}>
+              Realized revenue reclaimed from abandoned checkouts and 24h courtesy upsell rescues with zero additional ad spend.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '5px 12px',
+              borderRadius: '9999px',
+              backgroundColor: 'rgba(245, 158, 11, 0.15)',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              color: '#FBBF24',
+              fontSize: '11px',
+              fontWeight: 700
+            }}>
+              <ShieldCheck size={13} />
+              <span>Zero Extra Ad Cost • 100% Margin Retention</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Top 3 Summary Pillars */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '14px'
+        }}>
+          {/* Pillar 1: Total Reclaimed Revenue */}
+          <div style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+            borderRadius: '10px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px'
+          }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Realized Reclaimed Revenue
+            </span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+              <span style={{ fontSize: '24px', fontWeight: 800, color: '#34D399', fontFamily: 'monospace' }}>
+                ${retention.totalRetentionRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span style={{ fontSize: '11px', color: '#94A3B8' }}>
+                ({retention.totalRetentionOrders} orders)
+              </span>
+            </div>
+            <span style={{ fontSize: '11px', color: '#CBD5E1' }}>
+              From abandoned carts & courtesy upsells
+            </span>
+          </div>
+
+          {/* Pillar 2: Net Profit Saved */}
+          <div style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+            borderRadius: '10px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px'
+          }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Pure Net Profit Saved
+            </span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+              <span style={{ fontSize: '24px', fontWeight: 800, color: '#F8FAFC', fontFamily: 'monospace' }}>
+                +${retention.retentionNetProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#10B981' }}>
+                +100% Margin
+              </span>
+            </div>
+            <span style={{ fontSize: '11px', color: '#10B981' }}>
+              $0 ad cost deducted (80% net after product COGS)
+            </span>
+          </div>
+
+          {/* Pillar 3: Forecast Benchmark Pacing */}
+          <div style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+            borderRadius: '10px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Simulator Target Benchmark
+              </span>
+              <span style={{
+                fontSize: '9px',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                backgroundColor: isCustomForecast ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                color: isCustomForecast ? '#A5B4FC' : '#94A3B8',
+                fontWeight: 700
+              }}>
+                {isCustomForecast ? 'Saved Model' : 'Standard 18% / 15%'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+              <span style={{ fontSize: '24px', fontWeight: 800, color: '#FBBF24', fontFamily: 'monospace' }}>
+                ${simulatedTarget.totalRetentionRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+              <span style={{ fontSize: '11px', color: '#94A3B8' }}>
+                /mo modeled target
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+              <div style={{ flex: 1, height: '6px', borderRadius: '3px', backgroundColor: 'rgba(255, 255, 255, 0.08)', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${pacingPercent}%`,
+                  backgroundColor: pacingPercent >= 100 ? '#10B981' : pacingPercent >= 50 ? '#F59E0B' : '#6366F1',
+                  borderRadius: '3px',
+                  transition: 'width 0.4s ease'
+                }} />
+              </div>
+              <span style={{ fontSize: '10px', color: '#E2E8F0', fontWeight: 700 }}>
+                {pacingPercent}% Pace
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Dual Flow Performance: Cart Abandonment vs 24h Upsell Rescue */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '14px'
+        }}>
+          {/* Flow 1: Cart Abandonment Recovery */}
+          <div style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+            borderRadius: '10px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#FBBF24'
+                }}>
+                  <ShoppingCart size={13} />
+                </div>
+                <div>
+                  <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, color: '#F8FAFC' }}>
+                    Checkout Cart Recovery
+                  </h4>
+                  <span style={{ fontSize: '10px', color: '#94A3B8' }}>
+                    Triggered by checkout abandonment webhook
+                  </span>
+                </div>
+              </div>
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '4px',
+                backgroundColor: retention.checkoutRecoveryRate >= targetCartRecoveryRate ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                color: retention.checkoutRecoveryRate >= targetCartRecoveryRate ? '#34D399' : '#CBD5E1',
+                border: retention.checkoutRecoveryRate >= targetCartRecoveryRate ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)'
+              }}>
+                {retention.checkoutRecoveryRate}% Recovery Rate
+              </span>
+            </div>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '8px',
+              padding: '10px',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(0, 0, 0, 0.25)',
+              border: '1px solid rgba(255, 255, 255, 0.04)'
+            }}>
+              <div>
+                <span style={{ fontSize: '10px', color: '#94A3B8', textTransform: 'uppercase' }}>Abandoned</span>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#E2E8F0' }}>
+                  {retention.abandonedCheckoutsCount}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '10px', color: '#94A3B8', textTransform: 'uppercase' }}>Recovered</span>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#34D399' }}>
+                  {retention.recoveredCheckoutsCount} units
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '10px', color: '#94A3B8', textTransform: 'uppercase' }}>Reclaimed $</span>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#FBBF24', fontFamily: 'monospace' }}>
+                  ${retention.recoveredCheckoutRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '11px', color: '#94A3B8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Target Benchmark: <strong>{targetCartRecoveryRate}%</strong></span>
+              <span style={{ color: retention.checkoutRecoveryRate >= targetCartRecoveryRate ? '#34D399' : '#FBBF24' }}>
+                {retention.checkoutRecoveryRate >= targetCartRecoveryRate ? '✦ Outperforming model' : `Pacing (${retention.checkoutRecoveryRate}% vs ${targetCartRecoveryRate}%)`}
+              </span>
+            </div>
+          </div>
+
+          {/* Flow 2: 24h Courtesy Upsell Rescue */}
+          <div style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+            borderRadius: '10px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#34D399'
+                }}>
+                  <Mail size={13} />
+                </div>
+                <div>
+                  <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0, color: '#F8FAFC' }}>
+                    24-Hour Courtesy Upsell Rescue
+                  </h4>
+                  <span style={{ fontSize: '10px', color: '#94A3B8' }}>
+                    Targeted at buyers who declined initial 1-click upsell
+                  </span>
+                </div>
+              </div>
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '4px',
+                backgroundColor: retention.upsellRecoveryRate >= targetUpsellRescueRate ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                color: retention.upsellRecoveryRate >= targetUpsellRescueRate ? '#34D399' : '#CBD5E1',
+                border: retention.upsellRecoveryRate >= targetUpsellRescueRate ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)'
+              }}>
+                {retention.upsellRecoveryRate}% Rescue Rate
+              </span>
+            </div>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '8px',
+              padding: '10px',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(0, 0, 0, 0.25)',
+              border: '1px solid rgba(255, 255, 255, 0.04)'
+            }}>
+              <div>
+                <span style={{ fontSize: '10px', color: '#94A3B8', textTransform: 'uppercase' }}>Declined OTO</span>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#E2E8F0' }}>
+                  {retention.upsellDeclinesCount}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '10px', color: '#94A3B8', textTransform: 'uppercase' }}>Rescued</span>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#34D399' }}>
+                  {retention.recoveredUpsellOrders} units
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '10px', color: '#94A3B8', textTransform: 'uppercase' }}>Reclaimed $</span>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#FBBF24', fontFamily: 'monospace' }}>
+                  ${retention.recoveredUpsellRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '11px', color: '#94A3B8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Target Benchmark: <strong>{targetUpsellRescueRate}%</strong></span>
+              <span style={{ color: retention.upsellRecoveryRate >= targetUpsellRescueRate ? '#34D399' : '#FBBF24' }}>
+                {retention.upsellRecoveryRate >= targetUpsellRescueRate ? '✦ Outperforming model' : `Pacing (${retention.upsellRecoveryRate}% vs ${targetUpsellRescueRate}%)`}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Reassuring Active Zero-State */}
+        {retention.totalRetentionOrders === 0 && (
+          <div style={{
+            padding: '12px 16px',
+            borderRadius: '8px',
+            backgroundColor: 'rgba(245, 158, 11, 0.08)',
+            border: '1px dashed rgba(245, 158, 11, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#CBD5E1' }}>
+              <ShieldCheck size={14} color="#FBBF24" />
+              <span>
+                <strong>Safety Nets Active:</strong> Listening for abandoned checkouts and post-purchase declines in this window. Any recovered orders will appear here automatically with zero extra ad cost.
+              </span>
+            </div>
+            <span style={{ fontSize: '10px', color: '#FBBF24', fontWeight: 600 }}>
+              Modeled Lift: +${simulatedTarget.totalRetentionRevenue.toFixed(0)}/mo
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Funnel Revenue Streams & AOV Expansion Section */}

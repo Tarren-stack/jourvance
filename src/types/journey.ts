@@ -618,6 +618,20 @@ export interface FunnelAovExpansion {
   recoveryRate?: number;
 }
 
+export interface RetentionTelemetry {
+  abandonedCheckoutsCount: number;
+  recoveredCheckoutsCount: number;
+  recoveredCheckoutRevenue: number;
+  checkoutRecoveryRate: number;
+  upsellDeclinesCount: number;
+  recoveredUpsellOrders: number;
+  recoveredUpsellRevenue: number;
+  upsellRecoveryRate: number;
+  totalRetentionRevenue: number;
+  totalRetentionOrders: number;
+  retentionNetProfit: number;
+}
+
 export interface AttributionReport {
   timeframe: '7d' | '30d' | 'all';
   model: AttributionModelType;
@@ -645,6 +659,7 @@ export interface AttributionReport {
     createdAt: string;
   }>;
   aovExpansion?: FunnelAovExpansion;
+  retentionTelemetry?: RetentionTelemetry;
 }
 
 export interface ShopifyDiscountRule {
