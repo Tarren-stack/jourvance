@@ -548,7 +548,8 @@ export const BlueprintModal: React.FC<Props> = ({
               const isLead = bp.category === 'lead-magnet';
               const isHighTicket = bp.category === 'high-ticket';
               const isDigital = bp.category === 'digital-product';
-              const badgeColor = isAov ? '#a855f7' : isLead ? '#ec4899' : isHighTicket ? '#38bdf8' : isDigital ? '#f59e0b' : '#10b981';
+              const isRetention = bp.category === 'retention';
+              const badgeColor = isRetention ? '#F59E0B' : isAov ? '#a855f7' : isLead ? '#ec4899' : isHighTicket ? '#38bdf8' : isDigital ? '#f59e0b' : '#10b981';
 
               return (
                 <div
@@ -576,7 +577,7 @@ export const BlueprintModal: React.FC<Props> = ({
                   onClick={() => handleSelectTurnkey(bp)}
                 >
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
                       <span
                         style={{
                           fontSize: '10px',
@@ -592,6 +593,24 @@ export const BlueprintModal: React.FC<Props> = ({
                       >
                         {bp.badge}
                       </span>
+                      {bp.nodes.some(n => (n.data as any)?.isRetentionBranch) && (
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            color: '#F59E0B',
+                            backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
+                            padding: '2px 8px',
+                            borderRadius: '9999px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <span>✦</span> Includes 24h Rescue & Cart Recovery
+                        </span>
+                      )}
                       <span style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 600 }}>
                         • {bp.expectedAovLift}
                       </span>
@@ -629,7 +648,16 @@ export const BlueprintModal: React.FC<Props> = ({
                                 width: '6px',
                                 height: '6px',
                                 borderRadius: '50%',
-                                backgroundColor: node.type === 'ad-source' ? '#3B82F6' : node.type === 'landing-page' ? '#EC4899' : '#F59E0B'
+                                backgroundColor:
+                                  node.type === 'ad-source'
+                                    ? '#3B82F6'
+                                    : node.type === 'landing-page'
+                                    ? '#EC4899'
+                                    : (node.data as any)?.isRetentionBranch
+                                    ? '#F59E0B'
+                                    : node.type === 'upsell'
+                                    ? '#10B981'
+                                    : '#8B5CF6'
                               }}
                             />
                             {node.data?.label || node.type}

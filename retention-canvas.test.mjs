@@ -222,3 +222,64 @@ test('Smart exit criteria triggers immediate suppression on order attribution', 
   assert.equal(recoveryEnrollment.status, 'converted_exit', 'Active courtesy rescue must auto-exit upon purchase');
   assert.ok(recoveryEnrollment.convertedAt);
 });
+
+test('Flagship Turnkey Retention Blueprint contains valid 6-node dual-retention architecture', async () => {
+  const { ECOM_BLUEPRINTS } = await import('./src/data/ecomBlueprints.ts');
+  const bp = ECOM_BLUEPRINTS.find(b => b.id === 'turnkey-retention-ecosystem');
+
+  assert.ok(bp, 'turnkey-retention-ecosystem blueprint must exist in ECOM_BLUEPRINTS');
+  assert.equal(bp.category, 'retention');
+  assert.equal(bp.nodes.length, 6, 'Must contain exactly 6 nodes for complete funnel and retention');
+  assert.equal(bp.edges.length, 6, 'Must contain exactly 6 edges');
+
+  // Verify Node Types
+  const adNode = bp.nodes.find(n => n.type === 'ad-source');
+  const pageNode = bp.nodes.find(n => n.type === 'landing-page');
+  const upsellNode = bp.nodes.find(n => n.type === 'upsell');
+  const tyNode = bp.nodes.find(n => n.type === 'thank-you');
+  const cartRecoveryNode = bp.nodes.find(n => n.data?.sequenceType === 'checkout_recovery');
+  const upsellRescueNode = bp.nodes.find(n => n.data?.sequenceType === 'upsell_recovery');
+
+  assert.ok(adNode, 'Ad node must exist');
+  assert.ok(pageNode, 'Landing page node must exist');
+  assert.ok(upsellNode, 'Upsell node must exist');
+  assert.ok(tyNode, 'Thank-you node must exist');
+  assert.ok(cartRecoveryNode, 'Cart abandonment recovery node must exist');
+  assert.ok(upsellRescueNode, '24h Courtesy rescue node must exist');
+
+  // Verify Geometry & Alignment
+  assert.equal(adNode.position.y, 160, 'Ad node on main axis');
+  assert.equal(pageNode.position.y, 160, 'Page node on main axis');
+  assert.equal(upsellNode.position.y, 160, 'Upsell node on main axis');
+  assert.equal(tyNode.position.y, 160, 'Thank-you node on main axis');
+  assert.equal(cartRecoveryNode.position.y, 440, 'Cart recovery on retention branch axis');
+  assert.equal(upsellRescueNode.position.y, 440, 'Upsell rescue on retention branch axis');
+
+  // Verify Retention Handles on Edges
+  const cartEdge = bp.edges.find(e => e.source === pageNode.id && e.target === cartRecoveryNode.id);
+  assert.ok(cartEdge, 'Edge connecting page to cart recovery must exist');
+  assert.equal(cartEdge.data?.sourceHandle, 'abandon', 'Must originate from abandon handle');
+  assert.equal(cartEdge.data?.targetHandle, 'retention-in', 'Must target retention-in handle');
+  assert.equal(cartEdge.data?.isRetentionEdge, true);
+
+  const rescueEdge = bp.edges.find(e => e.source === upsellNode.id && e.target === upsellRescueNode.id);
+  assert.ok(rescueEdge, 'Edge connecting upsell to rescue must exist');
+  assert.equal(rescueEdge.data?.sourceHandle, 'rescue', 'Must originate from rescue handle');
+  assert.equal(rescueEdge.data?.targetHandle, 'retention-in', 'Must target retention-in handle');
+  assert.equal(rescueEdge.data?.isRetentionEdge, true);
+
+  // Verify Metric Sanitization preserves retention metadata
+  const { zeroBlueprintMetrics } = await import('./src/lib/liveStats.ts');
+  const zeroed = zeroBlueprintMetrics(bp.nodes, bp.edges);
+
+  assert.equal(zeroed.nodes.length, 6);
+  assert.equal(zeroed.edges.length, 6);
+
+  const zeroedRescue = zeroed.nodes.find(n => n.data?.sequenceType === 'upsell_recovery');
+  assert.equal(zeroedRescue.data.isRetentionBranch, true);
+  assert.equal(zeroedRescue.data.delayHours, 18);
+  assert.equal(zeroedRescue.data.voucherCode, 'SAVE10');
+  assert.equal(zeroedRescue.data.smartExitOnPurchase, true);
+  assert.equal(zeroedRescue.data.contactsEnrolled, 0, 'Contacts enrolled must be reset to 0');
+});
+

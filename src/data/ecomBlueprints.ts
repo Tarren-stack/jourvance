@@ -1,6 +1,6 @@
 import type { JourneyNode, JourneyEdge } from '../types/journey';
 
-export type BlueprintCategory = 'direct-checkout' | 'lead-magnet' | 'aov-booster' | 'high-ticket' | 'digital-product';
+export type BlueprintCategory = 'direct-checkout' | 'lead-magnet' | 'aov-booster' | 'high-ticket' | 'digital-product' | 'retention';
 
 export interface EcomBlueprint {
   id: string;
@@ -681,6 +681,205 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       { id: 'e-bp5-3', source: 'bp5-upsell', target: 'bp5-downsell', data: { sourceThroughput: 107, targetCount: 107, rate: 100 } },
       { id: 'e-bp5-4', source: 'bp5-upsell', target: 'bp5-ty', data: { sourceThroughput: 58, targetCount: 58, rate: 100 } },
       { id: 'e-bp5-5', source: 'bp5-downsell', target: 'bp5-ty', data: { sourceThroughput: 107, targetCount: 107, rate: 100 } }
+    ]
+  },
+  {
+    id: 'turnkey-retention-ecosystem',
+    title: 'The Complete Acquisition & Courtesy Retention Engine',
+    tagline: 'Paid Ad → Hero Landing Page → 1-Click OTO Upsell → 24h Courtesy Rescue & Cart Recovery',
+    category: 'retention',
+    badge: 'Flagship Retention Engine',
+    expectedAovLift: '+38% Net Revenue Recovered',
+    description: 'Engineered for luxury skincare and modern wellness brands. Pairs high-converting front-end acquisition and 1-click upsells with automated 24h courtesy rescue and abandoned cart safety nets.',
+    nodes: [
+      {
+        id: 'bp6-ad',
+        type: 'ad-source',
+        position: { x: 50, y: 160 },
+        data: {
+          type: 'ad-source',
+          label: 'Meta Ad • The Radiance Ritual',
+          platform: 'meta',
+          headline: 'Elevate Your Daily Ritual: The Botanical Peptide Duo',
+          body: 'Formulated with cold-pressed rosehip and active botanicals for radiant, nourished skin. Enjoy complimentary priority shipping on your first set.',
+          ctaText: 'Discover Your Ritual',
+          imageUrl: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80',
+          utmCampaign: 'flagship-radiance-duo',
+          impressions: 32000,
+          clicks: 1480,
+          ctr: 4.6,
+          spend: 680
+        }
+      },
+      {
+        id: 'bp6-page',
+        type: 'landing-page',
+        position: { x: 420, y: 160 },
+        data: {
+          type: 'landing-page',
+          label: 'Flagship Offer & Order Bump',
+          slug: 'radiance-ritual-flagship',
+          headline: 'The Radiance Duo: Daily Botanical Nurture for Glowing Skin',
+          subhead: 'A gentle, concentrated daily treatment formulated with cold-pressed rosehip and botanical squalane.',
+          bullets: [
+            'Concentrated plant actives for continuous daytime hydration',
+            'Formulated with organic rosehip, cold-pressed squalane, and green tea',
+            'Includes personalized concierge guidance and insured priority dispatch'
+          ],
+          trustBadge: 'Handcrafted in small batches with sustainably sourced botanical extracts',
+          buttonText: 'Claim Your Radiance Set — Instant Checkout',
+          discountCode: 'WELCOME10',
+          checkoutMode: 'direct',
+          shopifyProductId: '',
+          shopifyVariantId: '',
+          shopifyProductTitle: 'The Radiance Concentrate (50ml)',
+          shopifyProductPrice: '$68.00',
+          shopifyProductImage: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80',
+          mobileStickyBarEnabled: true,
+          orderBumpEnabled: true,
+          orderBumpTitle: 'Illuminating Eye Elixir (15ml)',
+          orderBumpPrice: '$24.00',
+          orderBumpHeadline: 'One-Time Privilege: Illuminating Eye Elixir',
+          orderBumpDescription: 'Revitalize and brighten tired eye contours with cold-pressed green tea caffeine and active botanicals.',
+          orderBumpImage: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=600&q=80',
+          visitors: 1480,
+          conversions: 236,
+          conversionRate: 15.9
+        }
+      },
+      {
+        id: 'bp6-upsell',
+        type: 'upsell',
+        position: { x: 790, y: 160 },
+        data: {
+          type: 'upsell',
+          label: '1-Click Upsell: Overnight Elixir',
+          slug: 'overnight-recovery-elixir',
+          offerType: 'upsell',
+          headline: 'Complete Your Evening Protocol With The Night Recovery Elixir',
+          subhead: 'Replenish your skin barrier overnight with pure botanical lipids and bakuchiol. Add this companion formula for 40% off before your box seals.',
+          badgeText: 'Private 40% VIP Privilege',
+          urgencyMinutes: 5,
+          productTitle: 'Overnight Barrier Recovery Elixir (30ml)',
+          productPrice: '$38.00',
+          regularPrice: '$64.00',
+          discountPercentage: 40,
+          productImage: 'https://images.unsplash.com/photo-1608248597359-54859e9177a4?auto=format&fit=crop&w=600&q=80',
+          benefits: [
+            'Evening lipid barrier support that works in synergy with your daytime ritual',
+            'Zero additional shipping fee — packed directly into your primary parcel',
+            'Small-batch botanical formula bottled fresh'
+          ],
+          acceptButtonText: 'Yes! Add Overnight Elixir to My Order ($38.00)',
+          declineButtonText: 'No thank you, I will stick with my daytime treatment',
+          views: 236,
+          takes: 94,
+          conversionRate: 39.83,
+          totalDeclines: 142,
+          recoveredTakes: 26,
+          recoveredRevenue: 884,
+          recoveryRate: 18.3
+        }
+      },
+      {
+        id: 'bp6-ty',
+        type: 'thank-you',
+        position: { x: 1160, y: 160 },
+        data: {
+          type: 'thank-you',
+          label: 'VIP Order Receipt & Portal',
+          slug: 'radiance-ritual-flagship',
+          headline: 'Your Radiance Ritual is Confirmed & Being Prepared',
+          subhead: 'We have received your order details and sent a confirmation receipt with insured tracking to your email inbox.',
+          badgeText: 'VIP Client Status',
+          bounceBackDiscountCode: 'VIPGLOW15',
+          bounceBackDiscountText: '$15 Off Your Next Replenishment',
+          usageGuideTitle: 'Your 3-Step Radiance Protocol',
+          usageGuideSteps: [
+            'Step 1: Cleanse with warm water and gently pat skin dry.',
+            'Step 2: Smooth 3-4 drops of The Radiance Concentrate over face and neck.',
+            'Step 3: Check your inbox for your tracking link and skin wellness guide.'
+          ],
+          storeReturnText: 'Explore Complete Collection',
+          communityInviteText: 'Join The Private Skin Sanctuary',
+          pageViews: 236,
+          bounceBackClaims: 48
+        }
+      },
+      {
+        id: 'bp6-cart-recovery',
+        type: 'follow-up-sequence',
+        position: { x: 420, y: 440 },
+        data: {
+          type: 'follow-up-sequence',
+          label: 'Cart Abandonment Recovery',
+          sequenceTitle: 'Abandoned Checkout Recovery Sequence',
+          sequenceType: 'checkout_recovery',
+          isRetentionBranch: true,
+          delayHours: 1,
+          voucherCode: 'COMPLETE10',
+          smartExitOnPurchase: true,
+          hubFlowId: 'flow_abandoned_cart_recovery',
+          contactsEnrolled: 380,
+          avgOpenRate: 68.4,
+          avgClickRate: 31.2,
+          steps: [
+            {
+              id: 'cr1',
+              channel: 'email',
+              delay: '1 Hour',
+              subject: 'Did you leave your Radiance Ritual behind? ✨',
+              previewText: 'Your personalized skincare bag is held for 24 hours',
+              body: 'Hi [First Name],\n\nWe noticed you started setting up your Radiance Ritual but did not complete checkout.\n\nTo help you get started, we have held your cart and reserved complimentary priority shipping:\n[Checkout Link]\n\nWarmly,\nThe Beauty Concierge'
+            },
+            {
+              id: 'cr2',
+              channel: 'email',
+              delay: '20 Hours',
+              subject: 'Private courtesy: 10% off your Radiance Ritual before it expires',
+              previewText: 'Use voucher COMPLETE10 at checkout',
+              body: 'Hi [First Name],\n\nYour cart reservation is expiring soon. As a courtesy, enjoy 10% off with code COMPLETE10:\n[Checkout Link]\n\nWith care,\nClient Care Team'
+            }
+          ]
+        }
+      },
+      {
+        id: 'bp6-upsell-rescue',
+        type: 'follow-up-sequence',
+        position: { x: 790, y: 440 },
+        data: {
+          type: 'follow-up-sequence',
+          label: '24h Courtesy Rescue (Upsell Decline)',
+          sequenceTitle: '24h Post-Decline Companion Rescue',
+          sequenceType: 'upsell_recovery',
+          isRetentionBranch: true,
+          delayHours: 18,
+          voucherCode: 'SAVE10',
+          smartExitOnPurchase: true,
+          hubFlowId: 'flow_upsell_rescue_24h',
+          contactsEnrolled: 142,
+          avgOpenRate: 74.2,
+          avgClickRate: 36.8,
+          steps: [
+            {
+              id: 'ur1',
+              channel: 'email',
+              delay: '18 Hours',
+              subject: 'A private courtesy reservation for your recent order ✨',
+              previewText: 'We held a companion formula reservation for your skincare routine',
+              body: 'Hi [First Name],\n\nThank you again for your order! While our apothecary team prepares your package, we noticed you passed on the Night Recovery Elixir.\n\nBecause the elixir is formulated to pair with your daytime duo, we held a courtesy bottle with a private 10% privilege.\n\nUse voucher code SAVE10 at checkout:\n[Offer Link]\n\nThis courtesy reservation remains active for 24 hours.\n\nWarm regards,\nThe Apothecary Team'
+            }
+          ]
+        }
+      }
+    ],
+    edges: [
+      { id: 'e-bp6-1', source: 'bp6-ad', target: 'bp6-page', data: { sourceThroughput: 1480, targetCount: 1480, rate: 100 } },
+      { id: 'e-bp6-2', source: 'bp6-page', target: 'bp6-upsell', sourceHandle: 'accepted', data: { sourceThroughput: 1480, targetCount: 236, rate: 15.9, sourceHandle: 'accepted' } },
+      { id: 'e-bp6-3', source: 'bp6-page', target: 'bp6-cart-recovery', sourceHandle: 'abandon', targetHandle: 'retention-in', data: { isRetentionEdge: true, sourceHandle: 'abandon', targetHandle: 'retention-in', sourceThroughput: 1244, targetCount: 380, rate: 30.5 } },
+      { id: 'e-bp6-4', source: 'bp6-upsell', target: 'bp6-ty', sourceHandle: 'accepted', data: { sourceHandle: 'accepted', sourceThroughput: 236, targetCount: 94, rate: 39.8 } },
+      { id: 'e-bp6-5', source: 'bp6-upsell', target: 'bp6-upsell-rescue', sourceHandle: 'rescue', targetHandle: 'retention-in', data: { isRetentionEdge: true, sourceHandle: 'rescue', targetHandle: 'retention-in', sourceThroughput: 142, targetCount: 142, rate: 100 } },
+      { id: 'e-bp6-6', source: 'bp6-upsell-rescue', target: 'bp6-ty', data: { isRetentionEdge: true, sourceThroughput: 142, targetCount: 26, rate: 18.3 } }
     ]
   }
 ];
