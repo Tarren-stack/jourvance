@@ -878,6 +878,16 @@ function renderPublicFunnelHtml(page, req, res) {
   const beaconPrice = savedPrice(data.shopifyProductPrice);
   const cartAction = data.cartAction === 'add' ? 'add' : 'checkout';
   const discountCode = data.discountCode || '';
+
+  // Phase 15: Dual-Sided VIP Referral & Brand Ambassador Engine ("Give $15, Get $15")
+  const queryRef = String(req?.query?.ref || '').trim();
+  const queryCoupon = String(req?.query?.coupon || req?.query?.discount || '').trim();
+  const isVipReferral = Boolean(
+    queryRef.toUpperCase().startsWith('GIVE15') ||
+    queryCoupon.toUpperCase() === 'GIVE15'
+  );
+  const referralCode = queryRef || (queryCoupon.toUpperCase() === 'GIVE15' ? 'GIVE15' : '');
+  const effectiveDiscountCode = isVipReferral ? 'GIVE15' : discountCode;
   const headline = data.headline || 'Offer';
   const subhead = data.subhead || '';
   const bullets = Array.isArray(data.bullets) ? data.bullets : [];
@@ -1623,7 +1633,11 @@ function renderPublicFunnelHtml(page, req, res) {
 
   ${isPreviewMode ? renderGeoPricingSimulatorToolbar({ activeCurrency: initialCurrency, slug, isUpsell: false, isDownsell: false, hasUpsell: Boolean(rawData.hasUpsell || rawData.upsell), storeDomain }) : ''}
 
-  ${discountCode ? `<div class="top-bar">Code <strong>${escapeHtml(discountCode)}</strong> is ready at checkout</div>` : ''}
+  ${isVipReferral ? `
+  <div class="jv-referral-banner" style="background: linear-gradient(135deg, rgba(236, 72, 153, 0.16) 0%, rgba(245, 158, 11, 0.12) 100%); border-bottom: 1px solid rgba(236, 72, 153, 0.32); padding: 11px 16px; text-align: center; font-size: 13px; font-weight: 500; color: #fdf2f8; display: flex; align-items: center; justify-content: center; gap: 8px;">
+    <span style="font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 9999px; background: rgba(236, 72, 153, 0.28); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.45);">VIP Friend Invitation</span>
+    <span>Your <strong>$15 welcome courtesy</strong> is activated and pre-applied at checkout (Code: <strong>GIVE15</strong>)</span>
+  </div>` : (effectiveDiscountCode ? `<div class="top-bar">Code <strong>${escapeHtml(effectiveDiscountCode)}</strong> is ready at checkout</div>` : '')}
 
   ${showUrgency ? `
   <div class="reservation-bar" id="jv-reservation-bar">
@@ -1665,7 +1679,7 @@ function renderPublicFunnelHtml(page, req, res) {
           <span>${escapeHtml(scarcityBatchText)}</span>
         </div>
         ` : ''}
-        ${discountCode ? `<div class="eyebrow"><span>Code ${escapeHtml(discountCode)} is ready at checkout</span></div>` : ''}
+        ${effectiveDiscountCode ? `<div class="eyebrow"><span>Code ${escapeHtml(effectiveDiscountCode)} is ready at checkout</span></div>` : ''}
 
         <h1>${escapeHtml(headline)}</h1>
         <p class="subhead">${escapeHtml(subhead)}</p>
@@ -1733,7 +1747,7 @@ function renderPublicFunnelHtml(page, req, res) {
         Unlock Your Exclusive Discount
       </h2>
       <p style="font-size: 13px; color: #94A3B8; margin-bottom: 18px; line-height: 1.5;">
-        Enter your email to claim your ${discountCode ? `<strong>${escapeHtml(discountCode)}</strong>` : 'VIP'} coupon and route straight to checkout.
+        Enter your email to claim your ${effectiveDiscountCode ? `<strong>${escapeHtml(effectiveDiscountCode)}</strong>` : 'VIP'} coupon and route straight to checkout.
       </p>
 
       <form id="lead-form">
@@ -1791,7 +1805,9 @@ function renderPublicFunnelHtml(page, req, res) {
       const productPrice = '${escapeHtml(beaconPrice)}';
       const bumpVariantId = '${escapeHtml(bumpVariantId)}';
       const orderBumpEnabled = ${orderBumpEnabled ? 'true' : 'false'};
-      const discountCode = '${escapeHtml(discountCode)}';
+      const discountCode = '${escapeHtml(effectiveDiscountCode)}';
+      const isVipReferral = ${isVipReferral ? 'true' : 'false'};
+      const referralCode = '${escapeHtml(referralCode)}';
       const slug = '${escapeHtml(slug)}';
       const isLeadGate = ${isLeadGate ? 'true' : 'false'};
       const defaultButtonText = '${escapeHtml(buttonText)}';
@@ -2021,6 +2037,7 @@ function renderPublicFunnelHtml(page, req, res) {
         if (fbclid) out.set('attributes[fbclid]', fbclid);
         if (ttclid) out.set('attributes[ttclid]', ttclid);
         if (gclid) out.set('attributes[gclid]', gclid);
+        if (referralCode) out.set('attributes[jv_ref]', referralCode);
         const qs = out.toString();
         return base + (qs ? '?' + qs : '');
       }
@@ -2132,7 +2149,8 @@ function renderPublicFunnelHtml(page, req, res) {
                 fbclid,
                 ttclid,
                 gclid,
-                visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
+                visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : '',
+                ref: referralCode || undefined
               })
             });
 
@@ -3803,6 +3821,11 @@ app.post('/api/public/lead', async (req, res) => {
   if (exitIntent) {
     tags.push('Exit-Intent-Rescue');
   }
+  const refCode = String(req.body?.ref || req.body?.referralCode || '').trim();
+  if (refCode) {
+    tags.push('Referred-By-VIP');
+    tags.push(`Ref-${refCode.toUpperCase()}`);
+  }
   const signupFormId = String(req.body?.formId || '').slice(0, 40);
   let signupForm = null;
   if (signupFormId) {
@@ -4004,7 +4027,8 @@ app.post('/api/public/lead', async (req, res) => {
 
   let checkoutUrl = storeConnected && cartItems.length ? `https://${storeDomain}/cart/${cartItems.join(',')}` : null;
   const outParams = new URLSearchParams();
-  if (discountCode) outParams.set('discount', discountCode);
+  const effectiveLeadDiscount = refCode ? 'GIVE15' : discountCode;
+  if (effectiveLeadDiscount) outParams.set('discount', effectiveLeadDiscount);
   if (utm_source) outParams.set('utm_source', utm_source);
   if (utm_medium) outParams.set('utm_medium', utm_medium);
   if (utm_campaign) outParams.set('utm_campaign', utm_campaign);
@@ -4018,6 +4042,7 @@ app.post('/api/public/lead', async (req, res) => {
     jv_slug: slug,
     jv_journey: page?.journeyId,
     jv_node: page?.nodeId,
+    jv_ref: refCode || undefined,
     utm_source,
     utm_medium,
     utm_campaign,
@@ -4591,12 +4616,15 @@ app.get(['/review', '/r/review'], (req, res) => {
     if (ws?.shopifyConfig) storeDomain = realStoreDomain(ws.shopifyConfig);
   }
 
+  const slug = String(req.query.slug || order?.attributedSlug || '').trim();
+
   const html = renderReviewPortalHtml({
     orderId: orderId || order?.id || 'VIP',
     email: email || order?.customerEmail || '',
     token,
     storeName,
     storeDomain,
+    slug,
     verified,
     discountCode: 'REVIEW10'
   });

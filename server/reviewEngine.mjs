@@ -38,6 +38,17 @@ export function verifyReviewToken(orderId, email, token, secret = DEFAULT_REVIEW
 }
 
 /**
+ * Generates a deterministic, personalized VIP Ambassador referral code for a reviewer.
+ * Example: GIVE15-SARAH-4A1B
+ */
+export function generateAmbassadorReferralCode(email) {
+  const cleanEmail = String(email || '').toLowerCase().trim();
+  const namePart = cleanEmail.split('@')[0].replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase() || 'VIP';
+  const hash = crypto.createHash('sha256').update(cleanEmail).digest('hex').slice(0, 4).toUpperCase();
+  return `GIVE15-${namePart}-${hash}`;
+}
+
+/**
  * Loads all stored reviews from hubStorage / memory cache.
  */
 export function loadReviews(hubStorage) {
@@ -189,12 +200,17 @@ export function renderReviewPortalHtml({
   token = '',
   storeName = 'Jourvance',
   storeDomain = '',
+  slug = '',
   verified = true,
   discountCode = 'REVIEW10'
 }) {
   const cleanOrder = String(orderId || '').replace(/^#/, '');
   const cleanEmail = String(email || '').trim();
   const safeStoreName = String(storeName || 'Jourvance');
+  const referralCode = generateAmbassadorReferralCode(cleanEmail);
+  const referralUrl = storeDomain
+    ? (slug ? `https://${storeDomain}/p/${slug}?ref=${referralCode}&coupon=GIVE15` : `https://${storeDomain}?ref=${referralCode}&discount=GIVE15`)
+    : `https://jourvance.app/p/${slug || 'offer'}?ref=${referralCode}&coupon=GIVE15`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -469,6 +485,89 @@ export function renderReviewPortalHtml({
       cursor: pointer;
       line-height: 1;
     }
+    .jv-ambassador-box {
+      margin-top: 24px;
+      padding: 20px 18px;
+      background: rgba(236, 72, 153, 0.08);
+      border: 1px solid rgba(236, 72, 153, 0.28);
+      border-radius: 16px;
+      text-align: center;
+      position: relative;
+    }
+    .jv-ambassador-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 9999px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: rgba(236, 72, 153, 0.2);
+      color: #f472b6;
+      border: 1px solid rgba(236, 72, 153, 0.35);
+      margin-bottom: 10px;
+    }
+    .jv-ref-input-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .jv-ref-input {
+      flex: 1;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-family: monospace;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      color: #f3f4f6;
+      outline: none;
+    }
+    .jv-copy-ref-btn {
+      padding: 10px 16px;
+      background: #ec4899;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s ease;
+    }
+    .jv-copy-ref-btn:hover {
+      background: #db2777;
+    }
+    .jv-quick-share-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .jv-quick-share-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 12px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      color: #f1f5f9;
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+    .jv-quick-share-btn:hover {
+      background: rgba(255, 255, 255, 0.14);
+      transform: translateY(-1px);
+    }
+    .jv-quick-share-wa:hover {
+      border-color: #25D366;
+      color: #86efac;
+    }
   </style>
 </head>
 <body>
@@ -554,6 +653,31 @@ export function renderReviewPortalHtml({
         <span style="font-size: 11px; text-transform: uppercase; color: #9ca3af; font-weight: 700;">Courtesy Voucher ($10 Off)</span>
         <div class="jv-code" id="jv-revealed-code">${discountCode || 'REVIEW10'}</div>
         <button type="button" class="jv-copy-btn" id="jv-copy-btn">Copy Voucher Code</button>
+      </div>
+
+      <!-- VIP Ambassador Referral Card (Phase 15: Give $15, Get $15) -->
+      <div class="jv-ambassador-box">
+        <div class="jv-ambassador-badge">
+          ✦ VIP Ambassador Club · Give $15, Get $15
+        </div>
+        <h2 style="font-family: 'Playfair Display', serif; font-size: 19px; color: #ffffff; margin-bottom: 6px;">Share Your Glow with Friends</h2>
+        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.45; margin-bottom: 14px;">
+          Gift your friends $15 toward their first ritual with code <strong style="color: #f472b6;">${referralCode}</strong>. When they place an order, we will send an extra $15 gift straight to your inbox.
+        </p>
+
+        <div class="jv-ref-input-group">
+          <input type="text" id="jv-ref-url" value="${referralUrl}" readonly class="jv-ref-input" />
+          <button type="button" id="jv-copy-ref-btn" class="jv-copy-ref-btn">Copy Link</button>
+        </div>
+
+        <div class="jv-quick-share-row">
+          <a href="sms:?&body=${encodeURIComponent(`I thought of you! Here is $15 off your first beauty ritual: ${referralUrl}`)}" class="jv-quick-share-btn">
+            💬 Text a Friend
+          </a>
+          <a href="https://api.whatsapp.com/send?text=${encodeURIComponent(`I thought of you! Here is $15 off your first beauty ritual: ${referralUrl}`)}" target="_blank" rel="noopener" class="jv-quick-share-btn jv-quick-share-wa">
+            🌿 WhatsApp
+          </a>
+        </div>
       </div>
 
       <a href="${storeDomain ? `https://${storeDomain}?discount=${discountCode || 'REVIEW10'}` : '#'}" class="jv-shop-link" id="jv-shop-link">
@@ -733,6 +857,21 @@ export function renderReviewPortalHtml({
         setTimeout(() => { btn.textContent = 'Copy Voucher Code'; }, 2500);
       });
     });
+
+    const copyRefBtn = document.getElementById('jv-copy-ref-btn');
+    if (copyRefBtn) {
+      copyRefBtn.addEventListener('click', () => {
+        const refUrl = document.getElementById('jv-ref-url').value;
+        navigator.clipboard.writeText(refUrl).then(() => {
+          copyRefBtn.textContent = 'Copied!';
+          copyRefBtn.style.background = '#10b981';
+          setTimeout(() => {
+            copyRefBtn.textContent = 'Copy Link';
+            copyRefBtn.style.background = '#ec4899';
+          }, 2500);
+        });
+      });
+    }
   </script>
 </body>
 </html>`;

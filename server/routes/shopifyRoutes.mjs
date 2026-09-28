@@ -6,7 +6,7 @@
  * 2. Real-Time Webhook Engine: orders-create/paid, checkouts-create/update, fulfillments, orders-cancelled, refunds, product & inventory updates, customer profile updates.
  */
 
-import { generateReviewToken } from '../reviewEngine.mjs';
+import { generateReviewToken, generateAmbassadorReferralCode } from '../reviewEngine.mjs';
 
 /**
  * Creates or updates a discount rule in Jourvance and provisions the price rule + discount code in Shopify via Admin API.
@@ -99,7 +99,8 @@ export async function ensureShopifyCoreDiscounts(ws, allowUnlimited = false, ctx
     { code: 'WELCOMEBACK15', value: 15, discountType: 'percentage', oncePerCustomer },
     { code: 'SAVE10', value: 10, discountType: 'percentage', oncePerCustomer },
     { code: 'SANCTUARY', value: 10, discountType: 'percentage', oncePerCustomer },
-    { code: 'REVIEW10', value: 10, discountType: 'fixed_amount', oncePerCustomer }
+    { code: 'REVIEW10', value: 10, discountType: 'fixed_amount', oncePerCustomer },
+    { code: 'GIVE15', value: 15, discountType: 'fixed_amount', oncePerCustomer }
   ];
   const results = [];
   for (const c of coreCodes) {
@@ -784,6 +785,15 @@ export function setupShopifyRoutes(app, ctx) {
 
     // Update or create customer record in contacts.json
     let claimedOrder = [];
+    const refCode = (
+      attrs.jv_ref ||
+      attrs.ref ||
+      attrs.referral_code ||
+      discountCodes.find(c => /^GIVE15-/i.test(c)) ||
+      (discountCodes.some(c => c.toUpperCase() === 'GIVE15') ? 'GIVE15' : '')
+    );
+    let referringAmbassador = null;
+
     if (customerEmail) {
       const linkedOrder = attachBehavior(shopWs.userId, customerEmail, {
         visitorId,
@@ -801,6 +811,7 @@ export function setupShopifyRoutes(app, ctx) {
         if (!contact.tags) contact.tags = [];
         if (!contact.tags.includes('Shopify Buyer')) contact.tags.push('Shopify Buyer');
         if (bumpIncluded && !contact.tags.includes('Order Bump Taker')) contact.tags.push('Order Bump Taker');
+        if (refCode && !contact.tags.includes('Referred-By-VIP')) contact.tags.push('Referred-By-VIP');
         const userRfmConfig = userProgramBag(shopWs.userId)?.rfmConfig || DEFAULT_RFM_CONFIG;
         syncContactRfmTags(contact, userRfmConfig);
       } else {
@@ -815,7 +826,7 @@ export function setupShopifyRoutes(app, ctx) {
           visitorId: visitorId || undefined,
           clientId: linkedOrder.clientId || undefined,
           userId: shopWs.userId,
-          tags: ['Shopify Buyer', ...(bumpIncluded ? ['Order Bump Taker'] : [])],
+          tags: ['Shopify Buyer', ...(bumpIncluded ? ['Order Bump Taker'] : []), ...(refCode ? ['Referred-By-VIP'] : [])],
           source: attributedSlug ? `Funnel /p/${attributedSlug}` : 'Shopify Direct',
           firstSeenAt: new Date().toISOString(),
           lastOrderAt: new Date().toISOString()
@@ -823,6 +834,43 @@ export function setupShopifyRoutes(app, ctx) {
         const userRfmConfig = userProgramBag(shopWs.userId)?.rfmConfig || DEFAULT_RFM_CONFIG;
         syncContactRfmTags(contact, userRfmConfig);
         contacts.push(contact);
+      }
+
+      // Credit the Ambassador
+      if (refCode) {
+        if (refCode.toUpperCase().startsWith('GIVE15-')) {
+          referringAmbassador = contacts.find(c => {
+            if (!c.email || c.email.toLowerCase() === customerEmail.toLowerCase()) return false;
+            const expectedCode = generateAmbassadorReferralCode(c.email);
+            return expectedCode.toUpperCase() === refCode.toUpperCase() || c.referralCode === refCode;
+          });
+        } else if (attrs.ref_email || attrs.ambassador_email) {
+          const ambEmail = String(attrs.ref_email || attrs.ambassador_email).toLowerCase().trim();
+          referringAmbassador = contacts.find(c => c.email && c.email.toLowerCase() === ambEmail && c.email.toLowerCase() !== customerEmail.toLowerCase());
+        }
+
+        if (referringAmbassador) {
+          if (!Array.isArray(referringAmbassador.tags)) referringAmbassador.tags = [];
+          if (!referringAmbassador.tags.includes('VIP-Ambassador')) referringAmbassador.tags.push('VIP-Ambassador');
+          if (!referringAmbassador.tags.includes('Referral-Advocate')) referringAmbassador.tags.push('Referral-Advocate');
+          referringAmbassador.referralsCount = (referringAmbassador.referralsCount || 0) + 1;
+          referringAmbassador.referralRevenue = Number(((referringAmbassador.referralRevenue || 0) + totalPrice).toFixed(2));
+          referringAmbassador.lastReferralAt = new Date().toISOString();
+
+          try {
+            recordEvent({
+              type: 'referral_converted',
+              userId: shopWs.userId,
+              ambassadorEmail: referringAmbassador.email,
+              buyerEmail: customerEmail,
+              orderId,
+              amount: totalPrice,
+              referralCode: refCode
+            });
+          } catch (evErr) {
+            console.warn('[Jourvance] Warning recording referral event:', evErr.message);
+          }
+        }
       }
       saveContacts(contacts);
 
@@ -865,6 +913,7 @@ export function setupShopifyRoutes(app, ctx) {
     if (attributedSlug) shopifyTagsApplied.push(`Funnel: ${attributedSlug}`);
     if (bumpIncluded) shopifyTagsApplied.push('Order-Bump-Accepted');
     if (variant) shopifyTagsApplied.push(`Variant: ${String(variant).toUpperCase()}`);
+    if (refCode) shopifyTagsApplied.push(`Referral: ${refCode}`);
 
     // Closed-Loop Abandoned Checkout Recovery
     let recoveredCheckoutId = null;
@@ -931,6 +980,8 @@ export function setupShopifyRoutes(app, ctx) {
       ...orderUtm,
       checkoutChannel: channelOf(orderUtm),
       shopifyTagsApplied,
+      referralCode: refCode || undefined,
+      referredBy: referringAmbassador ? referringAmbassador.email : (refCode || undefined),
       createdAt: Number.isFinite(Date.parse(payload.created_at || payload.createdAt || '')) ? new Date(payload.created_at || payload.createdAt).toISOString() : new Date().toISOString()
     };
 
