@@ -526,10 +526,30 @@
       "exit_rescue": {
         "baselined": true,
         "members": {}
+      },
+      "whales": {
+        "baselined": true,
+        "members": {}
+      },
+      "gold": {
+        "baselined": true,
+        "members": {}
+      },
+      "silver": {
+        "baselined": true,
+        "members": {}
+      },
+      "at_risk": {
+        "baselined": true,
+        "members": {}
+      },
+      "lapsed": {
+        "baselined": true,
+        "members": {}
       }
     },
     "signalStartersSeeded": true,
-    "predictionCheckedAt": "2026-09-27T00:22:56.768Z",
+    "predictionCheckedAt": "2026-09-28T00:23:00.458Z",
     "attributionWindows": {
       "emailClickDays": 5,
       "emailOpenDays": 5,
@@ -709,10 +729,30 @@
       "exit_rescue": {
         "baselined": true,
         "members": {}
+      },
+      "whales": {
+        "baselined": true,
+        "members": {}
+      },
+      "gold": {
+        "baselined": true,
+        "members": {}
+      },
+      "silver": {
+        "baselined": true,
+        "members": {}
+      },
+      "at_risk": {
+        "baselined": true,
+        "members": {}
+      },
+      "lapsed": {
+        "baselined": true,
+        "members": {}
       }
     },
     "signalStartersSeeded": false,
-    "predictionCheckedAt": "2026-09-27T00:22:56.771Z",
+    "predictionCheckedAt": "2026-09-28T00:23:00.461Z",
     "attributionWindows": {
       "emailClickDays": 5,
       "emailOpenDays": 5,
