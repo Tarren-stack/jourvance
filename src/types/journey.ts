@@ -142,6 +142,10 @@ export interface PageNodeData extends Record<string, unknown> {
   exitIntentBadge?: string;
   // Mobile Conversion Enhancements
   mobileStickyBarEnabled?: boolean;
+  // Privacy & GDPR/CCPA Compliance
+  cookieConsentEnabled?: boolean;
+  cookieConsentGeoTarget?: 'eu_uk_only' | 'all_visitors';
+  privacyPolicyUrl?: string;
   // Metrics & Financials (Wave 3 & Wave 6 Live Closed Loop)
   visitors: number;
   conversions: number;

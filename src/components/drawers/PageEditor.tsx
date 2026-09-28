@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Sparkles, RefreshCw, Plus, Trash2, Globe, ExternalLink,
   ShoppingBag, Link2, CheckCircle2, Copy, Check, Tag,
-  Activity, Eye, Share2, Zap, GitFork, Clock, ShieldAlert
+  Activity, Eye, Share2, Zap, GitFork, Clock, ShieldAlert, ShieldCheck
 } from 'lucide-react';
 import type { PageNodeData, PageVariantData, Workspace, ShopifyProduct } from '../../types/journey';
 import { requestAICopy } from '../../lib/hubClient';
@@ -2080,6 +2080,116 @@ export const PageEditor: React.FC<Props> = ({
                 {data.mobileStickyBarEnabled !== false ? 'Enabled' : 'Off'}
               </span>
             </label>
+          </div>
+
+          {/* GDPR & CCPA PRIVACY / COOKIE CONSENT MANAGER */}
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: '10px',
+              backgroundColor: data.cookieConsentEnabled !== false ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+              border: data.cookieConsentEnabled !== false ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ShieldCheck size={14} style={{ color: '#10b981' }} />
+                  <span>Cookie Consent & GDPR/CCPA Banner</span>
+                  <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>
+                    COMPLIANCE
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                  Floating luxury frosted glass pill respecting visitor tracking preferences with zero compute overhead.
+                </div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={data.cookieConsentEnabled !== false}
+                  onChange={e => handleFieldChange('cookieConsentEnabled', e.target.checked)}
+                  style={{ accentColor: '#10b981', width: '16px', height: '16px' }}
+                />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: data.cookieConsentEnabled !== false ? '#10b981' : '#64748b' }}>
+                  {data.cookieConsentEnabled !== false ? 'Enabled' : 'Off'}
+                </span>
+              </label>
+            </div>
+
+            {data.cookieConsentEnabled !== false && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                {/* Geo-Targeting Selection */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8' }}>
+                    Visitor Targeting Mode
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleFieldChange('cookieConsentGeoTarget', 'eu_uk_only')}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        border: (data.cookieConsentGeoTarget !== 'all_visitors') ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
+                        background: (data.cookieConsentGeoTarget !== 'all_visitors') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.02)',
+                        color: (data.cookieConsentGeoTarget !== 'all_visitors') ? '#a7f3d0' : '#94a3b8'
+                      }}
+                    >
+                      🇪🇺 🇬🇧 EU & UK Only (Smart)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleFieldChange('cookieConsentGeoTarget', 'all_visitors')}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        border: data.cookieConsentGeoTarget === 'all_visitors' ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
+                        background: data.cookieConsentGeoTarget === 'all_visitors' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.02)',
+                        color: data.cookieConsentGeoTarget === 'all_visitors' ? '#a7f3d0' : '#94a3b8'
+                      }}
+                    >
+                      🌐 All Visitors
+                    </button>
+                  </div>
+                  <span style={{ fontSize: '10px', color: '#64748b' }}>
+                    {data.cookieConsentGeoTarget === 'all_visitors'
+                      ? 'Displays consent pill to every visitor worldwide.'
+                      : 'Smart Geo-Targeting displays banner only to visitors requiring GDPR/UK-GDPR compliance, maximizing conversion elsewhere.'}
+                  </span>
+                </div>
+
+                {/* Privacy Policy URL */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8' }}>
+                    Privacy Policy Link (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={data.privacyPolicyUrl || ''}
+                    placeholder="/privacy or https://yourstore.com/policies/privacy-policy"
+                    onChange={e => handleFieldChange('privacyPolicyUrl', e.target.value)}
+                    style={{
+                      padding: '7px 10px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: '#f8fafc'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* SECTION 2: LIVE PUBLIC HOSTING & STATUS */}

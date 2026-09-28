@@ -153,11 +153,287 @@ function appendCartAttributes(params, fields) {
   }
 }
 
+const GDPR_COUNTRIES = new Set([
+  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR',
+  'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL',
+  'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
+  'GB', 'IS', 'LI', 'NO', 'CH'
+]);
+
+function buildCookieConsentWidget(options = {}) {
+  const {
+    enabled = true,
+    geoTarget = 'eu_uk_only',
+    privacyPolicyUrl = '',
+    countryCode = ''
+  } = options;
+
+  if (enabled === false) return '';
+
+  const upperCountry = String(countryCode || '').trim().toUpperCase();
+  let serverRequiresConsent = false;
+  let clientDetect = false;
+
+  if (geoTarget === 'all_visitors') {
+    serverRequiresConsent = true;
+  } else if (upperCountry) {
+    serverRequiresConsent = GDPR_COUNTRIES.has(upperCountry);
+  } else {
+    clientDetect = true;
+  }
+
+  const safePrivacyUrl = privacyPolicyUrl ? escapeHtml(privacyPolicyUrl) : '';
+
+  return `
+  <!-- Jourvance GDPR / CCPA Cookie Consent (Option A: Floating Frosted Pill) -->
+  <style>
+    .jv-cookie-consent {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      z-index: 99995;
+      max-width: 380px;
+      width: calc(100vw - 48px);
+      background: rgba(18, 16, 23, 0.94);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 16px;
+      padding: 14px 18px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(251, 191, 36, 0.12);
+      font-family: -apple-system, BlinkMacSystemFont, "Outfit", "Segoe UI", Roboto, sans-serif;
+      color: #f3f4f6;
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
+    }
+    .jv-cookie-consent.jv-visible {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .jv-consent-content {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .jv-consent-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .jv-consent-sparkle {
+      font-size: 13px;
+      color: #fbbf24;
+      line-height: 1;
+    }
+    .jv-consent-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #f8fafc;
+    }
+    .jv-consent-desc {
+      font-size: 11.5px;
+      line-height: 1.45;
+      color: #94a3b8;
+      margin: 0;
+    }
+    .jv-consent-link {
+      color: #38bdf8;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      transition: color 0.15s;
+    }
+    .jv-consent-link:hover {
+      color: #7dd3fc;
+    }
+    .jv-consent-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 2px;
+    }
+    .jv-consent-btn-accept {
+      flex: 1;
+      padding: 8px 14px;
+      border-radius: 9px;
+      border: none;
+      background: linear-gradient(135deg, #ec4899, #db2777);
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
+      transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+    }
+    .jv-consent-btn-accept:hover {
+      opacity: 0.95;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(236, 72, 153, 0.4);
+    }
+    .jv-consent-btn-decline {
+      padding: 8px 14px;
+      border-radius: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.04);
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .jv-consent-btn-decline:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #f1f5f9;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+    @media (max-width: 767px) {
+      .jv-cookie-consent {
+        bottom: 16px;
+        left: 12px;
+        right: 12px;
+        width: auto;
+        max-width: none;
+        padding: 12px 14px;
+      }
+      body.jv-sticky-bar-active .jv-cookie-consent {
+        bottom: 78px;
+      }
+    }
+  </style>
+
+  <div id="jv-consent-banner" class="jv-cookie-consent" role="region" aria-label="Cookie Preferences">
+    <div class="jv-consent-content">
+      <div class="jv-consent-header">
+        <span class="jv-consent-sparkle">✦</span>
+        <span class="jv-consent-title">Privacy & Tailored Ritual</span>
+      </div>
+      <p class="jv-consent-desc">
+        We use essential cookies to personalize your ritual, secure your checkout, and optimize performance.
+        ${safePrivacyUrl ? ` <a href="${safePrivacyUrl}" target="_blank" rel="noopener noreferrer" class="jv-consent-link">Privacy Policy</a>` : ''}
+      </p>
+      <div class="jv-consent-actions">
+        <button id="jv-consent-accept-btn" type="button" class="jv-consent-btn-accept">Accept All</button>
+        <button id="jv-consent-decline-btn" type="button" class="jv-consent-btn-decline">Decline</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    window.__jvConsentRequired = ${serverRequiresConsent ? 'true' : 'false'};
+    var clientDetect = ${clientDetect ? 'true' : 'false'};
+    if (clientDetect && !window.__jvConsentRequired) {
+      try {
+        var tz = (Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
+        if (/^Europe\\/|London|Dublin|Paris|Berlin|Rome|Madrid|Warsaw|Amsterdam|Brussels|Vienna|Athens|Helsinki|Stockholm|Oslo|Copenhagen|Reykjavik|Zurich/i.test(tz)) {
+          window.__jvConsentRequired = true;
+        }
+      } catch (e) {}
+    }
+
+    var banner = document.getElementById('jv-consent-banner');
+    if (!banner) return;
+
+    var existingConsent = '';
+    try {
+      existingConsent = localStorage.getItem('jv_consent') || '';
+      if (!existingConsent) {
+        var m = document.cookie.match(/(?:^|; )jv_consent=(accepted|declined)/);
+        if (m) existingConsent = m[1];
+      }
+    } catch (e) {}
+
+    if (window.__jvConsentRequired && !existingConsent) {
+      banner.style.display = 'block';
+      requestAnimationFrame(function() {
+        banner.classList.add('jv-visible');
+      });
+    } else {
+      banner.style.display = 'none';
+    }
+
+    var acceptBtn = document.getElementById('jv-consent-accept-btn');
+    var declineBtn = document.getElementById('jv-consent-decline-btn');
+
+    function closeBanner() {
+      banner.classList.remove('jv-visible');
+      setTimeout(function() {
+        banner.style.display = 'none';
+      }, 350);
+    }
+
+    if (acceptBtn) {
+      acceptBtn.addEventListener('click', function() {
+        try {
+          localStorage.setItem('jv_consent', 'accepted');
+          document.cookie = 'jv_consent=accepted; Path=/; Max-Age=31536000; SameSite=Lax';
+          if (window.Shopify && window.Shopify.customerPrivacy && typeof window.Shopify.customerPrivacy.setTrackingConsent === 'function') {
+            window.Shopify.customerPrivacy.setTrackingConsent(true, function(){});
+          }
+        } catch (e) {}
+        closeBanner();
+        document.dispatchEvent(new CustomEvent('visitorConsentCollected', { detail: { consent: 'accepted' } }));
+      });
+    }
+
+    if (declineBtn) {
+      declineBtn.addEventListener('click', function() {
+        try {
+          localStorage.setItem('jv_consent', 'declined');
+          document.cookie = 'jv_consent=declined; Path=/; Max-Age=31536000; SameSite=Lax';
+          if (window.Shopify && window.Shopify.customerPrivacy && typeof window.Shopify.customerPrivacy.setTrackingConsent === 'function') {
+            window.Shopify.customerPrivacy.setTrackingConsent(false, function(){});
+          }
+        } catch (e) {}
+        window.__jvPendingEvents = [];
+        closeBanner();
+        document.dispatchEvent(new CustomEvent('visitorConsentCollected', { detail: { consent: 'declined' } }));
+      });
+    }
+  })();
+  </script>`;
+}
+
+function pageConsentFrom(page, req) {
+  const pData = page?.data || {};
+  return {
+    enabled: pData.cookieConsentEnabled !== false,
+    geoTarget: pData.cookieConsentGeoTarget || 'eu_uk_only',
+    privacyPolicyUrl: pData.privacyPolicyUrl || '',
+    countryCode: req?.headers?.['cf-ipcountry'] || req?.headers?.['x-country-code'] || '',
+    mobileStickyBarEnabled: pData.mobileStickyBarEnabled !== false
+  };
+}
+
 function trackingSnippet(slug, variant, track) {
   const safeSlug = JSON.stringify(String(slug || ''));
   const safeVariant = JSON.stringify(variant === 'b' ? 'b' : 'a');
   const beacon = pageBeaconScript(track || {});
   return `<script>
+window.jourvanceCanTrack = function() {
+  try {
+    var c = localStorage.getItem('jv_consent');
+    if (!c) {
+      var m = document.cookie.match(/(?:^|; )jv_consent=(accepted|declined)/);
+      if (m) c = m[1];
+    }
+    if (c === 'declined') return false;
+    if (c === 'accepted') return true;
+    if (window.__jvConsentRequired && !c) return false;
+    if (window.Shopify && window.Shopify.customerPrivacy) {
+      if (typeof window.Shopify.customerPrivacy.analyticsProcessingAllowed === 'function') {
+        return !!window.Shopify.customerPrivacy.analyticsProcessingAllowed();
+      }
+      if (typeof window.Shopify.customerPrivacy.userCanBeTracked === 'function') {
+        return !!window.Shopify.customerPrivacy.userCanBeTracked();
+      }
+    }
+  } catch (e) {}
+  return true;
+};
 window.jourvanceVisitor = function() {
   var id = '';
   try {
@@ -169,23 +445,12 @@ window.jourvanceVisitor = function() {
     }
     if (!id) id = localStorage.getItem('jv_vid') || '';
     if (!id) id = 'jv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
-    localStorage.setItem('jv_vid', id);
-    document.cookie = 'jv_vid=' + encodeURIComponent(id) + '; Path=/; Max-Age=31536000; SameSite=Lax';
-  } catch (e) {}
-  return id;
-};
-window.jourvanceCanTrack = function() {
-  try {
-    if (window.Shopify && window.Shopify.customerPrivacy) {
-      if (typeof window.Shopify.customerPrivacy.analyticsProcessingAllowed === 'function') {
-        return !!window.Shopify.customerPrivacy.analyticsProcessingAllowed();
-      }
-      if (typeof window.Shopify.customerPrivacy.userCanBeTracked === 'function') {
-        return !!window.Shopify.customerPrivacy.userCanBeTracked();
-      }
+    if (window.jourvanceCanTrack()) {
+      localStorage.setItem('jv_vid', id);
+      document.cookie = 'jv_vid=' + encodeURIComponent(id) + '; Path=/; Max-Age=31536000; SameSite=Lax';
     }
   } catch (e) {}
-  return true;
+  return id;
 };
 window.__jvPendingEvents = window.__jvPendingEvents || [];
 if (typeof document !== 'undefined' && !window.__jvConsentBound) {
@@ -243,8 +508,9 @@ window.jourvanceTrack = function(type, extra) {
 </script>`;
 }
 
-function withTracking(html, slug, variant, includeForms, track) {
-  const snippet = trackingSnippet(slug, variant, track) + (includeForms ? signupSnippetForSlug(slug) : '');
+function withTracking(html, slug, variant, includeForms, track, consentOptions = {}) {
+  const cookieWidget = buildCookieConsentWidget(consentOptions);
+  const snippet = trackingSnippet(slug, variant, track) + (includeForms ? signupSnippetForSlug(slug) : '') + cookieWidget;
   return html.includes('</body>') ? html.replace('</body>', snippet + '\n</body>') : html + snippet;
 }
 
@@ -1832,8 +2098,10 @@ function renderPublicFunnelHtml(page, req, res) {
         var rect = mainBtn.getBoundingClientRect();
         if (rect.bottom < 0) {
           stickyBar.style.display = 'flex';
+          document.body.classList.add('jv-sticky-bar-active');
         } else {
           stickyBar.style.display = 'none';
+          document.body.classList.remove('jv-sticky-bar-active');
         }
       }, { passive: true });
     })();
@@ -2738,23 +3006,24 @@ app.use(async (req, res, next) => {
   // Check if incoming host is mapped to a published page
   const page = await loadPublicPage(host);
   if (page && page.data) {
+    const consent = pageConsentFrom(page, req);
     if (req.path === '/thank-you' || req.path === `/${page.slug}/thank-you`) {
-      const html = withTracking(renderPublicThankYouHtml(page, req, res), page.slug, 'a');
+      const html = withTracking(renderPublicThankYouHtml(page, req, res), page.slug, 'a', false, undefined, consent);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(html);
     }
     if (req.path === '/upsell' || req.path === `/${page.slug}/upsell`) {
-      const html = withTracking(renderPublicUpsellHtml(page, req, res, false), page.slug, 'a');
+      const html = withTracking(renderPublicUpsellHtml(page, req, res, false), page.slug, 'a', false, undefined, consent);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(html);
     }
     if (req.path === '/downsell' || req.path === `/${page.slug}/downsell`) {
-      const html = withTracking(renderPublicUpsellHtml(page, req, res, true), page.slug, 'a');
+      const html = withTracking(renderPublicUpsellHtml(page, req, res, true), page.slug, 'a', false, undefined, consent);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(html);
     }
     if (req.path === '/' || req.path === `/${page.slug}` || req.path.startsWith('/p/')) {
-      const html = withTracking(renderPublicFunnelHtml(page, req, res), page.slug, 'a', true, pageTrackFrom(page));
+      const html = withTracking(renderPublicFunnelHtml(page, req, res), page.slug, 'a', true, pageTrackFrom(page), consent);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(html);
     }
@@ -3311,7 +3580,7 @@ app.get(['/p/:slug/upsell', '/p/:wsId/:slug/upsell'], async (req, res) => {
   if (!page || !page.data) {
     return res.status(404).send(render404Html(slug));
   }
-  const html = withTracking(renderPublicUpsellHtml(page, req, res, false), slug, 'a');
+  const html = withTracking(renderPublicUpsellHtml(page, req, res, false), slug, 'a', false, undefined, pageConsentFrom(page, req));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
 });
@@ -3322,7 +3591,7 @@ app.get(['/p/:slug/downsell', '/p/:wsId/:slug/downsell'], async (req, res) => {
   if (!page || !page.data) {
     return res.status(404).send(render404Html(slug));
   }
-  const html = withTracking(renderPublicUpsellHtml(page, req, res, true), slug, 'a');
+  const html = withTracking(renderPublicUpsellHtml(page, req, res, true), slug, 'a', false, undefined, pageConsentFrom(page, req));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
 });
@@ -3460,7 +3729,7 @@ app.get(['/p/:slug/thank-you', '/p/:wsId/:slug/thank-you'], async (req, res) => 
   if (!page || !page.data) {
     return res.status(404).send(render404Html(slug));
   }
-  const html = withTracking(renderPublicThankYouHtml(page, req, res), slug, 'a');
+  const html = withTracking(renderPublicThankYouHtml(page, req, res), slug, 'a', false, undefined, pageConsentFrom(page, req));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
 });
@@ -3566,7 +3835,7 @@ app.get(['/p/:slug', '/p/:wsId/:slug'], async (req, res) => {
   if (!page || !page.data) {
     return res.status(404).send(render404Html(slug));
   }
-  const html = withTracking(renderPublicFunnelHtml(page, req, res), slug, 'a', true, pageTrackFrom(page));
+  const html = withTracking(renderPublicFunnelHtml(page, req, res), slug, 'a', true, pageTrackFrom(page), pageConsentFrom(page, req));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
 });

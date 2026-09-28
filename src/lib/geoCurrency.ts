@@ -68,6 +68,29 @@ export const EUR_ZONE_COUNTRIES = new Set([
 ]);
 
 /**
+ * European Union (EU 27) + EEA countries (IS, LI, NO) + UK (GB) + Switzerland (CH)
+ * where GDPR / UK-GDPR strict opt-in consent is required before analytics/marketing tracking.
+ */
+export const GDPR_COUNTRIES = new Set([
+  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR',
+  'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL',
+  'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
+  'GB', 'IS', 'LI', 'NO', 'CH'
+]);
+
+export const CCPA_COUNTRIES = new Set(['US']);
+
+export function isConsentRequiredForCountry(
+  countryCode: string | undefined | null,
+  geoTarget: 'eu_uk_only' | 'all_visitors' = 'eu_uk_only'
+): boolean {
+  if (geoTarget === 'all_visitors') return true;
+  if (!countryCode) return false;
+  const upper = countryCode.trim().toUpperCase();
+  return GDPR_COUNTRIES.has(upper);
+}
+
+/**
  * Parses numeric price from any formatted string like "$49.00", "€45.95", "49", etc.
  */
 export function parsePriceAmount(priceStr: string | number | undefined | null): { amount: number; hasDecimals: boolean; ending: '99' | '95' | '00' | 'raw' } {
