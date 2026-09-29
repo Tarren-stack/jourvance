@@ -2170,13 +2170,15 @@ function renderPublicFunnelHtml(page, req, res) {
         });
       }
 
-      // Exit-Intent Trigger Engine (Wave 5)
-      (function() {
+      // Phase 16: Visual Exit-Intent VIP Lead Magnet & Gift Drawer
+      (function setupExitIntentDrawer() {
         var exitDismissedKey = 'jv_exit_dismissed_' + slug;
-        var overlay = document.getElementById('jv-exit-overlay');
-        if (!overlay) return;
+        var backdrop = document.getElementById('jv-exit-backdrop');
+        var drawer = document.getElementById('jv-exit-drawer');
+        if (!backdrop || !drawer) return;
 
         var closeBtn = document.getElementById('jv-exit-close');
+        var dragHandle = document.getElementById('jv-exit-drag-handle');
         var submitBtn = document.getElementById('jv-exit-submit-btn');
         var emailInput = document.getElementById('jv-exit-email');
         var formState = document.getElementById('jv-exit-form-state');
@@ -2184,43 +2186,81 @@ function renderPublicFunnelHtml(page, req, res) {
         var continueBtn = document.getElementById('jv-exit-continue-btn');
         var hasTriggered = false;
 
-        function showExitModal() {
+        function showExitDrawer() {
           if (hasTriggered || sessionStorage.getItem(exitDismissedKey)) return;
           hasTriggered = true;
-          overlay.style.display = 'flex';
+          backdrop.style.display = 'block';
+          drawer.style.display = 'block';
+          requestAnimationFrame(function() {
+            backdrop.style.opacity = '1';
+            drawer.style.transform = 'translateY(0)';
+          });
         }
 
-        function closeExitModal() {
-          overlay.style.display = 'none';
+        function closeExitDrawer() {
+          backdrop.style.opacity = '0';
+          drawer.style.transform = 'translateY(100%)';
+          setTimeout(function() {
+            backdrop.style.display = 'none';
+            drawer.style.display = 'none';
+          }, 380);
           sessionStorage.setItem(exitDismissedKey, '1');
         }
 
-        if (closeBtn) closeBtn.addEventListener('click', closeExitModal);
-        overlay.addEventListener('click', function(e) {
-          if (e.target === overlay) closeExitModal();
+        if (closeBtn) closeBtn.addEventListener('click', closeExitDrawer);
+        if (dragHandle) dragHandle.addEventListener('click', closeExitDrawer);
+        backdrop.addEventListener('click', closeExitDrawer);
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape' && drawer.style.display === 'block') closeExitDrawer();
         });
 
-        // Desktop mouseout trigger (user moves cursor above viewport)
+        // 1. Desktop Trigger: Cursor velocity leaving top of viewport
         document.addEventListener('mouseleave', function(e) {
           if (e.clientY <= 0) {
-            showExitModal();
+            showExitDrawer();
           }
         });
 
-        // Mobile fallback scroll trigger
-        var scrollTriggered = false;
+        // 2. Mobile Option 1: Rapid Up-Scroll Detection + 14s Inactivity Fallback
+        var lastScrollY = window.scrollY;
+        var lastScrollTime = Date.now();
+        var maxScrollDepth = 0;
+        var idleTimer = null;
+
+        function resetIdleTimer() {
+          if (idleTimer) clearTimeout(idleTimer);
+          if (window.scrollY > 150 && !hasTriggered && !sessionStorage.getItem(exitDismissedKey)) {
+            idleTimer = setTimeout(function() {
+              showExitDrawer();
+            }, 14000);
+          }
+        }
+
         window.addEventListener('scroll', function() {
-          var scrolled = (window.scrollY + window.innerHeight) / (document.documentElement.scrollHeight || 1);
-          if (scrolled > 0.4 && !scrollTriggered) {
-            scrollTriggered = true;
-          }
-        });
+          var currentY = window.scrollY;
+          var now = Date.now();
+          var dt = Math.max(1, now - lastScrollTime);
+          var dy = currentY - lastScrollY;
+          var scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+          var depthRatio = scrollHeight > 0 ? (currentY / scrollHeight) : 0;
 
-        setTimeout(function() {
-          if (window.innerWidth < 768 && scrollTriggered) {
-            showExitModal();
+          if (depthRatio > maxScrollDepth) {
+            maxScrollDepth = depthRatio;
           }
-        }, 25000);
+
+          // Rapid upward flick: user reached >20% depth and scrolled up >= 45px in < 120ms
+          if (maxScrollDepth > 0.20 && dy < -45 && dt < 120) {
+            showExitDrawer();
+          }
+
+          lastScrollY = currentY;
+          lastScrollTime = now;
+          resetIdleTimer();
+        }, { passive: true });
+
+        window.addEventListener('touchstart', resetIdleTimer, { passive: true });
+        window.addEventListener('mousemove', resetIdleTimer, { passive: true });
+        resetIdleTimer();
 
         if (submitBtn && emailInput) {
           submitBtn.addEventListener('click', async function() {
@@ -2233,7 +2273,7 @@ function renderPublicFunnelHtml(page, req, res) {
             submitBtn.textContent = 'Securing VIP Code…';
 
             try {
-              var exitCode = "${escapeHtml(data.exitIntentDiscountCode || data.discountCode || '')}";
+              var exitCode = "${escapeHtml(data.exitIntentDiscountCode || data.discountCode || 'GIVE15')}";
               var exitResp = await fetch('/api/public/lead', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2279,44 +2319,48 @@ function renderPublicFunnelHtml(page, req, res) {
   </script>
 
   ${data.exitIntentEnabled ? `
-  <!-- Exit-Intent Conversion Rescue Modal (Wave 5) -->
-  <div id="jv-exit-overlay" style="display:none; position:fixed; inset:0; background:rgba(10, 14, 26, 0.85); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center; padding:20px;">
-    <div id="jv-exit-card" style="position:relative; width:100%; max-width:480px; background:linear-gradient(145deg, rgba(26, 18, 34, 0.98), rgba(15, 23, 42, 0.99)); border:1px solid rgba(236, 72, 153, 0.35); border-radius:20px; padding:32px 28px; box-shadow:0 30px 80px rgba(0, 0, 0, 0.8), 0 0 50px rgba(236, 72, 153, 0.15); text-align:center; color:#FFFFFF;">
-      <button id="jv-exit-close" aria-label="Close" style="position:absolute; top:14px; right:16px; background:none; border:none; color:#94A3B8; font-size:26px; cursor:pointer; padding:4px 8px; line-height:1; border-radius:8px;">&times;</button>
-      
-      <div style="display:inline-flex; align-items:center; gap:6px; background:rgba(236, 72, 153, 0.15); border:1px solid rgba(236, 72, 153, 0.3); color:#F472B6; padding:4px 12px; border-radius:9999px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:14px;">
-        <span>✨</span> ${escapeHtml(data.exitIntentBadge || 'Before you go')}
+  <!-- Exit-Intent VIP Lead Magnet & Gift Drawer (Phase 16) -->
+  <div id="jv-exit-backdrop" style="display:none; position:fixed; inset:0; background:rgba(8, 10, 18, 0.75); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:99998; opacity:0; transition:opacity 0.3s ease;"></div>
+  
+  <div id="jv-exit-drawer" role="dialog" aria-modal="true" aria-label="VIP Courtesy Gift" style="display:none; position:fixed; bottom:0; left:0; right:0; max-width:540px; margin:0 auto; z-index:99999; transform:translateY(100%); transition:transform 0.38s cubic-bezier(0.16, 1, 0.3, 1); background:linear-gradient(180deg, rgba(24, 18, 30, 0.98), rgba(13, 13, 20, 0.99)); border-top:1px solid rgba(236, 72, 153, 0.4); border-left:1px solid rgba(255, 255, 255, 0.08); border-right:1px solid rgba(255, 255, 255, 0.08); border-radius:24px 24px 0 0; box-shadow:0 -20px 60px rgba(0, 0, 0, 0.85), 0 0 40px rgba(236, 72, 153, 0.12); padding:20px 24px 32px; color:#FFFFFF; text-align:center;">
+    
+    <!-- Top Grab Handle -->
+    <div style="width:38px; height:4px; border-radius:9999px; background:rgba(255, 255, 255, 0.22); margin:0 auto 16px; cursor:pointer;" id="jv-exit-drag-handle"></div>
+
+    <button id="jv-exit-close" aria-label="Close" style="position:absolute; top:16px; right:18px; width:30px; height:30px; border-radius:50%; background:rgba(255, 255, 255, 0.06); border:1px solid rgba(255, 255, 255, 0.1); color:#94A3B8; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1; transition:all 0.15s ease;">&times;</button>
+    
+    <div style="display:inline-flex; align-items:center; gap:6px; background:rgba(236, 72, 153, 0.14); border:1px solid rgba(236, 72, 153, 0.32); color:#F472B6; padding:4px 12px; border-radius:9999px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:12px;">
+      <span>✦</span> ${escapeHtml(data.exitIntentBadge || 'Parting Courtesy · VIP Privilege')}
+    </div>
+
+    <h3 style="font-family:'Playfair Display', serif; font-size:22px; font-weight:700; line-height:1.28; margin:0 0 8px; color:#F8FAFC;">
+      ${escapeHtml(data.exitIntentHeadline || 'Before You Go: Save Your 15% VIP Formulation Voucher')}
+    </h3>
+
+    <p style="font-size:13px; color:#CBD5E1; line-height:1.5; margin:0 0 20px;">
+      ${escapeHtml(data.exitIntentSubhead || 'Reserve your private batch discount code now before this allocation concludes.')}
+    </p>
+
+    <div id="jv-exit-form-state">
+      <input type="email" id="jv-exit-email" autocomplete="email" placeholder="Enter your email address" style="width:100%; box-sizing:border-box; padding:13px 16px; border-radius:12px; border:1px solid rgba(255, 255, 255, 0.18); background:rgba(10, 14, 26, 0.8); color:#FFFFFF; font-size:14px; margin-bottom:12px; outline:none;" />
+      <button id="jv-exit-submit-btn" style="width:100%; padding:14px 20px; border-radius:12px; border:none; background:linear-gradient(135deg, #EC4899, #DB2777); color:#FFFFFF; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 10px 25px rgba(236, 72, 153, 0.35); transition:transform 0.15s ease;">
+        ${escapeHtml(data.exitIntentButtonText || 'Claim VIP Gift & Continue')}
+      </button>
+    </div>
+
+    <div id="jv-exit-success-state" style="display:none; text-align:center; padding:4px 0;">
+      <div style="background:rgba(236, 72, 153, 0.12); border:1px dashed rgba(236, 72, 153, 0.4); border-radius:14px; padding:16px; margin-bottom:16px;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:#F472B6; font-weight:700; margin-bottom:4px;">VIP Courtesy Code Activated</div>
+        <div id="jv-exit-code-display" style="font-size:24px; font-weight:800; color:#FFFFFF; letter-spacing:0.08em; font-family:monospace;">${escapeHtml(data.exitIntentDiscountCode || data.discountCode || 'GIVE15')}</div>
+        <div style="font-size:11px; color:#94A3B8; margin-top:4px;">${storeDomain && variantId ? 'Pre-applied to your checkout link below.' : 'Code saved.'}</div>
       </div>
+      <button id="jv-exit-continue-btn" style="width:100%; padding:14px 20px; border-radius:12px; border:none; background:linear-gradient(135deg, #10B981, #059669); color:#FFFFFF; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 10px 25px rgba(16, 185, 129, 0.35);">
+        Claim Gift &amp; Continue &rarr;
+      </button>
+    </div>
 
-      <h3 style="font-size:22px; font-weight:800; line-height:1.3; margin:0 0 10px; color:#F8FAFC;">
-        ${escapeHtml(data.exitIntentHeadline || 'Leave your email before you go')}
-      </h3>
-
-      <p style="font-size:13px; color:#CBD5E1; line-height:1.5; margin:0 0 22px;">
-        ${escapeHtml(data.exitIntentSubhead || 'Leave an email if you want a follow-up.')}
-      </p>
-
-      <div id="jv-exit-form-state">
-        <input type="email" id="jv-exit-email" placeholder="Enter your best email address" style="width:100%; box-sizing:border-box; padding:14px 16px; border-radius:10px; border:1px solid rgba(255, 255, 255, 0.18); background:rgba(15, 23, 42, 0.8); color:#FFFFFF; font-size:14px; margin-bottom:12px; outline:none;" />
-        <button id="jv-exit-submit-btn" style="width:100%; padding:14px 20px; border-radius:10px; border:none; background:linear-gradient(135deg, #EC4899, #DB2777); color:#FFFFFF; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 10px 25px rgba(236, 72, 153, 0.35);">
-          ${escapeHtml(data.exitIntentButtonText || 'Save my email')}
-        </button>
-      </div>
-
-      <div id="jv-exit-success-state" style="display:none; text-align:center; padding:6px 0;">
-        <div style="background:rgba(236, 72, 153, 0.12); border:1px dashed rgba(236, 72, 153, 0.4); border-radius:12px; padding:16px; margin-bottom:18px;">
-          <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#F472B6; font-weight:700; margin-bottom:4px;">VIP Code Unlocked</div>
-          <div id="jv-exit-code-display" style="font-size:22px; font-weight:800; color:#FFFFFF; letter-spacing:0.08em; font-family:monospace;">${escapeHtml(data.exitIntentDiscountCode || data.discountCode || 'Saved')}</div>
-          <div style="font-size:11px; color:#94A3B8; margin-top:4px;">${storeDomain && variantId && (data.exitIntentDiscountCode || data.discountCode) ? 'This code is added to the checkout link.' : 'Saved. A store checkout is not connected yet.'}</div>
-        </div>
-        <button id="jv-exit-continue-btn" style="width:100%; padding:14px 20px; border-radius:10px; border:none; background:linear-gradient(135deg, #10B981, #059669); color:#FFFFFF; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 10px 25px rgba(16, 185, 129, 0.35);">
-          Continue
-        </button>
-      </div>
-
-      <div style="margin-top:14px; font-size:11px; color:#64748B;">
-        🔒 Private & confidential. No spam. You can unsubscribe anytime.
-      </div>
+    <div style="margin-top:14px; font-size:11px; color:#64748B;">
+      Private &amp; confidential. No spam. Instant 1-tap checkout.
     </div>
   </div>
   ` : ''}

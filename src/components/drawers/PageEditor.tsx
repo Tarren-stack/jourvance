@@ -1979,10 +1979,10 @@ export const PageEditor: React.FC<Props> = ({
                 <ShieldAlert size={16} style={{ color: '#ec4899' }} />
                 <div>
                   <span style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6' }}>
-                    Exit-Intent Conversion Rescue
+                    Exit-Intent VIP Lead Magnet & Gift Drawer
                   </span>
                   <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                    Luxury slide-over to recover abandoning shoppers with a VIP formulation code
+                    Mobile-first slide-up drawer to rescue abandoning shoppers with a private VIP gift voucher
                   </div>
                 </div>
               </div>
@@ -2008,7 +2008,7 @@ export const PageEditor: React.FC<Props> = ({
                     </label>
                     <input
                       type="text"
-                      value={data.exitIntentBadge || 'Wait — VIP Privilege'}
+                      value={data.exitIntentBadge || 'Parting Courtesy · VIP Privilege'}
                       onChange={e => handleFieldChange('exitIntentBadge', e.target.value)}
                       style={{
                         width: '100%',
@@ -2029,6 +2029,7 @@ export const PageEditor: React.FC<Props> = ({
                       type="text"
                       value={data.exitIntentDiscountCode || data.discountCode || ''}
                       onChange={e => handleFieldChange('exitIntentDiscountCode', e.target.value.toUpperCase())}
+                      placeholder="e.g. SAVE15"
                       style={{
                         width: '100%',
                         padding: '6px 8px',
@@ -2069,7 +2070,7 @@ export const PageEditor: React.FC<Props> = ({
                   </label>
                   <textarea
                     rows={2}
-                    value={data.exitIntentSubhead || 'Reserve your private batch discount code now before this allocation sells out.'}
+                    value={data.exitIntentSubhead || 'Reserve your private batch discount code now before this allocation concludes.'}
                     onChange={e => handleFieldChange('exitIntentSubhead', e.target.value)}
                     style={{
                       width: '100%',
@@ -2083,8 +2084,28 @@ export const PageEditor: React.FC<Props> = ({
                   />
                 </div>
 
+                <div>
+                  <label style={{ display: 'block', fontSize: '10px', color: '#94a3b8', marginBottom: '4px' }}>
+                    Button Action Text:
+                  </label>
+                  <input
+                    type="text"
+                    value={data.exitIntentButtonText || 'Claim VIP Gift & Continue'}
+                    onChange={e => handleFieldChange('exitIntentButtonText', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      background: '#0a0a0f',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '12px'
+                    }}
+                  />
+                </div>
+
                 <div style={{ padding: '8px 10px', borderRadius: '6px', background: 'rgba(0, 0, 0, 0.3)', border: '1px dashed rgba(236, 72, 153, 0.3)', fontSize: '11px', color: '#fbcfe8' }}>
-                  💡 <strong>Smart Triggering</strong>: Triggered on desktop cursor exit and mobile upward scroll. Frequency capped in <code>sessionStorage</code> so it never annoys repeat shoppers.
+                  ✦ <strong>Mobile-First Slide-Up Drawer</strong>: Triggers on desktop cursor exit and mobile rapid up-scroll (or 14s idle pause). Frequency-capped in <code>sessionStorage</code> to protect buyer trust.
                 </div>
               </div>
             )}

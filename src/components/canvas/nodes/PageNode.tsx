@@ -213,6 +213,31 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
               </span>
             </div>
           )}
+
+          {d.exitIntentEnabled && (
+            <div
+              style={{
+                marginTop: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '10px',
+                color: '#FDE68A',
+                background: 'rgba(245, 158, 11, 0.08)',
+                padding: '3px 7px',
+                borderRadius: '6px',
+                border: '1px solid rgba(245, 158, 11, 0.25)'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#FBBF24' }} />
+                <span>Exit Gift: {d.exitIntentDiscountCode || d.discountCode || 'VIP Voucher'}</span>
+              </span>
+              <span style={{ fontWeight: 700, color: '#FBBF24' }}>
+                Drawer
+              </span>
+            </div>
+          )}
         </div>
       )}
 
