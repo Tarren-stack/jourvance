@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -137,6 +137,8 @@ interface Props {
   onGraphChange?: (nodes: JourneyNode[], edges: JourneyEdge[]) => void;
   /** Filled by the canvas: the centre of the visible map and each drawn card's size, for the header's Add Step. */
   canvasViewRef?: React.MutableRefObject<CanvasView | null>;
+  pickerRequest?: AddRequest | null;
+  onClearPickerRequest?: () => void;
 }
 
 // A line dragged out of a dot and let go on empty map opens the step picker; a request that came
@@ -189,8 +191,10 @@ const StepAddSlot: React.FC<{ nodeId: string }> = ({ nodeId }) => {
   const layout = useStore(s => (shown ? geometryKey(s.nodeLookup.values()) : ''));
   const portal = useCaptionPortal();
   const slotRef = useRef<HTMLDivElement>(null);
-  const moveRef = useRef({ x: 0, y: 0 });
-  const [spot, setSpot] = useState<{ x: number; y: number; side: StepAddSpot['side'] }>({ x: 0, y: 0, side: 'above' });
+  const moveRef = useRef({ x: 0, y: 0, hidden: false });
+  const [spot, setSpot] = useState<{ x: number; y: number; hidden: boolean; side: StepAddSpot['side'] }>({ x: 0, y: 0, hidden: false, side: 'above' });
+  // A row placed hidden still shows while a pill in it holds keyboard focus (U10).
+  const [focused, setFocused] = useState(false);
 
   useLayoutEffect(() => {
     const slot = slotRef.current;
@@ -204,17 +208,18 @@ const StepAddSlot: React.FC<{ nodeId: string }> = ({ nodeId }) => {
     };
     const measure = () => {
       frame = 0;
-      const r = slot.getBoundingClientRect();
       // The row with no move: its bottom STEP_ADD_GAP above the card, its right edge on the card's.
-      const row = { width: r.width, height: r.height - STEP_ADD_GAP };
+      // Its layout size, which the counter-scale makes its size on screen and which a hidden row
+      // (scale 0, U10) keeps: measured on screen, a hidden row read as 0 wide and was placed again.
+      const row = { width: slot.offsetWidth, height: slot.offsetHeight - STEP_ADD_GAP };
       const card = box(own);
       const captions: Box[] = [];
       portal?.querySelectorAll('[data-jv-edge-label], [data-jv-edge-label] .jv-add-next').forEach(el => captions.push(box(el)));
-      // Zoomed out, captions and design-check badges keep 11px on screen (T02) and a badge grows
-      // above its card's corner, where the row rests, so the row tries harder to find a clear spot
-      // (placeStepAddZoomed). At zoom 1 and up it sits as it always has.
+      // A design-check badge sits on its card's corner, where the row rests, so it is kept clear at
+      // every zoom (U10). Zoomed out, captions and badges keep 11px on screen (T02), so the row may
+      // move further to find a clear spot (placeStepAddZoomed).
       const badges: Box[] = [];
-      if (zoom < 1) flow.querySelectorAll('[data-jv-design-badge]').forEach(el => badges.push(box(el)));
+      flow.querySelectorAll('[data-jv-design-badge]').forEach(el => badges.push(box(el)));
       const cards: Box[] = [];
       flow.querySelectorAll('.react-flow__node').forEach(el => { if (el !== own) cards.push(box(el)); });
       const handles: Box[] = [];
@@ -230,9 +235,12 @@ const StepAddSlot: React.FC<{ nodeId: string }> = ({ nodeId }) => {
       const at = placeStepAddZoomed(card, row, { captions, cards, handles, badges, overlays }, zoom < 1, STEP_ADD_GAP);
       const next = {
         x: Math.round(at.x - (card.x + card.width - row.width)),
-        y: Math.round(at.y - (card.y - STEP_ADD_GAP - row.height))
+        y: Math.round(at.y - (card.y - STEP_ADD_GAP - row.height)),
+        // Nowhere it covers nothing (U10): not drawn, like a hidden caption or badge, but kept in
+        // the tab order and shown while a pill in it holds focus.
+        hidden: at.fit === 'hidden'
       };
-      if (next.x !== moveRef.current.x || next.y !== moveRef.current.y) {
+      if (next.x !== moveRef.current.x || next.y !== moveRef.current.y || next.hidden !== moveRef.current.hidden) {
         moveRef.current = next;
         setSpot({ ...next, side: at.side });
       }
@@ -276,6 +284,9 @@ const StepAddSlot: React.FC<{ nodeId: string }> = ({ nodeId }) => {
       ref={slotRef}
       data-step-add={nodeId}
       data-step-add-side={spot.side}
+      data-step-add-hidden={spot.hidden ? '' : undefined}
+      onFocus={() => setFocused(true)}
+      onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
       className="nodrag nopan nokey"
       style={{
         position: 'absolute',
@@ -286,6 +297,9 @@ const StepAddSlot: React.FC<{ nodeId: string }> = ({ nodeId }) => {
         gap: '6px',
         width: 'max-content',
         pointerEvents: 'none',
+        // Hidden as a hidden caption is (index.css): no room, no pointer, still in the tab order.
+        opacity: spot.hidden && !focused ? 0 : undefined,
+        scale: spot.hidden && !focused ? '0' : undefined,
         transform: `scale(${1 / zoom})`,
         transformOrigin: '100% 100%',
         // The translate property applies outside the counter-scale, in map units, so divide by the zoom.
@@ -355,7 +369,7 @@ const noteButton: React.CSSProperties = {
 function scrollBoxOf(el: Element): Element | null {
   for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
     const o = getComputedStyle(a).overflowY;
-    if ((o === 'auto' || o === 'scroll') && a.scrollHeight > a.clientHeight) return a;
+    if (o === 'auto' || o === 'scroll') return a;
   }
   return null;
 }
@@ -660,7 +674,9 @@ export const JourneyCanvas: React.FC<Props> = ({
   focusRequest,
   onOpenIssues,
   onGraphChange,
-  canvasViewRef
+  canvasViewRef,
+  pickerRequest,
+  onClearPickerRequest
 }) => {
   const nodeTypes: NodeTypes = useMemo(() => ({
     'ad-source': withStepAdd(AdNode),
@@ -1115,7 +1131,7 @@ export const JourneyCanvas: React.FC<Props> = ({
         return;
       }
       const node = nodeMap.get(from.nodeId);
-      const name = node ? stepShortName(node.data) : 'this step';
+      const name = node ? nameInSentence(stepShortName(node.data)) : 'this step';
       const way = from.type === 'target' ? 'into' : 'from';
       // On a touch screen a dot takes a tap on little more than itself (U01), so zoomed far out the
       // notice says to zoom in rather than promise a dot that is easy to hit.
@@ -1258,6 +1274,13 @@ export const JourneyCanvas: React.FC<Props> = ({
     setRuleNotice(null);
     setPicker({ request, lockedExit });
   }, []);
+
+  useEffect(() => {
+    if (pickerRequest) {
+      openPicker(pickerRequest, false);
+      onClearPickerRequest?.();
+    }
+  }, [pickerRequest, openPicker, onClearPickerRequest]);
 
   // rfNodes carry each card's measured size, which placement needs; the edges are the saved ones.
   const planNodes = rfNodes as JourneyNode[];
@@ -1862,6 +1885,7 @@ export const JourneyCanvas: React.FC<Props> = ({
             edgeTypes={edgeTypes}
             onNodesChange={handleNodesChange}
             onEdgesChange={handleEdgesChange}
+            deleteKeyCode={['Backspace', 'Delete']}
             onDelete={handleDelete}
             onConnect={handleConnect}
             isValidConnection={isValidConnection}

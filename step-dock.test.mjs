@@ -348,3 +348,17 @@ test('R11: the search hint fits a 360px dock, and the rest of the row goes to th
   const arrowW = Number(/style=\{\{ \.\.\.navButtonStyle\(!target\), minWidth: '(\d+)px'/.exec(finder)?.[1]);
   assert.ok(arrowW >= 24 && arrowW < 32, `arrows ${arrowW}px wide`);
 });
+
+test('Item A: StepConnections offers Add step before and Add step after when ports allow', () => {
+  const conn = read('src/components/drawers/StepConnections.tsx');
+  const d = read('src/components/drawers/StepDock.tsx');
+  const app = read('src/App.tsx');
+  assert.match(conn, /\+ Add step before/);
+  assert.match(conn, /\+ Add step after/);
+  assert.match(conn, /STEP_PORTS/);
+  assert.match(d, /onAddBefore=\{onAddStepBefore/);
+  assert.match(d, /onAddAfter=\{onAddStepAfter/);
+  assert.match(app, /onAddStepBefore=\{handleAddStepBefore\}/);
+  assert.match(app, /onAddStepAfter=\{handleAddStepAfter\}/);
+});
+

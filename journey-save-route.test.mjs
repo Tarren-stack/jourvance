@@ -29,11 +29,11 @@ async function serve({ stored = {}, readFails = false, saveDelayMs = 0 } = {}) {
       return { journey, durable: true };
     }
   });
-  const server = await new Promise(resolve => { const s = app.listen(0, () => resolve(s)); });
+  const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const url = `http://127.0.0.1:${server.address().port}`;
-  const post = (path, body) => fetch(url + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const post = (path, body) => fetch(url + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Connection: 'close' }, body: JSON.stringify(body) })
     .then(async r => ({ status: r.status, body: await r.json() }));
-  return { post, store, writes, close: () => new Promise(r => server.close(r)) };
+  return { post, store, writes, close: () => new Promise(r => { server.closeAllConnections?.(); server.close(r); }) };
 }
 
 const R1 = '2026-09-20T10:00:00.000Z';

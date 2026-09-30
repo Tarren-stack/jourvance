@@ -1,7 +1,8 @@
 import React from 'react';
-import type { JourneyEdge, JourneyNode } from '../../types/journey';
+import type { JourneyEdge, JourneyNode, NodeType } from '../../types/journey';
 import { EDGE_KINDS, EDGE_WIDTH } from '../../lib/edgeKinds';
 import { revealsHiddenStep, stepConnections, type StepLink } from '../../lib/stepNavigation';
+import { STEP_PORTS } from '../../lib/addStep';
 
 // The steps an opened step comes from and leads to, one button each, drawn with the same colour,
 // dash and label the line has on the map. Names and line kinds only: no counts, no rates.
@@ -12,6 +13,8 @@ interface Props {
   edges: JourneyEdge[];
   showRetentionBranches: boolean;
   onJump: (nodeId: string) => void;
+  onAddBefore?: () => void;
+  onAddAfter?: () => void;
 }
 
 const headingStyle: React.CSSProperties = {
@@ -41,9 +44,29 @@ const LineSwatch: React.FC<{ link: StepLink }> = ({ link }) => {
   );
 };
 
-export const StepConnections: React.FC<Props> = ({ nodeId, nodes, edges, showRetentionBranches, onJump }) => {
+const actionButtonStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: '36px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '6px 12px',
+  background: 'var(--color-surface-2)',
+  border: '1px solid var(--color-border)',
+  borderRadius: '8px',
+  color: 'var(--color-text-main)',
+  fontSize: '12px',
+  fontWeight: 600,
+  cursor: 'pointer'
+};
+
+export const StepConnections: React.FC<Props> = ({ nodeId, nodes, edges, showRetentionBranches, onJump, onAddBefore, onAddAfter }) => {
   const { incoming, outgoing } = stepConnections(nodeId, nodes, edges);
   const byId = new Map(nodes.map(n => [n.id, n]));
+  const node = byId.get(nodeId);
+  const ports = node ? STEP_PORTS[node.type as NodeType] : undefined;
+  const canAddBefore = Boolean(onAddBefore && ports?.inputs.some(p => p.handle === null));
+  const canAddAfter = Boolean(onAddAfter && ports && ports.exits.length > 0);
 
   const list = (heading: string, links: StepLink[], empty: string) => (
     <div>
@@ -98,6 +121,28 @@ export const StepConnections: React.FC<Props> = ({ nodeId, nodes, edges, showRet
     >
       {list('Comes from', incoming, 'Nothing leads here yet.')}
       {list('Leads to', outgoing, 'This step does not lead anywhere yet.')}
+      {(canAddBefore || canAddAfter) && (
+        <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+          {canAddBefore && (
+            <button
+              type="button"
+              onClick={onAddBefore}
+              style={actionButtonStyle}
+            >
+              + Add step before
+            </button>
+          )}
+          {canAddAfter && (
+            <button
+              type="button"
+              onClick={onAddAfter}
+              style={actionButtonStyle}
+            >
+              + Add step after
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 };

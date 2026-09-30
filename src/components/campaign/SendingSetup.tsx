@@ -61,28 +61,32 @@ export const SendingSetup: React.FC = () => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const load = async () => {
-    const headers = await authHeaders();
-    const [senderRes, inboundRes, eventRes, liveRes] = await Promise.all([
-      readJson(await fetch('/api/email/senders', { headers })),
-      readJson(await fetch('/api/email/inbound', { headers })),
-      readJson(await fetch('/api/email/events-webhook', { headers })),
-      readJson(await fetch('/api/email/live', { headers }))
-    ]);
-    const senderList = Array.isArray(senderRes?.senders) ? senderRes.senders : [];
-    setSenders(senderList);
-    setInbound(inboundRes?.success === false ? { error: inboundRes.error } : inboundRes);
-    setEvents(eventRes?.success === false ? { error: eventRes.error } : eventRes);
-    setBlocks(Array.isArray(liveRes?.blocks) ? liveRes.blocks : []);
-    if (senderRes?.success === false) setNotice(senderRes.error);
+    try {
+      const headers = await authHeaders();
+      const [senderRes, inboundRes, eventRes, liveRes] = await Promise.all([
+        readJson(await fetch('/api/email/senders', { headers })),
+        readJson(await fetch('/api/email/inbound', { headers })),
+        readJson(await fetch('/api/email/events-webhook', { headers })),
+        readJson(await fetch('/api/email/live', { headers }))
+      ]);
+      const senderList = Array.isArray(senderRes?.senders) ? senderRes.senders : [];
+      setSenders(senderList);
+      setInbound(inboundRes?.success === false ? { error: inboundRes.error } : inboundRes);
+      setEvents(eventRes?.success === false ? { error: eventRes.error } : eventRes);
+      setBlocks(Array.isArray(liveRes?.blocks) ? liveRes.blocks : []);
+      if (senderRes?.success === false) setNotice(senderRes.error);
 
-    const suiteRes = await readJson(await fetch('/api/email/suite', { headers }));
-    if (typeof suiteRes?.suite?.postalAddress === 'string') setAddress(suiteRes.suite.postalAddress);
+      const suiteRes = await readJson(await fetch('/api/email/suite', { headers }));
+      if (typeof suiteRes?.suite?.postalAddress === 'string') setAddress(suiteRes.suite.postalAddress);
 
-    // Initial audit domain default
-    if (senderList.length > 0 && senderList[0].domain) {
-      setDomain(senderList[0].domain);
-      setAuditDomain(senderList[0].domain);
-      runAudit(senderList[0].domain);
+      // Initial audit domain default
+      if (senderList.length > 0 && senderList[0].domain) {
+        setDomain(senderList[0].domain);
+        setAuditDomain(senderList[0].domain);
+        runAudit(senderList[0].domain);
+      }
+    } catch {
+      setNotice('Email configuration could not be loaded.');
     }
   };
 

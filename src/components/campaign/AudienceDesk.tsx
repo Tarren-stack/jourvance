@@ -16,13 +16,17 @@ export const AudienceDesk: React.FC = () => {
   const [clauses, setClauses] = useState<Clause[]>([{ kind: 'profile', field: 'email', op: 'eq', value: '' }]);
 
   const load = async () => {
-    const headers = await authHeaders();
-    const [segmentData, listData] = await Promise.all([
-      readJson(await fetch('/api/email/segments', { headers })),
-      readJson(await fetch('/api/email/lists', { headers }))
-    ]);
-    setSegments(Array.isArray(segmentData?.segments) ? segmentData.segments : []);
-    setLists(Array.isArray(listData?.lists) ? listData.lists : []);
+    try {
+      const headers = await authHeaders();
+      const [segmentData, listData] = await Promise.all([
+        readJson(await fetch('/api/email/segments', { headers })),
+        readJson(await fetch('/api/email/lists', { headers }))
+      ]);
+      setSegments(Array.isArray(segmentData?.segments) ? segmentData.segments : []);
+      setLists(Array.isArray(listData?.lists) ? listData.lists : []);
+    } catch {
+      setNotice('Audience data could not be loaded.');
+    }
   };
 
   useEffect(() => { load(); }, []);

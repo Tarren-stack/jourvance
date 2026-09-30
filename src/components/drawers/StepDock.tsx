@@ -63,6 +63,8 @@ interface Props {
   onOpenEmailStudio?: (nodeId: string) => Promise<boolean>;
   openingEmailStudio?: boolean;
   returnFocusNodeId?: string | null;
+  onAddStepBefore?: (nodeId: string) => void;
+  onAddStepAfter?: (nodeId: string) => void;
 }
 
 /** Smooth unless the person asked for reduced motion. */
@@ -101,7 +103,9 @@ export const StepDock: React.FC<Props> = ({
   metrics,
   onOpenEmailStudio,
   openingEmailStudio,
-  returnFocusNodeId
+  returnFocusNodeId,
+  onAddStepBefore,
+  onAddStepAfter
 }) => {
   const [jumpTick, setJumpTick] = useState(0);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -233,6 +237,8 @@ export const StepDock: React.FC<Props> = ({
                 edges={edges}
                 showRetentionBranches={showRetentionBranches}
                 onJump={jump}
+                onAddBefore={onAddStepBefore ? () => onAddStepBefore(node.id) : undefined}
+                onAddAfter={onAddStepAfter ? () => onAddStepAfter(node.id) : undefined}
               />
             }
             onClose={() => closeStep(node.id)}

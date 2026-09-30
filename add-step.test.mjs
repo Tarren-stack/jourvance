@@ -763,7 +763,8 @@ test('an export of a new step carries no invented copy', () => {
   assert.doesNotMatch(exports['ad copy'], /Learn More|utm_campaign|lead_intake|brand_conversion|founder_story/);
   assert.match(exports['ad copy'], /No campaign tag is set on this ad step/);
   const tagged = G.generateAdCopyText({ adNode: { ...D.newStepData('ad-source', 's'), ctaText: 'Book now', utmCampaign: 'spring-calls' } });
-  assert.equal((tagged.match(/&utm_campaign=spring-calls&/g) || []).length, 3);
+  assert.equal((tagged.match(/&utm_campaign=spring-calls\b/g) || []).length, 3);
+  assert.doesNotMatch(tagged, /hook_angle_1|customer_journey_builder|problem_agitation/);
   assert.match(tagged, /CALL TO ACTION \(CTA\):\nBook now/);
   assert.doesNotMatch(tagged, /No campaign tag/);
   // What the person wrote still ships.

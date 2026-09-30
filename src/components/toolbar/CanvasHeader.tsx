@@ -343,7 +343,7 @@ export const CanvasHeader: React.FC<Props> = ({
   const statusView: { text: string; short: string; title: string; color: string; icon: React.ReactNode } | null = saving || savePending
     ? { text: 'Saving…', short: 'Saving…', title: 'Saving this journey', color: '#94A3B8', icon: <Loader2 size={13} className="spin" /> }
     : saveStatus.kind === 'failed'
-      ? { text: saveStatus.action === 'open-library' ? 'Out of space' : 'Not saved', short: saveStatus.action === 'open-library' ? 'Out of space' : 'Not saved', title: saveStatus.message, color: '#FCA5A5', icon: <AlertTriangle size={13} /> }
+      ? { text: saveStatus.action === 'open-library' ? 'Out of space' : 'Not saved', short: saveStatus.action === 'open-library' ? 'No space' : 'Not saved', title: saveStatus.message, color: '#FCA5A5', icon: <AlertTriangle size={13} /> }
       : unsaved
         ? { text: 'Unsaved changes', short: 'Unsaved', title: 'You have edits that are not saved yet. Press Save to save them now.', color: '#FBBF24', icon: <Circle size={9} fill="#FBBF24" /> }
         : saveStatus.kind === 'saved'

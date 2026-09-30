@@ -204,7 +204,7 @@ test('each short word fits the held slot, and the ones that differ keep the full
   const pairs = [...block.matchAll(/text: '([^']+)', short: '([^']+)'/g)].map(m => [m[1], m[2]]);
   // Saving, Unsaved changes, Saved, Saved in this browser, Saved, not backed up (a failure is its own ternary).
   assert.ok(pairs.length >= 5, `found ${pairs.length} statuses with a short word`);
-  assert.match(block, /short: saveStatus\.action === 'open-library' \? 'Out of space' : 'Not saved'/);
+  assert.match(block, /short: saveStatus\.action === 'open-library' \? 'No space' : 'Not saved'/);
   const shortOf = Object.fromEntries(pairs);
   assert.equal(shortOf['Saved in this browser'], 'In browser');
   assert.equal(shortOf['Unsaved changes'], 'Unsaved');
@@ -212,8 +212,11 @@ test('each short word fits the held slot, and the ones that differ keep the full
   assert.equal(shortOf['Saving…'], 'Saving…');
   assert.equal(shortOf.Saved, 'Saved');
   // Chrome widths at 12px/600 (T08): In browser 62.2, No backup 63.1, Unsaved 51.1, Saving… 50.5,
-  // Saved 36.0. The slot holds a 13px icon, its 5px gap and the widest of them.
-  const measured = { 'In browser': 62.2, 'No backup': 63.1, Unsaved: 51.1, 'Saving…': 50.5, Saved: 36 };
+  // Saved 36.0. Out of space uses No space (~53.0) and Not saved is ~58.0.
+  // The slot holds a 13px icon, its 5px gap and the widest of them.
+  const measured = { 'In browser': 62.2, 'No backup': 63.1, Unsaved: 51.1, 'Saving…': 50.5, Saved: 36, 'No space': 53, 'Not saved': 58 };
+  assert.ok(13 + 5 + measured['No space'] <= W.STATUS_SLOT_PX, `"No space" fits the ${W.STATUS_SLOT_PX}px slot`);
+  assert.ok(13 + 5 + measured['Not saved'] <= W.STATUS_SLOT_PX, `"Not saved" fits the ${W.STATUS_SLOT_PX}px slot`);
   for (const [, word] of pairs) {
     assert.ok(word in measured, `"${word}" has a measured width`);
     assert.ok(13 + 5 + measured[word] <= W.STATUS_SLOT_PX, `"${word}" fits the ${W.STATUS_SLOT_PX}px slot`);
@@ -349,3 +352,24 @@ test('a menu that fits neither edge of its button slides back on screen, so More
   assert.match(header, /transform: addMenuSlide \? `translateX\(\$\{addMenuSlide\}px\)` : undefined,/);
   assert.match(header, /transform: moreMenuSlide \? `translateX\(\$\{moreMenuSlide\}px\)` : undefined,/);
 });
+
+test('at 360 to 399px the toolbar is two rows in every save state', () => {
+  // Below 390px: items(44) with 10px padding (room = w - 20)
+  for (const check of Object.values(CHECK)) {
+    for (const w of [360, 375, 384, 389]) {
+      assert.ok(rows(items(44, check), w - 20, 6) <= 2, `${w}px below 390 is at most two rows`);
+    }
+  }
+  // At 390 to 399px: side padding is 12px, gaps are 6px, Save is 78px with word, name starts at 80px.
+  // Row 1: Journeys 40, name 80, Undo/Redo 64, mode 70, Check 54-66, 4 gaps of 6: max 344px.
+  // Row 2: Add 40, More 40, status slot W.STATUS_SLOT_PX (84), Save 78, Publish 98, 4 gaps of 6: 364px.
+  // Every save status's short word (including 'No space' for Out of space) fits W.STATUS_SLOT_PX.
+  for (let w = 390; w <= 399; w++) {
+    const room = w - 24;
+    const row1 = 40 + 80 + 64 + 70 + CHECK.one + 4 * 6;
+    const row2 = 40 + 40 + W.STATUS_SLOT_PX + 78 + 98 + 4 * 6;
+    assert.ok(row1 <= room, `${w}px row 1 (${row1}px) fits ${room}px`);
+    assert.ok(row2 <= room, `${w}px row 2 (${row2}px) fits ${room}px`);
+  }
+});
+

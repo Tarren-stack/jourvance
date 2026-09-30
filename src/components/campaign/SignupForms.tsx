@@ -88,6 +88,8 @@ export const SignupForms: React.FC = () => {
       setForms(Array.isArray(data?.forms) ? data.forms : []);
       setHubForms(Array.isArray(data?.hubForms) ? data.hubForms.length : 0);
       setHubError(data?.hubError || '');
+    } catch {
+      setHubError('Failed to load signup forms. Please check your connection.');
     } finally {
       setLoading(false);
     }

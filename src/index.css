@@ -110,6 +110,17 @@ body {
   border-radius: 10px !important;
 }
 
+@media (max-width: 479px) {
+  .react-flow__minimap {
+    display: none !important;
+  }
+
+  [data-rule-notice='connecting'] {
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+  }
+}
+
 /* Custom Connection Handles. Only size and shape are forced: a branch handle sets its own
    colour inline so it matches the line that leaves it (src/lib/edgeKinds.ts). Hover draws a ring
    and changes no geometry: React Flow places each handle with `transform`, so a transform on hover

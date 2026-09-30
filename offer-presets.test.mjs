@@ -232,3 +232,14 @@ test('GET /review passes the store\'s GIVE15 rule to the portal', async (t) => {
   const withRule = await open([{ code: 'GIVE15', discountType: 'fixed_amount', value: 15, status: 'active', storeDomain: 'aura.myshopify.com' }]);
   assert.match(withRule, /your friend gets \$15\.00 off with code/, 'the merchant\'s own $15, in their currency');
 });
+
+test('Item B: EmailBlocks carries no invented products, prices, badges or links', () => {
+  const blocks = fs.readFileSync('src/components/campaign/EmailBlocks.tsx', 'utf8');
+  assert.doesNotMatch(blocks, /BEAUTY_PRESETS/);
+  assert.doesNotMatch(blocks, /Rosewater|Silk Peptide|Velvet Botanical/i);
+  assert.doesNotMatch(blocks, /VIP Favorite|Award Winner/i);
+  assert.doesNotMatch(blocks, /jourvance\.com\/r\//);
+  assert.doesNotMatch(blocks, /useState\('\$38\.00'\)/);
+  assert.doesNotMatch(blocks, /placeholder="\$38\.00"/);
+});
+

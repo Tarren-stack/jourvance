@@ -1057,8 +1057,9 @@ function saveCheckouts(checkouts) {
 const eventsFilePath = path.join(__dirname, 'events.json');
 
 function loadEvents() {
-  const raw = hubStorage.get('store.events', 'events.json', []);
-  return Array.isArray(raw) ? raw : [];
+  const raw = hubStorage.get('store.events', 'events.json', null);
+  if (!Array.isArray(raw)) throw new Error('The event log could not be read');
+  return raw;
 }
 
 function recordEvent(evt) {

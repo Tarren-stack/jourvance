@@ -1080,9 +1080,15 @@ export function generateAdCopyText({
 cannot be counted for this ad. Add one in the ad step.
 
 `;
-  const utmMeta = `${destinationUrl}?utm_source=meta&utm_medium=cpc${tag}&utm_content=hook_angle_1`;
-  const utmGoogle = `${destinationUrl}?utm_source=google&utm_medium=search${tag}&utm_term=customer_journey_builder`;
-  const utmTikTok = `${destinationUrl}?utm_source=tiktok&utm_medium=video${tag}&utm_content=problem_agitation`;
+  const content = typeof (adNode as any)?.utmContent === 'string' && (adNode as any).utmContent.trim()
+    ? `&utm_content=${encodeURIComponent((adNode as any).utmContent.trim())}`
+    : '';
+  const term = typeof (adNode as any)?.utmTerm === 'string' && (adNode as any).utmTerm.trim()
+    ? `&utm_term=${encodeURIComponent((adNode as any).utmTerm.trim())}`
+    : '';
+  const utmMeta = `${destinationUrl}?utm_source=meta&utm_medium=cpc${tag}${content}`;
+  const utmGoogle = `${destinationUrl}?utm_source=google&utm_medium=search${tag}${term}`;
+  const utmTikTok = `${destinationUrl}?utm_source=tiktok&utm_medium=video${tag}${content}`;
 
   return `═══════════════════════════════════════════════════════════════
 AD CREATIVE & COPY SPECIFICATION

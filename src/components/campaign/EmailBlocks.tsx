@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Plus, Trash2, ShoppingBag, Tag } from 'lucide-react';
+import { Plus, Trash2, ShoppingBag, Tag } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, solidBtn } from './emailChrome';
 
@@ -385,36 +385,6 @@ const FEED_CHOICES = [
   ['checkout', 'This checkout']
 ] as const;
 
-const BEAUTY_PRESETS = [
-  {
-    title: 'Rosewater Hydration Elixir',
-    price: '$38.00',
-    compareAt: '$48.00',
-    badge: 'Best Seller',
-    image: 'https://images.unsplash.com/photo-1608248597359-009d17d478ad?auto=format&fit=crop&w=600&q=80',
-    url: 'https://jourvance.com/r/rose-elixir',
-    buttonLabel: 'Shop Now'
-  },
-  {
-    title: 'Silk Peptide Restorative Serum',
-    price: '$62.00',
-    compareAt: '$75.00',
-    badge: 'VIP Favorite',
-    image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=600&q=80',
-    url: 'https://jourvance.com/r/silk-serum',
-    buttonLabel: 'Claim Treat'
-  },
-  {
-    title: 'Velvet Botanical Night Balm',
-    price: '$46.00',
-    compareAt: '$54.00',
-    badge: 'Award Winner',
-    image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=600&q=80',
-    url: 'https://jourvance.com/r/night-balm',
-    buttonLabel: 'Shop Ritual'
-  }
-];
-
 const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<MailBlock>) => void }> = ({ block, onChange }) => {
   const products = block.products || [];
   const feed = block.feed || { source: 'best_90', fallback: 'best_90', limit: 3 };
@@ -426,11 +396,11 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
   // Manual product addition form state
   const [showManualForm, setShowManualForm] = useState(false);
   const [customTitle, setCustomTitle] = useState('');
-  const [customPrice, setCustomPrice] = useState('$38.00');
-  const [customCompareAt, setCustomCompareAt] = useState('$48.00');
-  const [customBadge, setCustomBadge] = useState('Best Seller');
-  const [customImage, setCustomImage] = useState('https://images.unsplash.com/photo-1608248597359-009d17d478ad?auto=format&fit=crop&w=600&q=80');
-  const [customUrl, setCustomUrl] = useState('https://jourvance.com/r/treat');
+  const [customPrice, setCustomPrice] = useState('');
+  const [customCompareAt, setCustomCompareAt] = useState('');
+  const [customBadge, setCustomBadge] = useState('');
+  const [customImage, setCustomImage] = useState('');
+  const [customUrl, setCustomUrl] = useState('');
   const [customButton, setCustomButton] = useState('Shop Now');
 
   const load = async () => {
@@ -451,25 +421,6 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
   };
 
   const patchFeed = (patch: NonNullable<MailBlock['feed']>) => onChange({ mode: 'feed', feed: { ...feed, ...patch } });
-
-  const handleAddPreset = (preset: typeof BEAUTY_PRESETS[0]) => {
-    if (products.length >= 9) {
-      setNotice('A letter can show up to 9 products.');
-      return;
-    }
-    const row: NonNullable<MailBlock['products']>[number] = {
-      id: `prod_${Date.now().toString(36)}`,
-      title: preset.title,
-      price: preset.price,
-      compareAt: preset.compareAt,
-      badge: preset.badge,
-      image: preset.image,
-      url: preset.url,
-      buttonLabel: preset.buttonLabel
-    };
-    onChange({ mode: 'static', products: [...products, row] });
-    setNotice(`Added ${preset.title} to product showcase.`);
-  };
 
   const handleAddCustom = () => {
     if (!customTitle.trim()) {
@@ -492,6 +443,12 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
     };
     onChange({ mode: 'static', products: [...products, row] });
     setCustomTitle('');
+    setCustomPrice('');
+    setCustomCompareAt('');
+    setCustomBadge('');
+    setCustomImage('');
+    setCustomUrl('');
+    setCustomButton('Shop Now');
     setShowManualForm(false);
     setNotice(`Added ${row.title} to product showcase.`);
   };
@@ -506,39 +463,12 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
         </select>
       </label>
 
-      {/* 1-Click Beauty Presets */}
-      {block.mode !== 'feed' && (
-        <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <Sparkles size={13} /> 1-Click Luxury Beauty Presets
-            </span>
-            <span style={{ fontSize: '11px', color: '#9ca3af' }}>Instant high-converting card</span>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {BEAUTY_PRESETS.map((preset) => (
-              <button
-                key={preset.title}
-                type="button"
-                onClick={() => handleAddPreset(preset)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '7px',
-                  border: '1px solid rgba(236, 72, 153, 0.3)',
-                  backgroundColor: 'rgba(236, 72, 153, 0.08)',
-                  color: '#f9a8d4',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px'
-                }}
-              >
-                <Plus size={12} /> {preset.title} ({preset.price})
-              </button>
-            ))}
-          </div>
+      {/* Empty State */}
+      {block.mode !== 'feed' && products.length === 0 && (
+        <div style={{ padding: '14px 16px', borderRadius: 8, backgroundColor: 'rgba(255, 255, 255, 0.02)', border: '1px dashed rgba(255, 255, 255, 0.1)', textAlign: 'center', marginTop: 4, marginBottom: 8 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>
+            No products in this card yet. Add a custom product card below or choose from your store catalog.
+          </p>
         </div>
       )}
 
@@ -620,27 +550,27 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div>
               <span style={label}>Product Title</span>
-              <input style={field} placeholder="e.g. Luminous Peptide Serum" value={customTitle} onChange={(e) => setCustomTitle(e.target.value)} />
+              <input style={field} placeholder="Product title" value={customTitle} onChange={(e) => setCustomTitle(e.target.value)} />
             </div>
             <div>
               <span style={label}>Badge (Optional)</span>
-              <input style={field} placeholder="e.g. Best Seller / VIP Pick" value={customBadge} onChange={(e) => setCustomBadge(e.target.value)} />
+              <input style={field} placeholder="Optional badge" value={customBadge} onChange={(e) => setCustomBadge(e.target.value)} />
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div>
               <span style={label}>Offer Price</span>
-              <input style={field} placeholder="$38.00" value={customPrice} onChange={(e) => setCustomPrice(e.target.value)} />
+              <input style={field} placeholder="$0.00" value={customPrice} onChange={(e) => setCustomPrice(e.target.value)} />
             </div>
             <div>
-              <span style={label}>Compare-At Price (Strikethrough)</span>
-              <input style={field} placeholder="$48.00" value={customCompareAt} onChange={(e) => setCustomCompareAt(e.target.value)} />
+              <span style={label}>Compare-At Price (Optional)</span>
+              <input style={field} placeholder="Optional regular price" value={customCompareAt} onChange={(e) => setCustomCompareAt(e.target.value)} />
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
             <div>
               <span style={label}>Product or Checkout URL</span>
-              <input style={field} placeholder="https://yourstore.com/products/serum" value={customUrl} onChange={(e) => setCustomUrl(e.target.value)} />
+              <input style={field} placeholder="https://..." value={customUrl} onChange={(e) => setCustomUrl(e.target.value)} />
             </div>
             <div>
               <span style={label}>Button Label</span>
@@ -649,7 +579,7 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
           </div>
           <div>
             <span style={label}>Product Image URL</span>
-            <input style={field} placeholder="https://images.unsplash.com/..." value={customImage} onChange={(e) => setCustomImage(e.target.value)} />
+            <input style={field} placeholder="https://..." value={customImage} onChange={(e) => setCustomImage(e.target.value)} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
             <button type="button" style={ghostBtn} onClick={() => setShowManualForm(false)}>Cancel</button>

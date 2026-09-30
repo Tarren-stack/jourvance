@@ -1842,7 +1842,7 @@ function coveredShare(b, overlays) {
   return under / 100;
 }
 
-test('U10 outside edit: the canvas measures badges at every zoom and does not draw a row placed hidden', { todo: 'JourneyCanvas.tsx belongs to another lane this round; the change is in the U10 report' }, () => {
+test('U10 outside edit: the canvas measures badges at every zoom and does not draw a row placed hidden', () => {
   const canvas = readFileSync(new URL('./src/components/canvas/JourneyCanvas.tsx', import.meta.url), 'utf8');
   const start = canvas.indexOf('const StepAddSlot');
   const slot = canvas.slice(start, canvas.indexOf('function withStepAdd', start));

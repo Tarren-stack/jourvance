@@ -22,17 +22,21 @@ export const EmailInbox: React.FC = () => {
   const [open, setOpen] = useState('');
 
   const load = async () => {
-    const headers = await authHeaders();
-    const [box, pol] = await Promise.all([
-      readJson(await fetch('/api/email/inbox', { headers })),
-      readJson(await fetch('/api/email/inbox/policy', { headers }))
-    ]);
-    if (box?.success === false) setNotice(box.error || 'The inbox could not be loaded.');
-    setMessages(Array.isArray(box?.messages) ? box.messages : []);
-    setCounts(box?.counts && typeof box.counts === 'object' ? box.counts : {});
-    const mode = pol?.policy?.autopilot;
-    if (mode === 'off' || mode === 'draft' || mode === 'auto') setPolicy(mode);
-    if (pol?.success === false && !box?.error) setNotice(pol.error || '');
+    try {
+      const headers = await authHeaders();
+      const [box, pol] = await Promise.all([
+        readJson(await fetch('/api/email/inbox', { headers })),
+        readJson(await fetch('/api/email/inbox/policy', { headers }))
+      ]);
+      if (box?.success === false) setNotice(box.error || 'The inbox could not be loaded.');
+      setMessages(Array.isArray(box?.messages) ? box.messages : []);
+      setCounts(box?.counts && typeof box.counts === 'object' ? box.counts : {});
+      const mode = pol?.policy?.autopilot;
+      if (mode === 'off' || mode === 'draft' || mode === 'auto') setPolicy(mode);
+      if (pol?.success === false && !box?.error) setNotice(pol.error || '');
+    } catch {
+      setNotice('The inbox could not be loaded.');
+    }
   };
 
   useEffect(() => { load(); }, []);

@@ -55,7 +55,7 @@ class HubStorageManager {
   readLocalJson(filename, fallback) {
     try {
       const file = this.filePath(filename);
-      if (!fs.existsSync(file)) return fallback;
+      if (!fs.existsSync(file)) return fallback !== null ? fallback : [];
       const data = JSON.parse(fs.readFileSync(file, 'utf8'));
       return data ?? fallback;
     } catch {

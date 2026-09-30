@@ -669,7 +669,11 @@ export function setupAnalyticsRoutes(app, ctx) {
         .filter(c => c.recoveryStatus === 'recovered' && c.recoveredOrderId)
         .map(c => String(c.recoveredOrderId))
     );
-    const recoveredCheckoutEvents = loadEvents().filter(e => e.type === 'checkout_recovered');
+    let recoveredCheckoutEvents = [];
+    try {
+      const allEv = loadEvents();
+      if (Array.isArray(allEv)) recoveredCheckoutEvents = allEv.filter(e => e && e.type === 'checkout_recovered');
+    } catch {}
     for (const ev of recoveredCheckoutEvents) {
       if (ev.orderId) recoveredOrdersMap.add(String(ev.orderId));
     }
@@ -762,7 +766,15 @@ export function setupAnalyticsRoutes(app, ctx) {
       return Number.isFinite(t) && t >= cutoff;
     };
 
-    const all = loadEvents();
+    let all;
+    try {
+      all = loadEvents();
+    } catch (err) {
+      console.warn('[Jourvance] Event log read failed in funnel stats:', err?.message || err);
+    }
+    if (!Array.isArray(all)) {
+      return res.status(503).json({ success: false, error: 'The event log could not be read, so stats are unavailable.' });
+    }
     const events = all.filter(e => e && e.userId === uid && e.journeyId === journeyId && inRange(e.at));
     // recordEvent in server.mjs keeps only the newest 20,000 events across every account. When the
     // store is full and its oldest event is inside the range, older visits in the range are gone.

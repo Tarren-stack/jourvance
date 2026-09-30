@@ -13,12 +13,13 @@ const ago = days => new Date(Date.now() - days * DAY).toISOString();
 
 async function serve({
   events = [], orders = [], enrollments = [], sequences, flows = [], flowEnrollments = [], pages = {}, eventsKept,
-  messageStats = { sent: 0, clicked: 0, opened: 0, revenue: 0 }
+  messageStats = { sent: 0, clicked: 0, opened: 0, revenue: 0 },
+  loadEvents = () => events.map(e => ({ userId: 'u1', journeyId: 'j1', at: ago(0), ...e }))
 } = {}) {
   const ctx = {
     requireUser: (req, _res, next) => { req.user = { uid: 'u1' }; next(); },
     requireOperator: (_req, _res, next) => next(),
-    loadEvents: () => events.map(e => ({ userId: 'u1', journeyId: 'j1', at: ago(0), ...e })),
+    loadEvents,
     loadOrders: () => orders,
     loadContacts: () => [],
     loadDrips: () => ({ enrollments, ...(sequences ? { sequences } : {}) }),
@@ -568,4 +569,18 @@ test('followUpTriggers: the step\'s own kind, else its line\'s, else nurture', (
   assert.deepEqual(followUpTriggers({}, [null]), ['lead_capture', 'exit_intent']);
   // A saved kind that is not one of ours reads as nurture, as the step draws it.
   assert.deepEqual(followUpTriggers({ sequenceType: 'constructor' }, []), ['lead_capture', 'exit_intent']);
+});
+
+test('when the event log cannot be read, stats are refused with 503 and unavailable', async () => {
+  for (const loadEvents of [() => { throw new Error('disk read failed'); }, () => null]) {
+    const { post, close } = await serve({ loadEvents });
+    try {
+      const res = await post({ journeyId: 'j1', nodes: [page], edges: [] });
+      assert.equal(res.status, 503);
+      assert.equal(res.body.success, false);
+      assert.equal(res.body.error, 'The event log could not be read, so stats are unavailable.');
+    } finally {
+      await close();
+    }
+  }
 });

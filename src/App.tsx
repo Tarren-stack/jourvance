@@ -39,7 +39,7 @@ import { noteAccountRead, postAccountJourney, refusedBase } from './lib/journeyC
 import { revealsHiddenStep } from './lib/stepNavigation';
 import { makeStep, newStamp } from './lib/stepDefaults';
 import { linesWithBothEnds } from './lib/lineEnds';
-import { slotForNewStep, type CanvasView } from './lib/addStep';
+import { slotForNewStep, defaultExit, type CanvasView, type AddRequest } from './lib/addStep';
 import { SIGN_OUT_QUESTION } from './lib/journeyAutosave';
 import { funnelReturnFor, returnStepId, returnBannerText, openAfterSave, type FunnelReturn } from './lib/editorReturn';
 import { FunnelReturnBanner } from './components/campaign/FunnelReturnBanner';
@@ -486,6 +486,16 @@ export const App: React.FC = () => {
   const handleGraphChange = (nodes: JourneyNode[], edges: JourneyEdge[]) =>
     setProject(p => ({ ...p, nodes, edges, updatedAt: new Date().toISOString() }));
 
+  const [pickerRequest, setPickerRequest] = useState<AddRequest | null>(null);
+  const handleAddStepBefore = useCallback((anchorId: string) => {
+    setPickerRequest({ direction: 'before', anchorId });
+  }, []);
+  const handleAddStepAfter = useCallback((anchorId: string) => {
+    const node = project.nodes.find(n => n.id === anchorId);
+    const handle = node ? defaultExit(node, project.nodes, project.edges) ?? null : null;
+    setPickerRequest({ direction: 'next', anchorId, handle });
+  }, [project.nodes, project.edges]);
+
   /** Save one journey and report what actually happened. Resolves true only when the save landed. */
   const saveJourney = async (doc: JourneyProject): Promise<boolean> => {
     // Signed out, the canvas is local-only and the effect above has already written it. There is
@@ -924,6 +934,8 @@ export const App: React.FC = () => {
                   onOpenIssues={openIssues}
                   onGraphChange={handleGraphChange}
                   canvasViewRef={canvasView}
+                  pickerRequest={pickerRequest}
+                  onClearPickerRequest={() => setPickerRequest(null)}
                 />
                 </div>
 
@@ -952,6 +964,8 @@ export const App: React.FC = () => {
                   onOpenEmailStudio={handleOpenEmailStudio}
                   openingEmailStudio={saving}
                   returnFocusNodeId={returnFocusNodeId}
+                  onAddStepBefore={handleAddStepBefore}
+                  onAddStepAfter={handleAddStepAfter}
                 />
               </main>
               </PublishStatusContext.Provider>

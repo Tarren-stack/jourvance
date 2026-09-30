@@ -49,8 +49,12 @@ export const KlaviyoSync: React.FC = () => {
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    const data = await readJson(await fetch('/api/klaviyo', { headers: await authHeaders() }));
-    if (data?.klaviyo) setState(data.klaviyo);
+    try {
+      const data = await readJson(await fetch('/api/klaviyo', { headers: await authHeaders() }));
+      if (data?.klaviyo) setState(data.klaviyo);
+    } catch {
+      setNotice('Klaviyo integration status could not be loaded.');
+    }
   };
 
   useEffect(() => { load(); }, []);

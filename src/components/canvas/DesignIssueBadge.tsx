@@ -36,6 +36,17 @@ export const DesignIssueBadge: React.FC<{ nodeId: string }> = ({ nodeId }) => {
       aria-label={`${n} design ${n === 1 ? 'check' : 'checks'} on ${entry.name}`}
       title={entry.messages.join('\n')}
       onClick={e => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        if (e.clientX && e.clientY) {
+          if (
+            e.clientX < rect.left ||
+            e.clientX > rect.right ||
+            e.clientY < rect.top ||
+            e.clientY > rect.bottom
+          ) {
+            return;
+          }
+        }
         e.stopPropagation();
         onOpenIssues?.(nodeId);
       }}
