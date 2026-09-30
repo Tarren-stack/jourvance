@@ -16,6 +16,7 @@ import { SmsPanel } from './SmsPanel';
 import { SendingSetup } from './SendingSetup';
 import { KlaviyoSync } from './KlaviyoSync';
 import { CustomerProfileDrawer } from './CustomerProfileDrawer';
+import { moneyText, STAT_UNAVAILABLE, statText, withNote } from '../../lib/emailStats';
 import type { Workspace, AudienceSegment, DripSequence, DripEnrollment, ShopifyAbandonedCheckout } from '../../types/journey';
 
 interface FlowStep {
@@ -131,10 +132,22 @@ interface Props {
   workspace: Workspace | null;
   onOpenShopifyConnect?: () => void;
   onReturnToCanvas?: () => void;
+  /** The tab to open on. Read once at mount; App mounts Email Studio fresh on each switch. */
+  initialTab?: EmailStudioTab;
+  /** A flow to select on the Flow map, when a step on the funnel links to one. */
+  openFlowId?: string;
 }
 
-export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect, onReturnToCanvas }) => {
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'flows' | 'map' | 'transactional' | 'builder' | 'forms' | 'inbox' | 'sms' | 'audience' | 'analytics' | 'sending' | 'klaviyo'>('flows');
+// Wide enough that 'Unavailable' fits a 1fr column of the broadcast table.
+const BROADCAST_TABLE_MIN_WIDTH = 680;
+
+// Side padding of the studio's banner, view row and body: 32px on a desktop, down to 16px on a phone.
+const STUDIO_GUTTER = 'clamp(16px, 5vw, 32px)';
+
+export type EmailStudioTab = 'campaigns' | 'flows' | 'map' | 'transactional' | 'builder' | 'forms' | 'inbox' | 'sms' | 'audience' | 'analytics' | 'sending' | 'klaviyo';
+
+export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect, onReturnToCanvas, initialTab, openFlowId }) => {
+  const [activeTab, setActiveTab] = useState<EmailStudioTab>(initialTab || 'flows');
   const [flows, setFlows] = useState<HubFlow[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
@@ -467,9 +480,10 @@ ${unsub}`;
 
   const handleDraftWhaleBroadcast = () => {
     setSelectedSegmentId('whales');
-    setBroadcastSubject('A private preview & courtesy gift for our most cherished VIP');
-    setBroadcastPreviewText('Your VIP loyalty means the world to us — here is your exclusive priority access');
-    setBroadcastBody('Hello lovely,\n\nAs one of our most valued VIP clients, we wanted to ensure you received private first-access to our newest reserve collection before public release.\n\nWe’ve also arranged a complimentary full-size gift with your next order. Simply enjoy your bespoke VIP experience.');
+    // Drafts name no gift, code or percentage: an offer is the merchant's to write, and only if it exists (R24).
+    setBroadcastSubject('A thank-you to our most loyal clients');
+    setBroadcastPreviewText('A personal note from us');
+    setBroadcastBody('Hello lovely,\n\nAs one of our most valued clients, we wanted to say thank you.\n\nReplace this note with your real message before anyone receives it. Mention a gift or discount only if it exists in your store.');
     setBroadcastSuccess(false);
     setBroadcastFeedback('');
     setShowBroadcastModal(true);
@@ -477,9 +491,9 @@ ${unsub}`;
 
   const handleDraftWinbackBroadcast = () => {
     setSelectedSegmentId('at_risk');
-    setBroadcastSubject('We miss you — a private 15% courtesy treat for your next ritual');
-    setBroadcastPreviewText("It's been a little while, and we'd love to welcome you back");
-    setBroadcastBody('Hello lovely,\n\nWe noticed it’s been a little while since your last visit, and we wanted to check in.\n\nSelf-care should always feel effortless. To welcome you back, we’ve placed a special 15% courtesy reward on your profile for your next restock:\n\nUse code WELCOMEBACK15 at checkout.');
+    setBroadcastSubject('It has been a little while');
+    setBroadcastPreviewText("We'd love to welcome you back");
+    setBroadcastBody('Hello lovely,\n\nWe noticed it’s been a little while since your last visit, and we wanted to check in.\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.');
     setBroadcastSuccess(false);
     setBroadcastFeedback('');
     setShowBroadcastModal(true);
@@ -487,9 +501,9 @@ ${unsub}`;
 
   const handleDraftLapsedBroadcast = () => {
     setSelectedSegmentId('lapsed');
-    setBroadcastSubject('A warm invitation back to your self-care sanctuary');
-    setBroadcastPreviewText("Your bespoke treat is waiting whenever you're ready");
-    setBroadcastBody('Hello lovely,\n\nIt’s been some time since we had the pleasure of treating you, and we wanted to send a warm note your way.\n\nWhenever you’re ready to replenish your favorite beauty rituals, our studio and sanctuary are ready for you.\n\nEnjoy complimentary priority shipping on us with code SANCTUARY.');
+    setBroadcastSubject('A warm invitation back');
+    setBroadcastPreviewText("A warm note whenever you're ready");
+    setBroadcastBody('Hello lovely,\n\nIt’s been some time since your last order, and we wanted to send a warm note your way.\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.');
     setBroadcastSuccess(false);
     setBroadcastFeedback('');
     setShowBroadcastModal(true);
@@ -509,21 +523,24 @@ ${unsub}`;
         overflowY: 'auto'
       }}
     >
-      {/* Top Banner / Store Context */}
+      {/* Top Banner / Store Context. Wraps at phone width so the buttons drop below the title
+          instead of running past the edge into a sideways scroller (U08). */}
       <div
         style={{
-          padding: '24px 32px 16px',
+          padding: `24px ${STUDIO_GUTTER} 16px`,
           borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
           display: 'flex',
+          flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: '12px 16px',
           background: 'linear-gradient(180deg, rgba(236, 72, 153, 0.06) 0%, rgba(11, 12, 16, 0) 100%)'
         }}
       >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px' }}>
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#ffffff' }}>
-              Email Studio & E-Commerce Flows
+              Email Studio & <span style={{ whiteSpace: 'nowrap' }}>E-Commerce</span> Flows
             </h1>
             <span
               style={{
@@ -544,7 +561,7 @@ ${unsub}`;
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px' }}>
           {isConnected ? (
             <div
               style={{
@@ -556,16 +573,20 @@ ${unsub}`;
                 backgroundColor: 'rgba(16, 185, 129, 0.1)',
                 border: '1px solid rgba(16, 185, 129, 0.25)',
                 fontSize: '12px',
-                color: '#34d399'
+                color: '#34d399',
+                minWidth: 0,
+                overflowWrap: 'anywhere'
               }}
             >
-              <ShoppingBag size={14} />
+              <ShoppingBag size={14} style={{ flexShrink: 0 }} />
               <span>Synced with {workspace?.shopifyConfig?.storeDomain}</span>
             </div>
           ) : (
             <button
+              type="button"
               onClick={onOpenShopifyConnect}
               style={{
+                whiteSpace: 'nowrap',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
@@ -586,8 +607,10 @@ ${unsub}`;
 
           {onReturnToCanvas && (
             <button
+              type="button"
               onClick={onReturnToCanvas}
               style={{
+                whiteSpace: 'nowrap',
                 padding: '7px 14px',
                 borderRadius: '8px',
                 backgroundColor: 'rgba(236, 72, 153, 0.15)',
@@ -610,7 +633,7 @@ ${unsub}`;
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          padding: '12px 32px',
+          padding: `12px ${STUDIO_GUTTER}`,
           borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
           flexWrap: 'wrap'
         }}
@@ -655,7 +678,7 @@ ${unsub}`;
               {(tab as any).badge && (
                 <span
                   style={{
-                    fontSize: '10px',
+                    fontSize: '11px',
                     fontWeight: 700,
                     letterSpacing: '0.04em',
                     textTransform: 'uppercase',
@@ -675,7 +698,7 @@ ${unsub}`;
       </div>
 
       {/* Main Tab Content */}
-      <div style={{ padding: '24px 32px', flex: 1 }}>
+      <div style={{ padding: `24px ${STUDIO_GUTTER}`, flex: 1 }}>
         {/* TAB 1: FLOWS & DRIPS */}
         {activeTab === 'flows' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -853,7 +876,7 @@ ${unsub}`;
                   <span style={{ color: '#475569' }}>•</span>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <span style={{ color: '#94A3B8' }}>Last-touch revenue:</span>
-                    <strong style={{ color: '#34D399' }}>{seq.attributedSales == null ? '—' : `$${seq.attributedSales.toLocaleString()}`}</strong>
+                    <strong style={{ color: '#34D399' }}>{statText(seq.attributedSales, (n) => `$${n.toLocaleString()}`)}</strong>
                   </div>
                 </div>
 
@@ -883,7 +906,7 @@ ${unsub}`;
                         </span>
                         {step.discountVoucher && (
                           <span style={{
-                            fontSize: '10px',
+                            fontSize: '11px',
                             fontWeight: 700,
                             padding: '2px 6px',
                             borderRadius: '4px',
@@ -934,7 +957,7 @@ ${unsub}`;
                               <span style={{
                                 padding: '2px 6px',
                                 borderRadius: '4px',
-                                fontSize: '10px',
+                                fontSize: '11px',
                                 fontWeight: 700,
                                 backgroundColor: enr.status === 'converted_exit' ? 'rgba(16, 185, 129, 0.2)' : enr.status === 'completed' ? 'rgba(100, 116, 139, 0.2)' : 'rgba(99, 102, 241, 0.2)',
                                 color: enr.status === 'converted_exit' ? '#34D399' : enr.status === 'completed' ? '#94A3B8' : '#818CF8'
@@ -1019,7 +1042,7 @@ ${unsub}`;
                             <span style={{
                               padding: '2px 6px',
                               borderRadius: '4px',
-                              fontSize: '10px',
+                              fontSize: '11px',
                               fontWeight: 700,
                               backgroundColor: chk.recoveryStatus === 'recovered' ? 'rgba(16, 185, 129, 0.2)' : chk.recoveryStatus === 'email_sent' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(234, 179, 8, 0.2)',
                               color: chk.recoveryStatus === 'recovered' ? '#34D399' : chk.recoveryStatus === 'email_sent' ? '#60A5FA' : '#FACC15'
@@ -1217,7 +1240,7 @@ ${unsub}`;
         )}
 
         {/* TAB 2: CAMPAIGNS (BROADCASTS) */}
-        {activeTab === 'map' && <EmailFlowMap />}
+        {activeTab === 'map' && <EmailFlowMap initialFlowId={openFlowId} />}
         {activeTab === 'transactional' && <EmailPrograms mode="transactional" />}
         {activeTab === 'builder' && <EmailPrograms mode="builder" />}
         {activeTab === 'forms' && <SignupForms />}
@@ -1259,19 +1282,25 @@ ${unsub}`;
               </button>
             </div>
 
-            {/* Broadcasts List */}
+            {/* Broadcasts List. Six columns cannot share a phone's width, so the table scrolls
+                sideways inside its own card (the page never does) and takes keyboard focus to do it. */}
             <div
+              role="region"
+              aria-label="Broadcasts"
+              tabIndex={0}
               style={{
                 backgroundColor: '#121217',
                 borderRadius: '12px',
                 border: '1px solid rgba(255, 255, 255, 0.08)',
-                overflow: 'hidden'
+                overflowX: 'auto',
+                overflowY: 'hidden'
               }}
             >
               <div
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 1fr',
+                  minWidth: BROADCAST_TABLE_MIN_WIDTH,
                   padding: '12px 20px',
                   borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
                   fontSize: '11px',
@@ -1299,6 +1328,7 @@ ${unsub}`;
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 1fr',
+                      minWidth: BROADCAST_TABLE_MIN_WIDTH,
                       padding: '14px 20px',
                       borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
                       fontSize: '13px',
@@ -1312,7 +1342,7 @@ ${unsub}`;
                           style={{
                             padding: '1px 6px',
                             borderRadius: '4px',
-                            fontSize: '10px',
+                            fontSize: '11px',
                             fontWeight: 600,
                             backgroundColor: 'rgba(236, 72, 153, 0.12)',
                             color: '#f472b6',
@@ -1345,23 +1375,27 @@ ${unsub}`;
                     </div>
 
                     <div style={{ color: '#9ca3af', fontSize: '12px' }}>{b.sentAt ? new Date(b.sentAt).toLocaleDateString() : (b.status === 'scheduled' ? 'Scheduled' : 'Not sent')}</div>
-                    <div style={{ color: '#d1d5db', fontWeight: 500 }}>{b.sent == null ? '—' : b.sent.toLocaleString()}</div>
-                    <div>
-                      <span style={{ color: '#34d399', fontWeight: 600 }}>{b.opened == null ? '—' : b.opened}</span>
-                      <span style={{ color: '#6b7280', margin: '0 4px' }}>/</span>
-                      <span style={{ color: '#60a5fa', fontWeight: 600 }}>{b.clicked == null ? '—' : b.clicked}</span>
-                    </div>
+                    <div style={{ color: '#d1d5db', fontWeight: 500 }}>{statText(b.sent, (n) => n.toLocaleString())}</div>
+                    {b.opened == null && b.clicked == null ? (
+                      <div style={{ color: '#9ca3af' }}>{STAT_UNAVAILABLE}</div>
+                    ) : (
+                      <div>
+                        <span style={{ color: '#34d399', fontWeight: 600 }}>{statText(b.opened)}</span>
+                        <span style={{ color: '#6b7280', margin: '0 4px' }}>/</span>
+                        <span style={{ color: '#60a5fa', fontWeight: 600 }}>{statText(b.clicked)}</span>
+                      </div>
+                    )}
                     <div style={{ color: '#fbbf24', fontWeight: 700 }}>
-                      {b.revenue == null ? '—' : `$${b.revenue.toFixed(2)}`}
+                      {moneyText(b.revenue)}
                     </div>
                     <p style={{ gridColumn: '1 / -1', margin: '8px 0 0', fontSize: 12, color: '#9ca3af' }}>
-                      Delivered {b.delivered == null ? '—' : b.delivered} · Unsubscribed {b.unsubscribed == null ? '—' : b.unsubscribed}
+                      Delivered {statText(b.delivered)} · Unsubscribed {statText(b.unsubscribed)}
                       {b.prefetchOpens ? ` · ${b.prefetchOpens} opens included an Apple Mail prefetch flag.` : ''}
                     </p>
                     {b.smartReport && <p style={{ gridColumn: '1 / -1', margin: '8px 0 0', fontSize: 12, color: '#d1d5db' }}>{b.smartReport}</p>}
                     {b.holdout?.enabled && (
                       <p style={{ gridColumn: '1 / -1', margin: '8px 0 0', fontSize: 12, color: '#d1d5db' }}>
-                        Holdout {b.holdout.percent}%. Sent group: {b.holdoutReport?.sent.sample ? `${b.holdoutReport.sent.sample} people, ${b.holdoutReport.sent.perPerson == null ? '—' : `$${b.holdoutReport.sent.perPerson.toFixed(2)}`} each` : '—'}. Held-out group: {b.holdoutReport?.held.sample ? `${b.holdoutReport.held.sample} people, ${b.holdoutReport.held.perPerson == null ? '—' : `$${b.holdoutReport.held.perPerson.toFixed(2)}`} each` : '—'}.
+                        Holdout {b.holdout.percent}%. Sent group: {b.holdoutReport?.sent.sample ? `${b.holdoutReport.sent.sample} people, ${moneyText(b.holdoutReport.sent.perPerson)} each` : STAT_UNAVAILABLE}. Held-out group: {b.holdoutReport?.held.sample ? `${b.holdoutReport.held.sample} people, ${moneyText(b.holdoutReport.held.perPerson)} each` : STAT_UNAVAILABLE}.
                       </p>
                     )}
                     {b.ab && !b.ab.winner && (
@@ -1504,7 +1538,7 @@ ${unsub}`;
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(168, 85, 247, 0.28)')}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(168, 85, 247, 0.15)')}
                 >
-                  <Send size={11} /> Draft Whale Perk
+                  <Send size={11} /> Draft VIP Note
                 </button>
               </div>
 
@@ -1705,7 +1739,7 @@ ${unsub}`;
                             style={{
                               padding: '2px 8px',
                               borderRadius: '12px',
-                              fontSize: '10px',
+                              fontSize: '11px',
                               fontWeight: 700,
                               display: 'inline-flex',
                               alignItems: 'center',
@@ -1745,7 +1779,7 @@ ${unsub}`;
                       </div>
                       {sub.recencyDays != null ? (
                         <div style={{
-                          fontSize: '10px',
+                          fontSize: '11px',
                           fontWeight: 600,
                           marginTop: '2px',
                           color: sub.isLapsed ? '#ef4444' : sub.isAtRisk ? '#f59e0b' : (sub.recencyDays <= 30 ? '#10b981' : '#94a3b8')
@@ -1756,7 +1790,7 @@ ${unsub}`;
                            `Ordered ${sub.recencyDays}d ago`}
                         </div>
                       ) : (
-                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>No orders yet</div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>No orders yet</div>
                       )}
                     </div>
 
@@ -2032,7 +2066,7 @@ ${unsub}`;
                               fontWeight: 600
                             }}
                           />
-                          <span style={{ display: 'block', fontSize: '10px', color: '#6b7280', marginTop: '2px' }}>Top Whale tier</span>
+                          <span style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>Top Whale tier</span>
                         </div>
 
                         <div>
@@ -2057,7 +2091,7 @@ ${unsub}`;
                               fontWeight: 600
                             }}
                           />
-                          <span style={{ display: 'block', fontSize: '10px', color: '#6b7280', marginTop: '2px' }}>Luxe frequent</span>
+                          <span style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>Luxe frequent</span>
                         </div>
 
                         <div>
@@ -2082,7 +2116,7 @@ ${unsub}`;
                               fontWeight: 600
                             }}
                           />
-                          <span style={{ display: 'block', fontSize: '10px', color: '#6b7280', marginTop: '2px' }}>Rising VIP</span>
+                          <span style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>Rising VIP</span>
                         </div>
                       </div>
                     </div>
@@ -2094,12 +2128,12 @@ ${unsub}`;
                             <label htmlFor="autoWinbackToggle" style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6', cursor: 'pointer' }}>
                               Automate Inactivity Winback
                             </label>
-                            <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: autoWinbackEnabled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)', color: autoWinbackEnabled ? '#34d399' : '#9ca3af', fontWeight: 600 }}>
+                            <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', backgroundColor: autoWinbackEnabled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)', color: autoWinbackEnabled ? '#34d399' : '#9ca3af', fontWeight: 600 }}>
                               {autoWinbackEnabled ? 'Active' : 'Off'}
                             </span>
                           </div>
                           <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#9ca3af', lineHeight: 1.4 }}>
-                            Automatically enrolls clients into our gentle winback sequence with code WELCOMEBACK15 when they cross {customAtRiskDays} days inactive.
+                            Automatically enrolls clients into the winback sequence when they cross {customAtRiskDays} days inactive. The sequence names a code only if you add one.
                           </p>
                           <div style={{ marginTop: '6px', fontSize: '11px', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '5px' }}>
                             <ShieldCheck size={13} /> Option A Deliverability Guard: Only enrolls clients who cross {customAtRiskDays}d from today onward. Exits automatically on purchase.
@@ -2112,41 +2146,6 @@ ${unsub}`;
                           onChange={e => setAutoWinbackEnabled(e.target.checked)}
                           style={{ width: '18px', height: '18px', accentColor: '#a855f7', cursor: 'pointer', marginTop: '2px' }}
                         />
-                      </div>
-                    </div>
-
-                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <label htmlFor="unlimitedDiscountToggle" style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6', cursor: 'pointer' }}>
-                              Single-Use Coupon Safeguard
-                            </label>
-                            <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: !allowUnlimitedDiscountUse ? 'rgba(16, 185, 129, 0.2)' : 'rgba(234, 179, 8, 0.2)', color: !allowUnlimitedDiscountUse ? '#34d399' : '#fde047', fontWeight: 600 }}>
-                              {!allowUnlimitedDiscountUse ? '1 Use Per Client' : 'Unlimited Use'}
-                            </span>
-                          </div>
-                          <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#9ca3af', lineHeight: 1.4 }}>
-                            {!allowUnlimitedDiscountUse
-                              ? 'Restricts WELCOMEBACK15 to one redemption per customer in Shopify to prevent coupon sharing.'
-                              : 'Allows customers to reuse WELCOMEBACK15 on multiple orders.'}
-                          </p>
-                        </div>
-                        <input
-                          id="unlimitedDiscountToggle"
-                          type="checkbox"
-                          checked={!allowUnlimitedDiscountUse}
-                          onChange={e => setAllowUnlimitedDiscountUse(!e.target.checked)}
-                          style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer', marginTop: '2px' }}
-                        />
-                      </div>
-
-                      <div style={{ marginTop: '12px', padding: '10px 12px', borderRadius: '8px', backgroundColor: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e5e7eb' }}>
-                          <CheckCircle2 size={14} style={{ color: '#34d399' }} />
-                          <span>Shopify Codes: <strong>WELCOMEBACK15</strong> (15%), <strong>SAVE10</strong> (10%), <strong>SANCTUARY</strong> (10%)</span>
-                        </div>
-                        <span style={{ fontSize: '10px', color: '#9ca3af' }}>Auto-Synced</span>
                       </div>
                     </div>
                   </div>
@@ -2210,17 +2209,18 @@ ${unsub}`;
                 onDraftCampaign={(contact, templateKey) => {
                   setSelectedCustomerEmail(null);
                   if (templateKey === 'whale_perk') {
-                    setBroadcastSubject('Your Private VIP Sanctuary Perk');
-                    setBroadcastPreviewText('An exclusive reward reserved for our most cherished clients');
-                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nAs one of our most valued clients, we wanted to personally gift you our private VIP Sanctuary reward.\n\nUse code SANCTUARY at checkout for 10% off your next botanical ritual.\n\nWith gratitude,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
+                    // No code, gift or percentage the merchant did not set (R24).
+                    setBroadcastSubject('A personal thank-you');
+                    setBroadcastPreviewText('A note for one of our most valued clients');
+                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nAs one of our most valued clients, we wanted to personally say thank you.\n\nReplace this note with your real message before anyone receives it. Mention a gift or discount only if it exists in your store.\n\nWith gratitude,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
                   } else if (templateKey === 'at_risk_winback') {
-                    setBroadcastSubject('We missed you — a 15% reconnect gift inside');
-                    setBroadcastPreviewText('Your private courtesy code WELCOMEBACK15 is ready');
-                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nIt has been a while since your last order, and we would love to welcome you back.\n\nUse courtesy code WELCOMEBACK15 at checkout for 15% off your next restock.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
+                    setBroadcastSubject('We would love to welcome you back');
+                    setBroadcastPreviewText('It has been a little while');
+                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nIt has been a while since your last order, and we would love to welcome you back.\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
                   } else if (templateKey === 'lead_welcome') {
-                    setBroadcastSubject('A special welcome gift: 10% off your first order');
-                    setBroadcastPreviewText('Claim your welcome voucher SAVE10 today');
-                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nThank you for joining our community! We are excited to help you find your signature skincare ritual.\n\nEnjoy 10% off your first order with code SAVE10.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
+                    setBroadcastSubject('Welcome, and thank you for joining');
+                    setBroadcastPreviewText('A note to say hello');
+                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nThank you for joining our community!\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
                   } else {
                     setBroadcastSubject(`Personal note for ${contact.name.split(' ')[0] || 'you'}`);
                     setBroadcastPreviewText('Checking in on your latest order');
@@ -2257,7 +2257,7 @@ ${unsub}`;
               ] as const).map(([name, value]) => (
                 <div key={name} style={{ backgroundColor: '#121217', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
                   <div style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>{name}</div>
-                  <div style={{ fontSize: '26px', fontWeight: 700, color: '#ffffff', marginTop: '6px' }}>{value == null ? '—' : value.toLocaleString()}</div>
+                  <div style={{ fontSize: value == null ? '18px' : '26px', fontWeight: 700, color: value == null ? '#9ca3af' : '#ffffff', marginTop: '6px' }}>{statText(value, (n) => n.toLocaleString())}</div>
                   <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>From events stored for this account</div>
                 </div>
               ))}
@@ -2431,7 +2431,7 @@ ${unsub}`;
                   )}
                   {segments.map(seg => (
                     <option key={seg.id} value={seg.id} style={{ backgroundColor: '#1a1a24', color: '#ffffff' }}>
-                      {seg.name} ({seg.count} contacts) — {seg.definition || seg.description}
+                      {withNote(`${seg.name} (${seg.count} contacts)`, seg.definition || seg.description)}
                     </option>
                   ))}
                   {lists.map(list => (
@@ -2473,7 +2473,7 @@ ${unsub}`;
                       gap: '5px'
                     }}
                   >
-                    <Crown size={12} style={{ color: '#c084fc' }} /> VIP Whale Perk
+                    <Crown size={12} style={{ color: '#c084fc' }} /> VIP Thank-You
                   </button>
                   <button
                     type="button"
@@ -2492,7 +2492,7 @@ ${unsub}`;
                       gap: '5px'
                     }}
                   >
-                    <AlertTriangle size={12} style={{ color: '#f59e0b' }} /> At-Risk 15% Winback
+                    <AlertTriangle size={12} style={{ color: '#f59e0b' }} /> At-Risk Winback
                   </button>
                   <button
                     type="button"
@@ -2513,15 +2513,6 @@ ${unsub}`;
                   >
                     <Clock size={12} style={{ color: '#94a3b8' }} /> Lapsed Reconnect
                   </button>
-                </div>
-                <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#9ca3af' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <ShieldCheck size={12} style={{ color: '#10b981' }} />
-                    Shopify Voucher: <strong style={{ color: '#34d399' }}>WELCOMEBACK15</strong> (15% Off Active)
-                  </span>
-                  <span style={{ color: '#6b7280' }}>
-                    {rfmConfig.allowUnlimitedDiscountUse ? 'Unlimited reuse' : '1 use per client'}
-                  </span>
                 </div>
               </div>
 
@@ -2677,7 +2668,7 @@ ${unsub}`;
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '5px' }}>
                     <Mail size={12} /> Live Gmail & iPhone Inbox Snippet
                   </span>
-                  <span style={{ fontSize: '10px', color: '#6b7280' }}>How subscribers see your note before opening</span>
+                  <span style={{ fontSize: '11px', color: '#6b7280' }}>How subscribers see your note before opening</span>
                 </div>
                 <div
                   style={{
@@ -2696,12 +2687,12 @@ ${unsub}`;
                     <span style={{ fontSize: '11px', color: '#6b7280' }}>10:42 AM</span>
                   </div>
                   <div style={{ fontWeight: 600, color: '#ffffff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {broadcastSubject.trim() || 'VIP Access: 20% Off Our New Serum'}
+                    {broadcastSubject.trim() || 'Your subject line'}
                   </div>
                   <div style={{ color: '#9ca3af', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '1px' }}>
                     {broadcastPreviewText.trim()
                       ? broadcastPreviewText.trim()
-                      : (broadcastBody.trim().slice(0, 90) || 'Your private preview is waiting inside...')}
+                      : (broadcastBody.trim().slice(0, 90) || 'Your preview text')}
                   </div>
                 </div>
               </div>
@@ -2712,7 +2703,7 @@ ${unsub}`;
                     Letter & Offer Content
                   </label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <span style={{ fontSize: '10px', color: '#6b7280' }}>Insert:</span>
+                    <span style={{ fontSize: '11px', color: '#6b7280' }}>Insert:</span>
                     {[
                       { label: '{{first_name}}', code: '{{first_name}}' },
                       { label: '{{store_name}}', code: '{{store_name}}' },
@@ -2729,7 +2720,7 @@ ${unsub}`;
                           border: '1px solid rgba(236, 72, 153, 0.3)',
                           backgroundColor: 'rgba(236, 72, 153, 0.08)',
                           color: '#f9a8d4',
-                          fontSize: '10px',
+                          fontSize: '11px',
                           fontWeight: 600,
                           cursor: 'pointer'
                         }}

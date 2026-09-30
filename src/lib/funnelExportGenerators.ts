@@ -1,3 +1,8 @@
+// Every generator here fills an EMPTY field the way the published page does (publicRoutes.mjs):
+// with a plain word or not at all. A new step leaves its copy, codes and prices empty on purpose
+// (stepDefaults.ts), and an export used to put "VIPRETURN", "$15 Off" or "$37" back on a page the
+// person hosts themselves. add-step.test.mjs runs every generator over a brand-new step.
+import { ownCopy, ownCopyList, thankYouView } from './stepDefaults.ts';
 import type {
   PageNodeData,
   AbSplitNodeData,
@@ -139,7 +144,7 @@ export function generateSplitRouterHtml({
 </head>
 <body>
   <div class="spinner"></div>
-  <p>Connecting to secure offer...</p>
+  <p>Loading the page...</p>
 </body>
 </html>`;
 }
@@ -167,27 +172,19 @@ export function generateLandingPageHtml({
   const isStaticVariantB = variantOverride === 'b' && Boolean(pageNode?.variantB);
   const vB = pageNode?.variantB || {};
 
-  const headline = isStaticVariantB
-    ? (vB.headline || pageNode?.headline || 'High-Converting Offer Headline (Variant B)')
-    : (pageNode?.headline || 'High-Converting Offer Headline');
+  // Empty fields read as the published page reads them (renderPublicFunnelHtml): 'Offer', no
+  // subhead, no bullets, no badge and a 'Continue' button, never a claim nobody wrote.
+  const headline = (isStaticVariantB ? vB.headline : '') || pageNode?.headline || 'Offer';
 
-  const subhead = isStaticVariantB
-    ? (vB.subhead || pageNode?.subhead || 'Clear, concise subheadline addressing customer pain.')
-    : (pageNode?.subhead || 'Clear, concise subheadline addressing customer pain and immediate value.');
+  const subhead = (isStaticVariantB ? ownCopy(vB.subhead) : '') || ownCopy(pageNode?.subhead);
 
-  const buttonText = isStaticVariantB
-    ? (vB.buttonText || pageNode?.buttonText || formNode?.submitButtonText || 'Claim Offer Now')
-    : (pageNode?.buttonText || formNode?.submitButtonText || 'Get Started Free');
+  const buttonText = (isStaticVariantB ? vB.buttonText : '') || pageNode?.buttonText || formNode?.submitButtonText || 'Continue';
 
-  const bullets = isStaticVariantB && Array.isArray(vB.bullets) && vB.bullets.length
-    ? vB.bullets
-    : ((Array.isArray(pageNode?.bullets) && pageNode.bullets.length)
-        ? pageNode.bullets
-        : ['Proven 3-step execution framework', 'Instant access upon qualification', 'Zero long-term contracts or lock-ins']);
+  const bullets = isStaticVariantB && ownCopyList(vB.bullets).length
+    ? ownCopyList(vB.bullets)
+    : ownCopyList(pageNode?.bullets);
 
-  const badge = isStaticVariantB
-    ? (vB.trustBadge || pageNode?.trustBadge || 'Exclusive Offer B')
-    : (pageNode?.trustBadge || 'Limited Intake');
+  const badge = (isStaticVariantB ? vB.trustBadge : '') || pageNode?.trustBadge || '';
 
   const slug = isStaticVariantB
     ? `${pageNode?.slug || 'offer'}-b`
@@ -208,7 +205,7 @@ export function generateLandingPageHtml({
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title id="jvPageTitle">${escapeHtml(headline)} — Powered by Jourvance</title>
+  <title id="jvPageTitle">${escapeHtml(headline)} | Powered by Jourvance</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -326,7 +323,7 @@ export function generateLandingPageHtml({
   ${hasInPageVariantB ? `
   <script>
   (function() {
-    var vB = ${JSON.stringify(vB)};
+    var vB = ${JSON.stringify({ ...vB, subhead: ownCopy(vB.subhead), bullets: ownCopyList(vB.bullets) })};
     var splitRatio = ${Number(pageNode?.splitRatio) || 50};
     var params = new URLSearchParams(window.location.search);
     var qVar = (params.get('jv_var') || params.get('var') || '').toLowerCase();
@@ -356,7 +353,7 @@ export function generateLandingPageHtml({
           var h = document.getElementById('jvHeadline');
           if (h) h.innerText = vB.headline;
           var t = document.getElementById('jvPageTitle');
-          if (t) t.innerText = vB.headline + ' — Powered by Jourvance';
+          if (t) t.innerText = vB.headline + ' | Powered by Jourvance';
         }
         if (vB.subhead) {
           var s = document.getElementById('jvSubhead');
@@ -374,13 +371,13 @@ export function generateLandingPageHtml({
 </head>
 <body>
   <div class="container">
-    <span class="badge" id="jvBadge">${escapeHtml(badge)}</span>
+    ${badge ? `<span class="badge" id="jvBadge">${escapeHtml(badge)}</span>` : ''}
     <h1 id="jvHeadline">${escapeHtml(headline)}</h1>
     <p class="subhead" id="jvSubhead">${escapeHtml(subhead)}</p>
 
-    <ul class="bullets">
+    ${bullets.length ? `<ul class="bullets">
       ${bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('\n      ')}
-    </ul>
+    </ul>` : ''}
 
     <form id="leadCaptureForm" onsubmit="handleLeadSubmit(event)">
       ${fields.map(f => `
@@ -391,7 +388,6 @@ export function generateLandingPageHtml({
       <input type="text" name="website_url_hp" style="display:none !important; position:absolute; left:-9999px;" tabindex="-1" autocomplete="off" aria-hidden="true" />
       <button type="submit" id="submitBtn" class="submit-btn">${escapeHtml(buttonText)}</button>
       <div id="formMsg" style="display:none; margin-top:1rem; padding:0.75rem; border-radius:6px; font-size:0.875rem; text-align:center;"></div>
-      <p class="guarantee">🔒 Your information is confidential and never shared.</p>
     </form>
 
     <script>
@@ -457,37 +453,27 @@ export function generateLandingPageHtml({
 }
 
 /**
- * Generates standalone VIP Thank-You / Onboarding confirmation portal HTML.
+ * Generates a standalone thank-you page. It reads the step through thankYouView, the same parts and
+ * "only when" rules as the published page (renderPublicThankYouHtml) and the editor's Live Customer
+ * View: no code, guide, store or community block the person did not write. storeDomain is the
+ * connected store ('' when none), which gives the store button its link as it does when published.
  */
 export function generateThankYouHtml({
-  thankYouNode
+  thankYouNode,
+  storeDomain = ''
 }: {
   thankYouNode?: Partial<ThankYouNodeData>;
+  storeDomain?: string;
 }): string {
-  const headline = thankYouNode?.headline || 'Your VIP Order is Confirmed';
-  const subhead = thankYouNode?.subhead || 'Thank you for your order! Your confirmation and receipt have been emailed to you.';
-  const badgeText = thankYouNode?.badgeText || 'VIP Member Privilege';
-  const discountCode = thankYouNode?.bounceBackDiscountCode || 'VIPRETURN';
-  const discountText = thankYouNode?.bounceBackDiscountText || '$15 Off Your Next Order';
-  const guideTitle = thankYouNode?.usageGuideTitle || 'The 3-Step Quick Start Onboarding Guide';
-  const guideSteps = (Array.isArray(thankYouNode?.usageGuideSteps) && thankYouNode.usageGuideSteps.length)
-    ? thankYouNode.usageGuideSteps
-    : [
-        'Review your order receipt and welcome guide in your inbox.',
-        'Follow the setup steps or initial instructions for maximum results.',
-        'Reach out to our dedicated concierge support if you have any questions.'
-      ];
-  const returnText = thankYouNode?.storeReturnText || 'Explore More Best-Sellers';
-  const returnUrl = thankYouNode?.storeReturnUrl || '/';
-  const inviteText = thankYouNode?.communityInviteText || 'Join Our Private VIP Community';
-  const inviteUrl = thankYouNode?.communityInviteUrl || '#';
+  const view = thankYouView(thankYouNode ?? {}, storeDomain);
+  const { badge: badgeText, headline, subhead, voucher, guide, store, community } = view;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(headline)} | Official Confirmation</title>
+  <title>${escapeHtml(headline)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -675,36 +661,40 @@ export function generateThankYouHtml({
 <body>
   <div class="container">
     <div class="check-icon">✓</div>
-    <span class="badge">${escapeHtml(badgeText)}</span>
+    ${badgeText ? `<span class="badge">${escapeHtml(badgeText)}</span>` : ''}
     <h1>${escapeHtml(headline)}</h1>
-    <p class="subhead">${escapeHtml(subhead)}</p>
+    ${subhead ? `<p class="subhead">${escapeHtml(subhead)}</p>` : ''}
 
-    ${discountCode ? `
+    ${voucher ? `
     <div class="voucher-card">
-      <div class="voucher-label">Courtesy Member Voucher</div>
-      <div class="voucher-title">${escapeHtml(discountText)}</div>
+      <div class="voucher-label">Next order</div>
+      <div class="voucher-title">${escapeHtml(voucher.title)}</div>
       <div class="voucher-box">
-        <span class="voucher-code" id="voucherCode">${escapeHtml(discountCode)}</span>
-        <button class="copy-btn" id="copyVoucherBtn" onclick="copyVoucher()">Copy Code</button>
+        <span class="voucher-code" id="voucherCode">${escapeHtml(voucher.code)}</span>
+        <button type="button" class="copy-btn" id="copyVoucherBtn" onclick="copyVoucher()">Copy Code</button>
       </div>
     </div>
     ` : ''}
 
+    ${guide ? `
     <div class="guide-card">
-      <div class="guide-title">${escapeHtml(guideTitle)}</div>
-      <ul class="guide-steps">
-        ${guideSteps.map((step, idx) => `
+      ${guide.title ? `<div class="guide-title">${escapeHtml(guide.title)}</div>` : ''}
+      <ol class="guide-steps">
+        ${guide.steps.map((step, idx) => `
         <li>
-          <span class="step-num">${idx + 1}</span>
+          <span class="step-num" aria-hidden="true">${idx + 1}</span>
           <span>${escapeHtml(step)}</span>
         </li>`).join('')}
-      </ul>
+      </ol>
     </div>
+    ` : ''}
 
+    ${(store || community) ? `
     <div class="btn-row">
-      <a href="${escapeHtml(inviteUrl)}" class="btn-primary">${escapeHtml(inviteText)}</a>
-      <a href="${escapeHtml(returnUrl)}" class="btn-secondary">${escapeHtml(returnText)}</a>
+      ${store ? `<a href="${escapeHtml(store.url)}" class="btn-primary">${escapeHtml(store.text)}</a>` : ''}
+      ${community ? `<a href="${escapeHtml(community.url)}" class="btn-secondary">${escapeHtml(community.text)}</a>` : ''}
     </div>
+    ` : ''}
   </div>
 
   <script>
@@ -743,23 +733,20 @@ export function generateUpsellHtml({
   const isDownsell = upsellNode?.offerType === 'downsell';
   const slug = upsellNode?.slug || (isDownsell ? 'downsell-offer' : 'upgrade-offer');
   const label = upsellNode?.label || (isDownsell ? 'Special Downsell Offer' : 'Exclusive VIP Upgrade');
-  const headline = upsellNode?.headline || (isDownsell ? 'Wait! Take 50% Off Before You Go' : 'Wait! Complete Your Order With This Exclusive Upgrade');
-  const subhead = upsellNode?.subhead || 'Special one-time offer reserved exclusively for this session.';
-  const badgeText = upsellNode?.badgeText || (isDownsell ? 'Final Opportunity' : 'One-Time VIP Privilege');
-  const urgencyMins = typeof upsellNode?.urgencyMinutes === 'number' ? Math.max(0, upsellNode.urgencyMinutes) : 5;
-  const productTitle = upsellNode?.productTitle || (isDownsell ? 'Essential Starter Toolkit' : 'VIP All-Access Upgrade Pass');
-  const productPrice = upsellNode?.productPrice || (isDownsell ? '$19' : '$37');
-  const regularPrice = upsellNode?.regularPrice || (isDownsell ? '$39' : '$67');
-  const discountPercentage = upsellNode?.discountPercentage || (isDownsell ? 50 : 40);
+  // As renderPublicUpsellHtml: an empty field is a plain word or nothing. A new upsell has no
+  // product, price, discount or badge, and the export used to fill in "$37", "Save 40%" and a
+  // product nobody sells.
+  const headline = upsellNode?.headline || 'Another offer';
+  const subhead = ownCopy(upsellNode?.subhead);
+  const badgeText = upsellNode?.badgeText || '';
+  const urgencyMins = typeof upsellNode?.urgencyMinutes === 'number' ? Math.max(0, upsellNode.urgencyMinutes) : 0;
+  const productTitle = upsellNode?.productTitle || '';
+  const productPrice = upsellNode?.productPrice || '';
+  const regularPrice = upsellNode?.regularPrice || '';
+  const discountPercentage = Number(upsellNode?.discountPercentage) > 0 ? Number(upsellNode?.discountPercentage) : 0;
   const discountCode = upsellNode?.discountCode || '';
   const productImage = upsellNode?.productImage || '';
-  const benefits = (Array.isArray(upsellNode?.benefits) && upsellNode.benefits.length)
-    ? upsellNode.benefits
-    : [
-        'Instant digital access and priority onboarding',
-        'Includes all bonus templates and companion guides',
-        'Zero extra shipping fees — added directly to your order'
-      ];
+  const benefits = ownCopyList(upsellNode?.benefits);
 
   const defaultDeclineTarget = !isDownsell && downsellNode
     ? `./${downsellNode.slug || 'downsell'}.html`
@@ -771,8 +758,8 @@ export function generateUpsellHtml({
     : (upsellNode?.shopifyVariantId ? `./cart/${upsellNode.shopifyVariantId}:1` : `./${thankYouNode?.slug || 'thank-you'}.html`);
   const acceptUrl = targetAcceptUrl || defaultAcceptTarget;
 
-  const acceptText = upsellNode?.acceptButtonText || `Yes! Add To My Order for Just ${productPrice}`;
-  const declineText = upsellNode?.declineButtonText || (isDownsell ? "No thanks, continue to my receipt" : "No thanks, I'll pass on this upgrade");
+  const acceptText = upsellNode?.acceptButtonText || 'Continue';
+  const declineText = upsellNode?.declineButtonText || (isDownsell ? 'No thanks, continue to my order confirmation' : 'No thanks, skip this offer');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -959,23 +946,24 @@ export function generateUpsellHtml({
       <span>⚡ Limited Offer: Reserved for <span id="jvTimer">${String(urgencyMins).padStart(2, '0')}:00</span></span>
     </div>` : ''}
 
-    <span class="badge">${escapeHtml(badgeText)}</span>
+    ${badgeText ? `<span class="badge">${escapeHtml(badgeText)}</span>` : ''}
     <h1>${escapeHtml(headline)}</h1>
-    <p class="subhead">${escapeHtml(subhead)}</p>
+    ${subhead ? `<p class="subhead">${escapeHtml(subhead)}</p>` : ''}
 
+    ${(productImage || productTitle || productPrice || regularPrice) ? `
     <div class="product-card">
-      ${productImage ? `<img src="${escapeHtml(productImage)}" alt="${escapeHtml(productTitle)}" class="product-img" />` : ''}
-      <div class="product-title">${escapeHtml(productTitle)}</div>
-      <div class="pricing-row">
-        <span class="price-special">${escapeHtml(productPrice)}</span>
+      ${productImage ? `<img src="${escapeHtml(productImage)}" alt="${escapeHtml(productTitle || headline)}" class="product-img" />` : ''}
+      ${productTitle ? `<div class="product-title">${escapeHtml(productTitle)}</div>` : ''}
+      ${(productPrice || regularPrice) ? `<div class="pricing-row">
+        ${productPrice ? `<span class="price-special">${escapeHtml(productPrice)}</span>` : ''}
         ${regularPrice ? `<span class="price-reg">${escapeHtml(regularPrice)}</span>` : ''}
         ${discountPercentage ? `<span class="savings-badge">Save ${discountPercentage}%</span>` : ''}
-      </div>
-    </div>
+      </div>` : ''}
+    </div>` : ''}
 
-    <ul class="benefits-list">
+    ${benefits.length ? `<ul class="benefits-list">
       ${benefits.map(b => `<li>${escapeHtml(b)}</li>`).join('\n      ')}
-    </ul>
+    </ul>` : ''}
 
     <a id="jvAcceptBtn" href="${escapeHtml(acceptUrl)}" class="btn-accept">
       ${escapeHtml(acceptText)} &rarr;
@@ -987,7 +975,6 @@ export function generateUpsellHtml({
       </a>
     </div>
 
-    <p class="guarantee-note">🔒 Safe & secure 256-bit encrypted transaction. No extra steps.</p>
   </div>
 
   <script>
@@ -1051,39 +1038,19 @@ export function generateEmailSequenceText({
 }: {
   sequenceNode?: Partial<SequenceNodeData>;
 }): string {
-  const steps: SequenceStep[] = (Array.isArray(sequenceNode?.steps) && sequenceNode.steps.length)
-    ? sequenceNode.steps
-    : [
-        {
-          id: '1',
-          channel: 'email',
-          delay: 'Instant',
-          subject: 'Your intake confirmation + next steps',
-          previewText: 'Thank you for reaching out.',
-          body: 'Hi {{first_name}},\n\nThank you for requesting access to our pipeline blueprint. We have received your details and our team is reviewing your intake questions right now.\n\nIn the meantime, take 3 minutes to review our case study: {{case_study_link}}.\n\nBest,\nYour Team'
-        },
-        {
-          id: '2',
-          channel: 'email',
-          delay: '24 Hours',
-          subject: 'The 3 hidden conversion bottlenecks cost you pipeline',
-          previewText: 'How fragmented funnels leak 40% of ad spend.',
-          body: 'Hi {{first_name}},\n\nYesterday we shared your initial confirmation. Today I want to show you the single biggest mistake service businesses make when spending on Meta ads:\n\nSending traffic to a generic homepage instead of a dedicated single-offer landing page.\n\nWhen leads land on an unfocused page, they leave. That is why our visual pipeline maps every click from first impression to follow-up.\n\nReady to map yours? Reply to this email or book a call here: {{calendar_link}}.\n\nBest,\nYour Team'
-        },
-        {
-          id: '3',
-          channel: 'email',
-          delay: '72 Hours',
-          subject: 'Are we still on for this week?',
-          previewText: 'Holding your spot in our intake queue.',
-          body: 'Hi {{first_name}},\n\nJust checking in to see if you had any questions on our proposal. We are finalizing our onboarding schedule for this week and have 2 slots remaining.\n\nLet me know if you would like me to hold a slot for you.\n\nBest,\nYour Team'
-        }
-      ];
+  // A sequence with no emails exports a note that says so. It used to export three stock emails
+  // promising "2 slots remaining" that the person would paste into their email tool.
+  const steps: SequenceStep[] = Array.isArray(sequenceNode?.steps) ? sequenceNode.steps : [];
+  if (!steps.length) {
+    return 'This sequence has no emails yet. Add an email to the step on the map, then export again.\n';
+  }
+  const rule = '═══════════════════════════════════════════════════════════════';
+  const field = (v: unknown, empty: string) => (typeof v === 'string' && v.trim() ? v : empty);
 
   return steps
     .map(
       (e: SequenceStep, i: number) =>
-        `═══════════════════════════════════════════════════════════════\nEMAIL #${i + 1} — TIMING: ${e.delay.toUpperCase()}\n═══════════════════════════════════════════════════════════════\nSUBJECT: ${e.subject}\nPREVIEW TEXT: ${e.previewText || ''}\n\nBODY:\n${e.body}\n`
+        `${rule}\nEMAIL #${i + 1} | TIMING: ${field(e.delay, 'Not set').toUpperCase()}\n${rule}\nSUBJECT: ${field(e.subject, '(No subject written yet)')}\nPREVIEW TEXT: ${field(e.previewText, '')}\n\nBODY:\n${field(e.body, '(No body written yet)')}\n`
     )
     .join('\n\n');
 }
@@ -1098,22 +1065,32 @@ export function generateAdCopyText({
   adNode?: Partial<AdNodeData>;
   destinationUrl?: string;
 }): string {
-  const headline = adNode?.headline || 'Stop Leaking 40% of Your Ad Spend';
-  const body = adNode?.body || 'Most businesses run great ads but send visitors to a confusing homepage. Jourvance lets you build connected customer journeys that turn clicks into qualified leads.';
-  const hook = (adNode as any)?.hook || 'Stop losing leads between your ad and your calendar.';
-  const cta = adNode?.ctaText || 'Learn More';
+  // The spec carries only what the ad step holds: an empty headline or body says so, and the hook
+  // section appears only when a hook was written. The old fallbacks were Jourvance's own pitch.
+  const headline = adNode?.headline || '(No headline written yet)';
+  const body = ownCopy(adNode?.body) || '(No ad copy written yet)';
+  const hook = typeof (adNode as any)?.hook === 'string' ? String((adNode as any).hook).trim() : '';
+  const cta = adNode?.ctaText || '(No button text written yet)';
 
-  const utmMeta = `${destinationUrl}?utm_source=meta&utm_medium=cpc&utm_campaign=${adNode?.utmCampaign || 'lead_intake'}&utm_content=hook_angle_1`;
-  const utmGoogle = `${destinationUrl}?utm_source=google&utm_medium=search&utm_campaign=${adNode?.utmCampaign || 'brand_conversion'}&utm_term=customer_journey_builder`;
-  const utmTikTok = `${destinationUrl}?utm_source=tiktok&utm_medium=video&utm_campaign=${adNode?.utmCampaign || 'founder_story'}&utm_content=problem_agitation`;
+  // Only the step's own campaign tag (U04). An invented one would count visits under a campaign no
+  // ad step matches, so with none the links carry no utm_campaign and the spec says why.
+  const campaign = adNode?.utmCampaign || '';
+  const tag = campaign ? `&utm_campaign=${campaign}` : '';
+  const noTag = campaign ? '' : `No campaign tag is set on this ad step, so these links carry none and visits from them
+cannot be counted for this ad. Add one in the ad step.
+
+`;
+  const utmMeta = `${destinationUrl}?utm_source=meta&utm_medium=cpc${tag}&utm_content=hook_angle_1`;
+  const utmGoogle = `${destinationUrl}?utm_source=google&utm_medium=search${tag}&utm_term=customer_journey_builder`;
+  const utmTikTok = `${destinationUrl}?utm_source=tiktok&utm_medium=video${tag}&utm_content=problem_agitation`;
 
   return `═══════════════════════════════════════════════════════════════
 AD CREATIVE & COPY SPECIFICATION
 ═══════════════════════════════════════════════════════════════
-HOOK ANGLE:
+${hook ? `HOOK ANGLE:
 "${hook}"
 
-PRIMARY AD COPY:
+` : ''}PRIMARY AD COPY:
 ${body}
 
 HEADLINE:
@@ -1126,7 +1103,7 @@ ${cta}
 PRE-CONFIGURED UTM TRACKING DESTINATION URLS
 ═══════════════════════════════════════════════════════════════
 
-1. META (FACEBOOK / INSTAGRAM FEED & REELS):
+${noTag}1. META (FACEBOOK / INSTAGRAM FEED & REELS):
 ${utmMeta}
 
 2. GOOGLE SEARCH / PMAX:

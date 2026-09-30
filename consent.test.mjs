@@ -84,11 +84,11 @@ function buildCookieConsentWidget(options = {}) {
   <div id="jv-consent-banner" class="jv-cookie-consent" role="region" aria-label="Cookie Preferences">
     <div class="jv-consent-content">
       <div class="jv-consent-header">
-        <span class="jv-consent-sparkle">✦</span>
-        <span class="jv-consent-title">Privacy & Tailored Ritual</span>
+        <span class="jv-consent-sparkle" aria-hidden="true">✦</span>
+        <span class="jv-consent-title">Cookies on this site</span>
       </div>
       <p class="jv-consent-desc">
-        We use essential cookies to personalize your ritual, secure your checkout, and optimize performance.
+        We use cookies to run this site and, with your permission, to measure visits.
         ${safePrivacyUrl ? ` <a href="${safePrivacyUrl}" target="_blank" rel="noopener noreferrer" class="jv-consent-link">Privacy Policy</a>` : ''}
       </p>
       <div class="jv-consent-actions">

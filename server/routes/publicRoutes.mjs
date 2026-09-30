@@ -37,14 +37,19 @@ import {
   detectVisitorCurrency,
   buildLocalizedShopifyCartUrl
 } from '../../src/lib/geoCurrency.ts';
+// Instructions older defaults stored as copy ("Describe what the visitor gets.") are never published (R19).
+import { ownCopy, ownCopyList } from '../../src/lib/stepDefaults.ts';
 import {
-  verifyReviewToken,
   submitCustomerReview,
   renderReviewPortalHtml,
   getPublicVerifiedReviews,
   toggleReviewVisibility,
-  renderSocialProofWallHtml
+  renderSocialProofWallHtml,
+  DEFAULT_CURATED_REVIEWS,
+  loadReviews
 } from '../reviewEngine.mjs';
+import { merchantReviewCode, isReferralLink, definedReferralRule, referralAmountText, seededSignupForm } from '../seededOffers.mjs';
+import { reviewTokenValid } from '../reviewTokens.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -133,9 +138,63 @@ const reloadDomainRegistry = () => (getCtx().reloadDomainRegistry ? getCtx().rel
 const pushBehavior = (uid, evt) => (getCtx().pushBehavior ? getCtx().pushBehavior(uid, evt) : undefined);
 const loadBehaviorBag = (uid) => (getCtx().loadBehaviorBag ? getCtx().loadBehaviorBag(uid) : { subscriptions: [] });
 const saveBehaviorBag = (uid, bag) => (getCtx().saveBehaviorBag ? getCtx().saveBehaviorBag(uid, bag) : undefined);
+const loadDiscounts = () => (getCtx().loadDiscounts ? getCtx().loadDiscounts() : []);
+// Reviews live in hubStorage (store.reviews). The hub SDK client has no get or set, so passing it
+// stored no review and read none back, and every page fell back to sample reviews (R24).
+const reviewStore = () => getCtx().hubStorage || null;
 
 const pixelBuckets = new Map();
 
+
+// A page shows only reviews stored for its own owner, never one filed under usr_default or under
+// nobody, and never the engine's written sample reviews (R24).
+// The rating and count cover EVERY review the owner holds for the store, hidden or below the
+// page's star threshold included: minRating and hiding choose which cards show, and an average
+// worked out from the 4 and 5 star reviews alone told shoppers 5.0 where the truth was 2.7.
+const CURATED_REVIEW_IDS = new Set((DEFAULT_CURATED_REVIEWS || []).map(r => r.id));
+function realVerifiedReviews(opts) {
+  const owner = String(opts?.userId || '');
+  const store = opts?.hubStorage;
+  const none = { summary: { averageRating: null, totalCount: 0 }, reviews: [] };
+  if (!owner || owner === 'usr_default' || !store) return none;
+  const storeDomain = String(opts?.storeDomain || '');
+  const owned = loadReviews(store).filter(r => r && r.userId === owner && !CURATED_REVIEW_IDS.has(r.id)
+    && !(storeDomain && r.storeDomain && r.storeDomain !== storeDomain));
+  const rated = owned.filter(r => reviewRating(r.rating) !== null);
+  // A card only for a review with a real rating.
+  const ownIds = new Set(rated.map(r => r.id));
+  const shown = getPublicVerifiedReviews({ ...opts, limit: 100000 }).reviews
+    .filter(r => ownIds.has(r.id))
+    .map(r => ({ ...r, photos: (r.photos || []).filter(safeReviewPhoto) }));
+  if (!rated.length) return { ...none, reviews: [] };
+  const average = rated.reduce((sum, r) => sum + reviewRating(r.rating), 0) / rated.length;
+  return {
+    summary: { averageRating: Number(average.toFixed(1)), totalCount: rated.length },
+    reviews: shown.slice(0, Math.max(1, Number(opts.limit) || 12))
+  };
+}
+
+// A stored rating, or null: a missing one is not five stars.
+function reviewRating(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null;
+}
+
+// A review photo reaches the page only as a base64 image or an https URL with no quote, bracket,
+// parenthesis, backslash or angle bracket. The wall once put the URL into an inline onclick string,
+// where the browser decodes an escaped quote back before the script runs, so a submitted photo URL
+// ran code on the merchant's page (R24).
+function safeReviewPhoto(value) {
+  const p = String(value || '').trim();
+  if (!p || p.length > 350000) return false;
+  if (/^data:image\/(png|jpe?g|webp|gif|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/i.test(p)) return true;
+  return /^https:\/\/[^\s"'`()<>\\{}]+$/i.test(p);
+}
+
+// The wall's markup, exact count, photo buttons and 11px floor all come from reviewEngine.mjs now (R24).
+function publicReviewWall(summary, reviews, opts) {
+  return renderSocialProofWallHtml(summary, reviews, opts);
+}
 
 function savedPrice(value) {
   const raw = String(value || '').trim();
@@ -147,10 +206,12 @@ function savedPrice(value) {
 
 function pageTrackFrom(page) {
   const data = page?.data || {};
+  // No price is reported for a product picked with a placeholder variant: it is invented (R14).
+  const placeholder = Boolean(String(data.shopifyVariantId || '').trim()) && !realVariantId(data.shopifyVariantId);
   return {
     productId: shopifyId(data.shopifyProductId),
     variantId: shopifyId(data.shopifyVariantId),
-    price: savedPrice(data.shopifyProductPrice),
+    price: placeholder ? '' : savedPrice(data.shopifyProductPrice),
     collectionId: shopifyId(data.shopifyCollectionId)
   };
 }
@@ -192,6 +253,8 @@ function buildCookieConsentWidget(options = {}) {
 
   const safePrivacyUrl = privacyPolicyUrl ? escapeHtml(privacyPolicyUrl) : '';
 
+  // The banner runs on every merchant's live page, so its words fit any store: no product
+  // category, and no claim about personalizing or securing anything (U05).
   return `
   <!-- Jourvance GDPR / CCPA Cookie Consent (Option A: Floating Frosted Pill) -->
   <style>
@@ -315,11 +378,11 @@ function buildCookieConsentWidget(options = {}) {
   <div id="jv-consent-banner" class="jv-cookie-consent" role="region" aria-label="Cookie Preferences">
     <div class="jv-consent-content">
       <div class="jv-consent-header">
-        <span class="jv-consent-sparkle">✦</span>
-        <span class="jv-consent-title">Privacy & Tailored Ritual</span>
+        <span class="jv-consent-sparkle" aria-hidden="true">✦</span>
+        <span class="jv-consent-title">Cookies on this site</span>
       </div>
       <p class="jv-consent-desc">
-        We use essential cookies to personalize your ritual, secure your checkout, and optimize performance.
+        We use cookies to run this site and, with your permission, to measure visits.
         ${safePrivacyUrl ? ` <a href="${safePrivacyUrl}" target="_blank" rel="noopener noreferrer" class="jv-consent-link">Privacy Policy</a>` : ''}
       </p>
       <div class="jv-consent-actions">
@@ -417,8 +480,8 @@ function pageConsentFrom(page, req) {
 }
 
 function trackingSnippet(slug, variant, track) {
-  const safeSlug = JSON.stringify(String(slug || ''));
-  const safeVariant = JSON.stringify(variant === 'b' ? 'b' : 'a');
+  const safeSlug = scriptJson(String(slug || ''));
+  const safeVariant = scriptJson(variant === 'b' ? 'b' : 'a');
   const beacon = pageBeaconScript(track || {});
   return `<script>
 window.jourvanceCanTrack = function() {
@@ -525,39 +588,109 @@ function withTracking(html, slug, variant, includeForms, track, consentOptions =
 const pubDocName = (slug) => `pubpage.${safe(slug)}`;
 
 
+// What a save achieved: { durable: true } once the hub stored the page (and its domain pointer).
+// The hub SDK never throws on a refusal, it answers { error, status }, so each answer is read.
+// A refused write is undone in this process too: the key goes back to what it held, so this
+// server serves and reports what storage holds rather than a page the next restart loses. A
+// refused page answers written: false. A stored page whose domain pointer was refused keeps the
+// page and puts back only the pointer: written: true, pointerRefused: true, with the domain named.
+// With no hub the page stays, kept on this server only.
 async function savePublicPage(slug, data) {
+  const prevPage = publicPageCache[slug];
   publicPageCache[slug] = data;
   const customDomain = (data.customDomain || data.data?.customDomain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const pointerKey = `domain:${customDomain}`;
+  const prevPointer = customDomain ? publicPageCache[pointerKey] : undefined;
+  // A page republished without the domain it had lets go of that domain. The pointer used to stay
+  // on it, so the domain kept serving the old page and the address check read it as still live on
+  // that journey, refusing to move the domain anywhere else short of taking the journey offline.
+  const droppedDomain = prevPage && typeof prevPage === 'object' ? pageDomainOf(prevPage) : '';
+  const droppedKey = droppedDomain && droppedDomain !== customDomain && publicPageCache[`domain:${droppedDomain}`] === slug
+    ? `domain:${droppedDomain}`
+    : '';
+  if (droppedKey) delete publicPageCache[droppedKey];
   if (customDomain) {
     reloadDomainRegistry();
     const reg = domainRegistryCache[customDomain];
     const isVerifiedForUser = Boolean(reg && reg.verified && reg.userId === data.userId);
     if (isVerifiedForUser) {
-      publicPageCache[`domain:${customDomain}`] = slug;
+      publicPageCache[pointerKey] = slug;
     }
   }
   persistPublicPages();
-  if (hubReady) {
+  if (!hubReady) return { durable: false, reason: 'HUB_API_KEY is not set on this server.' };
+
+  const put = async (name, doc) => {
     try {
-      await hub.store.docs.put(pubDocName(slug), data);
-      if (customDomain && publicPageCache[`domain:${customDomain}`] === slug) {
-        await hub.store.docs.put(pubDocName(`domain.${customDomain}`), { targetSlug: slug });
-      }
-    } catch {}
+      const r = await hub.store.docs.put(name, doc);
+      return r && r.error ? String(r.error) : '';
+    } catch (e) {
+      return (e && e.message) || 'The store did not answer.';
+    }
+  };
+  // Only a key this call still holds is put back; the upsell counter saves the cached object
+  // itself, so there is nothing older to return to and its page stays.
+  const restore = (key, prev, mine) => {
+    if (publicPageCache[key] !== mine || prev === mine) return false;
+    if (prev === undefined) delete publicPageCache[key];
+    else publicPageCache[key] = prev;
+    return true;
+  };
+
+  const refused = await put(pubDocName(slug), data);
+  // Read after the await: a later save may have taken the domain meanwhile, and its pointer stands.
+  const pointed = Boolean(customDomain) && publicPageCache[pointerKey] === slug;
+  if (refused) {
+    // The pointer was only claimed here, never sent, so it goes back with the page.
+    const pageBack = restore(slug, prevPage, data);
+    const pointerBack = pointed && restore(pointerKey, prevPointer, slug);
+    // The old page is back, so the domain it asks for points at it again, unless another save
+    // took the domain meanwhile.
+    const droppedBack = Boolean(droppedKey) && pageBack && publicPageCache[droppedKey] === undefined;
+    if (droppedBack) publicPageCache[droppedKey] = slug;
+    if (pageBack || pointerBack || droppedBack) persistPublicPages();
+    return { durable: false, written: !(pageBack || pointerBack), reason: refused };
   }
+  // The stored pointer to a dropped domain goes too. A refusal leaves a stale doc that nothing
+  // reads back, and the page itself is stored, so it does not fail the save.
+  if (droppedKey && publicPageCache[droppedKey] === undefined) {
+    try { await hub.store.docs.remove(pubDocName(`domain.${droppedDomain}`)); } catch { /* see above */ }
+  }
+  const pointerRefused = pointed ? await put(pubDocName(`domain.${customDomain}`), { targetSlug: slug }) : '';
+  if (!pointerRefused) return { durable: true };
+  // The page is stored and stays live; only the domain goes back to where storage has it.
+  if (restore(pointerKey, prevPointer, slug)) persistPublicPages();
+  return { durable: false, written: true, pointerRefused: true, domain: customDomain, reason: pointerRefused };
 }
 
 async function loadPublicPage(identifier) {
-  if (!identifier) return null;
+  return (await readPublicPage(identifier)).page;
+}
+
+// loadPublicPage with the hub's answer kept. ok is false only when the hub was asked, did not
+// answer with a document or a 404, and the local cache holds nothing either: then nobody knows
+// whether a record is there or who owns it. A caller that deletes, or that reports a step as not
+// live, must not read that as "no record".
+async function readPublicPage(identifier) {
+  if (!identifier) return { ok: true, page: null };
   const cleanId = String(identifier).toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
+  let hubFailed = false;
   if (hubReady) {
     try {
       const r = await hub.store.docs.get(pubDocName(cleanId));
-      if (r?.document) return r.document;
-    } catch {}
+      if (r?.document) return { ok: true, page: r.document };
+      if (!(r && r.status === 404)) hubFailed = true;
+    } catch {
+      hubFailed = true;
+    }
   }
 
+  const page = cachedPublicPage(cleanId);
+  return { ok: Boolean(page) || !hubFailed, page };
+}
+
+function cachedPublicPage(cleanId) {
   // Sync from disk if not yet in cache
   if (!publicPageCache[cleanId] && !publicPageCache[`domain:${cleanId}`]) {
     reloadPublicPageCache();
@@ -575,7 +708,9 @@ async function loadPublicPage(identifier) {
   if (publicPageCache[`domain:${cleanId}`]) {
     const targetSlug = publicPageCache[`domain:${cleanId}`];
     const targetPage = publicPageCache[targetSlug] || null;
-    if (targetPage) {
+    // A pointer left on a page that no longer asks for the domain (a republish without it, before
+    // savePublicPage let go of the pointer) serves nothing.
+    if (targetPage && pageDomainOf(targetPage) === cleanId) {
       reloadDomainRegistry();
       const reg = domainRegistryCache[cleanId];
       if (reg && reg.verified && reg.userId === targetPage.userId) {
@@ -584,19 +719,23 @@ async function loadPublicPage(identifier) {
     }
   }
 
-  // Deep search cached records for matching customDomain ONLY IF verified for that page's owner
+  // Deep search cached records for matching customDomain ONLY IF verified for that page's owner,
+  // and only when every such page is from one journey. With two journeys on the domain, which one
+  // it serves is the pointer's call: the first match could be the other journey's page.
   reloadDomainRegistry();
   const reg = domainRegistryCache[cleanId];
   if (reg && reg.verified) {
-    for (const page of Object.values(publicPageCache)) {
-      if (page && typeof page === 'object' && page.userId === reg.userId) {
-        const pageDomain = (page.customDomain || page.data?.customDomain || '').toLowerCase().trim();
-        if (pageDomain && pageDomain === cleanId) return page;
-      }
-    }
+    const matches = Object.values(publicPageCache).filter(page =>
+      page && typeof page === 'object' && page.userId === reg.userId && pageDomainOf(page) === cleanId);
+    if (matches.length && new Set(matches.map(p => String(p.journeyId || ''))).size === 1) return matches[0];
   }
 
   return null;
+}
+
+// The custom domain a published record asks for, cleaned the way the pointer key is.
+function pageDomainOf(page) {
+  return String(page?.customDomain || page?.data?.customDomain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 }
 
 const RESERVED_PUBLIC_SLUGS = new Set([
@@ -604,7 +743,37 @@ const RESERVED_PUBLIC_SLUGS = new Set([
   'health', 'webhooks', 'login', 'signup', 'dashboard', 'preview', 'checkout', 'cart'
 ]);
 
-async function validateSlugAvailability(slug, requestingUserId, { type = 'page', customDomain = '' } = {}) {
+// The record behind a key, cache first. ok is false when the hub could not answer and nothing is
+// cached: the owner is unknown, so an address check must not read that as free.
+async function ownerRecord(key) {
+  if (publicPageCache[key]) return { ok: true, page: publicPageCache[key] };
+  return readPublicPage(key);
+}
+
+// A failed read is not a free address: publishing over it could replace another store's page.
+const uncheckedAddress = (cleanSlug) => ({
+  available: false,
+  retryable: true,
+  error: `We could not check whether the address "${cleanSlug}" is free.`
+});
+
+// With a journeyId, a record this user published from ANOTHER journey is not free either:
+// publishing over it replaced that journey's live page and flipped it to Not published with no
+// warning. The refusal carries otherJourneyId so the caller can name that journey. A record with
+// no journeyId (older publishes) still counts as the user's own.
+const otherJourneyOf = (page, requestingUserId, journeyId) =>
+  journeyId && page && typeof page === 'object' && page.userId === requestingUserId &&
+  page.journeyId && String(page.journeyId) !== String(journeyId)
+    ? String(page.journeyId)
+    : '';
+
+const ownOtherJourneyRefusal = (url, otherJourneyId) => ({
+  available: false,
+  otherJourneyId,
+  error: `The address ${url} is live on another of your journeys. Change the Page URL Path, then publish again.`
+});
+
+async function validateSlugAvailability(slug, requestingUserId, { type = 'page', customDomain = '', journeyId = '' } = {}) {
   const cleanSlug = String(slug || '')
     .toLowerCase()
     .trim()
@@ -620,7 +789,9 @@ async function validateSlugAvailability(slug, requestingUserId, { type = 'page',
 
   // Check direct slug ownership across all page types
   const lookupKey = type === 'ab-split' ? `split:${cleanSlug}` : cleanSlug;
-  const existingPage = publicPageCache[lookupKey] || await loadPublicPage(lookupKey);
+  const existingRead = await ownerRecord(lookupKey);
+  if (!existingRead.ok) return uncheckedAddress(cleanSlug);
+  const existingPage = existingRead.page;
 
   if (existingPage && existingPage.userId && existingPage.userId !== requestingUserId) {
     return {
@@ -628,16 +799,25 @@ async function validateSlugAvailability(slug, requestingUserId, { type = 'page',
       error: `The ${type === 'ab-split' ? 'split-test' : 'page'} slug "${cleanSlug}" is already claimed by another store. Please choose a unique custom slug.`
     };
   }
+  const lookupOther = otherJourneyOf(existingPage, requestingUserId, journeyId);
+  if (lookupOther) {
+    return ownOtherJourneyRefusal(type === 'ab-split' ? `/p/split/${cleanSlug}` : `/p/${cleanSlug}`, lookupOther);
+  }
 
   // If registering a page or upsell, verify direct slug is not taken by another user's page or upsell
+  let directExisting = null;
   if (type !== 'ab-split') {
-    const directExisting = publicPageCache[cleanSlug] || await loadPublicPage(cleanSlug);
+    const directRead = await ownerRecord(cleanSlug);
+    if (!directRead.ok) return uncheckedAddress(cleanSlug);
+    directExisting = directRead.page;
     if (directExisting && directExisting.userId && directExisting.userId !== requestingUserId) {
       return {
         available: false,
         error: `The page slug "${cleanSlug}" is already claimed by another store. Please choose a unique custom slug.`
       };
     }
+    const directOther = otherJourneyOf(directExisting, requestingUserId, journeyId);
+    if (directOther) return ownOtherJourneyRefusal(`/p/${cleanSlug}`, directOther);
   }
 
   // Custom Domain validation: Ensure the custom domain is not already bound to another tenant's page
@@ -654,40 +834,74 @@ async function validateSlugAvailability(slug, requestingUserId, { type = 'page',
       }
       const existingDomainSlug = publicPageCache[`domain:${cleanDomain}`];
       if (existingDomainSlug) {
-        const existingDomainPage = publicPageCache[existingDomainSlug] || await loadPublicPage(existingDomainSlug);
+        const domainRead = await ownerRecord(existingDomainSlug);
+        if (!domainRead.ok) return uncheckedAddress(cleanSlug);
+        const existingDomainPage = domainRead.page;
         if (existingDomainPage && existingDomainPage.userId && existingDomainPage.userId !== requestingUserId) {
           return {
             available: false,
             error: `The custom domain "${cleanDomain}" is already connected to another store. To verify and transfer ownership, add the TXT challenge record.`
           };
         }
+        // A domain is verified per user, so the user check above passed another of this user's
+        // journeys, and publishing moved the domain to this journey's page with no warning. A page
+        // that no longer asks for the domain does not hold it: the user took it off that page.
+        const domainOther = pageDomainOf(existingDomainPage) === cleanDomain
+          ? otherJourneyOf(existingDomainPage, requestingUserId, journeyId)
+          : '';
+        if (domainOther) {
+          return {
+            available: false,
+            otherJourneyId: domainOther,
+            error: `The custom domain ${cleanDomain} is live on another of your journeys. Remove it from this page or take that journey offline, then publish again.`
+          };
+        }
       }
     }
   }
 
-  return { available: true, cleanSlug };
+  // Asked without a journeyId, an address live on one of this user's journeys is still free to
+  // this user, and the answer says which journey holds it rather than a bare "available".
+  const held = journeyId ? null : [existingPage, directExisting]
+    .find(p => p && typeof p === 'object' && p.userId === requestingUserId && p.journeyId);
+  return held ? { available: true, cleanSlug, liveOnJourneyId: String(held.journeyId) } : { available: true, cleanSlug };
 }
 
 async function removePublicPage(slug, requestingUserId) {
   if (!slug) return false;
   const cleanSlug = String(slug).toLowerCase().trim();
-  const page = publicPageCache[cleanSlug] || await loadPublicPage(cleanSlug);
+  let page = publicPageCache[cleanSlug];
+  if (!page) {
+    // A failed read is not "no owner". With the hub unreachable and nothing cached, the doc may
+    // be another store's live page, so nothing is removed and the caller hears false.
+    const read = await readPublicPage(cleanSlug);
+    if (!read.ok) return false;
+    page = read.page;
+  }
   if (page && page.userId && page.userId !== requestingUserId) {
     return false; // Unauthorized removal attempt
   }
+  // The SDK names this docs.remove. It used to call docs.delete, which does not exist, so the
+  // TypeError was swallowed and every hub-backed page stayed live. A refusal other than a 404
+  // (already gone) is a failed removal: the local copy still goes, and the caller hears false.
+  let removed = true;
+  const hubRemove = async (name) => {
+    try {
+      const r = await hub.store.docs.remove(name);
+      if (r && r.error && r.status !== 404) removed = false;
+    } catch {
+      removed = false;
+    }
+  };
   const customDomain = (page?.customDomain || page?.data?.customDomain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   if (customDomain && publicPageCache[`domain:${customDomain}`] === cleanSlug) {
     delete publicPageCache[`domain:${customDomain}`];
-    if (hubReady) {
-      try { await hub.store.docs.delete(pubDocName(`domain.${customDomain}`)); } catch {}
-    }
+    if (hubReady) await hubRemove(pubDocName(`domain.${customDomain}`));
   }
   delete publicPageCache[cleanSlug];
   persistPublicPages();
-  if (hubReady) {
-    try { await hub.store.docs.delete(pubDocName(cleanSlug)); } catch {}
-  }
-  return true;
+  if (hubReady) await hubRemove(pubDocName(cleanSlug));
+  return removed;
 }
 
 function escapeHtml(str) {
@@ -698,6 +912,31 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// hh:mm:ss left until an expiry, for the first paint before the page's clock takes over.
+function formatCountdown(ms) {
+  const rem = Math.max(0, Math.floor(ms / 1000));
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(Math.floor(rem / 3600))}:${pad(Math.floor((rem % 3600) / 60))}:${pad(rem % 60)}`;
+}
+
+// A value written into an inline <script> as a JS literal. JSON.stringify alone does not escape
+// '<', so an ?email=</script><script>... link closed the page's script and ran its own.
+function scriptJson(value) {
+  return JSON.stringify(value === undefined ? null : value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+// A string for an inline script, quotes included. escapeHtml inside '...' left a
+// trailing backslash free to escape the closing quote, which broke the whole page
+// script (checkout, pixels, timer). Non-strings read as '' exactly as escapeHtml did.
+function scriptStr(value) {
+  return scriptJson(typeof value === 'string' ? value : '');
 }
 
 function render404Html(slug) {
@@ -863,8 +1102,8 @@ function renderPublicFunnelHtml(page, req, res) {
   const data = {
     ...rawData,
     headline: vB.headline || rawData.headline,
-    subhead: vB.subhead || rawData.subhead,
-    bullets: Array.isArray(vB.bullets) && vB.bullets.length ? vB.bullets : rawData.bullets,
+    subhead: ownCopy(vB.subhead) || ownCopy(rawData.subhead),
+    bullets: ownCopyList(vB.bullets).length ? ownCopyList(vB.bullets) : ownCopyList(rawData.bullets),
     buttonText: vB.buttonText || rawData.buttonText,
     heroImageUrl: vB.heroImageUrl || rawData.heroImageUrl,
     discountCode: vB.discountCode !== undefined ? vB.discountCode : rawData.discountCode,
@@ -875,28 +1114,49 @@ function renderPublicFunnelHtml(page, req, res) {
   const storeDomain = realStoreDomain(shopify);
   const variantId = realVariantId(data.shopifyVariantId);
   const productId = shopifyId(data.shopifyProductId);
-  const beaconPrice = savedPrice(data.shopifyProductPrice);
+  // A product picked with a placeholder variant (an old blueprint id, or the sample catalog the
+  // product picker used to offer) is nobody's: its title, price and image are invented, so none of
+  // them is published. Saved journeys still carry such picks (R14).
+  const placeholderProduct = Boolean(String(data.shopifyVariantId || '').trim()) && !variantId;
+  const beaconPrice = placeholderProduct ? '' : savedPrice(data.shopifyProductPrice);
   const cartAction = data.cartAction === 'add' ? 'add' : 'checkout';
   const discountCode = data.discountCode || '';
 
   // Phase 15: Dual-Sided VIP Referral & Brand Ambassador Engine ("Give $15, Get $15")
+  // The ref still tags the visit and the cart for attribution. The offer is shown and GIVE15 applied
+  // only when the merchant has defined that code for this store, at the amount they chose: the
+  // server no longer creates it, and Shopify rejects a code the store does not have (R24).
   const queryRef = String(req?.query?.ref || '').trim();
   const queryCoupon = String(req?.query?.coupon || req?.query?.discount || '').trim();
-  const isVipReferral = Boolean(
-    queryRef.toUpperCase().startsWith('GIVE15') ||
-    queryCoupon.toUpperCase() === 'GIVE15'
-  );
-  const referralCode = queryRef || (queryCoupon.toUpperCase() === 'GIVE15' ? 'GIVE15' : '');
+  const referralLink = isReferralLink(queryRef, queryCoupon);
+  const referralCode = queryRef || (referralLink ? 'GIVE15' : '');
+  const referralRule = referralLink ? definedReferralRule(loadDiscounts(), storeDomain) : null;
+  const isVipReferral = Boolean(referralRule);
+  const referralAmount = referralAmountText(referralRule, shopify.currency);
   const effectiveDiscountCode = isVipReferral ? 'GIVE15' : discountCode;
   const headline = data.headline || 'Offer';
   const subhead = data.subhead || '';
-  const bullets = Array.isArray(data.bullets) ? data.bullets : [];
+  const bullets = data.bullets;
   const trustBadge = /4\.9\/5|verified (beauty lovers|customers|buyers|clients)/i.test(String(data.trustBadge || '')) ? '' : (data.trustBadge || '');
-  const productTitle = data.shopifyProductTitle || headline;
-  const productPrice = data.shopifyProductPrice || '';
-  const heroImage = data.shopifyProductImage || data.heroImageUrl || '';
+  const productTitle = (!placeholderProduct && data.shopifyProductTitle) || headline;
+  const productPrice = placeholderProduct ? '' : (data.shopifyProductPrice || '');
+  const heroImage = (!placeholderProduct && data.shopifyProductImage) || data.heroImageUrl || '';
   const isLeadGate = data.checkoutMode === 'lead-gate';
   const buttonText = data.buttonText || 'Continue';
+  // The exit drawer carries only what the user wrote: it is published once it has their headline,
+  // and a code is shown only when one is set. No default offer and no default code are invented.
+  const exitHeadline = String(data.exitIntentHeadline || '').trim();
+  const exitDrawerCode = String(data.exitIntentDiscountCode || data.discountCode || '').trim();
+  const exitDrawerOn = Boolean(data.exitIntentEnabled && exitHeadline);
+  // The lead-gate modal names a discount only when the page has a code. Without one it asks for the
+  // email and goes on to checkout, with no voucher, coupon or exclusive offer promised.
+  // With no store there is no checkout to continue to, so the button always opens this form, which
+  // saves the details and says so in place. It used to alert an invented "preparing for launch"
+  // notice, or promise checkout and then send the visitor to https:///cart/ (R18).
+  const leadOnly = !storeDomain;
+  const leadHasCode = Boolean(effectiveDiscountCode) && !leadOnly;
+  const leadSubmitLabel = leadOnly ? 'Send' : leadHasCode ? 'Claim Voucher & Checkout &rarr;' : 'Continue to Checkout &rarr;';
+  const leadBumpSubmitLabel = leadOnly ? 'Send' : leadHasCode ? 'Claim Voucher & Upgrade Order &rarr;' : 'Upgrade Order & Checkout &rarr;';
   const metaPixelId = realTrackingId(data.metaPixelId);
   const tiktokPixelId = realTrackingId(data.tiktokPixelId);
   const ga4TrackingId = realTrackingId(data.ga4TrackingId);
@@ -944,13 +1204,14 @@ function renderPublicFunnelHtml(page, req, res) {
   // Phase 13: Live Verified UGC Social Proof Wall (Option 1A & 2A)
   const socialProofEnabled = data.socialProofWallEnabled !== false;
   const socialProofMinRating = Number(data.socialProofMinRating) || 4;
-  const socialProofTitle = data.socialProofHeadline || 'Loved by Thousands of Radiant Routines';
+  // The heading is the merchant's; the default names the section and claims nothing about it.
+  const socialProofTitle = data.socialProofHeadline || 'Customer reviews';
   const socialProofData = socialProofEnabled
-    ? getPublicVerifiedReviews({
+    ? realVerifiedReviews({
         userId: page.userId,
         storeDomain,
         minRating: socialProofMinRating,
-        hubStorage: hub
+        hubStorage: reviewStore()
       })
     : { summary: {}, reviews: [] };
 
@@ -980,7 +1241,7 @@ function renderPublicFunnelHtml(page, req, res) {
   t.src=v;s=b.getElementsByTagName(e)[0];
   s.parentNode.insertBefore(t,s)}(window, document,'script',
   'https://connect.facebook.net/en_US/fbevents.js');
-  fbq('init', '${escapeHtml(metaPixelId)}');
+  fbq('init', ${scriptStr(metaPixelId)});
   fbq('track', 'PageView');
   </script>
   <noscript><img height="1" width="1" style="display:none"
@@ -994,7 +1255,7 @@ function renderPublicFunnelHtml(page, req, res) {
   <script>
   !function (w, d, t) {
     w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e};ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=i,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var o=document.createElement("script");o.type="text/javascript",o.async=!0,o.src=i+"?sdkid="+e+"&lib="+t;var a=document.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};
-    ttq.load('${escapeHtml(tiktokPixelId)}');
+    ttq.load(${scriptStr(tiktokPixelId)});
     ttq.page();
   }(window, document, 'ttq');
   </script>
@@ -1008,7 +1269,7 @@ function renderPublicFunnelHtml(page, req, res) {
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
     gtag('js', new Date());
-    gtag('config', '${escapeHtml(ga4TrackingId)}');
+    gtag('config', ${scriptStr(ga4TrackingId)});
   </script>
   <!-- End Google Analytics -->
   ` : ''}
@@ -1634,9 +1895,9 @@ function renderPublicFunnelHtml(page, req, res) {
   ${isPreviewMode ? renderGeoPricingSimulatorToolbar({ activeCurrency: initialCurrency, slug, isUpsell: false, isDownsell: false, hasUpsell: Boolean(rawData.hasUpsell || rawData.upsell), storeDomain }) : ''}
 
   ${isVipReferral ? `
-  <div class="jv-referral-banner" style="background: linear-gradient(135deg, rgba(236, 72, 153, 0.16) 0%, rgba(245, 158, 11, 0.12) 100%); border-bottom: 1px solid rgba(236, 72, 153, 0.32); padding: 11px 16px; text-align: center; font-size: 13px; font-weight: 500; color: #fdf2f8; display: flex; align-items: center; justify-content: center; gap: 8px;">
-    <span style="font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 9999px; background: rgba(236, 72, 153, 0.28); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.45);">VIP Friend Invitation</span>
-    <span>Your <strong>$15 welcome courtesy</strong> is activated and pre-applied at checkout (Code: <strong>GIVE15</strong>)</span>
+  <div class="jv-referral-banner" style="background: linear-gradient(135deg, rgba(236, 72, 153, 0.16) 0%, rgba(245, 158, 11, 0.12) 100%); border-bottom: 1px solid rgba(236, 72, 153, 0.32); padding: 11px 16px; text-align: center; font-size: 13px; font-weight: 500; color: #fdf2f8; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;">
+    <span style="font-weight: 800; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 9999px; background: rgba(236, 72, 153, 0.28); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.45);">VIP Friend Invitation</span>
+    <span>Your friend's code <strong>GIVE15</strong>${referralAmount ? ` (${escapeHtml(referralAmount)})` : ''} is applied at checkout</span>
   </div>` : (effectiveDiscountCode ? `<div class="top-bar">Code <strong>${escapeHtml(effectiveDiscountCode)}</strong> is ready at checkout</div>` : '')}
 
   ${showUrgency ? `
@@ -1682,16 +1943,16 @@ function renderPublicFunnelHtml(page, req, res) {
         ${effectiveDiscountCode ? `<div class="eyebrow"><span>Code ${escapeHtml(effectiveDiscountCode)} is ready at checkout</span></div>` : ''}
 
         <h1>${escapeHtml(headline)}</h1>
-        <p class="subhead">${escapeHtml(subhead)}</p>
+        ${subhead ? `<p class="subhead">${escapeHtml(subhead)}</p>` : ''}
 
-        <div class="bullets">
+        ${bullets.length ? `<div class="bullets">
           ${bullets.map(b => `
             <div class="bullet">
               <span class="check">✓</span>
               <span>${escapeHtml(b)}</span>
             </div>
           `).join('')}
-        </div>
+        </div>` : ''}
 
         ${trustBadge ? `<div class="trust-box"><span>${escapeHtml(trustBadge)}</span></div>` : ''}
 
@@ -1734,26 +1995,36 @@ function renderPublicFunnelHtml(page, req, res) {
       </div>
     </div>
 
-    ${socialProofEnabled ? renderSocialProofWallHtml(socialProofData.summary, socialProofData.reviews, { brandColor: '#ec4899', title: socialProofTitle, photosEnabled: data.socialProofPhotosEnabled !== false }) : ''}
+    ${socialProofEnabled && socialProofData.reviews.length ? publicReviewWall(socialProofData.summary, socialProofData.reviews, { brandColor: '#ec4899', title: socialProofTitle, photosEnabled: data.socialProofPhotosEnabled !== false }) : ''}
   </main>
 
   <div id="lead-modal" class="modal-overlay">
-    <div class="modal-card">
-      <button id="modal-close-btn" class="modal-close" type="button">&times;</button>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="lead-modal-title">
+      <button id="modal-close-btn" class="modal-close" type="button" aria-label="Close">&times;</button>
+      ${leadHasCode ? `
       <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #ec4899; letter-spacing: 0.08em; margin-bottom: 8px;">
         VIP Access
       </div>
-      <h2 style="font-size: 20px; font-weight: 800; color: #FFFFFF; margin-bottom: 6px;">
+      <h2 id="lead-modal-title" style="font-size: 20px; font-weight: 800; color: #FFFFFF; margin-bottom: 6px;">
         Unlock Your Exclusive Discount
       </h2>
       <p style="font-size: 13px; color: #94A3B8; margin-bottom: 18px; line-height: 1.5;">
-        Enter your email to claim your ${effectiveDiscountCode ? `<strong>${escapeHtml(effectiveDiscountCode)}</strong>` : 'VIP'} coupon and route straight to checkout.
-      </p>
+        Enter your email to claim your <strong>${escapeHtml(effectiveDiscountCode)}</strong> coupon and route straight to checkout.
+      </p>` : leadOnly ? `
+      <h2 id="lead-modal-title" style="font-size: 20px; font-weight: 800; color: #FFFFFF; margin-bottom: 18px;">
+        Leave your email
+      </h2>` : `
+      <h2 id="lead-modal-title" style="font-size: 20px; font-weight: 800; color: #FFFFFF; margin-bottom: 6px;">
+        Continue to checkout
+      </h2>
+      <p style="font-size: 13px; color: #94A3B8; margin-bottom: 18px; line-height: 1.5;">
+        Enter your email to go straight to checkout.
+      </p>`}
 
       <form id="lead-form">
         <input type="text" id="lead-name" class="input-field" placeholder="Your Full Name (optional)">
         <input type="email" id="lead-email" class="input-field" placeholder="Your Best Email Address" required>
-        <input type="tel" id="lead-phone" class="input-field" placeholder="Mobile Phone (for tracking SMS, optional)">
+        <input type="tel" id="lead-phone" class="input-field" placeholder="${leadOnly ? 'Mobile Phone (optional)' : 'Mobile Phone (for tracking SMS, optional)'}">
 
         ${orderBumpEnabled ? `
         <!-- Order Bump Inside Modal Form -->
@@ -1779,9 +2050,10 @@ function renderPublicFunnelHtml(page, req, res) {
         ` : ''}
 
         <button id="lead-submit-btn" type="submit" class="cta-btn" style="padding: 14px;">
-          <span id="btn-text">Claim Voucher & Checkout &rarr;</span>
+          <span id="btn-text">${leadSubmitLabel}</span>
         </button>
       </form>
+      <p id="lead-status" role="status" aria-live="polite" style="font-size: 13px; color: #CBD5E1; margin-top: 12px; line-height: 1.5;"></p>
     </div>
   </div>
 
@@ -1791,27 +2063,28 @@ function renderPublicFunnelHtml(page, req, res) {
       const utm_source = params.get('utm_source') || '';
       const utm_medium = params.get('utm_medium') || '';
       const utm_campaign = params.get('utm_campaign') || '';
-      const jvJourney = '${escapeHtml(page.journeyId || '')}';
-      const jvNode = '${escapeHtml(page.nodeId || '')}';
+      const jvJourney = ${scriptStr(page.journeyId || '')};
+      const jvNode = ${scriptStr(page.nodeId || '')};
       const utm_content = params.get('utm_content') || '';
       const utm_term = params.get('utm_term') || '';
       const fbclid = params.get('fbclid') || '';
       const ttclid = params.get('ttclid') || '';
       const gclid = params.get('gclid') || '';
 
-      const storeDomain = '${escapeHtml(storeDomain)}';
-      const variantId = '${escapeHtml(variantId)}';
-      const productId = '${escapeHtml(productId)}';
-      const productPrice = '${escapeHtml(beaconPrice)}';
-      const bumpVariantId = '${escapeHtml(bumpVariantId)}';
+      const storeDomain = ${scriptStr(storeDomain)};
+      const variantId = ${scriptStr(variantId)};
+      const productId = ${scriptStr(productId)};
+      const productPrice = ${scriptStr(beaconPrice)};
+      const bumpVariantId = ${scriptStr(bumpVariantId)};
       const orderBumpEnabled = ${orderBumpEnabled ? 'true' : 'false'};
-      const discountCode = '${escapeHtml(effectiveDiscountCode)}';
+      const discountCode = ${scriptStr(effectiveDiscountCode)};
       const isVipReferral = ${isVipReferral ? 'true' : 'false'};
-      const referralCode = '${escapeHtml(referralCode)}';
-      const slug = '${escapeHtml(slug)}';
+      const referralCode = ${scriptJson(referralCode)};
+      const slug = ${scriptStr(slug)};
       const isLeadGate = ${isLeadGate ? 'true' : 'false'};
-      const defaultButtonText = '${escapeHtml(buttonText)}';
-      const activeVariant = '${escapeHtml(activeVariant)}';
+      const leadOnly = ${leadOnly ? 'true' : 'false'};
+      const defaultButtonText = ${scriptStr(buttonText)};
+      const activeVariant = ${scriptStr(activeVariant)};
       window.__jvVariant = activeVariant;
 
       // Wave 4: Urgency Reservation Timer Persistence
@@ -1851,7 +2124,7 @@ function renderPublicFunnelHtml(page, req, res) {
         CAD: { rate: 1.36, prefix: 'CA$' },
         AUD: { rate: 1.52, prefix: 'A$' }
       };
-      let activeCurrency = ${JSON.stringify(initialCurrency)};
+      let activeCurrency = ${scriptJson(initialCurrency)};
 
       function formatCharmPrice(baseStr, targetCurr) {
         if (!baseStr) return '';
@@ -1989,14 +2262,14 @@ function renderPublicFunnelHtml(page, req, res) {
           if (checked) {
             mainCta.innerHTML = 'Upgrade Order & Checkout &rarr;';
           } else {
-            mainCta.innerHTML = defaultButtonText;
+            mainCta.textContent = defaultButtonText;
           }
         }
         if (btnText) {
           if (checked) {
-            btnText.innerHTML = 'Claim Voucher & Upgrade Order &rarr;';
+            btnText.innerHTML = '${leadBumpSubmitLabel}';
           } else {
-            btnText.innerHTML = 'Claim Voucher & Checkout &rarr;';
+            btnText.innerHTML = '${leadSubmitLabel}';
           }
         }
       }
@@ -2044,13 +2317,13 @@ function renderPublicFunnelHtml(page, req, res) {
 
       function fireInitiateCheckout() {
         if (window.fbq) {
-          try { fbq('track', 'InitiateCheckout', { content_name: '${escapeHtml(productTitle)}', currency: activeCurrency || 'USD' }); } catch(e){}
+          try { fbq('track', 'InitiateCheckout', { content_name: ${scriptStr(productTitle)}, currency: activeCurrency || 'USD' }); } catch(e){}
         }
         if (window.ttq) {
-          try { ttq.track('InitiateCheckout', { content_name: '${escapeHtml(productTitle)}', currency: activeCurrency || 'USD' }); } catch(e){}
+          try { ttq.track('InitiateCheckout', { content_name: ${scriptStr(productTitle)}, currency: activeCurrency || 'USD' }); } catch(e){}
         }
         if (window.gtag) {
-          try { gtag('event', 'begin_checkout', { items: [{ item_name: '${escapeHtml(productTitle)}' }], currency: activeCurrency || 'USD' }); } catch(e){}
+          try { gtag('event', 'begin_checkout', { items: [{ item_name: ${scriptStr(productTitle)} }], currency: activeCurrency || 'USD' }); } catch(e){}
         }
         ${commerceBeaconCall(cartAction)}
       }
@@ -2067,17 +2340,51 @@ function renderPublicFunnelHtml(page, req, res) {
         }
       }
 
+      // The lead form is a modal dialog, like the exit drawer: opening it moves focus to the email
+      // field, Tab stays inside it, Escape closes it, and closing it hands focus back to the button
+      // that opened it. With no store it is the only thing the button does (R18).
+      let focusBeforeModal = null;
+      function leadModalOpen() {
+        return !!modal && modal.style.display === 'flex';
+      }
+      function openLeadModal() {
+        focusBeforeModal = document.activeElement;
+        modal.style.display = 'flex';
+        var leadEmail = document.getElementById('lead-email');
+        if (leadEmail && leadEmail.getClientRects().length) leadEmail.focus();
+        else if (closeBtn) closeBtn.focus();
+      }
+      function closeLeadModal() {
+        modal.style.display = 'none';
+        var back = focusBeforeModal && focusBeforeModal !== document.body && document.contains(focusBeforeModal) && focusBeforeModal.getClientRects().length ? focusBeforeModal : mainCta;
+        if (back && back.focus) back.focus({ preventScroll: true });
+        focusBeforeModal = null;
+      }
+      document.addEventListener('keydown', function(e) {
+        if (!leadModalOpen()) return;
+        // The exit drawer sits above this modal and handles its own keys while it is open.
+        var exitDrawerEl = document.getElementById('jv-exit-drawer');
+        if (exitDrawerEl && exitDrawerEl.style.display === 'block') return;
+        if (e.key === 'Escape') { e.preventDefault(); closeLeadModal(); return; }
+        if (e.key !== 'Tab') return;
+        var items = Array.prototype.filter.call(modal.querySelectorAll('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'), function(el) {
+          return !el.disabled && el.getClientRects().length > 0;
+        });
+        if (!items.length) return;
+        var first = items[0];
+        var last = items[items.length - 1];
+        var inside = modal.contains(document.activeElement);
+        if (e.shiftKey && (!inside || document.activeElement === first)) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (!inside || document.activeElement === last)) { e.preventDefault(); first.focus(); }
+      });
+
       if (mainCta) {
         mainCta.addEventListener('click', function(e) {
           e.preventDefault();
-          if (isLeadGate) {
-            modal.style.display = 'flex';
+          if (isLeadGate || leadOnly) {
+            openLeadModal();
           } else {
             fireInitiateCheckout();
-            if (!storeDomain) {
-              alert('This boutique is preparing for launch. Checkout will be open shortly!');
-              return;
-            }
             const targetUrl = buildCheckoutUrl();
             window.location.href = targetUrl;
           }
@@ -2085,14 +2392,12 @@ function renderPublicFunnelHtml(page, req, res) {
       }
 
       if (closeBtn) {
-        closeBtn.addEventListener('click', function() {
-          modal.style.display = 'none';
-        });
+        closeBtn.addEventListener('click', closeLeadModal);
       }
 
       if (modal) {
         modal.addEventListener('click', function(e) {
-          if (e.target === modal) modal.style.display = 'none';
+          if (e.target === modal) closeLeadModal();
         });
       }
 
@@ -2126,9 +2431,11 @@ function renderPublicFunnelHtml(page, req, res) {
 
           if (!emailInput.value) return;
 
-          btnText.innerHTML = '<span class="loading-spinner"></span> Securing Voucher…';
+          btnText.innerHTML = '<span class="loading-spinner"></span> ${leadHasCode ? 'Securing Voucher…' : 'Saving…'}';
           submitBtn.disabled = true;
 
+          const leadStatus = document.getElementById('lead-status');
+          if (leadStatus) leadStatus.textContent = '';
           try {
             const resp = await fetch('/api/public/lead', {
               method: 'POST',
@@ -2154,6 +2461,18 @@ function renderPublicFunnelHtml(page, req, res) {
               })
             });
 
+            if (leadOnly) {
+              // No checkout follows. Say what happened, and only claim a save the server confirmed.
+              if (!resp.ok) throw new Error('lead not saved');
+              fireLeadEvent();
+              leadForm.style.display = 'none';
+              if (leadStatus) leadStatus.textContent = 'Thanks. Your details were received.';
+              // The form just disappeared with the focused button in it, so focus moves to Close,
+              // the one control left, while the status line announces the save.
+              if (closeBtn) closeBtn.focus({ preventScroll: true });
+              return;
+            }
+
             fireLeadEvent();
             fireInitiateCheckout();
 
@@ -2164,6 +2483,12 @@ function renderPublicFunnelHtml(page, req, res) {
               window.location.href = finalUrl;
             }, 300);
           } catch(err) {
+            if (leadOnly) {
+              if (leadStatus) leadStatus.textContent = 'Your details were not sent. Try again.';
+              btnText.innerHTML = '${leadSubmitLabel}';
+              submitBtn.disabled = false;
+              return;
+            }
             console.error('Lead submission failed, proceeding to checkout:', err);
             window.location.href = buildCheckoutUrl();
           }
@@ -2171,7 +2496,7 @@ function renderPublicFunnelHtml(page, req, res) {
       }
 
       // Phase 16: Visual Exit-Intent VIP Lead Magnet & Gift Drawer
-      (function setupExitIntentDrawer() {
+      function setupExitIntentDrawer() {
         var exitDismissedKey = 'jv_exit_dismissed_' + slug;
         var backdrop = document.getElementById('jv-exit-backdrop');
         var drawer = document.getElementById('jv-exit-drawer');
@@ -2184,13 +2509,19 @@ function renderPublicFunnelHtml(page, req, res) {
         var formState = document.getElementById('jv-exit-form-state');
         var successState = document.getElementById('jv-exit-success-state');
         var continueBtn = document.getElementById('jv-exit-continue-btn');
+        var exitStatus = document.getElementById('jv-exit-status');
         var hasTriggered = false;
+        var focusBeforeDrawer = null;
 
+        // The drawer is a modal dialog: opening it moves focus to the email field, Tab stays inside it,
+        // and closing it hands focus back to where the shopper was.
         function showExitDrawer() {
           if (hasTriggered || sessionStorage.getItem(exitDismissedKey)) return;
           hasTriggered = true;
+          focusBeforeDrawer = document.activeElement;
           backdrop.style.display = 'block';
           drawer.style.display = 'block';
+          if (emailInput) emailInput.focus({ preventScroll: true });
           requestAnimationFrame(function() {
             backdrop.style.opacity = '1';
             drawer.style.transform = 'translateY(0)';
@@ -2205,13 +2536,30 @@ function renderPublicFunnelHtml(page, req, res) {
             drawer.style.display = 'none';
           }, 380);
           sessionStorage.setItem(exitDismissedKey, '1');
+          if (focusBeforeDrawer && focusBeforeDrawer.focus && document.contains(focusBeforeDrawer)) focusBeforeDrawer.focus({ preventScroll: true });
+          focusBeforeDrawer = null;
+        }
+
+        function drawerFocusables() {
+          return Array.prototype.filter.call(drawer.querySelectorAll('button, input, a[href], [tabindex]:not([tabindex="-1"])'), function(el) {
+            return !el.disabled && el.getClientRects().length > 0;
+          });
         }
 
         if (closeBtn) closeBtn.addEventListener('click', closeExitDrawer);
         if (dragHandle) dragHandle.addEventListener('click', closeExitDrawer);
         backdrop.addEventListener('click', closeExitDrawer);
         document.addEventListener('keydown', function(e) {
-          if (e.key === 'Escape' && drawer.style.display === 'block') closeExitDrawer();
+          if (drawer.style.display !== 'block') return;
+          if (e.key === 'Escape') { closeExitDrawer(); return; }
+          if (e.key !== 'Tab') return;
+          var items = drawerFocusables();
+          if (!items.length) return;
+          var first = items[0];
+          var last = items[items.length - 1];
+          var inside = drawer.contains(document.activeElement);
+          if (e.shiftKey && (!inside || document.activeElement === first)) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && (!inside || document.activeElement === last)) { e.preventDefault(); first.focus(); }
         });
 
         // 1. Desktop Trigger: Cursor velocity leaving top of viewport
@@ -2265,15 +2613,23 @@ function renderPublicFunnelHtml(page, req, res) {
         if (submitBtn && emailInput) {
           submitBtn.addEventListener('click', async function() {
             var val = (emailInput.value || '').trim();
+            var exitError = document.getElementById('jv-exit-error');
             if (!val || !val.includes('@')) {
               emailInput.style.borderColor = '#EF4444';
+              emailInput.setAttribute('aria-invalid', 'true');
+              if (exitError) { exitError.textContent = 'Enter a valid email address.'; exitError.style.display = 'block'; }
+              emailInput.focus();
               return;
             }
+            emailInput.style.borderColor = '';
+            emailInput.removeAttribute('aria-invalid');
+            var submitLabel = submitBtn.textContent;
+            if (exitError) exitError.style.display = 'none';
             submitBtn.disabled = true;
-            submitBtn.textContent = 'Securing VIP Code…';
+            submitBtn.textContent = 'Saving…';
 
             try {
-              var exitCode = "${escapeHtml(data.exitIntentDiscountCode || data.discountCode || 'GIVE15')}";
+              var exitCode = ${scriptJson(exitDrawerCode)};
               var exitResp = await fetch('/api/public/lead', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2291,76 +2647,100 @@ function renderPublicFunnelHtml(page, req, res) {
                   visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
                 })
               });
-              var exitData = await exitResp.json();
-              if (exitData && exitData.discountCode) {
-                exitCode = exitData.discountCode;
+              var exitData = await exitResp.json().catch(function() { return null; });
+              // Success is shown only for an email the server saved.
+              if (!exitResp.ok || !exitData || exitData.success === false) throw new Error('Lead not saved');
+              if (!exitCode && exitData.discountCode) exitCode = String(exitData.discountCode);
+              var codeBlock = document.getElementById('jv-exit-code-block');
+              var savedNote = document.getElementById('jv-exit-saved-note');
+              if (exitCode) {
                 var codeDisplay = document.getElementById('jv-exit-code-display');
                 if (codeDisplay) codeDisplay.textContent = exitCode;
+                if (codeBlock) codeBlock.style.display = 'block';
+              } else if (savedNote) {
+                savedNote.style.display = 'block';
               }
 
               formState.style.display = 'none';
               successState.style.display = 'block';
+              // The submit button just disappeared, so focus moves to Continue, and the status line
+              // (present since the page loaded, so it is announced) says what happened. With no store
+              // there is no checkout to continue to, so Continue is not rendered and focus goes to
+              // Close (it used to send the visitor to https:///cart/, R18).
+              if (exitStatus) exitStatus.textContent = exitCode ? 'Your email is saved. Your code is ' + exitCode + '.' : 'Your email is saved.';
+              if (continueBtn) continueBtn.focus({ preventScroll: true });
+              else if (closeBtn) closeBtn.focus({ preventScroll: true });
 
               if (continueBtn) {
                 continueBtn.addEventListener('click', function() {
                   var checkoutUrl = (exitData && exitData.checkoutUrl) ? exitData.checkoutUrl : buildCheckoutUrl();
+                  // The code the drawer showed is the one the checkout link carries.
+                  if (exitCode) {
+                    try { var exitUrl = new URL(checkoutUrl); exitUrl.searchParams.set('discount', exitCode); checkoutUrl = exitUrl.toString(); } catch (urlErr) {}
+                  }
                   window.location.href = checkoutUrl;
                 });
               }
             } catch(e) {
               console.error('Exit lead submission error:', e);
-              formState.style.display = 'none';
-              successState.style.display = 'block';
+              submitBtn.disabled = false;
+              submitBtn.textContent = submitLabel;
+              if (exitError) { exitError.textContent = 'Your email was not saved, please try again.'; exitError.style.display = 'block'; }
             }
           });
         }
-      })();
+      }
+      // The drawer's markup comes after this script, so the wiring waits for the document.
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupExitIntentDrawer);
+      else setupExitIntentDrawer();
     })();
   </script>
 
-  ${data.exitIntentEnabled ? `
+  ${exitDrawerOn ? `
   <!-- Exit-Intent VIP Lead Magnet & Gift Drawer (Phase 16) -->
   <div id="jv-exit-backdrop" style="display:none; position:fixed; inset:0; background:rgba(8, 10, 18, 0.75); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:99998; opacity:0; transition:opacity 0.3s ease;"></div>
   
-  <div id="jv-exit-drawer" role="dialog" aria-modal="true" aria-label="VIP Courtesy Gift" style="display:none; position:fixed; bottom:0; left:0; right:0; max-width:540px; margin:0 auto; z-index:99999; transform:translateY(100%); transition:transform 0.38s cubic-bezier(0.16, 1, 0.3, 1); background:linear-gradient(180deg, rgba(24, 18, 30, 0.98), rgba(13, 13, 20, 0.99)); border-top:1px solid rgba(236, 72, 153, 0.4); border-left:1px solid rgba(255, 255, 255, 0.08); border-right:1px solid rgba(255, 255, 255, 0.08); border-radius:24px 24px 0 0; box-shadow:0 -20px 60px rgba(0, 0, 0, 0.85), 0 0 40px rgba(236, 72, 153, 0.12); padding:20px 24px 32px; color:#FFFFFF; text-align:center;">
+  <div id="jv-exit-drawer" role="dialog" aria-modal="true" aria-labelledby="jv-exit-title" style="display:none; position:fixed; bottom:0; left:0; right:0; max-width:540px; margin:0 auto; z-index:99999; transform:translateY(100%); transition:transform 0.38s cubic-bezier(0.16, 1, 0.3, 1); background:linear-gradient(180deg, rgba(24, 18, 30, 0.98), rgba(13, 13, 20, 0.99)); border-top:1px solid rgba(236, 72, 153, 0.4); border-left:1px solid rgba(255, 255, 255, 0.08); border-right:1px solid rgba(255, 255, 255, 0.08); border-radius:24px 24px 0 0; box-shadow:0 -20px 60px rgba(0, 0, 0, 0.85), 0 0 40px rgba(236, 72, 153, 0.12); padding:20px 24px 32px; color:#FFFFFF; text-align:center;">
     
     <!-- Top Grab Handle -->
     <div style="width:38px; height:4px; border-radius:9999px; background:rgba(255, 255, 255, 0.22); margin:0 auto 16px; cursor:pointer;" id="jv-exit-drag-handle"></div>
 
     <button id="jv-exit-close" aria-label="Close" style="position:absolute; top:16px; right:18px; width:30px; height:30px; border-radius:50%; background:rgba(255, 255, 255, 0.06); border:1px solid rgba(255, 255, 255, 0.1); color:#94A3B8; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1; transition:all 0.15s ease;">&times;</button>
     
+    ${data.exitIntentBadge ? `
     <div style="display:inline-flex; align-items:center; gap:6px; background:rgba(236, 72, 153, 0.14); border:1px solid rgba(236, 72, 153, 0.32); color:#F472B6; padding:4px 12px; border-radius:9999px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:12px;">
-      <span>✦</span> ${escapeHtml(data.exitIntentBadge || 'Parting Courtesy · VIP Privilege')}
-    </div>
+      <span>✦</span> ${escapeHtml(data.exitIntentBadge)}
+    </div>` : ''}
 
-    <h3 style="font-family:'Playfair Display', serif; font-size:22px; font-weight:700; line-height:1.28; margin:0 0 8px; color:#F8FAFC;">
-      ${escapeHtml(data.exitIntentHeadline || 'Before You Go: Save Your 15% VIP Formulation Voucher')}
+    <h3 id="jv-exit-title" style="font-family:'Playfair Display', serif; font-size:22px; font-weight:700; line-height:1.28; margin:0 0 ${data.exitIntentSubhead ? '8px' : '20px'}; color:#F8FAFC;">
+      ${escapeHtml(exitHeadline)}
     </h3>
 
+    ${data.exitIntentSubhead ? `
     <p style="font-size:13px; color:#CBD5E1; line-height:1.5; margin:0 0 20px;">
-      ${escapeHtml(data.exitIntentSubhead || 'Reserve your private batch discount code now before this allocation concludes.')}
-    </p>
+      ${escapeHtml(data.exitIntentSubhead)}
+    </p>` : ''}
 
     <div id="jv-exit-form-state">
-      <input type="email" id="jv-exit-email" autocomplete="email" placeholder="Enter your email address" style="width:100%; box-sizing:border-box; padding:13px 16px; border-radius:12px; border:1px solid rgba(255, 255, 255, 0.18); background:rgba(10, 14, 26, 0.8); color:#FFFFFF; font-size:14px; margin-bottom:12px; outline:none;" />
+      <input type="email" id="jv-exit-email" autocomplete="email" aria-label="Email address" aria-describedby="jv-exit-error" placeholder="Enter your email address" style="width:100%; box-sizing:border-box; padding:13px 16px; border-radius:12px; border:1px solid rgba(255, 255, 255, 0.18); background:rgba(10, 14, 26, 0.8); color:#FFFFFF; font-size:14px; margin-bottom:12px; outline:none;" />
       <button id="jv-exit-submit-btn" style="width:100%; padding:14px 20px; border-radius:12px; border:none; background:linear-gradient(135deg, #EC4899, #DB2777); color:#FFFFFF; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 10px 25px rgba(236, 72, 153, 0.35); transition:transform 0.15s ease;">
-        ${escapeHtml(data.exitIntentButtonText || 'Claim VIP Gift & Continue')}
+        ${escapeHtml(data.exitIntentButtonText || 'Continue')}
       </button>
+      <div id="jv-exit-error" role="alert" style="display:none; font-size:12px; color:#FCA5A5; margin-top:10px;">Your email was not saved, please try again.</div>
     </div>
+
+    <div id="jv-exit-status" role="status" style="position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;"></div>
 
     <div id="jv-exit-success-state" style="display:none; text-align:center; padding:4px 0;">
-      <div style="background:rgba(236, 72, 153, 0.12); border:1px dashed rgba(236, 72, 153, 0.4); border-radius:14px; padding:16px; margin-bottom:16px;">
-        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:#F472B6; font-weight:700; margin-bottom:4px;">VIP Courtesy Code Activated</div>
-        <div id="jv-exit-code-display" style="font-size:24px; font-weight:800; color:#FFFFFF; letter-spacing:0.08em; font-family:monospace;">${escapeHtml(data.exitIntentDiscountCode || data.discountCode || 'GIVE15')}</div>
+      <div id="jv-exit-code-block" style="display:none; background:rgba(236, 72, 153, 0.12); border:1px dashed rgba(236, 72, 153, 0.4); border-radius:14px; padding:16px; margin-bottom:16px;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:#F472B6; font-weight:700; margin-bottom:4px;">Your code</div>
+        <div id="jv-exit-code-display" style="font-size:24px; font-weight:800; color:#FFFFFF; letter-spacing:0.08em; font-family:monospace;">${escapeHtml(exitDrawerCode)}</div>
         <div style="font-size:11px; color:#94A3B8; margin-top:4px;">${storeDomain && variantId ? 'Pre-applied to your checkout link below.' : 'Code saved.'}</div>
       </div>
-      <button id="jv-exit-continue-btn" style="width:100%; padding:14px 20px; border-radius:12px; border:none; background:linear-gradient(135deg, #10B981, #059669); color:#FFFFFF; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 10px 25px rgba(16, 185, 129, 0.35);">
-        Claim Gift &amp; Continue &rarr;
-      </button>
-    </div>
-
-    <div style="margin-top:14px; font-size:11px; color:#64748B;">
-      Private &amp; confidential. No spam. Instant 1-tap checkout.
+      <div id="jv-exit-saved-note" style="display:none; font-size:14px; color:#E2E8F0; margin-bottom:16px;">Thanks, your email is saved.</div>
+      ${leadOnly ? '' : `<button id="jv-exit-continue-btn" style="width:100%; padding:14px 20px; border-radius:12px; border:none; background:linear-gradient(135deg, #10B981, #059669); color:#FFFFFF; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 10px 25px rgba(16, 185, 129, 0.35);">
+        Continue &rarr;
+      </button>`}
     </div>
   </div>
   ` : ''}
@@ -2415,19 +2795,25 @@ function renderPublicFunnelHtml(page, req, res) {
 
 function renderPublicThankYouHtml(page, req, res) {
   const d = page.data || {};
+  // Publish stores the thank-you step's own data under d.thankYou (journeyRoutes.mjs landingData).
+  // The top-level fields are the older record shape and stay as fallbacks.
+  const t = d.thankYou && typeof d.thankYou === 'object' ? d.thankYou : {};
   const shopify = page.shopifyConfig || {};
   const storeDomain = realStoreDomain(shopify);
-  const headline = d.thankYouHeadline || 'Thank you';
-  const subhead = d.thankYouSubhead || 'Your order is confirmed.';
-  const badge = d.thankYouBadge || '';
-  const bounceCode = d.bounceBackDiscountCode || '';
-  const bounceText = d.bounceBackDiscountText || '';
-  const ritualTitle = d.usageGuideTitle || '';
-  const steps = Array.isArray(d.usageGuideSteps) ? d.usageGuideSteps.filter(Boolean) : [];
-  const communityUrl = d.communityInviteUrl || '';
-  const communityText = d.communityInviteText || 'Open the link';
-  const storeUrl = d.storeReturnUrl || (storeDomain ? `https://${storeDomain}` : '');
-  const storeText = d.storeReturnText || 'Back to the store';
+  const headline = t.headline || d.thankYouHeadline || 'Thank you';
+  // No written subhead, no line. The step ends lead-only journeys as well as purchases, so a
+  // stock line such as "Your order is confirmed." claimed an order nobody placed (R17).
+  const subhead = ownCopy(t.subhead) || ownCopy(d.thankYouSubhead);
+  const badge = t.badgeText || d.thankYouBadge || '';
+  const bounceCode = (t.bounceBackDiscountCode ?? d.bounceBackDiscountCode) || '';
+  const bounceText = (t.bounceBackDiscountText ?? d.bounceBackDiscountText) || '';
+  const ritualTitle = (t.usageGuideTitle ?? d.usageGuideTitle) || '';
+  const guideSteps = t.usageGuideSteps ?? d.usageGuideSteps;
+  const steps = Array.isArray(guideSteps) ? guideSteps.filter(Boolean) : [];
+  const communityUrl = (t.communityInviteUrl ?? d.communityInviteUrl) || '';
+  const communityText = (t.communityInviteText ?? d.communityInviteText) || 'Open the link';
+  const storeUrl = (t.storeReturnUrl ?? d.storeReturnUrl) || (storeDomain ? `https://${storeDomain}` : '');
+  const storeText = (t.storeReturnText ?? d.storeReturnText) || 'Back to the store';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -2625,7 +3011,7 @@ function renderPublicThankYouHtml(page, req, res) {
       <br>
       ${badge ? `<div class="vip-pill">${escapeHtml(badge)}</div>` : ''}
       <h1>${escapeHtml(headline)}</h1>
-      <p class="subhead">${escapeHtml(subhead)}</p>
+      ${subhead ? `<p class="subhead">${escapeHtml(subhead)}</p>` : ''}
     </div>
 
     ${bounceCode ? `
@@ -2634,7 +3020,7 @@ function renderPublicThankYouHtml(page, req, res) {
       <div style="font-size:16px; font-weight:700; color:#FFFFFF; margin-top:4px;">${escapeHtml(bounceText || bounceCode)}</div>
       <div class="voucher-code-wrap">
         <span class="code-text" id="jv-code-val">${escapeHtml(bounceCode)}</span>
-        <button class="copy-btn" id="jv-copy-btn" onclick="navigator.clipboard.writeText('${escapeHtml(bounceCode)}'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy', 2000);">Copy</button>
+        <button class="copy-btn" id="jv-copy-btn" onclick="navigator.clipboard.writeText(${escapeHtml(scriptStr(bounceCode))}); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy', 2000);">Copy</button>
       </div>
     </div>` : ''}
 
@@ -2672,11 +3058,18 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   const storeDomain = realStoreDomain(shopify);
   const slug = page.slug || req.params.slug || 'offer';
 
-  // Courtesy voucher handling from second-chance recovery flow
+  // Courtesy voucher handling from second-chance recovery flow. The page names only a code it was
+  // given (the recovery link's, or the step's own) and a percentage only when the step stores one
+  // for that code: it never supplies a code or a discount the store may not have (C18).
   const queryCoupon = String(req?.query?.coupon || req?.query?.discount || '').trim().toUpperCase();
   const queryEmail = String(req?.query?.email || '').trim().toLowerCase();
-  const isCourtesyRecovery = queryCoupon === 'SAVE10' || req?.query?.ref === 'recovery' || Boolean(queryCoupon);
-  const effectiveCoupon = queryCoupon || (isCourtesyRecovery ? 'SAVE10' : (upsell.discountCode || (isDownsell ? d.downsellDiscountCode : d.upsellDiscountCode) || ''));
+  const stepCoupon = String(upsell.discountCode || (isDownsell ? d.downsellDiscountCode : d.upsellDiscountCode) || '').trim().toUpperCase();
+  const effectiveCoupon = queryCoupon || stepCoupon;
+  const isCourtesyRecovery = Boolean(effectiveCoupon) && (req?.query?.ref === 'recovery' || Boolean(queryCoupon));
+  const stepPercentRaw = Number(upsell.discountPercentage);
+  const courtesyPercent = effectiveCoupon === stepCoupon && Number.isFinite(stepPercentRaw) && stepPercentRaw > 0 && stepPercentRaw < 100
+    ? stepPercentRaw
+    : 0;
 
   // Expiration logic for courtesy recovery (Option 1)
   const queryExp = req?.query?.exp ? Number(req.query.exp) : null;
@@ -2706,15 +3099,19 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   }
 
   const headline = upsell.headline || (isDownsell ? (d.downsellHeadline || 'Another offer') : (d.upsellHeadline || 'Another offer'));
-  const subhead = upsell.subhead || (isDownsell ? (d.downsellSubhead || '') : (d.upsellSubhead || ''));
+  const subhead = ownCopy(upsell.subhead) || ownCopy(isDownsell ? d.downsellSubhead : d.upsellSubhead);
   const badge = upsell.badgeText || (isDownsell ? (d.downsellBadge || '') : (d.upsellBadge || ''));
   const urgencyRaw = Number(upsell.urgencyMinutes || d.upsellUrgencyMinutes);
   const urgencyMins = Number.isFinite(urgencyRaw) && urgencyRaw > 0 ? urgencyRaw : 0;
-  const productTitle = upsell.productTitle || (isDownsell ? (d.downsellProductTitle || '') : (d.upsellProductTitle || ''));
-  const rawProductPrice = upsell.productPrice || (isDownsell ? (d.downsellProductPrice || '') : (d.upsellProductPrice || ''));
-  const regularPrice = upsell.regularPrice || (isDownsell ? (d.downsellRegularPrice || '') : (d.upsellRegularPrice || ''));
-  const productImage = upsell.productImage || (isDownsell ? (d.downsellProductImage || '') : (d.upsellProductImage || ''));
-  const benefits = (Array.isArray(upsell.benefits) && upsell.benefits.length) ? upsell.benefits : (Array.isArray(d.upsellBenefits) ? d.upsellBenefits : []);
+  // A product picked with a placeholder variant is invented: its title, prices and image are not
+  // published, as on the landing page (R14).
+  const rawVariantId = String(upsell.shopifyVariantId || d.upsellVariantId || '').trim();
+  const placeholderProduct = Boolean(rawVariantId) && !realVariantId(rawVariantId);
+  const productTitle = placeholderProduct ? '' : (upsell.productTitle || (isDownsell ? (d.downsellProductTitle || '') : (d.upsellProductTitle || '')));
+  const rawProductPrice = placeholderProduct ? '' : (upsell.productPrice || (isDownsell ? (d.downsellProductPrice || '') : (d.upsellProductPrice || '')));
+  const regularPrice = placeholderProduct ? '' : (upsell.regularPrice || (isDownsell ? (d.downsellRegularPrice || '') : (d.upsellRegularPrice || '')));
+  const productImage = placeholderProduct ? '' : (upsell.productImage || (isDownsell ? (d.downsellProductImage || '') : (d.upsellProductImage || '')));
+  const benefits = ownCopyList(upsell.benefits).length ? ownCopyList(upsell.benefits) : ownCopyList(d.upsellBenefits);
   const baseAcceptText = upsell.acceptButtonText || (isDownsell ? (d.downsellAcceptText || 'Continue') : (d.upsellAcceptText || 'Continue'));
   const declineText = upsell.declineButtonText || (isDownsell ? 'No thanks, continue to my order confirmation' : 'No thanks, skip this offer');
   const variantId = realVariantId(upsell.shopifyVariantId || d.upsellVariantId);
@@ -2735,15 +3132,16 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   let finalStrikethroughStr = regularPrice ? convertCurrencyCharm(regularPrice, activeCurrency, 'USD').formatted : regularPrice;
   let recordedAmount = numericBasePrice;
 
-  if (isCourtesyRecovery && numericBasePrice > 0 && !isCourtesyExpired) {
-    const discountedNum = Number((numericBasePrice * 0.9).toFixed(2));
-    finalPriceStr = convertCurrencyCharm(discountedNum, activeCurrency, 'USD').formatted;
+  const courtesyPriced = isCourtesyRecovery && courtesyPercent > 0 && numericBasePrice > 0 && !isCourtesyExpired;
+  const courtesyBase = courtesyPriced ? Number((numericBasePrice * (1 - courtesyPercent / 100)).toFixed(2)) : 0;
+  if (courtesyPriced) {
+    finalPriceStr = convertCurrencyCharm(courtesyBase, activeCurrency, 'USD').formatted;
     finalStrikethroughStr = rawProductPrice ? convertCurrencyCharm(rawProductPrice, activeCurrency, 'USD').formatted : regularPrice;
-    recordedAmount = discountedNum;
+    recordedAmount = courtesyBase;
   }
 
-  const acceptText = (isCourtesyRecovery && !isCourtesyExpired)
-    ? `${baseAcceptText} (10% Courtesy Off Applied)`
+  const acceptText = courtesyPriced
+    ? `${baseAcceptText} (${courtesyPercent}% off)`
     : baseAcceptText;
 
   const accentColor = isDownsell ? '#F59E0B' : '#10B981';
@@ -2763,7 +3161,7 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(headline)} — ${isDownsell ? 'Downsell Offer' : 'One-Time Offer'}</title>
+  <title>${escapeHtml(headline)} | ${isDownsell ? 'Downsell Offer' : 'One-Time Offer'}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
@@ -3165,12 +3563,13 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
     <div class="recovery-banner" id="jv-recovery-banner">
       <div style="display:flex; align-items:center; gap:8px;">
         <span class="recovery-tag">Private Courtesy Offer</span>
-        <span>10% courtesy discount <strong>${escapeHtml(effectiveCoupon)}</strong> pre-applied.</span>
+        <span>${courtesyPercent ? `${courtesyPercent}% off with code` : 'Your code:'} <strong>${escapeHtml(effectiveCoupon)}</strong></span>
       </div>
+      ${recoveryExpiresAt ? `
       <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:#E2E8F0;">
-        <span style="color:#94A3B8;">Hold window:</span>
-        <strong id="jv-recovery-timer" style="color:#FACC15; font-family:'JetBrains Mono', monospace; letter-spacing:0.04em;">24:00:00</strong>
-      </div>
+        <span style="color:#94A3B8;">Link expires in:</span>
+        <strong id="jv-recovery-timer" style="color:#FACC15; font-family:'JetBrains Mono', monospace; letter-spacing:0.04em;">${formatCountdown(recoveryExpiresAt - Date.now())}</strong>
+      </div>` : ''}
     </div>` : (!isCourtesyRecovery && urgencyMins > 0 ? `
     <div class="reassurance-banner">
       <span>This offer timer runs for <span id="jv-timer">${String(urgencyMins).padStart(2, '0')}:00</span>.</span>
@@ -3185,15 +3584,8 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
         </span>
         <h1 style="font-size:24px; margin-bottom:12px;">This Private Courtesy Offer Has Expired</h1>
         <p class="subhead" style="margin-bottom:20px;">
-          This 10% courtesy discount was exclusively reserved during your parcel packaging window. Our laboratory fulfillment team has now prepared your order for dispatch.
+          The code in this link was offered for a limited time, and that time has passed.
         </p>
-      </div>
-
-      <div style="background:rgba(255, 255, 255, 0.03); border:1px solid rgba(255, 255, 255, 0.08); border-radius:14px; padding:18px; margin-bottom:24px; text-align:center;">
-        <div style="font-size:13px; color:#E2E8F0; font-weight:600; margin-bottom:6px;">Your primary order is confirmed and safe</div>
-        <div style="font-size:12px; color:#94A3B8; line-height:1.5;">
-          Your original purchase is already in the fulfillment queue. You can review your confirmed receipt and tracking details below.
-        </div>
       </div>
 
       <a
@@ -3202,14 +3594,14 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
         class="btn-accept"
         style="background:linear-gradient(135deg, #6366F1, #4F46E5); box-shadow:0 10px 25px rgba(99, 102, 241, 0.35);"
       >
-        Continue to My Order Confirmation
+        Continue
       </a>
     </div>` : `
     <div class="card" id="jv-main-card">
       <div style="text-align:center;">
         ${badge ? `<span class="badge-pill">${escapeHtml(badge)}</span>` : ''}
         <h1>${escapeHtml(headline)}</h1>
-        <p class="subhead">${escapeHtml(subhead)}</p>
+        ${subhead ? `<p class="subhead">${escapeHtml(subhead)}</p>` : ''}
       </div>
 
       <!-- Product Box -->
@@ -3218,9 +3610,9 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
         <div class="product-info">
           ${productTitle ? `<div class="product-title">${escapeHtml(productTitle)}</div>` : ''}
           ${(finalPriceStr || finalStrikethroughStr) ? `<div class="pricing-row">
-            ${finalPriceStr ? `<span id="jv-upsell-price" data-base-price="${escapeHtml(rawProductPrice)}" data-discounted-base="${(isCourtesyRecovery && numericBasePrice > 0 && !isCourtesyExpired) ? (numericBasePrice * 0.9).toFixed(2) : ''}" class="price-special">${escapeHtml(finalPriceStr)}</span>` : ''}
+            ${finalPriceStr ? `<span id="jv-upsell-price" data-base-price="${escapeHtml(rawProductPrice)}" data-discounted-base="${courtesyPriced ? courtesyBase.toFixed(2) : ''}" class="price-special">${escapeHtml(finalPriceStr)}</span>` : ''}
             ${finalStrikethroughStr ? `<span id="jv-regular-price" data-base-price="${escapeHtml(regularPrice || rawProductPrice)}" class="price-reg">${escapeHtml(finalStrikethroughStr)}</span>` : ''}
-            ${isCourtesyRecovery ? `<span style="font-size:11px; font-weight:700; color:#34D399; background:rgba(16, 185, 129, 0.15); padding:2px 8px; border-radius:4px; border:1px solid rgba(16, 185, 129, 0.3);">10% OFF PRE-APPLIED</span>` : ''}
+            ${courtesyPriced ? `<span style="font-size:11px; font-weight:700; color:#34D399; background:rgba(16, 185, 129, 0.15); padding:2px 8px; border-radius:4px; border:1px solid rgba(16, 185, 129, 0.3);">${courtesyPercent}% OFF WITH ${escapeHtml(effectiveCoupon)}</span>` : ''}
           </div>` : ''}
           ${checkoutUrl ? `<div style="font-size:11px; color:#94A3B8; font-weight:600;">Checkout opens on the connected store.</div>` : `<div style="font-size:11px; color:#94A3B8; font-weight:600;">No store checkout is connected for this offer.</div>`}
         </div>
@@ -3268,7 +3660,7 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
       AUD: { rate: 1.52, prefix: 'A$', symbol: 'A$' }
     };
 
-    let activeCurrency = ${JSON.stringify(activeCurrency)};
+    let activeCurrency = ${scriptJson(activeCurrency)};
 
     function formatCharmPrice(baseStr, targetCurr) {
       if (!baseStr) return '';
@@ -3444,19 +3836,10 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
       update();
     })();` : ''}
 
-    ${(isCourtesyRecovery && !isCourtesyExpired) ? `
+    ${(isCourtesyRecovery && !isCourtesyExpired && recoveryExpiresAt) ? `
     (function() {
-      var recoveryExp = ${recoveryExpiresAt || 'null'};
-      var recoveryKey = 'jv_rec_exp_${slug}_' + ${JSON.stringify(queryEmail || 'anon')};
-      if (!recoveryExp) {
-        var stored = sessionStorage.getItem(recoveryKey);
-        if (stored) {
-          recoveryExp = parseInt(stored, 10);
-        } else {
-          recoveryExp = Date.now() + 24 * 3600 * 1000;
-          sessionStorage.setItem(recoveryKey, recoveryExp);
-        }
-      }
+      // Only an expiry the server knows: the link's exp, or 24 hours from the recovery email's send.
+      var recoveryExp = ${scriptJson(recoveryExpiresAt)};
 
       function renderExpiredState() {
         var banner = document.getElementById('jv-recovery-banner');
@@ -3467,13 +3850,9 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
             '<div style="text-align:center;">',
               '<span class="badge-pill" style="background:rgba(148, 163, 184, 0.15); border-color:rgba(148, 163, 184, 0.3); color:#94A3B8;">Courtesy Window Concluded</span>',
               '<h1 style="font-size:24px; margin-bottom:12px;">This Private Courtesy Offer Has Expired</h1>',
-              '<p class="subhead" style="margin-bottom:20px;">This 10% courtesy discount was exclusively reserved during your parcel packaging window. Our laboratory fulfillment team has now prepared your order for dispatch.</p>',
+              '<p class="subhead" style="margin-bottom:20px;">The code in this link was offered for a limited time, and that time has passed.</p>',
             '</div>',
-            '<div style="background:rgba(255, 255, 255, 0.03); border:1px solid rgba(255, 255, 255, 0.08); border-radius:14px; padding:18px; margin-bottom:24px; text-align:center;">',
-              '<div style="font-size:13px; color:#E2E8F0; font-weight:600; margin-bottom:6px;">Your primary order is confirmed and safe</div>',
-              '<div style="font-size:12px; color:#94A3B8; line-height:1.5;">Your original purchase is already in the fulfillment queue. You can review your confirmed receipt and tracking details below.</div>',
-            '</div>',
-            '<a id="jv-continue-btn" href="' + ${JSON.stringify(nextDeclineUrl)} + '" class="btn-accept" style="background:linear-gradient(135deg, #6366F1, #4F46E5); box-shadow:0 10px 25px rgba(99, 102, 241, 0.35);">Continue to My Order Confirmation</a>'
+            '<a id="jv-continue-btn" href="' + ${scriptJson(nextDeclineUrl)} + '" class="btn-accept" style="background:linear-gradient(135deg, #6366F1, #4F46E5); box-shadow:0 10px 25px rgba(99, 102, 241, 0.35);">Continue</a>'
           ].join('');
         }
       }
@@ -3502,8 +3881,8 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
     if (acceptBtn) {
       acceptBtn.addEventListener('click', function(e) {
         var queryParams = new URLSearchParams(location.search);
-        var emailFromQuery = queryParams.get('email') || ${JSON.stringify(queryEmail)};
-        if (!${JSON.stringify(checkoutUrl)}) {
+        var emailFromQuery = queryParams.get('email') || ${scriptJson(queryEmail)};
+        if (!${scriptJson(checkoutUrl)}) {
           e.preventDefault();
         } else {
           try {
@@ -3511,8 +3890,8 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
             var params = new URLSearchParams(location.search);
             var vid = window.jourvanceVisitor ? window.jourvanceVisitor() : '';
             if (vid) url.searchParams.set('attributes[jv_vid]', vid);
-            url.searchParams.set('attributes[jv_slug]', ${JSON.stringify(slug)});
-            var journey = ${JSON.stringify(page.journeyId || '')};
+            url.searchParams.set('attributes[jv_slug]', ${scriptJson(slug)});
+            var journey = ${scriptJson(page.journeyId || '')};
             if (journey) url.searchParams.set('attributes[jv_journey]', journey);
             ['utm_source','utm_medium','utm_campaign','fbclid','gclid','ttclid'].forEach(function(key) {
               var value = params.get(key);
@@ -3526,13 +3905,13 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              slug: ${JSON.stringify(slug)},
+              slug: ${scriptJson(slug)},
               action: 'accept',
-              offerType: ${JSON.stringify(isDownsell ? 'downsell' : 'upsell')},
+              offerType: ${scriptJson(isDownsell ? 'downsell' : 'upsell')},
               amount: ${recordedAmount},
               currency: activeCurrency,
               customerEmail: emailFromQuery,
-              discountCode: ${JSON.stringify(effectiveCoupon)},
+              discountCode: ${scriptJson(effectiveCoupon)},
               visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
             }),
             keepalive: true
@@ -3547,14 +3926,14 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
       declineBtn.addEventListener('click', function(e) {
         try {
           var queryParams = new URLSearchParams(location.search);
-          var emailFromQuery = queryParams.get('email') || ${JSON.stringify(queryEmail)};
+          var emailFromQuery = queryParams.get('email') || ${scriptJson(queryEmail)};
           fetch('/api/public/upsell-action', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              slug: ${JSON.stringify(slug)},
+              slug: ${scriptJson(slug)},
               action: 'decline',
-              offerType: ${JSON.stringify(isDownsell ? 'downsell' : 'upsell')},
+              offerType: ${scriptJson(isDownsell ? 'downsell' : 'upsell')},
               customerEmail: emailFromQuery,
               visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
             }),
@@ -3581,7 +3960,9 @@ async function grantFormCoupon(uid, contact, form) {
   if (!contact.properties || typeof contact.properties !== 'object' || Array.isArray(contact.properties)) contact.properties = {};
   if (slice?.label) contact.properties.spinSlice = slice.label;
   if (form.testEnabled) contact.properties.formVariant = formVariant(contact.visitorId || '', form.id);
-  const spec = slice?.coupon || form.coupon;
+  // Only a code the merchant set is minted. An old preset's code (WELCOME15, SANCTUARY, FREESHIP,
+  // WELCOME10) on a form still in that preset's words was never theirs, so it mints nothing (T13).
+  const spec = slice?.coupon || (seededSignupForm(form) ? null : form.coupon);
   if (!spec?.name) return { code: '', note: '', label: slice?.label || '' };
   const once = `${form.id}:${spec.name}`;
   const bag = userProgramBag(uid);
@@ -3628,6 +4009,7 @@ export {
   pubDocName,
   savePublicPage,
   loadPublicPage,
+  readPublicPage,
   RESERVED_PUBLIC_SLUGS,
   validateSlugAvailability,
   removePublicPage,
@@ -4071,7 +4453,8 @@ app.post('/api/public/lead', async (req, res) => {
 
   let checkoutUrl = storeConnected && cartItems.length ? `https://${storeDomain}/cart/${cartItems.join(',')}` : null;
   const outParams = new URLSearchParams();
-  const effectiveLeadDiscount = refCode ? 'GIVE15' : discountCode;
+  // GIVE15 only for a referral link, and only while the merchant has it for this store (R24).
+  const effectiveLeadDiscount = isReferralLink(refCode) && definedReferralRule(loadDiscounts(), storeDomain) ? 'GIVE15' : discountCode;
   if (effectiveLeadDiscount) outParams.set('discount', effectiveLeadDiscount);
   if (utm_source) outParams.set('utm_source', utm_source);
   if (utm_medium) outParams.set('utm_medium', utm_medium);
@@ -4332,10 +4715,11 @@ app.post('/api/public/upsell-action', async (req, res) => {
           );
           if (!alreadyActive) {
             const delayHours = recoverySeq.steps?.[0]?.delayHours ?? 18;
-            const discountCode = recoverySeq.steps?.[0]?.discountVoucher || 'SAVE10';
+            // Only the sequence's own code: without one the link carries none (C18).
+            const discountCode = String(recoverySeq.steps?.[0]?.discountVoucher || '').trim();
             const cleanEmail = customerEmail.toLowerCase().trim();
             const expTime = Date.now() + (delayHours + 24) * 3600000;
-            const offerUrl = slug ? `${publicBase()}/p/${slug}?coupon=${encodeURIComponent(discountCode)}&email=${encodeURIComponent(cleanEmail)}&ref=recovery&exp=${expTime}` : '';
+            const offerUrl = slug ? `${publicBase()}/p/${slug}?${discountCode ? `coupon=${encodeURIComponent(discountCode)}&` : ''}email=${encodeURIComponent(cleanEmail)}&ref=recovery&exp=${expTime}` : '';
             dripsData.enrollments.unshift({
               id: `enr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
               sequenceId: recoverySeq.id,
@@ -4649,15 +5033,18 @@ app.get(['/review', '/r/review'], (req, res) => {
   const token = String(req.query.token || '').trim();
 
   const orders = loadOrders();
-  const order = orders.find(o => String(o.id) === orderId || (email && String(o.customerEmail || '').toLowerCase() === email));
-  const verified = Boolean(orderId && email && token && verifyReviewToken(orderId, email, token));
+  // The order whose id AND email both match: an email alone named any order that address ever placed.
+  const order = orders.find(o => orderId && String(o.id) === orderId && String(o.customerEmail || '').toLowerCase() === email);
+  const verified = Boolean(orderId && email && token && reviewTokenValid(orderId, email, token));
 
   let storeName = 'Jourvance';
   let storeDomain = '';
+  let currency = '';
   if (order?.userId) {
     const ws = Object.values(workspaceCache).find(w => w.userId === order.userId);
     if (ws?.brandName) storeName = ws.brandName;
     if (ws?.shopifyConfig) storeDomain = realStoreDomain(ws.shopifyConfig);
+    currency = String(ws?.shopifyConfig?.currency || order?.currency || '');
   }
 
   const slug = String(req.query.slug || order?.attributedSlug || '').trim();
@@ -4670,7 +5057,11 @@ app.get(['/review', '/r/review'], (req, res) => {
     storeDomain,
     slug,
     verified,
-    discountCode: 'REVIEW10'
+    // The merchant's own code on the review sequence, or none: REVIEW10 was never theirs (R24).
+    discountCode: merchantReviewCode(loadDrips()),
+    // The referral card shows only for the merchant's own GIVE15 on this store, at their amount (T13).
+    referralRule: definedReferralRule(loadDiscounts(), storeDomain),
+    currency
   });
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -4683,29 +5074,46 @@ app.post('/api/public/review', async (req, res) => {
     const orderId = String(body.orderId || body.order_id || '').trim();
     const email = String(body.email || body.customerEmail || '').toLowerCase().trim();
     const token = String(body.token || '').trim();
-    const rating = Number(body.rating) || 5;
+    // A missing or out of range rating is refused; it once saved as five stars.
+    const rating = Number(body.rating);
     const reviewTitle = String(body.reviewTitle || body.title || '').trim();
     const reviewText = String(body.reviewText || body.body || body.text || '').trim();
     const tags = Array.isArray(body.tags) ? body.tags : [];
     const customerName = String(body.customerName || body.name || '').trim();
-    const photos = Array.isArray(body.photos) ? body.photos : (body.photoUrl ? [body.photoUrl] : []);
+    const photos = (Array.isArray(body.photos) ? body.photos : (body.photoUrl ? [body.photoUrl] : [])).filter(safeReviewPhoto);
 
     if (!orderId || !email) {
-      return res.status(400).json({ error: 'Order ID and email are required to verify your review.' });
+      return res.status(400).json({ success: false, error: 'Order ID and email are required to verify your review.' });
+    }
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ success: false, error: 'Choose a rating from 1 to 5 stars.' });
     }
 
-    // Cryptographic token validation
-    const tokenValid = token ? verifyReviewToken(orderId, email, token) : false;
-    if (!tokenValid && process.env.NODE_ENV === 'production') {
-      return res.status(403).json({ error: 'Invalid or expired review verification token.' });
+    // A review lands on the merchant's public page marked as a verified buyer, so it is saved only
+    // with the token from the store's own review link and only for an order whose id and email
+    // both match. Unsigned posts were accepted whenever NODE_ENV was not "production", and the
+    // order was found by email alone, so anyone could file unlimited reviews under a merchant (R24).
+    if (!reviewTokenValid(orderId, email, token)) {
+      return res.status(403).json({ success: false, error: 'This review link is not valid. Open the link from your review email.' });
     }
-
     const orders = loadOrders();
-    const order = orders.find(o => String(o.id) === orderId || String(o.customerEmail || '').toLowerCase() === email);
-    const userId = order?.userId || 'usr_default';
+    const order = orders.find(o => String(o.id) === orderId && String(o.customerEmail || '').toLowerCase() === email);
+    if (!order?.userId) {
+      return res.status(403).json({ success: false, error: 'This review link is not valid. Open the link from your review email.' });
+    }
+    const userId = order.userId;
+    // One review per order: the same link posted again does not add another card or count.
+    const store = reviewStore();
+    if (!store) {
+      return res.status(503).json({ success: false, error: 'Reviews cannot be saved right now. Try again in a few minutes.' });
+    }
+    if (loadReviews(store).some(r => r && r.userId === userId && String(r.orderId || '') === orderId)) {
+      return res.status(409).json({ success: false, error: 'A review for this order is already saved.' });
+    }
     const ws = Object.values(workspaceCache).find(w => w.userId === userId);
     const storeDomain = ws?.shopifyConfig ? realStoreDomain(ws.shopifyConfig) : '';
 
+    const code = merchantReviewCode(loadDrips());
     const submissionResult = submitCustomerReview({
       orderId,
       customerEmail: email,
@@ -4717,18 +5125,25 @@ app.post('/api/public/review', async (req, res) => {
       photos,
       storeDomain,
       userId,
-      discountCode: 'REVIEW10',
-      hubStorage: hub,
+      discountCode: code,
+      hubStorage: store,
       loadDrips,
       saveDrips,
       loadContacts,
       saveContacts
     });
 
-    return res.status(200).json(submissionResult);
+    if (!submissionResult?.success) {
+      return res.status(400).json({ success: false, error: submissionResult?.error || 'Your review could not be saved.' });
+    }
+    return res.status(200).json({
+      success: true,
+      review: submissionResult?.review || null,
+      reward: code ? { code } : null
+    });
   } catch (err) {
     console.error('[Jourvance Review Engine] Error submitting review:', err);
-    return res.status(500).json({ error: 'Failed to process review submission: ' + err.message });
+    return res.status(500).json({ success: false, error: 'Your review could not be saved. Try again in a few minutes.' });
   }
 });
 
@@ -4741,12 +5156,12 @@ app.get('/api/public/reviews/:slug', async (req, res) => {
     const storeDomain = page?.shopifyConfig ? realStoreDomain(page.shopifyConfig) : '';
     const minRating = Number(req.query.minRating || page?.data?.socialProofMinRating || 4);
 
-    const reviewsData = getPublicVerifiedReviews({
+    const reviewsData = realVerifiedReviews({
       userId,
       storeDomain,
       minRating,
       limit: 15,
-      hubStorage: hub
+      hubStorage: reviewStore()
     });
 
     return res.status(200).json({
@@ -4761,11 +5176,20 @@ app.get('/api/public/reviews/:slug', async (req, res) => {
   }
 });
 
-app.post('/api/reviews/:id/visibility', async (req, res) => {
+// Reviews are stored now (reviewStore), so hiding one is the merchant's alone: signed in, and only a
+// review on their own pages. Another merchant's review answers exactly like a missing one.
+const requireReviewOwner = (req, res, next) => (getCtx().requireUser
+  ? getCtx().requireUser(req, res, next)
+  : res.status(401).json({ success: false, error: 'Sign in to manage reviews.' }));
+app.post('/api/reviews/:id/visibility', requireReviewOwner, async (req, res) => {
   try {
     const reviewId = String(req.params.id || '').trim();
     const hidden = req.body?.hidden !== false;
-    const updated = toggleReviewVisibility(reviewId, hidden, hub);
+    const store = reviewStore();
+    const review = store ? loadReviews(store).find(r => r.id === reviewId) : null;
+    const updated = review && review.userId && review.userId === req.user?.uid
+      ? toggleReviewVisibility(reviewId, hidden, store)
+      : null;
     if (!updated) {
       return res.status(404).json({ error: 'Review not found' });
     }
@@ -4779,6 +5203,7 @@ app.post('/api/reviews/:id/visibility', async (req, res) => {
 
   return {
     loadPublicPage,
+    readPublicPage,
     savePublicPage,
     removePublicPage,
     validateSlugAvailability,

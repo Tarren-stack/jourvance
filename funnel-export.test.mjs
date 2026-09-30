@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+// Live-server checks run only when JOURVANCE_LIVE_TEST_URL names a server you started for
+// testing. They used to fetch http://localhost:3005 unconditionally, which on a developer machine
+// is server.mjs holding the live hub key, and a catch swallowed their own assertion failures.
+const LIVE_URL = process.env.JOURVANCE_LIVE_TEST_URL || '';
+const LIVE = { skip: LIVE_URL ? false : 'set JOURVANCE_LIVE_TEST_URL to run against a test server' };
+
 // Import or recreate the pure generator functions to test their logic
 function escapeHtml(str) {
   if (typeof str !== 'string') return '';
@@ -358,30 +364,29 @@ test('Landing Page generator inlines custom lead ingestion endpoint and dual-syn
   assert.ok(html.includes('jrn_demo_456'), 'Inlines journeyId for flow automation binding');
 });
 
-test('POST and OPTIONS /api/public/lead provide valid CORS headers for self-hosted funnels', async () => {
-  try {
-    const optRes = await fetch('http://localhost:3005/api/public/lead', { method: 'OPTIONS' });
-    if (optRes.status === 204) {
-      assert.equal(optRes.headers.get('access-control-allow-origin'), '*');
-      assert.ok(optRes.headers.get('access-control-allow-methods').includes('POST'));
-    }
+test('POST and OPTIONS /api/public/lead provide valid CORS headers for self-hosted funnels', LIVE, async () => {
+  // Every assertion here must hold on a failing server too: the route answers OPTIONS 204 with the
+  // headers, and POST sets Access-Control-Allow-Origin before its first branch (publicRoutes.mjs).
+  const optRes = await fetch(`${LIVE_URL}/api/public/lead`, { method: 'OPTIONS' });
+  assert.equal(optRes.status, 204);
+  assert.equal(optRes.headers.get('access-control-allow-origin'), '*');
+  assert.ok((optRes.headers.get('access-control-allow-methods') || '').includes('POST'));
 
-    const postRes = await fetch('http://localhost:3005/api/public/lead', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: `unit-cors-${Date.now()}@example.com`,
-        workspaceId: 'ws_test',
-        journeyId: 'jrn_test'
-      })
-    });
-    if (postRes.ok) {
-      assert.equal(postRes.headers.get('access-control-allow-origin'), '*');
-      const data = await postRes.json();
-      assert.equal(data.success, true);
-    }
-  } catch (err) {
-    // If port 3005 is not reachable in offline test environment, ignore network errors
+  const postRes = await fetch(`${LIVE_URL}/api/public/lead`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: `unit-cors-${Date.now()}@example.com`,
+      workspaceId: 'ws_test',
+      journeyId: 'jrn_test'
+    })
+  });
+  assert.equal(postRes.headers.get('access-control-allow-origin'), '*');
+  assert.ok(postRes.status < 500, `lead route answered ${postRes.status}`);
+  // A 429 or an unknown workspace on a test server is a legitimate 4xx; only a 2xx must say success.
+  if (postRes.ok) {
+    const data = await postRes.json();
+    assert.equal(data.success, true);
   }
 });
 

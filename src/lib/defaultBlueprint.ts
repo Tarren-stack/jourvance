@@ -4,9 +4,12 @@ export const DEFAULT_LEAD_CAPTURE_PROJECT: JourneyProject = {
   id: 'lead-capture-core',
   name: 'New Client Lead Capture & Follow-up',
   businessType: 'Professional & Local Services',
-  offerHeadline: 'Your offer',
+  // Empty: the offer is the person's to name. 'Your offer' went to Write with AI as the offer itself (U04).
+  offerHeadline: '',
   goal: 'Turn ad visitors into booked consultations and nurtured leads',
-  updatedAt: new Date().toISOString(),
+  // The epoch, not module-load time: App adopts the server copy only when it is strictly newer
+  // than the local one, and a starter map stamped "now" beat every saved journey on a new device.
+  updatedAt: new Date(0).toISOString(),
   nodes: [
     {
       id: 'node-ad-1',
@@ -16,10 +19,13 @@ export const DEFAULT_LEAD_CAPTURE_PROJECT: JourneyProject = {
         type: 'ad-source',
         label: 'Meta Ad Campaign',
         platform: 'meta',
-        headline: 'Your ad headline',
-        body: 'Describe the offer in words you can stand behind.',
-        ctaText: 'Claim Your Offer',
-        utmCampaign: 'lead-gen-spring',
+        // All empty, with the editor's hint saying what to write: an instruction stored here
+        // published as the ad (R19), 'Your ad headline' read as the ad's own words (T10), and
+        // "Claim Your Offer" promised an offer nobody defined, under a campaign tag nobody chose (U04).
+        headline: '',
+        body: '',
+        ctaText: '',
+        utmCampaign: '',
         imageUrl: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=600&auto=format&fit=crop&q=80',
         impressions: 0,
         clicks: 0,
@@ -35,14 +41,15 @@ export const DEFAULT_LEAD_CAPTURE_PROJECT: JourneyProject = {
         type: 'landing-page',
         label: 'Lead Capture Lander',
         slug: 'vip-consultation',
-        headline: 'Your offer headline',
-        subhead: 'Describe what the visitor gets.',
-        bullets: [
-          'First point you can stand behind',
-          'Second point you can stand behind'
-        ],
+        // Empty, so the card reads 'No headline yet' and Check design asks for one (U04).
+        headline: '',
+        subhead: '',
+        bullets: [],
         trustBadge: '',
         buttonText: 'Continue',
+        // The map leads this page to Client Intake Form, and only the lead gate makes the published
+        // button open a form. Direct checkout with no store gave every visitor a dead button (R18).
+        checkoutMode: 'lead-gate',
         heroImageUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800&auto=format&fit=crop&q=80',
         visitors: 0,
         conversions: 0,
@@ -59,7 +66,7 @@ export const DEFAULT_LEAD_CAPTURE_PROJECT: JourneyProject = {
         formTitle: 'Where should we reach you?',
         submitButtonText: 'Submit',
         successMessage: 'Thanks. We have your details.',
-        notifyEmail: 'team@yourbusiness.com',
+        // No notifyEmail: nothing sends one, and an invented address read as if leads were emailed there (T10).
         fields: [
           { id: 'f_name', label: 'Full Name', type: 'text', required: true, enabled: true, placeholder: 'Jane Doe' },
           { id: 'f_email', label: 'Work / Personal Email', type: 'email', required: true, enabled: true, placeholder: 'jane@example.com' },
@@ -82,31 +89,12 @@ export const DEFAULT_LEAD_CAPTURE_PROJECT: JourneyProject = {
         contactsEnrolled: 0,
         avgOpenRate: 0,
         avgClickRate: 0,
+        // Neutral subjects, and no preview or message: the old drafts put "Replace this" in the
+        // letter itself, where it read as the letter's own words. Check design asks for each (T10).
         steps: [
-          {
-            id: 'step-1',
-            channel: 'email',
-            delay: 'Instant (0m)',
-            subject: 'You are on the list',
-            previewText: 'Replace this before anyone receives it',
-            body: `Hi [First Name],\n\nThanks for signing up. Replace this note with the real next step before anyone receives it.\n\nThe Team`
-          },
-          {
-            id: 'step-2',
-            channel: 'email',
-            delay: '24 Hours',
-            subject: 'A follow-up',
-            previewText: 'Replace this before anyone receives it',
-            body: `Hi [First Name],\n\nThis is a follow-up in the sequence. Replace it with a real detail about your offer before anyone receives it.\n\nThe Team`
-          },
-          {
-            id: 'step-3',
-            channel: 'email',
-            delay: '72 Hours',
-            subject: 'One more note',
-            previewText: 'Replace this before anyone receives it',
-            body: `Hi [First Name],\n\nThis is the last note in the sequence. Mention a deadline only if you actually have one.\n\nThe Team`
-          }
+          { id: 'step-1', channel: 'email', delay: 'Instant (0m)', subject: 'You are on the list', previewText: '', body: '' },
+          { id: 'step-2', channel: 'email', delay: '24 Hours', subject: 'A follow-up', previewText: '', body: '' },
+          { id: 'step-3', channel: 'email', delay: '72 Hours', subject: 'One more note', previewText: '', body: '' }
         ]
       }
     }

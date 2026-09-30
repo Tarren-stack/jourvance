@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Check, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import type { FormNodeData, FormFieldConfig } from '../../types/journey';
+import { useFieldIds } from '../../lib/a11yHooks';
 
 interface Props {
   data: FormNodeData;
@@ -10,6 +11,8 @@ interface Props {
 export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
   const [editorTab, setEditorTab] = useState<'settings' | 'preview'>('settings');
   const [submitted, setSubmitted] = useState(false);
+  // Ties each label to its control, unique per mounted editor.
+  const fid = useFieldIds();
 
   const handleFieldChange = (field: keyof FormNodeData, val: any) => {
     onChange({ ...data, [field]: val });
@@ -45,6 +48,7 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
         <button
           type="button"
           onClick={() => { setEditorTab('settings'); setSubmitted(false); }}
+          aria-pressed={editorTab === 'settings'}
           style={{
             flex: 1,
             padding: '6px 12px',
@@ -53,7 +57,7 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
             fontWeight: 700,
             border: 'none',
             cursor: 'pointer',
-            backgroundColor: editorTab === 'settings' ? '#6366F1' : 'transparent',
+            backgroundColor: editorTab === 'settings' ? '#4F46E5' : 'transparent',
             color: editorTab === 'settings' ? '#FFFFFF' : '#94A3B8',
             transition: 'all 0.15s ease'
           }}
@@ -63,6 +67,7 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
         <button
           type="button"
           onClick={() => { setEditorTab('preview'); setSubmitted(false); }}
+          aria-pressed={editorTab === 'preview'}
           style={{
             flex: 1,
             padding: '6px 12px',
@@ -71,7 +76,7 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
             fontWeight: 700,
             border: 'none',
             cursor: 'pointer',
-            backgroundColor: editorTab === 'preview' ? '#6366F1' : 'transparent',
+            backgroundColor: editorTab === 'preview' ? '#4F46E5' : 'transparent',
             color: editorTab === 'preview' ? '#FFFFFF' : '#94A3B8',
             transition: 'all 0.15s ease'
           }}
@@ -129,10 +134,11 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
                 {(data.fields || []).filter(f => f.enabled).map(f => (
                   <div key={f.id}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#E2E8F0', marginBottom: '4px' }}>
+                    <label htmlFor={fid(`preview-${f.id}`)} style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#E2E8F0', marginBottom: '4px' }}>
                       {f.label} {f.required && <span style={{ color: '#EF4444' }}>*</span>}
                     </label>
                     <input
+                      id={fid(`preview-${f.id}`)}
                       type={f.type}
                       placeholder={f.placeholder}
                       required={f.required}
@@ -175,10 +181,11 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
         <>
       {/* Form Title */}
       <div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
+        <label htmlFor={fid('form-title')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
           Form Heading
         </label>
         <input
+          id={fid('form-title')}
           type="text"
           value={data.formTitle}
           onChange={e => handleFieldChange('formTitle', e.target.value)}
@@ -198,10 +205,10 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
 
       {/* Field Configuration */}
       <div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '8px' }}>
+        <div id={fid('fields')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '8px' }}>
           Form Fields ({data.fields?.filter(f => f.enabled).length} Active)
-        </label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        </div>
+        <div role="group" aria-labelledby={fid('fields')} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {(data.fields || []).map(f => (
             <div
               key={f.id}
@@ -219,25 +226,28 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <input
                   type="checkbox"
+                  aria-labelledby={fid(`field-${f.id}-label`)}
                   checked={f.enabled}
                   onChange={() => toggleField(f.id)}
                   style={{ cursor: 'pointer', width: '15px', height: '15px', accentColor: '#6366F1' }}
                 />
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#F8FAFC' }}>{f.label}</div>
-                  <div style={{ fontSize: '10px', color: '#64748B' }}>type: {f.type}</div>
+                  <div id={fid(`field-${f.id}-label`)} style={{ fontSize: '13px', fontWeight: 600, color: '#F8FAFC' }}>{f.label}</div>
+                  <div style={{ fontSize: '11px', color: '#94A3B8' }}>type: {f.type}</div>
                 </div>
               </div>
               {f.enabled && (
                 <button
                   type="button"
                   onClick={() => toggleRequired(f.id)}
+                  aria-pressed={f.required}
+                  aria-label={`${f.label} required`}
                   style={{
                     padding: '3px 8px',
                     borderRadius: '4px',
                     border: 'none',
                     background: f.required ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-                    color: f.required ? '#818CF8' : '#64748B',
+                    color: f.required ? '#A5B4FC' : '#94A3B8',
                     fontSize: '11px',
                     fontWeight: 600,
                     cursor: 'pointer'
@@ -253,10 +263,11 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
 
       {/* Button Label */}
       <div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
+        <label htmlFor={fid('submit-button-text')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
           Submit Button Text
         </label>
         <input
+          id={fid('submit-button-text')}
           type="text"
           value={data.submitButtonText}
           onChange={e => handleFieldChange('submitButtonText', e.target.value)}
@@ -276,14 +287,15 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
 
       {/* Success Message */}
       <div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
+        <label htmlFor={fid('success-message')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
           Post-Submit Confirmation Message
         </label>
         <textarea
+          id={fid('success-message')}
           rows={2}
           value={data.successMessage}
           onChange={e => handleFieldChange('successMessage', e.target.value)}
-          placeholder="e.g. Thank you! Your spot is reserved. Check your email for next steps."
+          placeholder="What the person sees after they submit, in words you can stand behind"
           style={{
             width: '100%',
             padding: '10px 12px',
@@ -298,28 +310,8 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
         />
       </div>
 
-      {/* Notification Email */}
-      <div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
-          Instant Lead Notification Email
-        </label>
-        <input
-          type="email"
-          value={data.notifyEmail || ''}
-          onChange={e => handleFieldChange('notifyEmail', e.target.value)}
-          placeholder="notifications@yourbusiness.com"
-          style={{
-            width: '100%',
-            padding: '10px 12px',
-            borderRadius: '8px',
-            background: 'rgba(0, 0, 0, 0.3)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            color: '#FFFFFF',
-            fontSize: '13px',
-            outline: 'none'
-          }}
-        />
-      </div>
+      {/* No notification email field: nothing on the server reads notifyEmail, so the field implied
+          that submissions were emailed to an address nobody sends to (T10). A saved value is kept. */}
       </>
       )}
     </div>

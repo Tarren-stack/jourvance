@@ -20,3 +20,4 @@ scratch/
 .autoclaw/
 .claude/
 test_sample.json
+journey_publish_logs.json

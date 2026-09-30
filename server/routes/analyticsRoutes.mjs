@@ -7,13 +7,82 @@
 import {
   orderBelongsTo,
   attributionTouches,
-  channelOf,
-  enrollmentCount
+  channelOf
 } from '../../email-map.mjs';
 import { cleanAttributionWindows } from '../../email-feeds.mjs';
 
 function round1(n) {
   return Math.round(n * 10) / 10;
+}
+
+// The one report window rule. Anything that is not a named range reaches back 9999 days, which
+// is how far the report's 'all' has always looked.
+const TIMEFRAME_DAYS = { '7d': 7, '30d': 30, '90d': 90, all: 9999 };
+
+export function timeframeCutoff(timeframe, now = Date.now()) {
+  return now - (TIMEFRAME_DAYS[timeframe] ?? 9999) * 86400000;
+}
+
+// The map's ranges (#9). Anything else reads as the default 30 days.
+export function funnelStatsDays(v) {
+  const n = Number(v);
+  return n === 7 || n === 30 || n === 90 ? n : 30;
+}
+
+// The Attribution page names its range as a timeframe. The map keeps at most 90 days, so its
+// 'all' reads as the longest range; the answer echoes the days it counted.
+const FUNNEL_TIMEFRAME_DAYS = { '7d': 7, '30d': 30, '90d': 90, all: 90 };
+
+// People, not page loads: each visitorId once, and each event without an id once.
+export function countPeople(list) {
+  const ids = new Set();
+  let anonymous = 0;
+  for (const e of list) {
+    const id = String(e?.visitorId || '');
+    if (id) ids.add(id);
+    else anonymous++;
+  }
+  return ids.size + anonymous;
+}
+
+// A percentage, or null when there is nothing to divide by. Never above 100.
+export function rateOr(part, whole) {
+  if (!(whole > 0) || !Number.isFinite(part)) return null;
+  return Math.min(100, round1((part / whole) * 100));
+}
+
+const finiteOrNull = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+// The drip triggers each kind of follow-up step stands for. Lead sign-ups, checkout abandoners and
+// declined upsells are all enrolled with the page's slug, so an unlinked step counts only the
+// enrolments of its own kind of sequence.
+const SEQUENCE_TRIGGERS = {
+  lead_nurture: ['lead_capture', 'exit_intent'],
+  checkout_recovery: ['checkout_abandonment'],
+  upsell_recovery: ['upsell_recovery'],
+  at_risk_winback: ['at_risk_inactivity'],
+  fulfillment_review: ['fulfillment_review']
+};
+// Win-back and review enrolments are made from the contact list and from orders, never from a page,
+// so they carry no sourceSlug and a journey cannot count them.
+const PAGELESS_TRIGGERS = new Set(['at_risk_inactivity', 'fulfillment_review']);
+// A line out of one of these handles only ever carries that kind of recovery.
+const HANDLE_SEQUENCE = { abandon: 'checkout_recovery', rescue: 'upsell_recovery', declined: 'upsell_recovery' };
+// The built-in sequences' triggers, for an enrolment whose sequence is no longer in the list.
+const BUILT_IN_TRIGGERS = {
+  drip_seq_default: 'lead_capture',
+  drip_seq_cart_recovery: 'checkout_abandonment',
+  drip_seq_upsell_recovery: 'upsell_recovery',
+  drip_seq_at_risk_winback: 'at_risk_inactivity',
+  drip_seq_review_request: 'fulfillment_review'
+};
+
+/** The drip triggers a follow-up step counts: its own kind, else its incoming line's, else nurture. */
+export function followUpTriggers(node, incomingHandles) {
+  const own = Object.hasOwn(SEQUENCE_TRIGGERS, node?.sequenceType) ? node.sequenceType : '';
+  if (own && own !== 'lead_nurture') return SEQUENCE_TRIGGERS[own];
+  const handle = (incomingHandles || []).find(h => Object.hasOwn(HANDLE_SEQUENCE, h));
+  return SEQUENCE_TRIGGERS[handle ? HANDLE_SEQUENCE[handle] : 'lead_nurture'];
 }
 
 export function setupAnalyticsRoutes(app, ctx) {
@@ -31,7 +100,8 @@ export function setupAnalyticsRoutes(app, ctx) {
     userProgramBag,
     writeUserPrograms,
     messageStatsFor,
-    hubReady
+    hubReady,
+    eventsKept
   } = ctx;
 
   // ── Multi-Channel Attribution Analytics ───────────────────────────────────────
@@ -43,11 +113,21 @@ export function setupAnalyticsRoutes(app, ctx) {
 
     const uid = req.user.uid;
     const now = Date.now();
-    const daysLimit = timeframe === '7d' ? 7 : (timeframe === '30d' ? 30 : 9999);
-    const cutoff = now - (daysLimit * 86400000);
+    const cutoff = timeframeCutoff(timeframe, now);
     const inWindow = (iso) => new Date(iso || 0).getTime() >= cutoff;
     const eventOwner = (e) => e.userId || (e.slug && publicPageCache[e.slug]?.userId) || '';
-    const reportEvents = loadEvents().filter(e => {
+    // Every count below is read from the event log. A log that cannot be read is not an empty one,
+    // so the report is unavailable rather than a page of zeros (U06).
+    let loggedEvents;
+    try {
+      loggedEvents = loadEvents();
+    } catch (err) {
+      console.warn('[Jourvance] Event log read failed in attribution report:', err.message);
+    }
+    if (!Array.isArray(loggedEvents)) {
+      return res.status(503).json({ success: false, error: 'The event log could not be read, so this report is unavailable.' });
+    }
+    const reportEvents = loggedEvents.filter(e => {
       if (eventOwner(e) !== uid || !inWindow(e.at)) return false;
       if (workspaceId) {
         if (e.workspaceId && e.workspaceId !== workspaceId) return false;
@@ -273,20 +353,21 @@ export function setupAnalyticsRoutes(app, ctx) {
     const channelList = Object.values(channels).map(ch => {
       ch.revenue = Number(ch.revenue.toFixed(2));
       ch.orders = Number(ch.orders.toFixed(1));
-      ch.roas = ch.spend > 0 ? Number((ch.revenue / ch.spend).toFixed(2)) : 0;
-      ch.cac = ch.orders > 0 ? Number((ch.spend / ch.orders).toFixed(2)) : 0;
-      ch.conversionRate = ch.clicks > 0 ? Number(((ch.orders / ch.clicks) * 100).toFixed(2)) : 0;
+      // A ratio without a denominator is unmeasured: null, never 0 (T05).
+      ch.roas = ch.spend > 0 ? Number((ch.revenue / ch.spend).toFixed(2)) : null;
+      ch.cac = ch.orders > 0 ? Number((ch.spend / ch.orders).toFixed(2)) : null;
+      ch.conversionRate = ch.clicks > 0 ? Number(((ch.orders / ch.clicks) * 100).toFixed(2)) : null;
 
       // Per-channel AOV and offer attach intelligence
       ch.bumpOrders = Math.round(ch.bumpOrders);
       ch.upsellTakes = Math.round(ch.upsellTakes);
       ch.bumpRevenue = Number(ch.bumpRevenue.toFixed(2));
       ch.upsellRevenue = Number(ch.upsellRevenue.toFixed(2));
-      ch.baseAov = ch.orders > 0 ? Number((ch.coreRevenue / ch.orders).toFixed(2)) : 0;
-      ch.aov = ch.orders > 0 ? Number(((ch.revenue + ch.upsellRevenue) / ch.orders).toFixed(2)) : 0;
-      ch.aovLift = Number(Math.max(0, ch.aov - ch.baseAov).toFixed(2));
-      ch.bumpAttachRate = ch.orders > 0 ? Number(((ch.bumpOrders / ch.orders) * 100).toFixed(1)) : 0;
-      ch.upsellAttachRate = ch.orders > 0 ? Number(((ch.upsellTakes / ch.orders) * 100).toFixed(1)) : 0;
+      ch.baseAov = ch.orders > 0 ? Number((ch.coreRevenue / ch.orders).toFixed(2)) : null;
+      ch.aov = ch.orders > 0 ? Number(((ch.revenue + ch.upsellRevenue) / ch.orders).toFixed(2)) : null;
+      ch.aovLift = ch.orders > 0 ? Number(Math.max(0, ch.aov - ch.baseAov).toFixed(2)) : null;
+      ch.bumpAttachRate = ch.orders > 0 ? Number(((ch.bumpOrders / ch.orders) * 100).toFixed(1)) : null;
+      ch.upsellAttachRate = ch.orders > 0 ? Number(((ch.upsellTakes / ch.orders) * 100).toFixed(1)) : null;
 
       totalRevenue += ch.revenue;
       totalSpend += ch.spend;
@@ -303,14 +384,15 @@ export function setupAnalyticsRoutes(app, ctx) {
     }
     const buyerCount = Object.keys(ordersByEmail).length;
     const repeatCount = Object.values(ordersByEmail).filter(n => n >= 2).length;
-    const repeatBuyerRate = buyerCount > 0 ? Number(((repeatCount / buyerCount) * 100).toFixed(1)) : 0;
+    // A ratio without a denominator is unmeasured: null, never 0.
+    const repeatBuyerRate = buyerCount > 0 ? Number(((repeatCount / buyerCount) * 100).toFixed(1)) : null;
 
     const summary = {
       totalRevenue: Number(totalRevenue.toFixed(2)),
       totalSpend: Number(totalSpend.toFixed(2)),
-      blendedRoas: totalSpend > 0 ? Number((totalRevenue / totalSpend).toFixed(2)) : 0,
-      blendedCac: totalOrders > 0 ? Number((totalSpend / totalOrders).toFixed(2)) : 0,
-      blendedAov: totalOrders > 0 ? Number((totalRevenue / totalOrders).toFixed(2)) : 0,
+      blendedRoas: totalSpend > 0 ? Number((totalRevenue / totalSpend).toFixed(2)) : null,
+      blendedCac: totalOrders > 0 ? Number((totalSpend / totalOrders).toFixed(2)) : null,
+      blendedAov: totalOrders > 0 ? Number((totalRevenue / totalOrders).toFixed(2)) : null,
       totalOrders: Math.round(totalOrders),
       totalLeads,
       repeatBuyerRate,
@@ -321,10 +403,11 @@ export function setupAnalyticsRoutes(app, ctx) {
     const leadCount = Math.max(totalLeads, reportEvents.filter(e => e.type === 'lead').length);
     const checkoutCount = reportEvents.filter(e => e.type === 'checkout_start').length;
     const bumpCount = filteredOrders.filter(o => o.orderBumpIncluded).length;
-    const share = (count, base) => base > 0 ? Number(((count / base) * 100).toFixed(1)) : 0;
-    const drop = (count, prev) => prev > 0 ? Number((Math.max(0, prev - count) / prev * 100).toFixed(1)) : 0;
+    // A share or a drop-off needs a step to divide by; without one it is null, never 0 (T05).
+    const share = (count, base) => base > 0 ? Number(((count / base) * 100).toFixed(1)) : null;
+    const drop = (count, prev) => prev > 0 ? Number((Math.max(0, prev - count) / prev * 100).toFixed(1)) : null;
     const funnelSteps = [
-      { id: 'views', name: 'Landing Page Views', count: viewCount, percentage: viewCount > 0 ? 100 : 0, dropoffRate: 0 },
+      { id: 'views', name: 'Landing Page Views', count: viewCount, percentage: viewCount > 0 ? 100 : null, dropoffRate: null },
       { id: 'leads', name: 'Leads Captured', count: leadCount, percentage: share(leadCount, viewCount), dropoffRate: drop(leadCount, viewCount) },
       { id: 'checkouts', name: 'Checkouts Started', count: checkoutCount, percentage: share(checkoutCount, viewCount), dropoffRate: drop(checkoutCount, leadCount) },
       { id: 'orders', name: 'Orders Placed', count: Math.round(totalOrders), percentage: share(totalOrders, viewCount), dropoffRate: drop(totalOrders, checkoutCount) },
@@ -396,16 +479,21 @@ export function setupAnalyticsRoutes(app, ctx) {
     });
     const recoveredUpsellOrders = recoveredUpsellEvents.length;
     const recoveredUpsellRevenue = Number(recoveredUpsellEvents.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toFixed(2));
-    const recoveryRate = totalDeclines > 0 ? Number(((recoveredUpsellOrders / totalDeclines) * 100).toFixed(1)) : 0;
+    const recoveryRate = totalDeclines > 0 ? Number(((recoveredUpsellOrders / totalDeclines) * 100).toFixed(1)) : null;
 
     bumpRevenue = Number(bumpRevenue.toFixed(2));
     coreRevenue = Number(coreRevenue.toFixed(2));
 
     const combinedRevenue = Number((coreRevenue + bumpRevenue + upsellRevenue + downsellRevenue).toFixed(2));
-    const baseAov = totalFrontEndOrders > 0 ? Number((coreRevenue / totalFrontEndOrders).toFixed(2)) : 0;
-    const effectiveAov = totalFrontEndOrders > 0 ? Number((combinedRevenue / totalFrontEndOrders).toFixed(2)) : 0;
-    const aovLiftDollars = Number((effectiveAov - baseAov).toFixed(2));
-    const aovLiftPercent = baseAov > 0 ? Number(((aovLiftDollars / baseAov) * 100).toFixed(1)) : 0;
+    // An average needs orders and a share needs revenue: without them each is null, never 0 (T05).
+    const hasOrders = totalFrontEndOrders > 0;
+    const baseAov = hasOrders ? Number((coreRevenue / totalFrontEndOrders).toFixed(2)) : null;
+    const effectiveAov = hasOrders ? Number((combinedRevenue / totalFrontEndOrders).toFixed(2)) : null;
+    const aovLiftDollars = hasOrders ? Number((effectiveAov - baseAov).toFixed(2)) : null;
+    const aovLiftPercent = baseAov > 0 ? Number(((aovLiftDollars / baseAov) * 100).toFixed(1)) : null;
+    const shareOfRevenue = (revenue) => combinedRevenue > 0 ? Number(((revenue / combinedRevenue) * 100).toFixed(1)) : null;
+    const attachOf = (count) => hasOrders ? Number(((count / totalFrontEndOrders) * 100).toFixed(1)) : null;
+    const perOrder = (revenue) => hasOrders ? Number((revenue / totalFrontEndOrders).toFixed(2)) : null;
 
     const aovExpansion = {
       totalOrders: totalFrontEndOrders,
@@ -424,8 +512,8 @@ export function setupAnalyticsRoutes(app, ctx) {
           name: 'Core Front-End Product',
           orderCount: totalFrontEndOrders,
           revenue: coreRevenue,
-          percentageOfTotal: combinedRevenue > 0 ? Number(((coreRevenue / combinedRevenue) * 100).toFixed(1)) : 100,
-          attachRate: totalFrontEndOrders > 0 ? 100 : 0,
+          percentageOfTotal: shareOfRevenue(coreRevenue),
+          attachRate: hasOrders ? 100 : null,
           aovContribution: baseAov
         },
         {
@@ -433,18 +521,18 @@ export function setupAnalyticsRoutes(app, ctx) {
           name: 'Checkout Order Bump Add-on',
           orderCount: bumpOrdersCount,
           revenue: bumpRevenue,
-          percentageOfTotal: combinedRevenue > 0 ? Number(((bumpRevenue / combinedRevenue) * 100).toFixed(1)) : 0,
-          attachRate: totalFrontEndOrders > 0 ? Number(((bumpOrdersCount / totalFrontEndOrders) * 100).toFixed(1)) : 0,
-          aovContribution: totalFrontEndOrders > 0 ? Number((bumpRevenue / totalFrontEndOrders).toFixed(2)) : 0
+          percentageOfTotal: shareOfRevenue(bumpRevenue),
+          attachRate: attachOf(bumpOrdersCount),
+          aovContribution: perOrder(bumpRevenue)
         },
         {
           tier: 'upsell',
           name: '1-Click Post-Purchase Upsell (OTO)',
           orderCount: upsellTakes,
           revenue: upsellRevenue,
-          percentageOfTotal: combinedRevenue > 0 ? Number(((upsellRevenue / combinedRevenue) * 100).toFixed(1)) : 0,
-          attachRate: totalFrontEndOrders > 0 ? Number(((upsellTakes / totalFrontEndOrders) * 100).toFixed(1)) : 0,
-          aovContribution: totalFrontEndOrders > 0 ? Number((upsellRevenue / totalFrontEndOrders).toFixed(2)) : 0,
+          percentageOfTotal: shareOfRevenue(upsellRevenue),
+          attachRate: attachOf(upsellTakes),
+          aovContribution: perOrder(upsellRevenue),
           recoveredRevenue: recoveredUpsellRevenue,
           recoveredOrders: recoveredUpsellOrders,
           recoveryRate,
@@ -455,17 +543,21 @@ export function setupAnalyticsRoutes(app, ctx) {
           name: 'Post-Purchase Downsell (OTO)',
           orderCount: downsellTakes,
           revenue: downsellRevenue,
-          percentageOfTotal: combinedRevenue > 0 ? Number(((downsellRevenue / combinedRevenue) * 100).toFixed(1)) : 0,
-          attachRate: totalFrontEndOrders > 0 ? Number(((downsellTakes / totalFrontEndOrders) * 100).toFixed(1)) : 0,
-          aovContribution: totalFrontEndOrders > 0 ? Number((downsellRevenue / totalFrontEndOrders).toFixed(2)) : 0
+          percentageOfTotal: shareOfRevenue(downsellRevenue),
+          attachRate: attachOf(downsellTakes),
+          aovContribution: perOrder(downsellRevenue)
         }
       ]
     };
 
-    const countOrBlank = (type) => {
+    // A count from a stream that was read is measured, so none is 0 (U06). Page views come from
+    // this app's own log, which was read above. Sends and clicks are logged only while email
+    // sending is connected, so with it off and nothing logged the stream was never there to read.
+    const countOrBlank = (type, connected = true) => {
       const count = reportEvents.filter((event) => event.type === type).length;
-      return count > 0 ? count : null;
+      return connected || count > 0 ? count : null;
     };
+    const emailConnected = Boolean(hubReady);
 
     const upsellViewCount = reportEvents.filter(e => e.type === 'upsell_view' && (e.offerType || 'upsell') === 'upsell').length;
     if (upsellViewCount > 0 || upsellTakes > 0) {
@@ -474,7 +566,7 @@ export function setupAnalyticsRoutes(app, ctx) {
         name: '1-Click Upsell Taken',
         count: upsellTakes,
         percentage: share(upsellTakes, viewCount),
-        dropoffRate: drop(upsellTakes, Math.max(1, Math.round(totalOrders)))
+        dropoffRate: drop(upsellTakes, Math.round(totalOrders))
       });
     }
     const downsellViewCount = reportEvents.filter(e => e.type === 'upsell_view' && e.offerType === 'downsell').length;
@@ -484,7 +576,7 @@ export function setupAnalyticsRoutes(app, ctx) {
         name: 'Downsell Offer Taken',
         count: downsellTakes,
         percentage: share(downsellTakes, viewCount),
-        dropoffRate: drop(downsellTakes, Math.max(1, upsellViewCount - upsellTakes))
+        dropoffRate: drop(downsellTakes, Math.max(0, upsellViewCount - upsellTakes))
       });
     }
 
@@ -511,12 +603,12 @@ export function setupAnalyticsRoutes(app, ctx) {
     const abandonedCheckoutsCount = Math.max(userCheckouts.length, recoveredCheckoutsCount);
     const checkoutRecoveryRate = abandonedCheckoutsCount > 0
       ? Number(((recoveredCheckoutsCount / abandonedCheckoutsCount) * 100).toFixed(1))
-      : 0;
+      : null;
 
     const totalRetentionRevenue = Number((recoveredCheckoutRevenue + recoveredUpsellRevenue).toFixed(2));
     const totalRetentionOrders = recoveredCheckoutsCount + recoveredUpsellOrders;
-    // Realized Net Profit Saved with zero additional ad spend (estimated 20% COGS deduction)
-    const retentionNetProfit = Number((totalRetentionRevenue * 0.80).toFixed(2));
+    // No profit figure: the product cost is the user's own number, entered in the Forecaster, and
+    // the page works it out from that. An assumed 20% was a figure nobody measured (U06).
 
     const retentionTelemetry = {
       abandonedCheckoutsCount,
@@ -528,8 +620,7 @@ export function setupAnalyticsRoutes(app, ctx) {
       recoveredUpsellRevenue,
       upsellRecoveryRate: recoveryRate,
       totalRetentionRevenue,
-      totalRetentionOrders,
-      retentionNetProfit
+      totalRetentionOrders
     };
 
     res.json({
@@ -542,8 +633,8 @@ export function setupAnalyticsRoutes(app, ctx) {
         funnelSteps,
         touchCounts: {
           pageViews: countOrBlank('page_view'),
-          emailSends: countOrBlank('email_sent'),
-          emailClicks: countOrBlank('email_clicked')
+          emailSends: countOrBlank('email_sent', emailConnected),
+          emailClicks: countOrBlank('email_clicked', emailConnected)
         },
         recentAttributions: recentAttributions.slice(0, 10),
         aovExpansion,
@@ -647,150 +738,245 @@ export function setupAnalyticsRoutes(app, ctx) {
 
   // ── Visual Canvas Funnel Telemetry & Conversion Stats ────────────────────────
 
+  // One stats snapshot for one journey and one range (#9). Every figure on the journey map and
+  // the Attribution leak finder reads this answer. It counts only this journey's events and orders
+  // inside the range, counts people rather than page loads, answers null for anything it cannot
+  // measure (never 0), and says in `coverage` which steps it measured and why not. It echoes the
+  // journey and range, so the canvas never shows a slow answer for another range.
   app.post('/api/funnel/stats', requireUser, (req, res) => {
-    const nodes = Array.isArray(req.body?.nodes) ? req.body.nodes : [];
-    const edges = Array.isArray(req.body?.edges) ? req.body.edges : [];
-    const journeyId = String(req.body?.journeyId || '');
-    const events = loadEvents().filter(e => e.userId === req.user.uid && (!journeyId || e.journeyId === journeyId));
-    const orders = loadOrders().filter(o => {
-      if (!o.attributedSlug) return false;
-      const page = publicPageCache[o.attributedSlug];
-      return page && page.userId === req.user.uid && (!journeyId || page.journeyId === journeyId);
-    });
-    const drips = loadDrips();
+    const uid = req.user.uid;
+    const journeyId = typeof req.body?.journeyId === 'string' ? req.body.journeyId.trim() : '';
+    if (!journeyId) {
+      return res.status(400).json({ success: false, error: 'Name the journey whose numbers you want.' });
+    }
+    const nodes = (Array.isArray(req.body?.nodes) ? req.body.nodes : []).filter(n => n && typeof n.id === 'string');
+    const edges = (Array.isArray(req.body?.edges) ? req.body.edges : []).filter(e => e && typeof e === 'object');
+    const days = req.body?.days != null
+      ? funnelStatsDays(req.body.days)
+      : funnelStatsDays(FUNNEL_TIMEFRAME_DAYS[req.body?.timeframe]);
+    const now = Date.now();
+    const cutoff = timeframeCutoff(`${days}d`, now);
+    // An undated row cannot be placed in a range, so it is left out.
+    const inRange = (iso) => {
+      const t = Date.parse(iso || '');
+      return Number.isFinite(t) && t >= cutoff;
+    };
+
+    const all = loadEvents();
+    const events = all.filter(e => e && e.userId === uid && e.journeyId === journeyId && inRange(e.at));
+    // recordEvent in server.mjs keeps only the newest 20,000 events across every account. When the
+    // store is full and its oldest event is inside the range, older visits in the range are gone.
+    const kept = Number(eventsKept) > 0 ? Number(eventsKept) : 20000;
+    let partialSince = null;
+    if (all.length >= kept) {
+      let oldest = Infinity;
+      for (const e of all) {
+        const t = Date.parse(e?.at || '');
+        if (Number.isFinite(t) && t < oldest) oldest = t;
+      }
+      if (Number.isFinite(oldest) && oldest > cutoff) partialSince = new Date(oldest).toISOString();
+    }
+
+    const ownsPage = (page) => Boolean(page && typeof page === 'object' && page.userId === uid && page.journeyId === journeyId);
+    const orders = loadOrders().filter(o => o && o.attributedSlug && ownsPage(publicPageCache[o.attributedSlug]) && inRange(o.createdAt));
+    const livePages = Object.values(publicPageCache || {}).filter(ownsPage);
+    const pageLive = (node) => Boolean(node?.slug) && ownsPage(publicPageCache[node.slug]);
+    const journeySlugs = new Set(nodes.map(n => String(n.slug || '')).filter(Boolean));
+    const drips = loadDrips() || {};
     const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
     const nodeStats = {};
+    const coverage = {};
 
     const eventsFor = (node) => events.filter(e => e.nodeId === node.id || (node.slug && e.slug === node.slug));
     const ordersFor = (node) => orders.filter(o => o.attributedNodeId === node.id || (node.slug && o.attributedSlug === node.slug));
+    const pageMeasured = (node) => pageLive(node) || eventsFor(node).length > 0 || ordersFor(node).length > 0;
+    const nulls = (keys) => Object.fromEntries(keys.map(k => [k, null]));
+    const notMeasured = (node, keys, why) => {
+      nodeStats[node.id] = nulls(keys);
+      coverage[node.id] = why ? { measured: false, why } : { measured: false };
+    };
+    const incoming = (node) => edges.filter(e => e.target === node.id).map(e => byId[e.source]).filter(Boolean);
 
     for (const node of nodes) {
       const mine = eventsFor(node);
       const mineOrders = ordersFor(node);
       if (node.type === 'ad-source') {
         const campaign = String(node.utmCampaign || '');
-        const clicks = campaign
-          ? events.filter(e => e.type === 'page_view' && e.utm_campaign === campaign).length
-          : 0;
-        const revenue = orders
-          .filter(o => campaign && publicPageCache[o.attributedSlug])
-          .reduce((sum, o) => sum, 0);
-        const matchedOrders = events.filter(e => e.type === 'order' && campaign && e.utm_campaign === campaign);
-        const orderRevenue = matchedOrders.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+        const keys = ['clicks', 'impressions', 'ctr', 'roas', 'attributedRevenue'];
+        if (!campaign) { notMeasured(node, keys, 'no_campaign'); continue; }
+        const clicks = countPeople(events.filter(e => e.type === 'page_view' && e.utm_campaign === campaign));
+        const revenue = events
+          .filter(e => e.type === 'order' && e.utm_campaign === campaign)
+          .reduce((sum, e) => sum + Number(e.amount || 0), 0);
         const spend = Number(node.spend || 0);
         nodeStats[node.id] = {
           clicks,
-          impressions: 0,
-          ctr: 0,
-          roas: spend > 0 ? round1(orderRevenue / spend) : 0
+          // The ad platform's audience is never read here, so there is no impression count and no rate.
+          impressions: null,
+          ctr: null,
+          roas: spend > 0 ? round1(revenue / spend) : null,
+          attributedRevenue: Number(revenue.toFixed(2)),
+          // Not a measure: the lines out of this ad into a step other than a follow-up, in the map
+          // this answer counted. The clicks are the whole campaign, so only a lone routing line may
+          // show them (journeyMetrics.ts edgeFigure), and a reader with no line list needs this.
+          routingLines: edges.filter(e => e.source === node.id && byId[e.target]?.type !== 'follow-up-sequence').length
         };
-        void revenue;
+        coverage[node.id] = { measured: true };
       } else if (node.type === 'landing-page') {
-        const visitors = mine.filter(e => e.type === 'page_view').length;
-        const leads = mine.filter(e => e.type === 'lead').length;
+        const keys = ['visitors', 'leads', 'conversions', 'conversionRate', 'grossRevenue', 'liveRevenue', 'liveOrders',
+          'orderBumpTakes', 'liveBumpOrders', 'orderBumpRevenue', 'variantAVisitors', 'variantBVisitors',
+          'variantAConversions', 'variantBConversions'];
+        if (!pageMeasured(node)) { notMeasured(node, keys, 'not_published'); continue; }
+        const views = mine.filter(e => e.type === 'page_view');
+        const leadEvents = mine.filter(e => e.type === 'lead');
+        const visitors = countPeople(views);
+        const leads = countPeople(leadEvents);
         const orderCount = mineOrders.length;
         const conversions = orderCount || leads;
         const grossRevenue = Number(mineOrders.reduce((sum, o) => sum + Number(o.totalPrice || 0), 0).toFixed(2));
         const bumpOrders = mineOrders.filter(o => o.orderBumpIncluded);
         nodeStats[node.id] = {
           visitors,
+          leads,
           conversions,
-          conversionRate: visitors > 0 ? round1((conversions / visitors) * 100) : 0,
+          conversionRate: rateOr(conversions, visitors),
           grossRevenue,
           liveRevenue: grossRevenue,
           liveOrders: orderCount,
           orderBumpTakes: bumpOrders.length,
           liveBumpOrders: bumpOrders.length,
-          variantAVisitors: mine.filter(e => e.type === 'page_view' && e.variant !== 'b').length,
-          variantBVisitors: mine.filter(e => e.type === 'page_view' && e.variant === 'b').length,
-          variantAConversions: mine.filter(e => e.type === 'lead' && e.variant !== 'b').length,
-          variantBConversions: mine.filter(e => e.type === 'lead' && e.variant === 'b').length
+          // Orders do not record what the bump itself earned.
+          orderBumpRevenue: null,
+          variantAVisitors: countPeople(views.filter(e => e.variant !== 'b')),
+          variantBVisitors: countPeople(views.filter(e => e.variant === 'b')),
+          variantAConversions: countPeople(leadEvents.filter(e => e.variant !== 'b')),
+          variantBConversions: countPeople(leadEvents.filter(e => e.variant === 'b'))
         };
+        coverage[node.id] = { measured: true };
       } else if (node.type === 'lead-form') {
-        const sourceId = edges.find(e => e.target === node.id)?.source;
-        const source = sourceId ? byId[sourceId] : null;
-        const upstream = source ? eventsFor(source) : [];
-        const views = upstream.filter(e => e.type === 'page_view').length;
-        const submissions = upstream.filter(e => e.type === 'lead').length;
-        nodeStats[node.id] = {
-          views,
-          submissions,
-          completionRate: views > 0 ? round1((submissions / views) * 100) : 0
-        };
+        const keys = ['views', 'submissions', 'completionRate'];
+        // A form is counted on the page that holds it.
+        const source = incoming(node).find(n => n.type === 'landing-page');
+        if (!source || !pageMeasured(source)) { notMeasured(node, keys, 'no_source'); continue; }
+        const upstream = eventsFor(source);
+        const views = countPeople(upstream.filter(e => e.type === 'page_view'));
+        const submissions = countPeople(upstream.filter(e => e.type === 'lead'));
+        nodeStats[node.id] = { views, submissions, completionRate: rateOr(submissions, views) };
+        coverage[node.id] = { measured: true };
       } else if (node.type === 'follow-up-sequence') {
+        const keys = ['flowEnrolled', 'flowSent', 'flowClicked', 'flowOpened', 'flowRevenue'];
         const flowId = String(node.jourvanceFlowId || '');
-        const bag = userProgramBag(req.user.uid);
-        if (flowId && bag.flows.some((flow) => flow.id === flowId)) {
-          const stats = messageStatsFor(req.user.uid, (item) => item.flowId === flowId);
+        const bag = userProgramBag(uid);
+        const flows = Array.isArray(bag?.flows) ? bag.flows : [];
+        if (flowId && flows.some((flow) => flow.id === flowId)) {
+          // Flow enrolments store no journeyId, so these figures cover the whole flow.
+          const stats = messageStatsFor(uid, (item) => item.flowId === flowId && inRange(item.at)) || {};
           nodeStats[node.id] = {
-            flowEnrolled: enrollmentCount(bag.flowEnrollments, flowId),
-            flowSent: stats.sent,
-            flowClicked: stats.clicked,
-            flowOpened: stats.opened,
-            flowRevenue: stats.revenue,
-            jourvanceFlowName: bag.flows.find((flow) => flow.id === flowId)?.name || ''
+            flowEnrolled: (bag.flowEnrollments || []).filter(r => r.flowId === flowId && r.status !== 'handed_to_klaviyo' && inRange(r.enrolledAt)).length,
+            flowSent: finiteOrNull(stats.sent),
+            flowClicked: finiteOrNull(stats.clicked),
+            flowOpened: finiteOrNull(stats.opened),
+            flowRevenue: finiteOrNull(stats.revenue),
+            jourvanceFlowName: flows.find((flow) => flow.id === flowId)?.name || ''
           };
+          coverage[node.id] = { measured: true, scope: 'flow' };
         } else {
-          const sourceId = edges.find(e => e.target === node.id)?.source;
-          const source = sourceId ? byId[sourceId] : null;
-          const slug = source?.slug || '';
+          const source = incoming(node).find(n => pageLive(n));
+          const handoffs = events.filter(evt => evt.type === 'klaviyo_handoff' && evt.entered && evt.nodeId === node.id && evt.email);
+          const triggers = followUpTriggers(node, edges.filter(e => e.target === node.id).map(e => e.sourceHandle));
+          // Only a Klaviyo handoff names this step, so without one a win-back or review step is unmeasured, not 0.
+          const pageless = triggers.every(t => PAGELESS_TRIGGERS.has(t));
+          if (pageless && handoffs.length === 0) { notMeasured(node, keys, 'not_by_page'); continue; }
+          if (!source && handoffs.length === 0) { notMeasured(node, keys, 'no_source'); continue; }
+          const triggerOf = (sequenceId) =>
+            (drips.sequences || []).find(s => s && s.id === sequenceId)?.triggerType || BUILT_IN_TRIGGERS[sequenceId] || '';
           const emails = new Set();
-          for (const enr of drips.enrollments) {
-            if (enr.userId === req.user.uid && slug && enr.sourceSlug === slug && enr.customerEmail) emails.add(String(enr.customerEmail).toLowerCase());
+          for (const enr of drips.enrollments || []) {
+            if (source && !pageless && enr.userId === uid && inRange(enr.enrolledAt) && enr.sourceSlug === source.slug && enr.customerEmail &&
+              triggers.includes(triggerOf(enr.sequenceId))) {
+              emails.add(String(enr.customerEmail).toLowerCase());
+            }
           }
-          for (const evt of events) {
-            if (evt.type === 'klaviyo_handoff' && evt.entered && evt.nodeId === node.id && evt.email) emails.add(String(evt.email).toLowerCase());
-          }
-          nodeStats[node.id] = {
-            flowEnrolled: emails.size > 0 ? emails.size : null,
-            flowSent: null,
-            flowClicked: null,
-            flowOpened: null,
-            flowRevenue: null
-          };
+          for (const evt of handoffs) emails.add(String(evt.email).toLowerCase());
+          // Drip sends are not tied to a step, so only the enrolments are counted here.
+          nodeStats[node.id] = { flowEnrolled: emails.size, flowSent: null, flowClicked: null, flowOpened: null, flowRevenue: null };
+          coverage[node.id] = { measured: true };
         }
       } else if (node.type === 'thank-you') {
+        const keys = ['pageViews', 'bounceBackClaims'];
+        // A thank-you page is served by a live landing page, whose record names the step it serves.
+        // One published before that record existed serves the journey's first thank-you.
         const thankYous = nodes.filter(n => n.type === 'thank-you');
+        const servingSlugs = new Set(livePages.filter(p => {
+          if (p.servedThankYou && typeof p.servedThankYou === 'object') return p.servedThankYou.nodeId === node.id;
+          if ('servedThankYou' in p) return false;
+          return Boolean(p.data?.thankYou) && byId[p.nodeId]?.type === 'landing-page' && thankYous[0]?.id === node.id;
+        }).map(p => String(p.slug || '')).filter(Boolean));
         const views = thankYous.length === 1
-          ? events.filter(e => e.type === 'thank_you_view').length
-          : events.filter(e => e.type === 'thank_you_view' && e.slug === node.slug).length;
-        nodeStats[node.id] = { pageViews: views, bounceBackClaims: 0 };
+          ? events.filter(e => e.type === 'thank_you_view')
+          : events.filter(e => e.type === 'thank_you_view' && (servingSlugs.has(e.slug) || (node.slug && e.slug === node.slug)));
+        // A step no live page serves and no visit reached is unpublished, not a measured 0.
+        if (servingSlugs.size === 0 && views.length === 0) { notMeasured(node, keys, 'not_published'); continue; }
+        // Bounce-back claims are never recorded.
+        nodeStats[node.id] = { pageViews: countPeople(views), bounceBackClaims: null };
+        coverage[node.id] = { measured: true };
       } else if (node.type === 'upsell') {
+        const keys = ['views', 'takes', 'conversionRate', 'attributedRevenue', 'totalDeclines', 'recoveredTakes', 'recoveredRevenue', 'recoveryRate'];
+        // Offers are recorded on the page that shows them, so two offers of the same kind in one
+        // journey share these counts.
         const offer = node.offerType === 'downsell' ? 'downsell' : 'upsell';
-        const views = events.filter(e => e.type === 'upsell_view' && (e.offerType || 'upsell') === offer).length;
-        const accepts = events.filter(e => e.type === 'upsell_accept' && (e.offerType || 'upsell') === offer);
-        const takes = accepts.length;
+        const ofOffer = (type) => events.filter(e => e.type === type && (e.offerType || 'upsell') === offer);
+        // Publishing writes each offer step its own record, so a step with none is unpublished, not a
+        // measured 0. Visits of its kind count only for the step a landing record serves, which is the
+        // journey's first offer of that kind (funnelParts in journeyRoutes.mjs).
+        const kindOf = (n) => (n.offerType === 'downsell' ? 'downsell' : 'upsell');
+        const served = nodes.find(n => n.type === 'upsell' && kindOf(n) === offer)?.id === node.id;
+        const offerSeen = ['upsell_view', 'upsell_accept', 'upsell_decline'].some(type => ofOffer(type).length > 0);
+        if (!pageLive(node) && !(served && offerSeen)) { notMeasured(node, keys, 'not_published'); continue; }
+        const views = countPeople(ofOffer('upsell_view'));
+        const accepts = ofOffer('upsell_accept');
+        const takes = countPeople(accepts);
         const attributedRevenue = Number(accepts.reduce((sum, e) => sum + Number(e.amount || 0), 0).toFixed(2));
-        const declines = events.filter(e => e.type === 'upsell_decline' && (e.offerType || 'upsell') === offer);
-        const totalDeclines = declines.length;
+        const declines = ofOffer('upsell_decline');
+        const totalDeclines = countPeople(declines);
         const declinedEmails = new Set(declines.map(d => String(d.email || '').toLowerCase()).filter(Boolean));
-        const recoveryEnrollments = (drips.enrollments || []).filter(e => e.sequenceId === 'drip_seq_upsell_recovery');
+        // Only this user's recovery enrolments, from this journey's own pages.
+        const recoveryEnrollments = (drips.enrollments || []).filter(e =>
+          e.sequenceId === 'drip_seq_upsell_recovery' && e.userId === uid && journeySlugs.has(String(e.sourceSlug || '')));
         const recoveryConvertedEmails = new Set(
-          recoveryEnrollments.filter(e => e.status === 'converted_exit' && e.customerEmail).map(e => e.customerEmail.toLowerCase())
+          recoveryEnrollments.filter(e => e.status === 'converted_exit' && e.customerEmail).map(e => String(e.customerEmail).toLowerCase())
         );
+        // An accept carrying a code counts only when a recovery enrolment was sent that code (C18).
+        const recoveryCodes = new Set(recoveryEnrollments.map(e => String(e.discountCode || '').trim()).filter(Boolean));
         const recoveredAccepts = accepts.filter(a => {
           const em = String(a.email || '').toLowerCase();
-          return (em && (declinedEmails.has(em) || recoveryConvertedEmails.has(em))) || (a.discountCode && a.discountCode === 'SAVE10');
+          return (em && (declinedEmails.has(em) || recoveryConvertedEmails.has(em))) || (a.discountCode && recoveryCodes.has(a.discountCode));
         });
-        const recoveredTakes = recoveredAccepts.length;
+        const recoveredTakes = countPeople(recoveredAccepts);
         const recoveredRevenue = Number(recoveredAccepts.reduce((sum, e) => sum + Number(e.amount || 0), 0).toFixed(2));
-        const recoveryRate = totalDeclines > 0 ? round1((recoveredTakes / totalDeclines) * 100) : 0;
 
         nodeStats[node.id] = {
           views,
           takes,
-          conversionRate: views > 0 ? round1((takes / views) * 100) : 0,
+          conversionRate: rateOr(takes, views),
           attributedRevenue,
           totalDeclines,
           recoveredTakes,
           recoveredRevenue,
-          recoveryRate
+          recoveryRate: rateOr(recoveredTakes, totalDeclines)
         };
+        coverage[node.id] = { measured: true };
       } else if (node.type === 'ab-split') {
+        const keys = ['branchAVisitors', 'branchAConversions', 'branchAGrossRevenue', 'branchBVisitors', 'branchBConversions', 'branchBGrossRevenue'];
         const splitSlug = String(node.slug || '');
         const splitEvents = events.filter(e => e.nodeId === node.id || (splitSlug && (e.slug === splitSlug || e.splitSlug === splitSlug)));
-        const visA = splitEvents.filter(e => (e.type === 'split_route' || e.type === 'page_view') && e.variant !== 'b').length;
-        const visB = splitEvents.filter(e => (e.type === 'split_route' || e.type === 'page_view') && e.variant === 'b').length;
+        if (!(splitSlug && ownsPage(publicPageCache[`split:${splitSlug}`])) && splitEvents.length === 0) {
+          notMeasured(node, keys, 'not_published');
+          continue;
+        }
+        const routed = splitEvents.filter(e => e.type === 'split_route' || e.type === 'page_view');
+        const visA = countPeople(routed.filter(e => e.variant !== 'b'));
+        const visB = countPeople(routed.filter(e => e.variant === 'b'));
 
         const outgoingEdges = edges.filter(e => e.source === node.id);
         const edgeA = outgoingEdges.find(e => e.sourceHandle === 'branch-a') || outgoingEdges[0];
@@ -798,6 +984,8 @@ export function setupAnalyticsRoutes(app, ctx) {
         const nodeA = edgeA ? byId[edgeA.target] : null;
         const nodeB = edgeB ? byId[edgeB.target] : null;
 
+        // A branch's conversions are its orders, or its leads when it took none, so the split card
+        // labels them conversions (C40).
         const eventsA = nodeA ? eventsFor(nodeA) : [];
         const ordersA = nodeA ? ordersFor(nodeA) : [];
         const convA = (ordersA.length || eventsA.filter(e => e.type === 'lead').length) || splitEvents.filter(e => (e.type === 'lead' || e.type === 'order') && e.variant !== 'b').length;
@@ -816,42 +1004,24 @@ export function setupAnalyticsRoutes(app, ctx) {
           branchBConversions: convB,
           branchBGrossRevenue: revB
         };
+        coverage[node.id] = { measured: true };
+      } else {
+        notMeasured(node, [], null);
       }
     }
 
-    const throughput = (node) => {
-      const s = nodeStats[node.id] || {};
-      if (node.type === 'ad-source') return s.clicks || 0;
-      if (node.type === 'ab-split') return (s.branchAVisitors || 0) + (s.branchBVisitors || 0);
-      if (node.type === 'landing-page') return s.visitors || 0;
-      if (node.type === 'lead-form') return s.submissions || 0;
-      if (node.type === 'follow-up-sequence') return s.flowEnrolled || 0;
-      if (node.type === 'thank-you') return s.pageViews || 0;
-      if (node.type === 'upsell') return s.takes || 0;
-      return 0;
-    };
-    const edgeStats = {};
-    for (const edge of edges) {
-      const source = byId[edge.source];
-      const target = byId[edge.target];
-      let sourceThroughput = source ? throughput(source) : 0;
-      if (source?.type === 'ab-split') {
-        const splitStats = nodeStats[source.id] || {};
-        if (edge.sourceHandle === 'branch-b') {
-          sourceThroughput = splitStats.branchBVisitors || 0;
-        } else {
-          sourceThroughput = splitStats.branchAVisitors || 0;
-        }
-      }
-      const targetCount = target ? throughput(target) : 0;
-      edgeStats[edge.id] = {
-        sourceThroughput,
-        targetCount,
-        rate: sourceThroughput > 0 ? round1((targetCount / sourceThroughput) * 100) : 0
-      };
-    }
-
-    res.json({ success: true, stats: { nodes: nodeStats, edges: edgeStats } });
+    // No line stats: a line's figure is derived on the client from the two steps' own figures
+    // (src/lib/journeyMetrics.ts), so the map and the Attribution leak finder read one rule.
+    res.json({
+      success: true,
+      journeyId,
+      days,
+      from: new Date(cutoff).toISOString(),
+      to: new Date(now).toISOString(),
+      partialSince,
+      stats: { nodes: nodeStats },
+      coverage
+    });
   });
 
   // ── Operator Admin Aggregate Summary ──────────────────────────────────────────

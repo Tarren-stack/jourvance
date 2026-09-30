@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Sparkles,
@@ -21,12 +21,18 @@ import { ECOM_BLUEPRINTS, type EcomBlueprint } from '../../data/ecomBlueprints';
 import type { Workspace, ShopifyProduct, JourneyNode, JourneyEdge, CustomBlueprint } from '../../types/journey';
 import { fetchShopifyProducts } from '../../lib/shopifyClient';
 import { zeroBlueprintMetrics } from '../../lib/liveStats';
+import { repairEdgeHandles } from '../../lib/stepHandles';
+import { chosenAddressKeys, withFreshAddresses, type AddressAnswer } from '../../lib/blueprintAddresses';
+import { listLocalJourneys } from '../../lib/journeyStorage';
+import { journeyToken, newJourneyId } from '../../lib/journeyLibrary';
+import { authHeaders } from '../../lib/firebase';
 import {
   fetchCustomBlueprints,
   deleteCustomBlueprint,
   fetchSharedBlueprint,
   importSharedBlueprint
 } from '../../lib/templateClient';
+import { ModalDialog } from './ModalDialog';
 
 type TabType = 'turnkey' | 'custom' | 'import';
 
@@ -56,6 +62,33 @@ interface Props {
   initialImportCode?: string;
 }
 
+// Names the dialog: ModalDialog's aria-labelledby points at the visible heading.
+const TITLE_ID = 'jv-blueprints-title';
+
+/**
+ * A new journey's page addresses: the blueprint's own paths while nothing else holds them, the
+ * path plus a short suffix when another journey in this browser asks for it or the account's
+ * address check says it is taken. The check is asked for a journey id no journey has yet, so a
+ * page live on any other journey of the account counts as taken. Signed out there is no account
+ * to ask, so only this browser's journeys decide and publish checks again.
+ */
+async function newJourneyAddresses(nodes: JourneyNode[]): Promise<JourneyNode[]> {
+  const headers = await authHeaders();
+  const probeId = newJourneyId(Date.now(), journeyToken());
+  const check = headers.Authorization
+    ? async (slug: string, type: 'page' | 'ab-split'): Promise<AddressAnswer> => {
+        try {
+          const params = new URLSearchParams({ slug, type, journeyId: probeId });
+          const res = await fetch(`/api/journey/check-slug?${params}`, { headers });
+          return res.status === 200 ? 'free' : res.status === 409 ? 'taken' : 'unknown';
+        } catch {
+          return 'unknown';
+        }
+      }
+    : undefined;
+  return withFreshAddresses(nodes, { taken: chosenAddressKeys(listLocalJourneys()), check, suffix: journeyToken });
+}
+
 export const BlueprintModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -68,6 +101,8 @@ export const BlueprintModal: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [selectedBlueprint, setSelectedBlueprint] = useState<GenericBlueprintSelection | null>(null);
   const [showConfirmPrompt, setShowConfirmPrompt] = useState(false);
+  // "Create as New Journey" checks its page addresses first; both choices wait for it.
+  const [preparing, setPreparing] = useState(false);
   const [products, setProducts] = useState<ShopifyProduct[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
 
@@ -84,6 +119,30 @@ export const BlueprintModal: React.FC<Props> = ({
   const [inspectedBlueprint, setInspectedBlueprint] = useState<CustomBlueprint | null>(null);
   const [importing, setImporting] = useState(false);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
+
+  // The load prompt covers the panel, so focus moves into it, and back to the card that asked
+  // when it is cancelled.
+  const confirmRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showConfirmPrompt) return;
+    const returnTo = document.activeElement as HTMLElement | null;
+    confirmRef.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus();
+    return () => {
+      if (returnTo?.isConnected) returnTo.focus();
+    };
+  }, [showConfirmPrompt]);
+
+  // A "Create as New Journey" still checking addresses belongs to the prompt that asked. Cancel,
+  // Escape, closing the library or leaving it ends that run, so a check that answers afterwards
+  // loads nothing and switches nothing.
+  const loadRunRef = useRef(0);
+  useEffect(() => {
+    if (!showConfirmPrompt || !isOpen) return;
+    return () => {
+      loadRunRef.current += 1;
+      setPreparing(false);
+    };
+  }, [showConfirmPrompt, isOpen]);
 
   // Load Shopify Products when modal opens
   useEffect(() => {
@@ -198,7 +257,7 @@ export const BlueprintModal: React.FC<Props> = ({
       }
     }
 
-    const blank = zeroBlueprintMetrics(clonedNodes, clonedEdges);
+    const blank = zeroBlueprintMetrics(clonedNodes, repairEdgeHandles(clonedNodes, clonedEdges));
     return {
       name: `${blueprint.title}`,
       nodes: blank.nodes,
@@ -230,9 +289,19 @@ export const BlueprintModal: React.FC<Props> = ({
     setShowConfirmPrompt(true);
   };
 
-  const handleConfirmLoad = (mode: 'replace' | 'new') => {
-    if (!selectedBlueprint) return;
-    const prepared = prepareBlueprintWithAutoLink(selectedBlueprint);
+  const handleConfirmLoad = async (mode: 'replace' | 'new') => {
+    if (!selectedBlueprint || preparing) return;
+    let prepared = prepareBlueprintWithAutoLink(selectedBlueprint);
+    if (mode === 'new') {
+      const run = loadRunRef.current;
+      setPreparing(true);
+      try {
+        prepared = { ...prepared, nodes: await newJourneyAddresses(prepared.nodes) };
+      } finally {
+        if (loadRunRef.current === run) setPreparing(false);
+      }
+      if (loadRunRef.current !== run) return;
+    }
     onLoadBlueprint(prepared, mode);
     setShowConfirmPrompt(false);
     setSelectedBlueprint(null);
@@ -308,23 +377,9 @@ export const BlueprintModal: React.FC<Props> = ({
     }
   };
 
+  // Escape or a click beside the panel cancels the load prompt first, then closes.
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        backdropFilter: 'blur(10px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 100,
-        padding: '20px'
-      }}
-      onClick={e => {
-        if (e.target === e.currentTarget && !showConfirmPrompt) onClose();
-      }}
-    >
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={() => (showConfirmPrompt ? setShowConfirmPrompt(false) : onClose())} maxWidth={920} fallbackFocusSelectors={['[data-more-trigger]']}>
       <div
         style={{
           width: '100%',
@@ -367,7 +422,7 @@ export const BlueprintModal: React.FC<Props> = ({
               <Sparkles size={20} color="#FFFFFF" />
             </div>
             <div>
-              <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#FFFFFF', margin: 0 }}>
+              <h2 id={TITLE_ID} style={{ fontSize: '18px', fontWeight: 800, color: '#FFFFFF', margin: 0 }}>
                 Journey Blueprint Library
               </h2>
               <p style={{ fontSize: '12px', color: '#94A3B8', margin: '2px 0 0 0' }}>
@@ -395,10 +450,11 @@ export const BlueprintModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* Tab Navigation Ribbon */}
+        {/* Tab Navigation Ribbon: the tabs wrap on a phone rather than run out of the panel. */}
         <div
           style={{
             display: 'flex',
+            flexWrap: 'wrap',
             alignItems: 'center',
             gap: '8px',
             padding: '10px 24px',
@@ -418,6 +474,7 @@ export const BlueprintModal: React.FC<Props> = ({
               fontSize: '13px',
               fontWeight: 700,
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
               transition: 'all 0.15s ease',
               border: activeTab === 'turnkey' ? '1px solid rgba(236, 72, 153, 0.4)' : '1px solid transparent',
               background: activeTab === 'turnkey' ? 'rgba(236, 72, 153, 0.15)' : 'transparent',
@@ -454,6 +511,7 @@ export const BlueprintModal: React.FC<Props> = ({
               fontSize: '13px',
               fontWeight: 700,
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
               transition: 'all 0.15s ease',
               border: activeTab === 'custom' ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid transparent',
               background: activeTab === 'custom' ? 'rgba(139, 92, 246, 0.15)' : 'transparent',
@@ -487,6 +545,7 @@ export const BlueprintModal: React.FC<Props> = ({
               fontSize: '13px',
               fontWeight: 700,
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
               transition: 'all 0.15s ease',
               border: activeTab === 'import' ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent',
               background: activeTab === 'import' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
@@ -505,8 +564,10 @@ export const BlueprintModal: React.FC<Props> = ({
             backgroundColor: storeConnected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(56, 189, 248, 0.08)',
             borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
             display: 'flex',
+            flexWrap: 'wrap',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: '6px 12px',
             fontSize: '12px'
           }}
         >
@@ -560,9 +621,10 @@ export const BlueprintModal: React.FC<Props> = ({
                     borderRadius: '12px',
                     padding: '18px 20px',
                     display: 'flex',
+                    flexWrap: 'wrap',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    gap: '20px',
+                    gap: '14px 20px',
                     transition: 'all 0.2s ease',
                     cursor: 'pointer'
                   }}
@@ -576,11 +638,11 @@ export const BlueprintModal: React.FC<Props> = ({
                   }}
                   onClick={() => handleSelectTurnkey(bp)}
                 >
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: '1 1 260px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
                       <span
                         style={{
-                          fontSize: '10px',
+                          fontSize: '11px',
                           fontWeight: 800,
                           textTransform: 'uppercase',
                           letterSpacing: '0.06em',
@@ -596,7 +658,7 @@ export const BlueprintModal: React.FC<Props> = ({
                       {bp.nodes.some(n => (n.data as any)?.isRetentionBranch) && (
                         <span
                           style={{
-                            fontSize: '10px',
+                            fontSize: '11px',
                             fontWeight: 700,
                             color: '#F59E0B',
                             backgroundColor: 'rgba(245, 158, 11, 0.15)',
@@ -663,7 +725,7 @@ export const BlueprintModal: React.FC<Props> = ({
                             {node.data?.label || node.type}
                           </span>
                           {i < bp.nodes.length - 1 && (
-                            <span style={{ color: '#64748B', fontSize: '10px' }}>&rarr;</span>
+                            <span style={{ color: '#64748B', fontSize: '11px' }}>&rarr;</span>
                           )}
                         </React.Fragment>
                       ))}
@@ -787,17 +849,18 @@ export const BlueprintModal: React.FC<Props> = ({
                       borderRadius: '12px',
                       padding: '18px 20px',
                       display: 'flex',
+                      flexWrap: 'wrap',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      gap: '20px',
+                      gap: '14px 20px',
                       transition: 'all 0.2s ease'
                     }}
                   >
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                         <span
                           style={{
-                            fontSize: '10px',
+                            fontSize: '11px',
                             fontWeight: 800,
                             textTransform: 'uppercase',
                             letterSpacing: '0.06em',
@@ -815,7 +878,7 @@ export const BlueprintModal: React.FC<Props> = ({
                         </span>
                         <span
                           style={{
-                            fontSize: '10px',
+                            fontSize: '11px',
                             fontFamily: 'monospace',
                             color: '#94A3B8',
                             backgroundColor: 'rgba(255, 255, 255, 0.06)',
@@ -865,14 +928,14 @@ export const BlueprintModal: React.FC<Props> = ({
                               {node.data?.label || node.type}
                             </span>
                             {i < cb.nodes.length - 1 && (
-                              <span style={{ color: '#64748B', fontSize: '10px' }}>&rarr;</span>
+                              <span style={{ color: '#64748B', fontSize: '11px' }}>&rarr;</span>
                             )}
                           </React.Fragment>
                         ))}
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
                       {/* Copy Share Link */}
                       <button
                         type="button"
@@ -974,9 +1037,10 @@ export const BlueprintModal: React.FC<Props> = ({
             </div>
 
             {/* Code Input Row */}
-            <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
               <input
                 type="text"
+                aria-label="Blueprint share code or link"
                 value={importCodeInput}
                 onChange={e => setImportCodeInput(e.target.value)}
                 placeholder="Paste share code (e.g. bp_abc123) or full share link..."
@@ -984,7 +1048,8 @@ export const BlueprintModal: React.FC<Props> = ({
                   if (e.key === 'Enter') handleInspectCode();
                 }}
                 style={{
-                  flex: 1,
+                  flex: '1 1 220px',
+                  minWidth: 0,
                   padding: '11px 14px',
                   backgroundColor: 'rgba(255, 255, 255, 0.05)',
                   border: '1px solid rgba(255, 255, 255, 0.15)',
@@ -1069,11 +1134,11 @@ export const BlueprintModal: React.FC<Props> = ({
                   gap: '14px'
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px 12px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
                     <span
                       style={{
-                        fontSize: '10px',
+                        fontSize: '11px',
                         fontWeight: 800,
                         textTransform: 'uppercase',
                         color: '#38BDF8',
@@ -1137,7 +1202,7 @@ export const BlueprintModal: React.FC<Props> = ({
                           {node.data?.label || node.type}
                         </span>
                         {i < inspectedBlueprint.nodes.length - 1 && (
-                          <span style={{ color: '#64748B', fontSize: '10px' }}>&rarr;</span>
+                          <span style={{ color: '#64748B', fontSize: '11px' }}>&rarr;</span>
                         )}
                       </React.Fragment>
                     ))}
@@ -1145,7 +1210,7 @@ export const BlueprintModal: React.FC<Props> = ({
                 </div>
 
                 {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
                   <button
                     type="button"
                     onClick={() => handleExecuteImport(false)}
@@ -1199,6 +1264,7 @@ export const BlueprintModal: React.FC<Props> = ({
         {/* Confirmation Prompt Modal (Replace vs New Journey) */}
         {showConfirmPrompt && selectedBlueprint && (
           <div
+            ref={confirmRef}
             style={{
               position: 'absolute',
               inset: 0,
@@ -1264,6 +1330,7 @@ export const BlueprintModal: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => handleConfirmLoad('replace')}
+                  disabled={preparing}
                   style={{
                     padding: '12px 16px',
                     borderRadius: '8px',
@@ -1289,6 +1356,8 @@ export const BlueprintModal: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => handleConfirmLoad('new')}
+                  disabled={preparing}
+                  aria-busy={preparing}
                   style={{
                     padding: '12px 16px',
                     borderRadius: '8px',
@@ -1312,6 +1381,10 @@ export const BlueprintModal: React.FC<Props> = ({
                 </button>
               </div>
 
+              <p role="status" style={{ fontSize: '11px', color: '#94A3B8', margin: preparing ? '10px 0 0 0' : 0 }}>
+                {preparing ? 'Checking which page addresses are free...' : ''}
+              </p>
+
               <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   type="button"
@@ -1332,6 +1405,6 @@ export const BlueprintModal: React.FC<Props> = ({
           </div>
         )}
       </div>
-    </div>
+    </ModalDialog>
   );
 };

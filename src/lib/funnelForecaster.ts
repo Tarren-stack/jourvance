@@ -350,9 +350,24 @@ export interface InjectRetentionOptions {
   edges: JourneyEdge[];
   addCartRecovery?: boolean;
   addUpsellRescue?: boolean;
+  /** Read by nothing here: the Forecaster's discount is a what-if, never a code in the store (C18). */
   cartRecoveryDiscount?: number;
+  /** Read by nothing here, for the same reason as cartRecoveryDiscount. */
   upsellRescueDiscount?: number;
+  /**
+   * Neutral drafts are the only copy this writes: plain titles, emails that say "Replace this"
+   * and no voucher code, and no line out of the rescue sequence, because where a reader goes
+   * after the emails is the person's call (#10, C18). The finished-copy branch invented a SAVE
+   * code, shipping and a held bag for any caller that left this out, so it is gone (R12).
+   * Kept so the callers that still pass true compile.
+   */
+  placeholderCopy?: boolean;
 }
+
+const DRAFT_SUBJECT = 'Write this subject';
+const DRAFT_PREVIEW = 'Replace this before anyone receives it';
+const DRAFT_BODY =
+  'Hi [First Name],\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.\n\nThe Team';
 
 export interface InjectRetentionResult {
   nodes: JourneyNode[];
@@ -361,10 +376,54 @@ export interface InjectRetentionResult {
   addedEdges: JourneyEdge[];
 }
 
+// The steps injectRetentionFlows wires its sequences to: the first page and the first upsell.
+const firstLandingPage = (nodes: JourneyNode[]) => nodes.find(n => n.data?.type === 'landing-page');
+const firstUpsell = (nodes: JourneyNode[]) => nodes.find(n => n.data?.type === 'upsell');
+
 /**
- * Deterministically injects unconfigured retention flows (Cart Abandonment Recovery
- * and/or 24h Upsell Rescue) directly into the journey canvas graph, auto-wiring
- * golden rescue edges and preserving customized courtesy voucher discounts.
+ * True when this page sells through a checkout: a linked product or a checkout link. A page
+ * without one collects leads, so an upsell after purchase or a cart recovery sequence on its
+ * Left checkout exit would describe a checkout that is not there.
+ */
+export function sellsThroughCheckout(page: JourneyNode | undefined): boolean {
+  const d = page?.data as PageNodeData | undefined;
+  return Boolean(
+    (d?.shopifyProductPrice && d.shopifyProductPrice.trim().length > 0) ||
+    (d?.shopifyProductTitle && d.shopifyProductTitle.trim().length > 0) ||
+    d?.shopifyProductId ||
+    d?.shopifyVariantId ||
+    (d?.checkoutUrl && d.checkoutUrl.trim().length > 0)
+  );
+}
+
+/**
+ * Which retention sequences belong on this journey and are not on it yet: cart recovery when the
+ * first page sells through a checkout, upsell decline emails when there is an upsell, each only
+ * while that step's exit is free. The Forecaster's Sync to Canvas and the store checks' fix both
+ * ask this, so they agree on when a sequence belongs (R12). Never add a sequence that nothing
+ * leads to. Without edges the exits are not checked.
+ */
+export function retentionFlowsThatFit(
+  nodes: JourneyNode[],
+  edges?: JourneyEdge[]
+): { cartRecovery: boolean; upsellRescue: boolean } {
+  const extracted = extractPricingFromNodes(nodes);
+  const exitFree = (step: JourneyNode, handle: string) =>
+    !edges || !edges.some(e => e.source === step.id && e.sourceHandle === handle);
+  const page = firstLandingPage(nodes);
+  const upsell = firstUpsell(nodes);
+  return {
+    cartRecovery: !extracted.hasCartRecovery && !!page && sellsThroughCheckout(page) && exitFree(page, 'abandon'),
+    upsellRescue: !extracted.hasUpsellRescue && !!upsell && exitFree(upsell, 'rescue')
+  };
+}
+
+/**
+ * Adds the retention sequences asked for (cart recovery and/or upsell decline emails) as
+ * "Replace this" drafts, each wired from the step it follows: the first page's Left checkout
+ * exit or the first upsell's Rescue exit. A sequence already on the map is not added twice, and
+ * one with no step to follow is not added at all. Whether it belongs is retentionFlowsThatFit's
+ * call, which callers ask first.
  */
 export function injectRetentionFlows(options: InjectRetentionOptions): InjectRetentionResult {
   const currentNodes = [...options.nodes];
@@ -373,6 +432,7 @@ export function injectRetentionFlows(options: InjectRetentionOptions): InjectRet
   const addedEdges: JourneyEdge[] = [];
 
   const extracted = extractPricingFromNodes(currentNodes);
+  const token = () => `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
 
   // Helper to find a free Y-coordinate directly below a parent node to prevent collisions
   const getFreePosition = (targetX: number, preferredY: number): { x: number; y: number } => {
@@ -385,162 +445,74 @@ export function injectRetentionFlows(options: InjectRetentionOptions): InjectRet
     return { x: targetX, y };
   };
 
-  // 1. Inject Cart Abandonment Recovery if requested and missing
-  if (options.addCartRecovery && !extracted.hasCartRecovery) {
-    const landingPage = currentNodes.find(n => n.data.type === 'landing-page');
-    const posX = landingPage ? landingPage.position.x : 420;
-    const posY = landingPage ? landingPage.position.y + 280 : 440;
-    const position = getFreePosition(posX, posY);
-
-    const discount = typeof options.cartRecoveryDiscount === 'number' && options.cartRecoveryDiscount >= 0
-      ? options.cartRecoveryDiscount
-      : 10;
-    const voucherCode = discount > 0 ? `SAVE${discount}` : 'COMPLETE10';
-
-    const cartRecoveryNode: JourneyNode = {
-      id: `node-cr-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+  // A draft sequence below its step, and the retention line from that step's exit into it.
+  const addBelow = (step: JourneyNode, handle: 'abandon' | 'rescue', id: string, data: JourneyNode['data']) => {
+    const node: JourneyNode = {
+      id,
       type: 'follow-up-sequence',
-      position,
+      position: getFreePosition(step.position.x, step.position.y + 280),
+      data
+    };
+    currentNodes.push(node);
+    addedNodes.push(node);
+    const edge: JourneyEdge = {
+      id: `e-${handle === 'abandon' ? 'cr' : 'ur-in'}-${token()}`,
+      source: step.id,
+      target: node.id,
+      sourceHandle: handle,
+      targetHandle: 'retention-in',
       data: {
-        type: 'follow-up-sequence',
-        label: 'Cart Abandonment Recovery',
-        sequenceTitle: 'Abandoned Checkout Recovery Sequence',
-        sequenceType: 'checkout_recovery',
-        isRetentionBranch: true,
-        delayHours: 1,
-        voucherCode,
-        smartExitOnPurchase: true,
-        contactsEnrolled: 0,
-        avgOpenRate: 0,
-        avgClickRate: 0,
-        steps: [
-          {
-            id: `cr-step-1`,
-            channel: 'email',
-            delay: '1 Hour',
-            subject: 'Did you leave your selection behind? ✨',
-            previewText: 'Your reserved bag is held for 24 hours',
-            body: 'Hi [First Name],\n\nWe noticed you started setting up your order but did not complete checkout.\n\nTo help you get started, we have held your reservation with complimentary shipping:\n[Checkout Link]\n\nWarmly,\nClient Care'
-          },
-          {
-            id: `cr-step-2`,
-            channel: 'email',
-            delay: '20 Hours',
-            subject: `Private courtesy: ${discount}% off your order before it expires`,
-            previewText: `Use voucher ${voucherCode} at checkout`,
-            body: `Hi [First Name],\n\nYour cart reservation is expiring soon. As a courtesy, enjoy ${discount}% off with code ${voucherCode}:\n[Checkout Link]\n\nWith care,\nClient Care Team`
-          }
-        ]
+        isRetentionEdge: true,
+        sourceHandle: handle,
+        targetHandle: 'retention-in',
+        sourceThroughput: 0,
+        targetCount: 0,
+        rate: 0
       }
     };
+    currentEdges.push(edge);
+    addedEdges.push(edge);
+  };
 
-    currentNodes.push(cartRecoveryNode);
-    addedNodes.push(cartRecoveryNode);
-
-    // Auto-wire edge from landing page abandon handle -> recovery node retention-in handle
-    if (landingPage) {
-      const cartEdge: JourneyEdge = {
-        id: `e-cr-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-        source: landingPage.id,
-        target: cartRecoveryNode.id,
-        sourceHandle: 'abandon',
-        targetHandle: 'retention-in',
-        data: {
-          isRetentionEdge: true,
-          sourceHandle: 'abandon',
-          targetHandle: 'retention-in',
-          sourceThroughput: 0,
-          targetCount: 0,
-          rate: 0
-        }
-      };
-      currentEdges.push(cartEdge);
-      addedEdges.push(cartEdge);
-    }
+  // 1. Cart recovery, on the first page's Left checkout exit
+  const landingPage = firstLandingPage(currentNodes);
+  if (options.addCartRecovery && !extracted.hasCartRecovery && landingPage) {
+    addBelow(landingPage, 'abandon', `node-cr-${token()}`, {
+      type: 'follow-up-sequence',
+      label: 'Cart Abandonment Recovery',
+      sequenceTitle: 'Cart recovery emails',
+      sequenceType: 'checkout_recovery',
+      isRetentionBranch: true,
+      delayHours: 1,
+      smartExitOnPurchase: true,
+      contactsEnrolled: 0,
+      avgOpenRate: 0,
+      avgClickRate: 0,
+      steps: [
+        { id: 'cr-step-1', channel: 'email', delay: '1 Hour', subject: DRAFT_SUBJECT, previewText: DRAFT_PREVIEW, body: DRAFT_BODY },
+        { id: 'cr-step-2', channel: 'email', delay: '20 Hours', subject: DRAFT_SUBJECT, previewText: DRAFT_PREVIEW, body: DRAFT_BODY }
+      ]
+    } as JourneyNode['data']);
   }
 
-  // 2. Inject 24h Upsell Rescue if requested and missing
-  if (options.addUpsellRescue && !extracted.hasUpsellRescue) {
-    const upsellNode = currentNodes.find(n => n.data.type === 'upsell');
-    const posX = upsellNode ? upsellNode.position.x : 790;
-    const posY = upsellNode ? upsellNode.position.y + 280 : 440;
-    const position = getFreePosition(posX, posY);
-
-    const discount = typeof options.upsellRescueDiscount === 'number' && options.upsellRescueDiscount >= 0
-      ? options.upsellRescueDiscount
-      : 10;
-    const voucherCode = discount > 0 ? `SAVE${discount}` : 'SAVE10';
-
-    const upsellRescueNode: JourneyNode = {
-      id: `node-ur-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+  // 2. Upsell decline emails, on the first upsell's Rescue exit
+  const upsellNode = firstUpsell(currentNodes);
+  if (options.addUpsellRescue && !extracted.hasUpsellRescue && upsellNode) {
+    addBelow(upsellNode, 'rescue', `node-ur-${token()}`, {
       type: 'follow-up-sequence',
-      position,
-      data: {
-        type: 'follow-up-sequence',
-        label: '24h Courtesy Rescue (Upsell Decline)',
-        sequenceTitle: '24h Post-Decline Companion Rescue',
-        sequenceType: 'upsell_recovery',
-        isRetentionBranch: true,
-        delayHours: 18,
-        voucherCode,
-        smartExitOnPurchase: true,
-        contactsEnrolled: 0,
-        avgOpenRate: 0,
-        avgClickRate: 0,
-        steps: [
-          {
-            id: `ur-step-1`,
-            channel: 'email',
-            delay: '18 Hours',
-            subject: 'A private courtesy reservation for your recent order ✨',
-            previewText: 'We held a companion formula reservation for your ritual',
-            body: `Hi [First Name],\n\nThank you again for your order! While our team prepares your package, we noticed you passed on the companion upgrade.\n\nBecause this formula is designed to complement your order, we held a courtesy bottle with a private ${discount}% privilege.\n\nUse voucher code ${voucherCode} at checkout:\n[Offer Link]\n\nThis courtesy reservation remains active for 24 hours.\n\nWarm regards,\nThe Concierge Team`
-          }
-        ]
-      }
-    };
-
-    currentNodes.push(upsellRescueNode);
-    addedNodes.push(upsellRescueNode);
-
-    // Auto-wire edge from upsell rescue handle -> rescue node retention-in handle
-    if (upsellNode) {
-      const rescueInEdge: JourneyEdge = {
-        id: `e-ur-in-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-        source: upsellNode.id,
-        target: upsellRescueNode.id,
-        sourceHandle: 'rescue',
-        targetHandle: 'retention-in',
-        data: {
-          isRetentionEdge: true,
-          sourceHandle: 'rescue',
-          targetHandle: 'retention-in',
-          sourceThroughput: 0,
-          targetCount: 0,
-          rate: 0
-        }
-      };
-      currentEdges.push(rescueInEdge);
-      addedEdges.push(rescueInEdge);
-
-      // Also wire out to thank you page if present
-      const tyNode = currentNodes.find(n => n.data.type === 'thank-you');
-      if (tyNode) {
-        const rescueOutEdge: JourneyEdge = {
-          id: `e-ur-out-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-          source: upsellRescueNode.id,
-          target: tyNode.id,
-          data: {
-            isRetentionEdge: true,
-            sourceThroughput: 0,
-            targetCount: 0,
-            rate: 0
-          }
-        };
-        currentEdges.push(rescueOutEdge);
-        addedEdges.push(rescueOutEdge);
-      }
-    }
+      label: 'Upsell Decline Follow-up',
+      sequenceTitle: 'Upsell decline emails',
+      sequenceType: 'upsell_recovery',
+      isRetentionBranch: true,
+      delayHours: 18,
+      smartExitOnPurchase: true,
+      contactsEnrolled: 0,
+      avgOpenRate: 0,
+      avgClickRate: 0,
+      steps: [
+        { id: 'ur-step-1', channel: 'email', delay: '18 Hours', subject: DRAFT_SUBJECT, previewText: DRAFT_PREVIEW, body: DRAFT_BODY }
+      ]
+    } as JourneyNode['data']);
   }
 
   return {
@@ -550,4 +522,3 @@ export function injectRetentionFlows(options: InjectRetentionOptions): InjectRet
     addedEdges
   };
 }
-

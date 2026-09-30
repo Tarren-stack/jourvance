@@ -345,11 +345,21 @@ export interface ConversionEdgeData extends Record<string, unknown> {
   targetNodeLabel?: string;
   sourceNodeData?: JourneyNodeData;
   targetNodeData?: JourneyNodeData;
-  onSelectEdge?: (id: string) => void;
+  /** `focus` is true when the pill was pressed from the keyboard, so the line panel takes focus. */
+  onSelectEdge?: (id: string, opts?: { focus?: boolean }) => void;
+  /** Opens the step picker for this line (+ Step, #12). Render only, never saved. */
+  onAddStep?: (id: string) => void;
   isSelected?: boolean;
   sourceHandle?: string;
   targetHandle?: string;
   isRetentionEdge?: boolean;
+  /**
+   * The line in words for screen readers (describeEdge, #19), set by JourneyCanvas on every draw.
+   * Stripped by stripA11yDecorations before anything goes back to App, so it is never saved.
+   */
+  description?: string;
+  /** Derived on the canvas from the whole map by findLoopEdges. Never trusted from saved data. */
+  inLoop?: boolean;
 }
 
 export type JourneyEdge = Edge<ConversionEdgeData>;
@@ -577,17 +587,17 @@ export interface ChannelAttribution {
   leads: number;
   orders: number;
   revenue: number;
-  roas: number;
-  cac: number;
-  conversionRate: number;
-  baseAov?: number;
-  aov?: number;
-  aovLift?: number;
+  roas: number | null;
+  cac: number | null;
+  conversionRate: number | null;
+  baseAov?: number | null;
+  aov?: number | null;
+  aovLift?: number | null;
   bumpOrders?: number;
-  bumpAttachRate?: number;
+  bumpAttachRate?: number | null;
   bumpRevenue?: number;
   upsellTakes?: number;
-  upsellAttachRate?: number;
+  upsellAttachRate?: number | null;
   upsellRevenue?: number;
 }
 
@@ -595,8 +605,8 @@ export interface FunnelDropoffStep {
   id: string;
   name: string;
   count: number;
-  percentage: number;
-  dropoffRate: number;
+  percentage: number | null;
+  dropoffRate: number | null;
 }
 
 export interface OfferRevenueStream {
@@ -604,41 +614,40 @@ export interface OfferRevenueStream {
   name: string;
   orderCount: number;
   revenue: number;
-  percentageOfTotal: number;
-  attachRate: number;
-  aovContribution: number;
+  percentageOfTotal: number | null;
+  attachRate: number | null;
+  aovContribution: number | null;
   recoveredRevenue?: number;
   recoveredOrders?: number;
-  recoveryRate?: number;
+  recoveryRate?: number | null;
   totalDeclines?: number;
 }
 
 export interface FunnelAovExpansion {
   totalOrders: number;
   combinedRevenue: number;
-  baseAov: number;
-  effectiveAov: number;
-  aovLiftDollars: number;
-  aovLiftPercent: number;
+  baseAov: number | null;
+  effectiveAov: number | null;
+  aovLiftDollars: number | null;
+  aovLiftPercent: number | null;
   streams: OfferRevenueStream[];
   totalDeclines?: number;
   recoveredUpsellRevenue?: number;
   recoveredUpsellOrders?: number;
-  recoveryRate?: number;
+  recoveryRate?: number | null;
 }
 
 export interface RetentionTelemetry {
   abandonedCheckoutsCount: number;
   recoveredCheckoutsCount: number;
   recoveredCheckoutRevenue: number;
-  checkoutRecoveryRate: number;
+  checkoutRecoveryRate: number | null;
   upsellDeclinesCount: number;
   recoveredUpsellOrders: number;
   recoveredUpsellRevenue: number;
-  upsellRecoveryRate: number;
+  upsellRecoveryRate: number | null;
   totalRetentionRevenue: number;
   totalRetentionOrders: number;
-  retentionNetProfit: number;
 }
 
 export interface AttributionReport {
@@ -647,12 +656,12 @@ export interface AttributionReport {
   summary: {
     totalRevenue: number;
     totalSpend: number;
-    blendedRoas: number;
-    blendedCac: number;
-    blendedAov: number;
+    blendedRoas: number | null;
+    blendedCac: number | null;
+    blendedAov: number | null;
     totalOrders: number;
     totalLeads: number;
-    repeatBuyerRate: number;
+    repeatBuyerRate: number | null;
     netProfit: number;
   };
   channels: ChannelAttribution[];

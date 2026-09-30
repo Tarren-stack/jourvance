@@ -2,25 +2,50 @@ import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Zap, ArrowDownRight, Tag, Clock, ShoppingBag, TrendingUp, DollarSign, Sparkles } from 'lucide-react';
 import type { UpsellNodeData } from '../../../types/journey';
+import { branchHandleStyle } from '../../../lib/edgeKinds';
+import { stepKind, cardFrame } from '../../../lib/stepKinds';
+import { StepIcon } from '../StepIcon';
+import { DesignIssueBadge } from '../DesignIssueBadge';
+import { PublishStatusStrip } from '../PublishStatus';
+import { StepSummary } from '../StepSummary';
+import { useNodeMetrics, metricValueStyle } from '../CanvasMetrics';
+import { countText, measureValue, moneyText, percentText, UNAVAILABLE } from '../../../lib/journeyMetrics';
+import { MIN_GRADE_SAMPLE } from '../../../lib/conversionBenchmarks';
+import { stepAddress } from '../../../lib/stepNames';
 
-export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
+export const UpsellNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as UpsellNodeData;
   const isDownsell = d.offerType === 'downsell';
   const isRoasMode = (d as any).canvasViewMode === 'roas';
-  const accentColor = isDownsell ? '#F59E0B' : '#10B981';
+  const kind = stepKind('upsell', d);
+  const accentColor = kind.color;
   const badgeBg = isDownsell ? 'rgba(245, 158, 11, 0.18)' : 'rgba(16, 185, 129, 0.18)';
   const badgeBorder = isDownsell ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)';
 
-  const views = d.views || 0;
-  const takes = d.takes || 0;
-  const takeRate = views > 0 ? ((takes / views) * 100).toFixed(1) : (d.conversionRate ? d.conversionRate.toFixed(1) : '0.0');
-  const numRate = parseFloat(takeRate);
-  const revenue = d.attributedRevenue || 0;
+  // Every count comes from the map's snapshot (#9). The take rate is this offer's own takes over
+  // its own views, so it never passes 100%.
+  const { measure: m, note } = useNodeMetrics(id);
+  const views = measureValue(m, 'views');
+  const takes = measureValue(m, 'takes');
+  const takeRate = measureValue(m, 'conversionRate');
+  const revenue = measureValue(m, 'attributedRevenue');
+  const live = views !== null && views > 0;
+  // The pill is tinted green or amber only when the take rate could be graded (100 views or more).
+  const graded = views !== null && views >= MIN_GRADE_SAMPLE && takeRate !== null;
+  const healthyTake = graded && takeRate >= 18;
 
-  const totalDeclines = d.totalDeclines || 0;
-  const recoveredTakes = d.recoveredTakes || 0;
-  const recoveredRevenue = d.recoveredRevenue || 0;
-  const recoveryRate = d.recoveryRate || 0;
+  // The recovery rows show only what was measured and is above zero.
+  const totalDeclines = measureValue(m, 'totalDeclines') ?? 0;
+  const recoveredTakes = measureValue(m, 'recoveredTakes') ?? 0;
+  const recoveredRevenue = measureValue(m, 'recoveredRevenue') ?? 0;
+  const recoveryRate = measureValue(m, 'recoveryRate');
+  const viewsText = countText(views);
+  const takeRateText = percentText(takeRate);
+  const revenueText = revenue === null ? UNAVAILABLE : `+${moneyText(revenue)}`;
+  // The address comes from the same rule as the step's spoken name and the step panel (T11): a
+  // step with no saved address says so, muted, rather than showing a default "/upsell".
+  const address = stepAddress({ ...d, type: 'upsell' });
+  const name = address || 'No address yet';
 
   return (
     <div
@@ -28,19 +53,17 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
         width: '270px',
         borderRadius: '12px',
         background: 'rgba(15, 23, 42, 0.94)',
-        border: selected
-          ? `1.5px solid ${accentColor}`
-          : `1px solid ${isDownsell ? 'rgba(245, 158, 11, 0.28)' : 'rgba(16, 185, 129, 0.28)'}`,
-        boxShadow: selected
-          ? `0 0 20px ${isDownsell ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)'}`
-          : '0 10px 25px rgba(0, 0, 0, 0.45)',
-        backdropFilter: 'blur(12px)',
+        ...cardFrame(selected, {
+          border: `1px solid ${isDownsell ? 'rgba(245, 158, 11, 0.28)' : 'rgba(16, 185, 129, 0.28)'}`,
+          boxShadow: '0 10px 25px rgba(0, 0, 0, 0.45)'
+        }),
         overflow: 'hidden',
         color: '#FFFFFF',
         cursor: 'pointer',
         transition: 'all 0.2s ease'
       }}
     >
+      <DesignIssueBadge nodeId={id} />
       {/* Target Handle from Checkout / Landing Page */}
       <Handle
         type="target"
@@ -55,7 +78,7 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
         position={Position.Right}
         id="accepted"
         className="custom-handle"
-        style={{ right: -6, top: '35%', background: '#10B981' }}
+        style={{ right: -6, top: '35%', ...branchHandleStyle('accepted') }}
         title="If Accepted: Route to Next Upsell or Thank-You"
       />
 
@@ -65,7 +88,7 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
         position={Position.Right}
         id="declined"
         className="custom-handle"
-        style={{ right: -6, top: '65%', background: '#F59E0B' }}
+        style={{ right: -6, top: '65%', ...branchHandleStyle('declined') }}
         title="If Declined: Route to Downsell or Thank-You"
       />
 
@@ -75,12 +98,13 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
         position={Position.Bottom}
         id="rescue"
         className="custom-handle"
-        style={{ bottom: -6, left: '50%', background: '#F59E0B' }}
+        style={{ bottom: -6, left: '50%', ...branchHandleStyle('retention') }}
         title="Courtesy Rescue: Connect to 24h Post-Decline Retention Sequence"
       />
 
       {/* Top Banner */}
       <div
+        data-jv-detail-row
         style={{
           padding: '12px 14px',
           borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
@@ -90,20 +114,7 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div
-            style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '8px',
-              background: badgeBg,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: accentColor
-            }}
-          >
-            {isDownsell ? <ArrowDownRight size={15} /> : <Zap size={15} />}
-          </div>
+          <StepIcon kind={kind} icon={isDownsell ? ArrowDownRight : Zap} />
           <div>
             <div
               style={{
@@ -116,15 +127,15 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
             >
               {isDownsell ? 'Downsell Step' : '1-Click Upsell (OTO)'}
             </div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: '#F8FAFC' }}>
-              /{d.slug ? `${d.slug}/${isDownsell ? 'downsell' : 'upsell'}` : (isDownsell ? 'downsell' : 'upsell')}
+            <div data-jv-title style={{ fontSize: '13px', fontWeight: 600, color: '#F8FAFC' }}>
+              {address || <span style={{ color: '#94A3B8' }}>{name}</span>}
             </div>
           </div>
         </div>
 
         <span
           style={{
-            fontSize: '10px',
+            fontSize: '11px',
             padding: '2px 8px',
             borderRadius: '9999px',
             background: badgeBg,
@@ -133,25 +144,27 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
             fontWeight: 700
           }}
         >
-          {d.badgeText || (isDownsell ? 'SAVE 50%' : 'SAVE 40%')}
+          {d.badgeText || (isDownsell ? 'Downsell' : 'Upsell')}
         </span>
       </div>
 
+      <PublishStatusStrip nodeId={id} nodeType="upsell" />
+
       {/* Content Preview */}
-      <div style={{ padding: '12px 14px' }}>
+      <div data-jv-detail-row style={{ padding: '12px 14px' }}>
         {/* Performance & Revenue Live Pill */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            background: views > 0
-              ? (numRate >= 18 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)')
-              : 'rgba(255, 255, 255, 0.03)',
+            background: graded
+              ? (healthyTake ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)')
+              : live ? 'rgba(99, 102, 241, 0.12)' : 'rgba(255, 255, 255, 0.03)',
             border: `1px solid ${
-              views > 0
-                ? (numRate >= 18 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)')
-                : 'rgba(255, 255, 255, 0.08)'
+              graded
+                ? (healthyTake ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)')
+                : live ? 'rgba(99, 102, 241, 0.28)' : 'rgba(255, 255, 255, 0.08)'
             }`,
             borderRadius: '8px',
             padding: '5px 10px',
@@ -159,33 +172,37 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <TrendingUp size={12} color={views > 0 ? (numRate >= 18 ? '#34D399' : '#F59E0B') : '#64748B'} />
+            <TrendingUp size={12} color={graded ? (healthyTake ? '#34D399' : '#F59E0B') : live ? '#818CF8' : '#64748B'} />
             <span
+              data-metric
               style={{
-                fontSize: '10px',
+                fontSize: '11px',
                 fontWeight: 700,
-                color: views > 0 ? '#FFFFFF' : '#94A3B8',
+                color: live ? '#FFFFFF' : '#94A3B8',
                 letterSpacing: '0.03em'
               }}
             >
-              {views > 0 ? `${takeRate}% Take Rate` : '0 Views'}
+              {views === null ? UNAVAILABLE : views === 0 ? '0 views' : `${takeRateText} take rate`}
             </span>
-            {views > 0 && (
-              <span style={{ fontSize: '9px', color: '#94A3B8' }}>
-                ({takes}/{views})
+            {live && (
+              <span style={{ fontSize: '11px', color: '#94A3B8' }}>
+                ({countText(takes)}/{viewsText})
               </span>
             )}
           </div>
-          <div
-            style={{
-              fontSize: '11px',
-              fontWeight: 800,
-              color: revenue > 0 ? '#34D399' : '#94A3B8',
-              fontFamily: "'JetBrains Mono', monospace"
-            }}
-          >
-            {revenue > 0 ? `+$${Math.round(revenue).toLocaleString()}` : takes > 0 ? `${takes} sold` : '$0 rev'}
-          </div>
+          {revenue !== null && (
+            <div
+              data-metric
+              style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                color: revenue > 0 ? '#34D399' : '#94A3B8',
+                fontFamily: "'JetBrains Mono', monospace"
+              }}
+            >
+              {moneyText(revenue)} rev
+            </div>
+          )}
         </div>
 
         {/* Progressive Courtesy Recovery Micro-Pill (Option C1) */}
@@ -200,22 +217,22 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
               borderRadius: '8px',
               padding: '4px 8px',
               marginBottom: '8px',
-              fontSize: '10px'
+              fontSize: '11px'
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#34D399', fontWeight: 700 }}>
               <Sparkles size={11} color="#34D399" />
-              <span>+{recoveryRate}% Courtesy Recovered</span>
+              <span>{recoveryRate === null ? 'Recovered after a decline' : `${percentText(recoveryRate)} recovered after a decline`}</span>
             </div>
             <div
               style={{
                 color: '#F8FAFC',
                 fontWeight: 700,
-                fontSize: '10px',
+                fontSize: '11px',
                 fontFamily: "'JetBrains Mono', monospace"
               }}
             >
-              +{recoveredTakes} {recoveredTakes === 1 ? 'order' : 'orders'} • +${Math.round(recoveredRevenue)}
+              +{countText(recoveredTakes)} {recoveredTakes === 1 ? 'order' : 'orders'}{recoveredRevenue > 0 ? ` • +${moneyText(recoveredRevenue)}` : ''}
             </div>
           </div>
         ) : totalDeclines > 0 ? (
@@ -229,15 +246,14 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
               borderRadius: '8px',
               padding: '4px 8px',
               marginBottom: '8px',
-              fontSize: '10px',
+              fontSize: '11px',
               color: '#94A3B8'
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
               <Clock size={11} color="#94A3B8" />
-              <span>{totalDeclines} {totalDeclines === 1 ? 'client' : 'clients'} in courtesy recovery</span>
+              <span>{countText(totalDeclines)} {totalDeclines === 1 ? 'person' : 'people'} declined this offer</span>
             </div>
-            <span style={{ fontSize: '9px', color: '#64748B', fontWeight: 600 }}>18h delay</span>
           </div>
         ) : null}
 
@@ -255,7 +271,7 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
             WebkitBoxOrient: 'vertical'
           }}
         >
-          {d.headline || (isDownsell ? 'Wait! Try The Mini Replenishment Instead' : 'One-Time Offer: Complete Your Routine with 40% Off')}
+          {d.headline || 'No headline yet'}
         </div>
 
         {/* Product & Pricing Card */}
@@ -276,7 +292,7 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
             {d.productImage ? (
               <img
                 src={d.productImage}
-                alt="Product"
+                alt=""
                 style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }}
               />
             ) : (
@@ -306,35 +322,38 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
                   whiteSpace: 'nowrap'
                 }}
               >
-                {d.productTitle || (isDownsell ? 'Deluxe Travel Ritual Duo' : 'Bioactive Triple Barrier Reserve')}
+                {d.productTitle || 'No product chosen'}
               </div>
-              <div style={{ fontSize: '10px', color: '#94A3B8' }}>
-                {d.discountCode ? `Code: ${d.discountCode}` : '1-Tap Discount Applied'}
+              <div style={{ fontSize: '11px', color: '#94A3B8' }}>
+                {d.discountCode ? `Code: ${d.discountCode}` : 'No discount code'}
               </div>
             </div>
           </div>
 
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontSize: '13px', fontWeight: 800, color: accentColor }}>
-              {d.productPrice || (isDownsell ? '$24.00' : '$38.00')}
+              {d.productPrice || 'No price set'}
             </div>
             {d.regularPrice && (
-              <div style={{ fontSize: '10px', color: '#64748B', textDecoration: 'line-through' }}>
+              <div style={{ fontSize: '11px', color: '#94A3B8', textDecoration: 'line-through' }}>
                 {d.regularPrice}
               </div>
             )}
           </div>
         </div>
 
-        {/* Urgency Indicator */}
-        <div style={{ fontSize: '10px', color: '#94A3B8', display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <Clock size={11} color={accentColor} />
-          <span>{d.urgencyMinutes || 5}m Reservation Hold • Instant 1-Tap Checkout</span>
-        </div>
+        {/* Urgency Indicator: only when the step sets a hold, never an invented 5 minutes (#25) */}
+        {(d.urgencyMinutes ?? 0) > 0 && (
+          <div style={{ fontSize: '11px', color: '#94A3B8', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <Clock size={11} color={accentColor} />
+            <span>{d.urgencyMinutes}m countdown • Instant 1-Tap Checkout</span>
+          </div>
+        )}
       </div>
 
       {/* Metrics Bar */}
       <div
+        data-jv-detail-row
         style={{
           padding: '10px 14px',
           background: 'rgba(0, 0, 0, 0.28)',
@@ -345,35 +364,44 @@ export const UpsellNode: React.FC<NodeProps> = ({ data, selected }) => {
         }}
       >
         <div>
-          <div style={{ fontSize: '9px', textTransform: 'uppercase', color: '#64748B', fontWeight: 600 }}>
+          <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#94A3B8', fontWeight: 600 }}>
             Views
           </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: '#E2E8F0' }}>
-            {views.toLocaleString()}
+          <div data-metric style={metricValueStyle(viewsText, '#E2E8F0')}>
+            {viewsText}
           </div>
         </div>
         <div>
-          <div style={{ fontSize: '9px', textTransform: 'uppercase', color: '#64748B', fontWeight: 600 }}>
+          <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#94A3B8', fontWeight: 600 }}>
             Take Rate
           </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: accentColor }}>
-            {takeRate}%
+          <div data-metric style={metricValueStyle(takeRateText, accentColor)}>
+            {takeRateText}
           </div>
         </div>
         <div>
-          <div style={{ fontSize: '9px', textTransform: 'uppercase', color: '#64748B', fontWeight: 600 }}>
+          <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#94A3B8', fontWeight: 600 }}>
             +Revenue
           </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: '#34D399' }}>
-            +${Math.round(revenue).toLocaleString()}
+          <div data-metric style={metricValueStyle(revenueText, '#34D399')}>
+            {revenueText}
           </div>
           {recoveredRevenue > 0 && (
-            <div style={{ fontSize: '9px', color: '#34D399', fontWeight: 600 }}>
-              incl. +${Math.round(recoveredRevenue)} rec.
+            <div style={{ fontSize: '11px', color: '#34D399', fontWeight: 600 }}>
+              incl. +{moneyText(recoveredRevenue)} rec.
             </div>
           )}
         </div>
+        <div data-metrics-note style={{ gridColumn: '1 / -1', fontSize: '11px', color: '#94A3B8' }}>{note}</div>
       </div>
+
+      <StepSummary
+        nodeId={id}
+        kind={kind}
+        icon={isDownsell ? ArrowDownRight : Zap}
+        name={name}
+        figure={{ label: 'Take rate', value: takeRateText }}
+      />
     </div>
   );
 };

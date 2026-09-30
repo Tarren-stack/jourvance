@@ -1,5 +1,20 @@
+// Store checks: a score for a journey that sells through a connected store (#10).
+// The design checks in designChecks.ts run on every journey. This score asks store questions
+// (checkout, order bump, upsell, follow-ups), so it is computed and shown only when the
+// workspace has a connected store: storeScoreFor answers null otherwise.
+// It used to invent what it could not know: a monthly "margin at risk", conversion lifts in
+// percent, and fixes that wrote product names, prices, an image and a promise onto the
+// person's page. Those are gone. A fix here is a FixPlan like a design fix: it turns a setting
+// on, adds a step with placeholder words only, or adds recovery emails as "Replace this" drafts.
+// Value imports carry .ts so `node --test` loads this file directly.
+
 import type { JourneyProject, JourneyNode, JourneyEdge, Workspace, PageNodeData, UpsellNodeData } from '../types/journey';
-import { extractPricingFromNodes, injectRetentionFlows } from './funnelForecaster';
+import type { FixChange, FixPlan } from './designChecks';
+import {
+  extractPricingFromNodes, injectRetentionFlows, parseNumericPrice, DEFAULT_FORECAST, retentionFlowsThatFit, sellsThroughCheckout
+} from './funnelForecaster.ts';
+import { buildPlan, describeChange, fixLine, isPlaceholderText } from './designChecks.ts';
+import { lineIsDrawable, nodeLookup, stepName } from './journeyGraph.ts';
 
 export interface AuditCheckItem {
   id: string;
@@ -10,9 +25,7 @@ export interface AuditCheckItem {
   passed: boolean;
   severity: 'critical' | 'recommended' | 'optional';
   summary: string;
-  conversionImpact: string;
-  autoFixType?: 'enable_mobile_sticky' | 'enable_order_bump' | 'add_trust_badge' | 'sync_cart_recovery' | 'sync_upsell_rescue' | 'sync_all_retention' | 'add_upsell_node';
-  autoFixLabel?: string;
+  autoFixType?: 'enable_mobile_sticky' | 'add_upsell_node' | 'sync_cart_recovery' | 'sync_upsell_rescue';
   targetNodeId?: string;
 }
 
@@ -35,12 +48,40 @@ export interface FunnelAuditReport {
   totalChecks: number;
   passedChecks: number;
   fixableChecks: number;
-  estimatedMarginAtRisk: number;
+}
+
+/** True when the workspace has a connected store. Store checks need one. */
+export function isStoreConnected(workspace: Pick<Workspace, 'shopifyConfig'> | null | undefined): boolean {
+  return workspace?.shopifyConfig?.status === 'connected';
+}
+
+/** The store score, or null when no store is connected (the score would only measure what is absent). */
+export function storeScoreFor(project: JourneyProject, workspace: Workspace | null | undefined): FunnelAuditReport | null {
+  return isStoreConnected(workspace) ? auditFunnel(project, workspace) : null;
 }
 
 /**
- * Pure deterministic auditor that evaluates a journey graph across 4 empirical
- * e-commerce conversion pillars, calculating a 100-point Conversion Readiness Score.
+ * Where the upsell fix would go: the page and its own routing line (its main exit, into a step
+ * that is not a follow-up), or null when the fix does not fit. It does not fit when the page has
+ * no checkout, or when the page leads to a lead form, because an upsell there sits before sign-up
+ * and not after purchase.
+ */
+function upsellSlot(nodes: JourneyNode[], edges: JourneyEdge[]): { page: JourneyNode; next: JourneyEdge | undefined } | null {
+  const page = nodes.find(n => n.type === 'landing-page');
+  if (!page || nodes.some(n => n.type === 'upsell') || !sellsThroughCheckout(page)) return null;
+  const byId = nodeLookup(nodes);
+  const onward = edges.filter(e =>
+    e.source === page.id && !e.sourceHandle && lineIsDrawable(e, byId) &&
+    byId.get(e.target)?.type !== 'follow-up-sequence'
+  );
+  if (onward.length > 1) return null;
+  if (onward[0] && byId.get(onward[0].target)?.type === 'lead-form') return null;
+  return { page, next: onward[0] };
+}
+
+/**
+ * Scores a journey that sells through a store on four groups of checks, out of 100.
+ * Deterministic and pure. Call it through storeScoreFor so it runs only with a connected store.
  */
 export function auditFunnel(project: JourneyProject, workspace?: Workspace | null): FunnelAuditReport {
   const nodes = project.nodes || [];
@@ -52,23 +93,19 @@ export function auditFunnel(project: JourneyProject, workspace?: Workspace | nul
 
   const upsellNodes = nodes.filter(n => n.type === 'upsell');
   const primaryUpsell = upsellNodes.find(n => (n.data as UpsellNodeData)?.offerType !== 'downsell') || upsellNodes[0];
-  const upsellData = (primaryUpsell?.data as UpsellNodeData) || undefined;
 
   // -------------------------------------------------------------
-  // Pillar 1: Front-End Acquisition & Mobile (30 pts)
+  // Landing page and checkout (30 pts)
   // -------------------------------------------------------------
-  const isHeadlineDefined = Boolean(
-    (project.offerHeadline && project.offerHeadline !== 'Your offer' && project.offerHeadline.trim().length > 3) ||
-    (lpData?.headline && lpData.headline !== 'Your offer headline' && lpData.headline.trim().length > 3)
-  );
+  const ownHeadline = (text: unknown) =>
+    typeof text === 'string' && text.trim().length > 3 && !isPlaceholderText(text);
+  const isHeadlineDefined = ownHeadline(project.offerHeadline) || ownHeadline(lpData?.headline);
 
-  const isProductLinked = Boolean(
-    (lpData?.shopifyProductPrice && lpData.shopifyProductPrice.trim().length > 0) ||
-    (lpData?.shopifyProductTitle && lpData.shopifyProductTitle.trim().length > 0) ||
-    lpData?.shopifyProductId ||
-    lpData?.shopifyVariantId ||
-    (lpData?.checkoutUrl && lpData.checkoutUrl.trim().length > 0)
-  );
+  const isProductLinked = sellsThroughCheckout(landingPageNode);
+  // The forecaster falls back to 58.00 when there is no price, which is not a configured price.
+  const configuredPrice = lpData?.shopifyProductPrice && parseNumericPrice(lpData.shopifyProductPrice, 0) > 0
+    ? lpData.shopifyProductPrice.trim()
+    : '';
 
   const isMobileStickyEnabled = Boolean(lpData?.mobileStickyBarEnabled);
 
@@ -76,213 +113,191 @@ export function auditFunnel(project: JourneyProject, workspace?: Workspace | nul
     {
       id: 'headline_defined',
       pillarId: 'acquisition',
-      title: 'Compelling Hero Headline',
+      title: 'Landing page headline',
       points: isHeadlineDefined ? 10 : 0,
       maxPoints: 10,
       passed: isHeadlineDefined,
       severity: 'critical',
-      summary: isHeadlineDefined 
-        ? 'Clear value proposition anchors incoming paid ad traffic.' 
-        : 'Landing page has default or missing headline.',
-      conversionImpact: 'Establishes instant emotional resonance; reduces immediate mobile bounce rates.',
+      summary: isHeadlineDefined
+        ? 'The landing page has a headline of its own.'
+        : 'The landing page headline is missing or still the placeholder.',
       targetNodeId: landingPageNode?.id
     },
     {
       id: 'product_pricing_linked',
       pillarId: 'acquisition',
-      title: 'Shopify Product & Price Linkage',
+      title: 'Product linked to checkout',
       points: isProductLinked ? 10 : 0,
       maxPoints: 10,
       passed: isProductLinked,
       severity: 'critical',
-      summary: isProductLinked 
-        ? `Primary offer configured ($${pricing.corePrice.toFixed(2)}).` 
-        : 'No product or checkout price assigned.',
-      conversionImpact: 'Ensures instantaneous 1-click cart creation with zero checkout errors.',
+      summary: isProductLinked
+        ? configuredPrice ? `A product is linked (${configuredPrice}).` : 'A product is linked.'
+        : 'No product or checkout link is set on the landing page.',
       targetNodeId: landingPageNode?.id
     },
     {
       id: 'mobile_sticky_bar',
       pillarId: 'acquisition',
-      title: 'Mobile Sticky Checkout Bar',
+      title: 'Mobile sticky checkout bar',
       points: isMobileStickyEnabled ? 10 : 0,
       maxPoints: 10,
       passed: isMobileStickyEnabled,
       severity: 'recommended',
-      summary: isMobileStickyEnabled 
-        ? 'Persistent bottom action bar active on mobile viewports.' 
-        : 'Mobile sticky action bar is disabled.',
-      conversionImpact: 'Over 75% of paid traffic is mobile. A sticky bar lifts mobile conversions by 18-24%.',
-      autoFixType: landingPageNode ? 'enable_mobile_sticky' : undefined,
-      autoFixLabel: '✦ Enable Sticky Bar',
+      summary: isMobileStickyEnabled
+        ? 'The checkout bar stays on screen on phones.'
+        : 'The mobile sticky checkout bar is off.',
+      autoFixType: landingPageNode && !isMobileStickyEnabled ? 'enable_mobile_sticky' : undefined,
       targetNodeId: landingPageNode?.id
     }
   ];
 
   // -------------------------------------------------------------
-  // Pillar 2: Day-0 AOV Expansion (30 pts)
+  // Order value (30 pts)
   // -------------------------------------------------------------
   const isBumpActive = Boolean(lpData?.orderBumpEnabled && pricing.hasBump && pricing.bumpPrice > 0);
   const isUpsellActive = Boolean(pricing.hasUpsell && pricing.upsellPrice > 0);
+  const bumpPrice = lpData?.orderBumpPrice ? lpData.orderBumpPrice.trim() : '';
 
   const aovItems: AuditCheckItem[] = [
     {
       id: 'order_bump_configured',
       pillarId: 'aov',
-      title: '1-Click Order Bump (Checkout Add-On)',
+      title: 'Order bump at checkout',
       points: isBumpActive ? 15 : 0,
       maxPoints: 15,
       passed: isBumpActive,
       severity: 'recommended',
-      summary: isBumpActive 
-        ? `Order bump active (${pricing.bumpTitle || 'Add-on'} @ $${pricing.bumpPrice.toFixed(2)}).` 
-        : 'No order bump attached to hero landing page.',
-      conversionImpact: 'Pure-margin revenue booster taken by 25-35% of buyers at checkout with $0 extra ad spend.',
-      autoFixType: landingPageNode ? 'enable_order_bump' : undefined,
-      autoFixLabel: '✦ Attach $24 Order Bump',
+      summary: isBumpActive
+        ? `An order bump is on (${[pricing.bumpTitle, bumpPrice].filter(Boolean).join(', ') || 'add-on'}).`
+        : 'The landing page has no order bump with a price.',
+      // The bump is the person's own offer, so this row only opens the step.
       targetNodeId: landingPageNode?.id
     },
     {
       id: 'post_purchase_upsell',
       pillarId: 'aov',
-      title: '1-Click Post-Purchase Upsell (OTO)',
+      title: 'Upsell after purchase',
       points: isUpsellActive ? 15 : 0,
       maxPoints: 15,
       passed: isUpsellActive,
       severity: 'recommended',
-      summary: isUpsellActive 
-        ? `Post-purchase upgrade configured ($${pricing.upsellPrice.toFixed(2)}).` 
-        : 'No post-purchase 1-click upsell present in journey.',
-      conversionImpact: 'Increases customer Average Order Value (AOV) by +25% to +40% before order fulfillment.',
-      autoFixType: landingPageNode && !isUpsellActive ? 'add_upsell_node' : undefined,
-      autoFixLabel: '✦ Add 1-Click Upsell',
+      summary: isUpsellActive
+        ? `An upsell with a price is on the journey (${String(
+            (primaryUpsell?.data as UpsellNodeData | undefined)?.productPrice || ''
+          ).trim() || 'priced'}).`
+        : primaryUpsell
+          ? 'The upsell step has no price yet.'
+          : 'The journey has no upsell step.',
+      // Offered only when there is no upsell at all and the page sells through a checkout that
+      // does not lead to a lead form. An unpriced upsell is the person's to finish.
+      autoFixType: upsellSlot(nodes, edges) ? 'add_upsell_node' : undefined,
       targetNodeId: primaryUpsell?.id
     }
   ];
 
   // -------------------------------------------------------------
-  // Pillar 3: Automated Retention Safety Nets (25 pts)
+  // Follow-ups (25 pts)
   // -------------------------------------------------------------
   const isCartRecoveryActive = Boolean(pricing.hasCartRecovery);
   const isUpsellRescueActive = Boolean(pricing.hasUpsellRescue);
+  // A recovery sequence is offered only where it can be linked, so a fix never adds a step that
+  // nothing reaches: the first landing page's Left checkout exit, or the first upsell's Rescue exit.
+  // Cart recovery also needs that page to sell through a checkout, or no one can leave one. The
+  // Forecaster's Sync to Canvas asks the same retentionFlowsThatFit (R12).
+  const retentionFit = retentionFlowsThatFit(nodes, edges);
+  const recoveryPage = nodes.find(n => n.data?.type === 'landing-page');
+  const rescueUpsell = nodes.find(n => n.data?.type === 'upsell');
 
   const retentionItems: AuditCheckItem[] = [
     {
       id: 'cart_recovery_flow',
       pillarId: 'retention',
-      title: 'Cart Abandonment Recovery Safety Net',
+      title: 'Cart recovery emails',
       points: isCartRecoveryActive ? 15 : 0,
       maxPoints: 15,
       passed: isCartRecoveryActive,
       severity: 'recommended',
-      summary: isCartRecoveryActive 
-        ? 'Automated 2-touch cart recovery sequence active on canvas.' 
-        : 'Cart abandonment recovery flow is missing.',
-      conversionImpact: 'Reclaims 15-20% of abandoned carts with automated courtesy vouchers ($0 extra ad cost).',
-      autoFixType: !isCartRecoveryActive ? 'sync_cart_recovery' : undefined,
-      autoFixLabel: '✦ Wire Cart Recovery',
-      targetNodeId: landingPageNode?.id
+      summary: isCartRecoveryActive
+        ? 'A cart recovery sequence is on the journey.'
+        : 'No cart recovery sequence follows visitors who leave checkout.',
+      autoFixType: retentionFit.cartRecovery ? 'sync_cart_recovery' : undefined,
+      targetNodeId: recoveryPage?.id
     },
     {
       id: 'upsell_rescue_flow',
       pillarId: 'retention',
-      title: '24h Courtesy Upsell Rescue Safety Net',
+      title: 'Upsell decline follow-up',
       points: isUpsellRescueActive ? 10 : 0,
       maxPoints: 10,
       passed: isUpsellRescueActive,
       severity: 'optional',
-      summary: isUpsellRescueActive 
-        ? '24h post-decline courtesy sequence active on canvas.' 
-        : '24h courtesy upsell rescue flow is missing.',
-      conversionImpact: 'Recaptures up to 18% of upsell decliners using a time-limited courtesy voucher.',
-      autoFixType: !isUpsellRescueActive ? 'sync_upsell_rescue' : undefined,
-      autoFixLabel: '✦ Wire Upsell Rescue',
-      targetNodeId: primaryUpsell?.id
+      summary: isUpsellRescueActive
+        ? 'A follow-up sequence reaches people who decline the upsell.'
+        : 'No follow-up sequence reaches people who decline the upsell.',
+      autoFixType: retentionFit.upsellRescue ? 'sync_upsell_rescue' : undefined,
+      targetNodeId: rescueUpsell?.id ?? primaryUpsell?.id
     }
   ];
 
   // -------------------------------------------------------------
-  // Pillar 4: Trust & Technical Clearance (15 pts)
+  // Trust and publishing (15 pts)
   // -------------------------------------------------------------
-  const isTrustBadgePresent = Boolean(
-    lpData?.trustBadge && lpData.trustBadge.trim().length > 3
-  );
+  const isTrustBadgePresent = Boolean(lpData?.trustBadge && lpData.trustBadge.trim().length > 3);
 
-  const isPublishOrDomainReady = Boolean(
-    lpData?.published ||
-    lpData?.customDomainVerified ||
-    workspace?.shopifyConfig?.status === 'connected' ||
-    Boolean(project.shopifyStoreDomain)
-  );
+  // A connected store is the precondition for this whole score, so it cannot earn a row here:
+  // counting it made this row pass on every score anyone could see (#10). A verified custom
+  // domain cannot either: that is a DNS check that passes before any publish and stays set after
+  // Unpublish, so only the publish flag says the page is live.
+  const isLandingPagePublished = lpData?.published === true;
 
   const trustItems: AuditCheckItem[] = [
     {
       id: 'trust_badge_guarantee',
       pillarId: 'trust',
-      title: 'Trust Badge & Guarantee Statement',
+      title: 'Trust line on the landing page',
       points: isTrustBadgePresent ? 5 : 0,
       maxPoints: 5,
       passed: isTrustBadgePresent,
       severity: 'optional',
-      summary: isTrustBadgePresent 
-        ? 'Reassuring guarantee badge active on landing page.' 
-        : 'No trust badge or satisfaction guarantee displayed.',
-      conversionImpact: 'Reduces visitor perceived purchase risk and increases add-to-cart velocity.',
-      autoFixType: landingPageNode && !isTrustBadgePresent ? 'add_trust_badge' : undefined,
-      autoFixLabel: '✦ Add Botanical Guarantee',
+      summary: isTrustBadgePresent
+        ? 'The landing page shows a trust line.'
+        : 'The landing page shows no trust line, such as your return policy.',
+      // Only the person can say what they promise, so this row only opens the step.
       targetNodeId: landingPageNode?.id
     },
     {
       id: 'domain_and_publishing',
       pillarId: 'trust',
-      title: 'Store Connection & Live Hosting',
-      points: isPublishOrDomainReady ? 10 : 0,
+      title: 'Landing page published',
+      points: isLandingPagePublished ? 10 : 0,
       maxPoints: 10,
-      passed: isPublishOrDomainReady,
+      passed: isLandingPagePublished,
       severity: 'critical',
-      summary: isPublishOrDomainReady 
-        ? 'Store connection and live publication routes verified.' 
-        : 'Funnel is unpublished and not linked to a live store.',
-      conversionImpact: 'Required for real customer order processing and live payment handling.'
+      summary: isLandingPagePublished
+        ? 'The landing page is published.'
+        : 'The landing page is not published yet.',
+      // Publishing has its own button; this row opens the page so it can be checked first.
+      targetNodeId: landingPageNode?.id
     }
   ];
 
   // -------------------------------------------------------------
   // Pillar Construction & Aggregation
   // -------------------------------------------------------------
+  const pillar = (id: AuditPillar['id'], title: string, description: string, items: AuditCheckItem[]): AuditPillar => ({
+    id,
+    title,
+    description,
+    score: items.reduce((sum, item) => sum + item.points, 0),
+    maxScore: items.reduce((sum, item) => sum + item.maxPoints, 0),
+    items
+  });
   const pillars: AuditPillar[] = [
-    {
-      id: 'acquisition',
-      title: 'Acquisition & Mobile Experience',
-      description: 'First impressions, offer clarity, and mobile viewport optimization.',
-      score: acquisitionItems.reduce((sum, item) => sum + item.points, 0),
-      maxScore: acquisitionItems.reduce((sum, item) => sum + item.maxPoints, 0),
-      items: acquisitionItems
-    },
-    {
-      id: 'aov',
-      title: 'Day-0 AOV Expansion',
-      description: 'Order bumps and 1-click upsells maximizing front-end customer value.',
-      score: aovItems.reduce((sum, item) => sum + item.points, 0),
-      maxScore: aovItems.reduce((sum, item) => sum + item.maxPoints, 0),
-      items: aovItems
-    },
-    {
-      id: 'retention',
-      title: 'Automated Retention Safety Nets',
-      description: 'Automated courtesy follow-ups capturing revenue from abandoners and decliners.',
-      score: retentionItems.reduce((sum, item) => sum + item.points, 0),
-      maxScore: retentionItems.reduce((sum, item) => sum + item.maxPoints, 0),
-      items: retentionItems
-    },
-    {
-      id: 'trust',
-      title: 'Trust & Technical Clearance',
-      description: 'Guarantees, domain verification, and live checkout readiness.',
-      score: trustItems.reduce((sum, item) => sum + item.points, 0),
-      maxScore: trustItems.reduce((sum, item) => sum + item.maxPoints, 0),
-      items: trustItems
-    }
+    pillar('acquisition', 'Landing page and checkout', 'The headline, the linked product and the phone checkout bar.', acquisitionItems),
+    pillar('aov', 'Order value', 'An order bump and an upsell after purchase.', aovItems),
+    pillar('retention', 'Follow-ups', 'Emails for people who leave checkout or decline the upsell.', retentionItems),
+    pillar('trust', 'Trust and publishing', 'A trust line and a published landing page.', trustItems)
   ];
 
   const overallScore = Math.min(100, Math.max(0, pillars.reduce((sum, p) => sum + p.score, 0)));
@@ -292,38 +307,30 @@ export function auditFunnel(project: JourneyProject, workspace?: Workspace | nul
 
   let grade: FunnelAuditReport['grade'] = 'D';
   let tier: FunnelAuditReport['tier'] = 'leaking';
-  let headline = 'Funnel Has Hidden Revenue Leaks';
-  let subhead = 'Implement available quick-wins below before launching paid ads to maximize your return on ad spend.';
+  let headline = 'Many store checks are open';
+  let subhead = 'Review the rows below before you send traffic.';
 
   if (overallScore >= 95) {
     grade = 'A+';
     tier = 'ready';
-    headline = 'Peak Conversion Architecture — Scale Ready';
-    subhead = 'Your funnel incorporates all core acquisition, AOV expansion, and automated courtesy safety nets.';
+    headline = 'Every store check passed';
+    subhead = 'Checkout, order value, follow-ups and trust items are all in place.';
   } else if (overallScore >= 90) {
     grade = 'A';
     tier = 'ready';
-    headline = 'Launch Ready — High Conversion Architecture';
-    subhead = 'Your funnel is in great shape for ad traffic with robust revenue safeguards.';
+    headline = 'Nearly every store check passed';
+    subhead = 'One small item is open. See the rows below.';
   } else if (overallScore >= 75) {
     grade = 'B';
     tier = 'good';
-    headline = 'Solid Foundation — Quick AOV Wins Available';
-    subhead = 'Your core offer is active, but you are leaving valuable backend margin on the table.';
+    headline = 'Most store checks passed';
+    subhead = 'A few items are open. See the rows below.';
   } else if (overallScore >= 60) {
     grade = 'C';
     tier = 'good';
-    headline = 'Moderate Optimization Needed';
-    subhead = 'Key conversion boosters are missing. Activating them will significantly reduce your breakeven CPA.';
+    headline = 'Several store checks are open';
+    subhead = 'Some checkout and follow-up items are missing. See the rows below.';
   }
-
-  // Calculate estimated monthly margin at risk (for average $3,000/mo ad spend)
-  let estimatedMarginAtRisk = 0;
-  if (!isMobileStickyEnabled) estimatedMarginAtRisk += 650;
-  if (!isBumpActive) estimatedMarginAtRisk += 1150;
-  if (!isUpsellActive) estimatedMarginAtRisk += 1400;
-  if (!isCartRecoveryActive) estimatedMarginAtRisk += 880;
-  if (!isUpsellRescueActive) estimatedMarginAtRisk += 420;
 
   return {
     overallScore,
@@ -334,211 +341,117 @@ export function auditFunnel(project: JourneyProject, workspace?: Workspace | nul
     pillars,
     totalChecks: allItems.length,
     passedChecks,
-    fixableChecks,
-    estimatedMarginAtRisk
+    fixableChecks
   };
 }
 
+/** A free spot to the right of a step, below anything already there. */
+function slotRightOf(nodes: JourneyNode[], anchor: JourneyNode): { x: number; y: number } {
+  const x = anchor.position.x + 360;
+  let y = anchor.position.y;
+  while (nodes.some(n => Math.abs(n.position.x - x) < 120 && Math.abs(n.position.y - y) < 100)) y += 140;
+  return { x, y };
+}
+
+function freshId(nodes: JourneyNode[], prefix: string): string {
+  const base = `${prefix}-${Date.now().toString(36)}`;
+  let id = base;
+  for (let i = 2; nodes.some(n => n.id === id); i++) id = `${base}-${i}`;
+  return id;
+}
+
 /**
- * Pure function to apply 1-click audit remediations to a JourneyProject.
+ * The plan for a store row's fix, or null when the row has none or it would not apply now.
+ * Preview it, apply it and undo it with applyFixPlan and revertFixPlan (designChecks.ts).
  */
-export function applyAuditFix(
-  project: JourneyProject,
-  fixType: AuditCheckItem['autoFixType'],
-  options?: { targetNodeId?: string }
-): JourneyProject {
-  const currentNodes = [...project.nodes];
-  const currentEdges = [...project.edges];
-  const landingPageNode = currentNodes.find(n => 
-    options?.targetNodeId ? n.id === options.targetNodeId : n.type === 'landing-page'
-  );
+export function planAuditFix(project: JourneyProject, item: Pick<AuditCheckItem, 'id' | 'autoFixType' | 'targetNodeId'>): FixPlan | null {
+  const nodes = project.nodes || [];
+  const edges = project.edges || [];
+  const key = `store:${item.id}`;
 
-  switch (fixType) {
+  switch (item.autoFixType) {
     case 'enable_mobile_sticky': {
-      if (!landingPageNode) return project;
-      const updatedNodes = currentNodes.map(n => {
-        if (n.id === landingPageNode.id) {
-          return {
-            ...n,
-            data: {
-              ...(n.data as PageNodeData),
-              mobileStickyBarEnabled: true
-            }
-          };
-        }
-        return n;
-      });
-      return {
-        ...project,
-        nodes: updatedNodes,
-        updatedAt: new Date().toISOString()
-      };
-    }
-
-    case 'enable_order_bump': {
-      if (!landingPageNode) return project;
-      const pData = landingPageNode.data as PageNodeData;
-      const updatedNodes = currentNodes.map(n => {
-        if (n.id === landingPageNode.id) {
-          return {
-            ...n,
-            data: {
-              ...pData,
-              orderBumpEnabled: true,
-              orderBumpTitle: pData.orderBumpTitle || 'Illuminating Botanical Eye Elixir (15ml)',
-              orderBumpPrice: pData.orderBumpPrice || '$24.00',
-              orderBumpHeadline: pData.orderBumpHeadline || 'One-Time Privilege: Illuminating Eye Elixir',
-              orderBumpDescription: pData.orderBumpDescription || 'Revitalize and brighten delicate eye contours with concentrated green tea and active botanicals.',
-              orderBumpImage: pData.orderBumpImage || 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=600&q=80'
-            }
-          };
-        }
-        return n;
-      });
-      return {
-        ...project,
-        nodes: updatedNodes,
-        updatedAt: new Date().toISOString()
-      };
-    }
-
-    case 'add_trust_badge': {
-      if (!landingPageNode) return project;
-      const pData = landingPageNode.data as PageNodeData;
-      const updatedNodes = currentNodes.map(n => {
-        if (n.id === landingPageNode.id) {
-          return {
-            ...n,
-            data: {
-              ...pData,
-              trustBadge: pData.trustBadge || 'Handcrafted in small batches with sustainably sourced botanical actives • 30-Day Ritual Guarantee'
-            }
-          };
-        }
-        return n;
-      });
-      return {
-        ...project,
-        nodes: updatedNodes,
-        updatedAt: new Date().toISOString()
-      };
-    }
-
-    case 'sync_cart_recovery': {
-      const result = injectRetentionFlows({
-        nodes: currentNodes,
-        edges: currentEdges,
-        addCartRecovery: true,
-        cartRecoveryDiscount: project.forecast?.cartRecoveryDiscount ?? 10
-      });
-      return {
-        ...project,
-        nodes: result.nodes,
-        edges: result.edges,
-        forecast: {
-          ...(project.forecast || {} as any),
-          cartRecoveryEnabled: true
-        },
-        updatedAt: new Date().toISOString()
-      };
-    }
-
-    case 'sync_upsell_rescue': {
-      const result = injectRetentionFlows({
-        nodes: currentNodes,
-        edges: currentEdges,
-        addUpsellRescue: true,
-        upsellRescueDiscount: project.forecast?.upsellRescueDiscount ?? 10
-      });
-      return {
-        ...project,
-        nodes: result.nodes,
-        edges: result.edges,
-        forecast: {
-          ...(project.forecast || {} as any),
-          upsellRescueEnabled: true
-        },
-        updatedAt: new Date().toISOString()
-      };
-    }
-
-    case 'sync_all_retention': {
-      const result = injectRetentionFlows({
-        nodes: currentNodes,
-        edges: currentEdges,
-        addCartRecovery: true,
-        addUpsellRescue: true,
-        cartRecoveryDiscount: project.forecast?.cartRecoveryDiscount ?? 10,
-        upsellRescueDiscount: project.forecast?.upsellRescueDiscount ?? 10
-      });
-      return {
-        ...project,
-        nodes: result.nodes,
-        edges: result.edges,
-        forecast: {
-          ...(project.forecast || {} as any),
-          cartRecoveryEnabled: true,
-          upsellRescueEnabled: true
-        },
-        updatedAt: new Date().toISOString()
-      };
+      const page = nodes.find(n => (item.targetNodeId ? n.id === item.targetNodeId : n.type === 'landing-page'));
+      if (!page || page.type !== 'landing-page') return null;
+      const before = (page.data as PageNodeData).mobileStickyBarEnabled;
+      if (before === true) return null;
+      return buildPlan(project, key, 'Turn on the mobile checkout bar', [
+        { kind: 'set-node-field', nodeId: page.id, field: 'mobileStickyBarEnabled', before, after: true }
+      ], [`Turns on the mobile sticky checkout bar on ${stepName(page)}.`]);
     }
 
     case 'add_upsell_node': {
-      if (!landingPageNode) return project;
-      const newUpsellId = `node-upsell-${Date.now().toString(36)}`;
-      const newUpsellNode: JourneyNode = {
-        id: newUpsellId,
+      const slot = upsellSlot(nodes, edges);
+      if (!slot) return null;
+      const { page: landingPageNode, next } = slot;
+      const upsell: JourneyNode = {
+        id: freshId(nodes, 'node-upsell'),
         type: 'upsell',
-        position: {
-          x: landingPageNode.position.x + 360,
-          y: landingPageNode.position.y
-        },
+        position: slotRightOf(nodes, landingPageNode),
         data: {
           type: 'upsell',
-          label: '1-Click Upsell (OTO)',
+          label: 'Upsell',
           offerType: 'upsell',
-          headline: 'Complete Your Ritual With The Overnight Recovery Elixir',
-          subhead: 'Formulated with pure botanical lipids to replenish skin barrier overnight. Add before your parcel seals.',
-          badgeText: 'PRIVATE 40% VIP PRIVILEGE',
-          urgencyMinutes: 5,
-          productTitle: 'Overnight Barrier Recovery Elixir (30ml)',
-          productPrice: '$38.00',
-          regularPrice: '$64.00',
-          discountPercentage: 40,
-          benefits: [
-            'Works in synergy with your primary daytime treatment',
-            'Zero additional shipping fee — packed directly into your parcel',
-            'Small-batch botanical formula bottled fresh'
-          ],
-          acceptButtonText: 'Yes! Add Overnight Elixir to My Order ($38.00)',
-          declineButtonText: 'No thank you, I will stick with my daytime treatment'
+          headline: 'Your upsell headline',
+          subhead: '',
+          productTitle: '',
+          productPrice: '',
+          benefits: [],
+          acceptButtonText: 'Yes, add it to my order',
+          declineButtonText: 'No thanks'
         } as UpsellNodeData
       };
+      const all = nodeLookup([...nodes, upsell]);
+      const line = (l: { source: string; target: string; sourceHandle?: string }) =>
+        fixLine(all.get(l.source)!, l.sourceHandle ?? null, all.get(l.target)!, null);
+      // A page's main handle has no id, so the new line names none (naming 'accepted' hid it).
+      const pageToUpsell = { source: landingPageNode.id, target: upsell.id };
+      const changes: FixChange[] = [{ kind: 'add-node', node: upsell }];
+      if (next) {
+        // In between: the page now leads to the upsell, and both answers go where the page went.
+        changes.push({ kind: 'remove-edge', edge: next, index: edges.indexOf(next) });
+        changes.push({ kind: 'add-edge', edge: line(pageToUpsell) });
+        changes.push({ kind: 'add-edge', edge: line({ source: upsell.id, sourceHandle: 'accepted', target: next.target }) });
+        changes.push({ kind: 'add-edge', edge: line({ source: upsell.id, sourceHandle: 'declined', target: next.target }) });
+      } else {
+        changes.push({ kind: 'add-edge', edge: line(pageToUpsell) });
+      }
+      return buildPlan(project, key, 'Add an upsell step', changes, [
+        'Adds an upsell step with a placeholder headline and no product or price.',
+        ...changes.filter(c => c.kind !== 'add-node').map(c => describeChange(c, [...nodes, upsell], edges))
+      ]);
+    }
 
-      // Connect landing page -> upsell
-      const newEdge: JourneyEdge = {
-        id: `e-page-upsell-${Date.now().toString(36)}`,
-        source: landingPageNode.id,
-        target: newUpsellId,
-        sourceHandle: 'accepted',
-        data: {
-          sourceThroughput: 0,
-          targetCount: 0,
-          rate: 0,
-          sourceHandle: 'accepted'
-        }
-      };
-
-      return {
-        ...project,
-        nodes: [...currentNodes, newUpsellNode],
-        edges: [...currentEdges, newEdge],
-        updatedAt: new Date().toISOString()
-      };
+    case 'sync_cart_recovery':
+    case 'sync_upsell_rescue': {
+      const cart = item.autoFixType === 'sync_cart_recovery';
+      const fit = retentionFlowsThatFit(nodes, edges);
+      if (!(cart ? fit.cartRecovery : fit.upsellRescue)) return null;
+      const result = injectRetentionFlows({
+        nodes,
+        edges,
+        addCartRecovery: cart,
+        addUpsellRescue: !cart,
+        placeholderCopy: true
+      });
+      // Never add a sequence that nothing leads to.
+      if (result.addedNodes.length !== 1 || result.addedEdges.length === 0) return null;
+      const before = project.forecast;
+      const after = { ...(before || DEFAULT_FORECAST), [cart ? 'cartRecoveryEnabled' : 'upsellRescueEnabled']: true };
+      const changes: FixChange[] = [
+        ...result.addedNodes.map(node => ({ kind: 'add-node' as const, node })),
+        ...result.addedEdges.map(edge => ({ kind: 'add-edge' as const, edge })),
+        { kind: 'set-forecast', before, after }
+      ];
+      const count = (result.addedNodes[0].data as { steps?: unknown[] }).steps?.length ?? 0;
+      return buildPlan(project, key, cart ? 'Add cart recovery emails' : 'Add upsell decline emails', changes, [
+        `Adds ${cart ? 'a cart recovery' : 'an upsell decline'} sequence with ${count} draft ${count === 1 ? 'email that says' : 'emails that say'} "Replace this" and no discount code.`,
+        ...result.addedEdges.map(edge => describeChange({ kind: 'add-edge', edge }, result.nodes, edges)),
+        `Turns on ${cart ? 'cart recovery' : 'upsell rescue'} in the forecast.`
+      ]);
     }
 
     default:
-      return project;
+      return null;
   }
 }

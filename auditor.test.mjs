@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+// NOT coverage of the shipped auditor. Everything below is a frozen private copy of the Phase 8
+// auditor and never imports src/lib/funnelAuditor.ts, so it tests only itself. The shipped module
+// has since changed (store-only score, placeholder-only fixes, a publishing row that passes only
+// on a real publish), and its tests are store-checks.test.mjs. Do not read a pass here as a pass
+// of the app.
+
 // Helper price parser matching funnelForecaster & funnelAuditor
 function parseNumericPrice(val, fallback = 0) {
   if (typeof val === 'number' && !isNaN(val)) return val;
@@ -232,7 +238,7 @@ function injectRetentionFlows({
   return { nodes: updatedNodes, edges: updatedEdges };
 }
 
-// Deterministic Auditor Engine matching src/lib/funnelAuditor.ts
+// Frozen Phase 8 copy of the auditor engine; it no longer matches src/lib/funnelAuditor.ts.
 function auditFunnel(project, workspace) {
   const nodes = project.nodes || [];
   const edges = project.edges || [];

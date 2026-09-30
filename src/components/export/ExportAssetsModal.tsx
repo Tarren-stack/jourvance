@@ -36,6 +36,8 @@ import {
   generateEmailSequenceText,
   generateAdCopyText
 } from '../../lib/funnelExportGenerators';
+import { ModalDialog } from '../modals/ModalDialog';
+import { useFieldIds } from '../../lib/a11yHooks';
 
 interface Props {
   isOpen: boolean;
@@ -59,6 +61,9 @@ interface ExportableHtmlPage {
   getContent: () => string;
 }
 
+// Names the dialog: ModalDialog's aria-labelledby points at the visible heading.
+const TITLE_ID = 'jv-export-assets-title';
+
 export const ExportAssetsModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -69,6 +74,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'page' | 'emails' | 'ads' | 'json'>('page');
   const [copied, setCopied] = useState(false);
+  const fid = useFieldIds();
   const [targetAUrl, setTargetAUrl] = useState<string>('');
   const [targetBUrl, setTargetBUrl] = useState<string>('');
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
@@ -433,20 +439,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(3, 7, 18, 0.85)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '1.5rem'
-      }}
-    >
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={880} fallbackFocusSelectors={['[data-more-trigger]']}>
       <div
         style={{
           backgroundColor: '#0F172A',
@@ -458,7 +451,10 @@ export const ExportAssetsModal: React.FC<Props> = ({
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.7)',
-          overflow: 'hidden'
+          // On a phone the wrapped tabs and strips can outgrow the panel, which then scrolls
+          // rather than cutting off the footer.
+          overflowX: 'hidden',
+          overflowY: 'auto'
         }}
       >
         {/* Header */}
@@ -484,7 +480,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
             >
               Self-Hosted Funnel Export Engine
             </span>
-            <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#FFFFFF', marginTop: '0.2rem' }}>
+            <h2 id={TITLE_ID} style={{ fontSize: '1.35rem', fontWeight: 800, color: '#FFFFFF', marginTop: '0.2rem' }}>
               Export Production Assets
             </h2>
             <p style={{ fontSize: '0.825rem', color: '#94A3B8' }}>
@@ -507,16 +503,16 @@ export const ExportAssetsModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* Primary Tabs */}
+        {/* Primary Tabs: they wrap on a phone rather than scroll out of the panel. */}
         <div
           style={{
             display: 'flex',
+            flexWrap: 'wrap',
             alignItems: 'center',
             gap: '0.5rem',
             padding: '0.75rem 1.75rem',
             backgroundColor: '#0B1120',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-            overflowX: 'auto'
+            borderBottom: '1px solid rgba(255, 255, 255, 0.06)'
           }}
         >
           <button
@@ -531,6 +527,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
               fontWeight: 700,
               border: 'none',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
               backgroundColor: activeTab === 'page' ? '#6366F1' : 'transparent',
               color: activeTab === 'page' ? '#FFFFFF' : '#94A3B8'
             }}
@@ -551,6 +548,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
               fontWeight: 700,
               border: 'none',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
               backgroundColor: activeTab === 'emails' ? '#6366F1' : 'transparent',
               color: activeTab === 'emails' ? '#FFFFFF' : '#94A3B8'
             }}
@@ -571,6 +569,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
               fontWeight: 700,
               border: 'none',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
               backgroundColor: activeTab === 'ads' ? '#6366F1' : 'transparent',
               color: activeTab === 'ads' ? '#FFFFFF' : '#94A3B8'
             }}
@@ -591,6 +590,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
               fontWeight: 700,
               border: 'none',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
               backgroundColor: activeTab === 'json' ? '#6366F1' : 'transparent',
               color: activeTab === 'json' ? '#FFFFFF' : '#94A3B8'
             }}
@@ -608,9 +608,9 @@ export const ExportAssetsModal: React.FC<Props> = ({
               backgroundColor: 'rgba(15, 23, 42, 0.7)',
               borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
               display: 'flex',
+              flexWrap: 'wrap',
               alignItems: 'center',
-              gap: '0.6rem',
-              overflowX: 'auto'
+              gap: '0.6rem'
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#64748B', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginRight: '0.25rem', whiteSpace: 'nowrap' }}>
@@ -626,8 +626,11 @@ export const ExportAssetsModal: React.FC<Props> = ({
                   onClick={() => setSelectedPageId(page.id)}
                   style={{
                     display: 'flex',
+                    flexWrap: 'wrap',
                     alignItems: 'center',
                     gap: '0.45rem',
+                    maxWidth: '100%',
+                    textAlign: 'left',
                     padding: '0.4rem 0.75rem',
                     borderRadius: '8px',
                     fontSize: '0.775rem',
@@ -636,7 +639,6 @@ export const ExportAssetsModal: React.FC<Props> = ({
                     backgroundColor: isSelected ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.03)',
                     color: isSelected ? '#FFFFFF' : '#94A3B8',
                     cursor: 'pointer',
-                    whiteSpace: 'nowrap',
                     transition: 'all 0.15s ease'
                   }}
                 >
@@ -656,11 +658,12 @@ export const ExportAssetsModal: React.FC<Props> = ({
                   <span>{page.label}</span>
                   <span
                     style={{
-                      fontSize: '0.675rem',
+                      fontSize: '0.6875rem',
                       fontFamily: "'JetBrains Mono', monospace",
                       backgroundColor: 'rgba(0, 0, 0, 0.3)',
                       padding: '0.1rem 0.35rem',
                       borderRadius: '4px',
+                      overflowWrap: 'anywhere',
                       color: isSelected ? '#C7D2FE' : '#64748B'
                     }}
                   >
@@ -684,7 +687,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
               gap: '0.65rem'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.25rem 1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#C7D2FE', fontSize: '0.8rem', fontWeight: 700 }}>
                 <Settings size={14} color="#818CF8" />
                 <span>Router Target Destination URLs (Self-Hosted Path or Full CDN URL)</span>
@@ -694,12 +697,13 @@ export const ExportAssetsModal: React.FC<Props> = ({
               </span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '0.85rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                <label htmlFor={fid('branch-a')} style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
                   Branch A Destination ({splitNode?.branchALabel || 'Variant A'})
                 </label>
                 <input
+                  id={fid('branch-a')}
                   type="text"
                   value={targetAUrl}
                   placeholder={defaultTargetA}
@@ -719,10 +723,11 @@ export const ExportAssetsModal: React.FC<Props> = ({
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                <label htmlFor={fid('branch-b')} style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
                   Branch B Destination ({splitNode?.branchBLabel || 'Variant B'})
                 </label>
                 <input
+                  id={fid('branch-b')}
                   type="text"
                   value={targetBUrl}
                   placeholder={defaultTargetB}
@@ -756,7 +761,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
               gap: '0.65rem'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.25rem 1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#6EE7B7', fontSize: '0.8rem', fontWeight: 700 }}>
                 <Webhook size={14} color="#10B981" />
                 <span>Lead Ingestion & Webhook Dual-Sync (Self-Hosted Integration)</span>
@@ -766,12 +771,13 @@ export const ExportAssetsModal: React.FC<Props> = ({
               </span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '0.85rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                <label htmlFor={fid('lead-endpoint')} style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
                   Jourvance Ingestion Endpoint (CORS Enabled)
                 </label>
                 <input
+                  id={fid('lead-endpoint')}
                   type="text"
                   value={leadEndpointUrl}
                   placeholder={defaultLeadEndpoint}
@@ -791,10 +797,11 @@ export const ExportAssetsModal: React.FC<Props> = ({
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
-                  External Webhook Relay (Optional — Zapier / Make / Klaviyo)
+                <label htmlFor={fid('webhook-relay')} style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                  External Webhook Relay (Optional: Zapier, Make or Klaviyo)
                 </label>
                 <input
+                  id={fid('webhook-relay')}
                   type="text"
                   value={externalWebhookUrl}
                   placeholder="https://hooks.zapier.com/hooks/catch/..."
@@ -828,7 +835,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
               gap: '0.65rem'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.25rem 1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#FCD34D', fontSize: '0.8rem', fontWeight: 700 }}>
                 {activeHtmlPage.isDownsell ? (
                   <ArrowDownRight size={14} color="#F59E0B" />
@@ -842,12 +849,13 @@ export const ExportAssetsModal: React.FC<Props> = ({
               </span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '0.85rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                <label htmlFor={fid('accept-url')} style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
                   Accept Checkout Destination (Cart URL / Variant)
                 </label>
                 <input
+                  id={fid('accept-url')}
                   type="text"
                   value={upsellAcceptUrls[activeHtmlPage.id] || ''}
                   placeholder="./thank-you.html (or Shopify /cart/variantId:1)"
@@ -869,10 +877,11 @@ export const ExportAssetsModal: React.FC<Props> = ({
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
+                <label htmlFor={fid('decline-url')} style={{ display: 'block', fontSize: '0.725rem', fontWeight: 600, color: '#94A3B8', marginBottom: '0.25rem' }}>
                   Decline Destination URL ({activeHtmlPage.isDownsell ? 'Thank-You Portal' : 'Downsell Offer or Portal'})
                 </label>
                 <input
+                  id={fid('decline-url')}
                   type="text"
                   value={upsellDeclineUrls[activeHtmlPage.id] || ''}
                   placeholder={activeHtmlPage.isDownsell ? './thank-you.html' : './downsell.html'}
@@ -897,7 +906,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
         )}
 
         {/* Code/Text Viewer Box */}
-        <div style={{ flex: 1, padding: '1.25rem 1.75rem', overflowY: 'auto' }}>
+        <div style={{ flex: '1 1 auto', minHeight: '12rem', padding: '1.25rem 1.75rem', overflowY: 'auto' }}>
           <div
             style={{
               backgroundColor: '#070A12',
@@ -923,14 +932,16 @@ export const ExportAssetsModal: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Action Footer */}
+        {/* Action Footer: the buttons move under the status line on a phone. */}
         <div
           style={{
             padding: '1.2rem 1.75rem',
             borderTop: '1px solid rgba(255, 255, 255, 0.08)',
             display: 'flex',
+            flexWrap: 'wrap',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: '0.75rem',
             backgroundColor: '#0B1120'
           }}
         >
@@ -952,7 +963,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem', maxWidth: '100%' }}>
             <button
               onClick={handleCopy}
               style={{
@@ -1002,6 +1013,8 @@ export const ExportAssetsModal: React.FC<Props> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.45rem',
+                maxWidth: '100%',
+                textAlign: 'left',
                 padding: '0.65rem 1.25rem',
                 borderRadius: '8px',
                 backgroundColor: '#6366F1',
@@ -1013,14 +1026,14 @@ export const ExportAssetsModal: React.FC<Props> = ({
                 boxShadow: '0 4px 12px rgba(99, 102, 241, 0.35)'
               }}
             >
-              <Download size={16} />
-              <span>
+              <Download size={16} style={{ flexShrink: 0 }} />
+              <span style={{ overflowWrap: 'anywhere' }}>
                 Download {activeTab === 'page' && activeHtmlPage ? activeHtmlPage.filename : 'File'}
               </span>
             </button>
           </div>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 };

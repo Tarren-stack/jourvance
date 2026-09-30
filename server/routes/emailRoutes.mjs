@@ -61,6 +61,7 @@ export function setupEmailRoutes(app, ctx) {
     publicPrediction,
     refreshPredictions,
     loadEvents,
+    loadRedirects,
     eventsFilePath,
     verifyUnsubscribeToken,
     cleanPicks,
@@ -474,7 +475,9 @@ app.get('/api/email/contact-details', requireUser, async (req, res) => {
     };
   });
 
-  const redirects = loadRedirects().filter(r => r.uid === req.user.uid && String(r.email || '').toLowerCase().trim() === emailQuery);
+  // The host passes loadRedirects in ctx; it was once a bare name here, and the ReferenceError
+  // left this request unanswered for every known contact. Without it the touches are left out.
+  const redirects = (typeof loadRedirects === 'function' ? loadRedirects() : []).filter(r => r.uid === req.user.uid && String(r.email || '').toLowerCase().trim() === emailQuery);
   const events = loadEvents().filter(evt => evt.userId === req.user.uid && String(evt.email || '').toLowerCase().trim() === emailQuery);
 
   const timeline = [];
@@ -548,38 +551,38 @@ app.get('/api/email/contact-details', requireUser, async (req, res) => {
     if (rfm.isAtRisk) {
       strategicAdvice = {
         title: 'Priority At-Risk VIP Whale',
-        actionText: 'Draft VIP Winback Perk (WELCOMEBACK15)',
+        actionText: 'Draft VIP Check-In',
         suggestedTemplate: 'at_risk_winback',
-        body: `High lifetime value ($${rfm.totalSpent.toFixed(2)}) but inactive for ${rfm.recencyDays} days. Send an exclusive 15% courtesy VIP reconnect gift code before churn is permanent.`
+        body: `High lifetime value ($${rfm.totalSpent.toFixed(2)}) but inactive for ${rfm.recencyDays} days. Reach out personally before they lapse.`
       };
     } else {
       strategicAdvice = {
         title: 'Active VIP Whale (Top 2% Spender)',
-        actionText: 'Draft VIP Whale Perk (SANCTUARY)',
+        actionText: 'Draft VIP Thank-You',
         suggestedTemplate: 'whale_perk',
-        body: `Top-spending customer with $${rfm.totalSpent.toFixed(2)} across ${rfm.ordersCount} orders. Reward with early collection access or a surprise VIP gift.`
+        body: `Top-spending customer with $${rfm.totalSpent.toFixed(2)} across ${rfm.ordersCount} orders. Thank them personally.`
       };
     }
   } else if (rfm.isAtRisk) {
     strategicAdvice = {
       title: 'At-Risk Customer',
-      actionText: 'Send 15% Winback Offer (WELCOMEBACK15)',
+      actionText: 'Draft Winback Check-In',
       suggestedTemplate: 'at_risk_winback',
-      body: `Customer has not ordered in ${rfm.recencyDays} days (exceeds your ${rfmConfig.atRiskDays}d threshold). Re-engage with an automated or manual courtesy recovery code.`
+      body: `Customer has not ordered in ${rfm.recencyDays} days (exceeds your ${rfmConfig.atRiskDays}d threshold). Re-engage with a personal check-in.`
     };
   } else if (rfm.ordersCount === 0) {
     strategicAdvice = {
       title: 'Top-of-Funnel Lead (0 Orders)',
-      actionText: 'Send First-Order Gift (SAVE10)',
+      actionText: 'Draft First-Order Welcome',
       suggestedTemplate: 'lead_welcome',
-      body: 'Lead has subscribed but has not yet placed their first order. Send a first-time buyer welcome gift code (SAVE10).'
+      body: 'Lead has subscribed but has not yet placed their first order. Send a welcome note.'
     };
   } else if (rfm.ordersCount === 1) {
     strategicAdvice = {
       title: 'Single-Order Buyer',
       actionText: 'Encourage 2nd Order',
       suggestedTemplate: 'repeat_nurture',
-      body: 'Converted once. High potential to become a repeat loyal customer with a complementary botanical recommendation.'
+      body: 'Ordered once. Suggest something that goes with their first order to invite a second.'
     };
   }
 
@@ -910,9 +913,9 @@ async function deliverCampaignParts(uid, record, emailPeople, smsPeople, now) {
     const sourceBlocks = useBlocks ? record.blocks : [{ kind: 'text', text: body || record.html || '' }];
     const ws = Object.values(workspaceCache).find((w) => w.userId === uid);
     const storeName = ws?.shopifyConfig?.shopName || ws?.name || 'our store';
+    // No discount_code: WELCOMEBACK15 filled it on every broadcast, a code the merchant never chose (R24).
     const letter = await composeForSend(uid, contact, sourceBlocks, {
-      store_name: storeName,
-      discount_code: 'WELCOMEBACK15'
+      store_name: storeName
     }, { previewText: record.previewText, marketing: true, embedPreheader: true });
     const result = await deliverLetter({
       to: person.email,

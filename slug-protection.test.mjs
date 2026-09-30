@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
+// Live-server checks run only when JOURVANCE_LIVE_TEST_URL names a server you started for
+// testing. They used to fetch http://localhost:3005 unconditionally, which on a developer machine
+// is server.mjs holding the live hub key, and a catch swallowed their own assertion failures.
+const LIVE_URL = process.env.JOURVANCE_LIVE_TEST_URL || '';
+const LIVE = { skip: LIVE_URL ? false : 'set JOURVANCE_LIVE_TEST_URL to run against a test server' };
+
 const RESERVED_PUBLIC_SLUGS = new Set([
   'api', 'admin', 'r', 'o', 'u', 'p', 'split', 'assets', 'favicon.ico', 
   'health', 'webhooks', 'login', 'signup', 'dashboard', 'preview', 'checkout', 'cart'
@@ -434,13 +440,8 @@ test('Clean Unpublish: Tenant B cannot unpublish Tenant A page; Tenant A cleans 
   assert.equal(bobRecheck.available, true);
 });
 
-test('Live Pre-Flight Check Endpoint: GET /api/journey/check-slug responds accurately', async () => {
-  try {
-    const resReserved = await fetch('http://localhost:3005/api/journey/check-slug?slug=checkout');
-    // If endpoint requires user auth, 401 is expected without cookie; if auth mocked or present, 409 is expected
-    assert.ok(resReserved.status === 401 || resReserved.status === 409, `Expected 401 or 409 on reserved slug, got ${resReserved.status}`);
-  } catch (err) {
-    // If test runs in an offline CI container without running daemon, pass gracefully
-    assert.ok(true);
-  }
+test('Live Pre-Flight Check Endpoint: GET /api/journey/check-slug responds accurately', LIVE, async () => {
+  const resReserved = await fetch(`${LIVE_URL}/api/journey/check-slug?slug=checkout`);
+  // If endpoint requires user auth, 401 is expected without cookie; if auth mocked or present, 409 is expected
+  assert.ok(resReserved.status === 401 || resReserved.status === 409, `Expected 401 or 409 on reserved slug, got ${resReserved.status}`);
 });

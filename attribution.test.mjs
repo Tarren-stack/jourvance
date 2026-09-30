@@ -325,7 +325,6 @@ function computeRetentionTelemetry(checkouts, reportEvents) {
 
   const totalRetentionRevenue = Number((recoveredCheckoutRevenue + recoveredUpsellRevenue).toFixed(2));
   const totalRetentionOrders = recoveredCheckoutsCount + recoveredUpsellOrders;
-  const retentionNetProfit = Number((totalRetentionRevenue * 0.80).toFixed(2));
 
   return {
     abandonedCheckoutsCount,
@@ -337,8 +336,7 @@ function computeRetentionTelemetry(checkouts, reportEvents) {
     recoveredUpsellRevenue,
     upsellRecoveryRate,
     totalRetentionRevenue,
-    totalRetentionOrders,
-    retentionNetProfit
+    totalRetentionOrders
   };
 }
 
@@ -371,10 +369,9 @@ test('computeRetentionTelemetry accurately computes cart and upsell rescue metri
   assert.equal(ret.recoveredUpsellRevenue, 35.00);
   assert.equal(ret.upsellRecoveryRate, 33.3);
 
-  // Totals & net profit lift ($0 ad spend, 80% margin)
+  // Totals. No profit figure: the route no longer assumes an 80% margin (U06).
   assert.equal(ret.totalRetentionRevenue, 131.00);
   assert.equal(ret.totalRetentionOrders, 3);
-  assert.equal(ret.retentionNetProfit, 104.80);
 });
 
 test('computeRetentionTelemetry handles zero-state cleanly without errors', () => {
@@ -384,7 +381,6 @@ test('computeRetentionTelemetry handles zero-state cleanly without errors', () =
   assert.equal(ret.recoveredCheckoutRevenue, 0);
   assert.equal(ret.checkoutRecoveryRate, 0);
   assert.equal(ret.totalRetentionRevenue, 0);
-  assert.equal(ret.retentionNetProfit, 0);
 });
 
 test('CSV export properly tags RetentionRescue column for cart and upsell recoveries', () => {

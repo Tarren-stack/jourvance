@@ -19,8 +19,11 @@ test('drip_seq_upsell_recovery is configured in drips.json and INITIAL_DRIP_SEQU
 
   const step1 = recoverySeq.steps[0];
   assert.equal(step1.delayHours, 18, 'Initial recovery offer delay must be 18 hours');
-  assert.equal(step1.discountVoucher, 'SAVE10');
-  assert.ok(step1.body.includes('{{discount_code}}'));
+  // No code is pinned: a voucher is the merchant's own, and a decline enrols with the step's
+  // code or none (C18). A letter with no code must not print an empty {{discount_code}}.
+  if (!String(step1.discountVoucher || '').trim()) {
+    assert.ok(!step1.body.includes('{{discount_code}}'), 'a letter with no code names no code');
+  }
   assert.ok(step1.body.includes('{{offer_url}}'));
   assert.ok(step1.body.includes('{{order_number}}'));
   assert.ok(step1.body.includes('{{first_name}}'));
@@ -38,7 +41,7 @@ test('upsell decline auto-enrolls customer and tags contact correctly', () => {
         name: 'Post-Purchase Courtesy Offer',
         triggerType: 'upsell_recovery',
         smartExitOnPurchase: true,
-        steps: [{ delayHours: 18, discountVoucher: 'SAVE10' }],
+        steps: [{ delayHours: 18, discountVoucher: 'THANKS5' }],
         activeEnrollments: 0
       }
     ],
@@ -78,7 +81,7 @@ test('upsell decline auto-enrolls customer and tags contact correctly', () => {
     sourceSlug: slug,
     offerUrl: `https://glowbeauty.com/p/${slug}`,
     offerType: 'upsell',
-    discountCode: 'SAVE10',
+    discountCode: recoverySeq.steps[0].discountVoucher || '',
     currentStepIndex: 0,
     status: 'active',
     enrolledAt: new Date(now).toISOString(),
@@ -92,7 +95,7 @@ test('upsell decline auto-enrolls customer and tags contact correctly', () => {
   assert.equal(dripsData.enrollments.length, 1);
   assert.equal(dripsData.enrollments[0].status, 'active');
   assert.equal(dripsData.enrollments[0].offerUrl, 'https://glowbeauty.com/p/botanical-glow-upsell');
-  assert.equal(dripsData.enrollments[0].discountCode, 'SAVE10');
+  assert.equal(dripsData.enrollments[0].discountCode, 'THANKS5');
   assert.equal(recoverySeq.activeEnrollments, 1);
 });
 
@@ -230,64 +233,99 @@ test('email template tokens replace offer_url, discount_code, order_number, and 
   assert.equal(rendered.includes('{{'), false);
 });
 
-test('Option A: recovery offer page variant detects coupon and applies 10% courtesy discount', () => {
-  const query = {
-    coupon: 'SAVE10',
-    email: 'sophia@luxeaesthetics.com',
-    ref: 'recovery'
+// C18: the page used to fall back to a literal SAVE10 and claim "10% courtesy discount pre-applied"
+// (and charge 90% of the price) on any ?ref=recovery or ?coupon link, whatever the store has. It
+// now names only a code it was given and a percentage only when the step stores one for that code.
+function upsellPage(upsell = {}) {
+  return {
+    slug: 'offer',
+    shopifyConfig: { storeDomain: 'shop-a.myshopify.com', status: 'connected' },
+    data: { upsell: { headline: 'One more thing', productPrice: '$40.00', shopifyVariantId: '123456', acceptButtonText: 'Add it', ...upsell } }
   };
+}
 
-  const queryCoupon = String(query.coupon || '').trim().toUpperCase();
-  const isCourtesyRecovery = queryCoupon === 'SAVE10' || query.ref === 'recovery' || Boolean(queryCoupon);
-  const effectiveCoupon = queryCoupon || (isCourtesyRecovery ? 'SAVE10' : '');
+async function renderUpsell(page, query) {
+  const { renderPublicUpsellHtml } = await import('./server/routes/publicRoutes.mjs');
+  return renderPublicUpsellHtml(page, { query, headers: {}, params: {} }, {}, false);
+}
 
-  const rawProductPrice = '$48.00';
-  const regularPrice = '$60.00';
-  const numericBasePrice = parseFloat(String(rawProductPrice).replace(/[^0-9.]/g, '')) || 0;
-
-  let finalPriceStr = rawProductPrice;
-  let finalStrikethroughStr = regularPrice;
-  let recordedAmount = numericBasePrice;
-
-  if (isCourtesyRecovery && numericBasePrice > 0) {
-    const discountedNum = Number((numericBasePrice * 0.9).toFixed(2));
-    finalPriceStr = `$${discountedNum.toFixed(2)}`;
-    finalStrikethroughStr = rawProductPrice || regularPrice;
-    recordedAmount = discountedNum;
-  }
-
-  const baseAcceptText = 'Add to My Order';
-  const acceptText = isCourtesyRecovery ? `${baseAcceptText} (10% Courtesy Off Applied)` : baseAcceptText;
-
-  const storeDomain = 'luxury-beauty.myshopify.com';
-  const variantId = 'gid://shopify/ProductVariant/441238910';
-  const realVarId = variantId.includes('/') ? variantId.split('/').pop() : variantId;
-  const checkoutUrl = storeDomain && realVarId
-    ? `https://${storeDomain}/cart/${realVarId}:1${effectiveCoupon ? `?discount=${encodeURIComponent(effectiveCoupon)}` : ''}`
-    : '';
-
-  assert.equal(isCourtesyRecovery, true);
-  assert.equal(effectiveCoupon, 'SAVE10');
-  assert.equal(finalPriceStr, '$43.20');
-  assert.equal(finalStrikethroughStr, '$48.00');
-  assert.equal(recordedAmount, 43.20);
-  assert.equal(acceptText, 'Add to My Order (10% Courtesy Off Applied)');
-  assert.equal(checkoutUrl, 'https://luxury-beauty.myshopify.com/cart/441238910:1?discount=SAVE10');
+test('C18: a recovery link with no code on the step invents no code and no discount', async () => {
+  const html = await renderUpsell(upsellPage(), { ref: 'recovery', email: 'a@b.co' });
+  assert.ok(!html.includes('SAVE10'), 'no SAVE10 fallback');
+  assert.doesNotMatch(html, /\d+% (courtesy|off|OFF)/i);
+  assert.ok(!html.includes('id="jv-recovery-banner"'), 'no courtesy banner without a code');
+  assert.ok(!html.includes('discount='), 'the cart link carries no code');
+  assert.match(html, /data-discounted-base=""/);
 });
 
-test('Option A: recovery offerUrl incorporates pre-applied voucher and customer email', () => {
-  const publicBase = 'https://jourvance.app';
-  const slug = 'rose-revitalizing-cream-offer';
-  const customerEmail = 'isabella@botanicalglow.com';
-  const discountCode = 'SAVE10';
+test('C18: a code in the link is named, but no percentage the step does not store', async () => {
+  const html = await renderUpsell(upsellPage(), { coupon: 'friend5', ref: 'recovery' });
+  assert.match(html, /id="jv-recovery-banner"/);
+  assert.match(html, /Your code: <strong>FRIEND5<\/strong>/);
+  assert.doesNotMatch(html, /\d+% (courtesy|off|OFF)/i);
+  assert.match(html, /data-discounted-base=""/, 'the price is not cut by a guessed amount');
+  assert.match(html, /\/cart\/123456:1\?discount=FRIEND5/);
+  // A stored percentage belongs to the step's own code, not to a different code in the link.
+  const other = await renderUpsell(upsellPage({ discountCode: 'WELCOME20', discountPercentage: 20 }), { coupon: 'FRIEND5' });
+  assert.doesNotMatch(other, /20%/);
+});
 
-  const offerUrl = `${publicBase}/p/${slug}?coupon=${encodeURIComponent(discountCode)}&email=${encodeURIComponent(customerEmail)}&ref=recovery`;
+test('C18: the step\'s own code and percentage are what the recovery page shows and charges', async () => {
+  const html = await renderUpsell(upsellPage({ discountCode: 'welcome20', discountPercentage: 20 }), { ref: 'recovery' });
+  assert.match(html, /20% off with code <strong>WELCOME20<\/strong>/);
+  assert.match(html, /data-discounted-base="32\.00"/);
+  assert.match(html, /Add it \(20% off\)/);
+  assert.match(html, /\/cart\/123456:1\?discount=WELCOME20/);
+  assert.ok(!html.includes('SAVE10'));
+});
 
-  const parsed = new URL(offerUrl);
-  assert.equal(parsed.pathname, `/p/${slug}`);
-  assert.equal(parsed.searchParams.get('coupon'), 'SAVE10');
-  assert.equal(parsed.searchParams.get('email'), 'isabella@botanicalglow.com');
-  assert.equal(parsed.searchParams.get('ref'), 'recovery');
+async function declineWith(steps) {
+  const express = (await import('express')).default;
+  const { setupPublicRoutes } = await import('./server/routes/publicRoutes.mjs');
+  const drips = { sequences: [{ id: 'drip_seq_upsell_recovery', triggerType: 'upsell_recovery', steps }], enrollments: [] };
+  const app = express();
+  app.use(express.json());
+  setupPublicRoutes(app, {
+    loadDrips: () => drips,
+    saveDrips: () => {},
+    reloadPublicPageCache: () => ({ offer: upsellPage() }),
+    publicBase: () => 'https://jv.test'
+  });
+  const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  try {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}/api/public/upsell-action`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: 'offer', action: 'decline', offerType: 'upsell', customerEmail: 'a@b.co' })
+    });
+    assert.equal(r.status, 200);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(r => server.close(r));
+  }
+  return drips.enrollments[0];
+}
+
+test('C18: a decline enrols with the sequence\'s own code only, never a SAVE10 fallback', async () => {
+  const none = await declineWith([{ delayHours: 18 }]);
+  assert.ok(none, 'the decline enrolled');
+  assert.equal(none.discountCode, '');
+  assert.ok(!none.offerUrl.includes('coupon='), none.offerUrl);
+  assert.ok(!JSON.stringify(none).includes('SAVE10'));
+  const own = await declineWith([{ delayHours: 18, discountVoucher: 'THANKS5' }]);
+  assert.equal(own.discountCode, 'THANKS5');
+  assert.equal(new URL(own.offerUrl).searchParams.get('coupon'), 'THANKS5');
+});
+
+test('a decline\'s recovery link carries the step\'s code, the email, ref=recovery and an expiry 24h after the send', async () => {
+  const before = Date.now();
+  const enr = await declineWith([{ delayHours: 18, discountVoucher: 'THANKS5' }]);
+  const url = new URL(enr.offerUrl);
+  assert.equal(url.pathname, '/p/offer');
+  assert.equal(url.searchParams.get('coupon'), 'THANKS5');
+  assert.equal(url.searchParams.get('email'), 'a@b.co');
+  assert.equal(url.searchParams.get('ref'), 'recovery');
+  const exp = Number(url.searchParams.get('exp'));
+  assert.ok(exp >= before + 42 * 3600000 && exp <= Date.now() + 42 * 3600000, 'exp is the 18h delay plus 24h');
 });
 
 test('Option C1: /api/funnel/stats computes upsell recovery metrics and applies to nodeData', () => {
@@ -320,9 +358,10 @@ test('Option C1: /api/funnel/stats computes upsell recovery metrics and applies 
   const recoveryConvertedEmails = new Set(
     recoveryEnrollments.filter(e => e.status === 'converted_exit' && e.customerEmail).map(e => e.customerEmail.toLowerCase())
   );
+  const recoveryCodes = new Set(recoveryEnrollments.map(e => String(e.discountCode || '').trim()).filter(Boolean));
   const recoveredAccepts = accepts.filter(a => {
     const em = String(a.email || '').toLowerCase();
-    return (em && (declinedEmails.has(em) || recoveryConvertedEmails.has(em))) || (a.discountCode && a.discountCode === 'SAVE10');
+    return (em && (declinedEmails.has(em) || recoveryConvertedEmails.has(em))) || (a.discountCode && recoveryCodes.has(a.discountCode));
   });
   const recoveredTakes = recoveredAccepts.length;
   const recoveredRevenue = Number(recoveredAccepts.reduce((sum, e) => sum + Number(e.amount || 0), 0).toFixed(2));
@@ -338,57 +377,55 @@ test('Option C1: /api/funnel/stats computes upsell recovery metrics and applies 
   assert.equal(recoveryRate, 50.0);
 });
 
-test('Option 1: courtesy recovery link includes 24h expiration timestamp', () => {
-  const publicBase = 'https://jourvance.app';
-  const slug = 'facial-essence-offer';
-  const discountCode = 'SAVE10';
-  const cleanEmail = 'clara@luxeaesthetics.com';
-  const delayHours = 18;
-  const expTime = Date.now() + (delayHours + 24) * 3600000;
-
-  const offerUrl = `${publicBase}/p/${slug}?coupon=${encodeURIComponent(discountCode)}&email=${encodeURIComponent(cleanEmail)}&ref=recovery&exp=${expTime}`;
-
-  const parsed = new URL(offerUrl);
-  assert.equal(parsed.searchParams.get('coupon'), 'SAVE10');
-  assert.equal(parsed.searchParams.get('email'), 'clara@luxeaesthetics.com');
-  assert.equal(parsed.searchParams.get('ref'), 'recovery');
-  assert.ok(Number(parsed.searchParams.get('exp')) > Date.now());
+// The expired card and the clock are real code now; the two mirrors that stood here copied the old
+// SAVE10 and 10% logic into the test and checked their own strings.
+test('an expired recovery link applies no code and makes no claim about an order', async () => {
+  const html = await renderUpsell(upsellPage({ discountCode: 'WELCOME20', discountPercentage: 20 }), {
+    coupon: 'WELCOME20', ref: 'recovery', email: 'a@b.co', exp: String(Date.now() - 5000)
+  });
+  assert.match(html, /This Private Courtesy Offer Has Expired/);
+  assert.ok(!html.includes('id="jv-recovery-banner"'));
+  assert.ok(!html.includes('discount='), 'the cart link carries no code');
+  assert.doesNotMatch(html, /20% off/);
+  assert.doesNotMatch(html, /fulfillment queue|tracking details|order is confirmed/i, 'nothing on this page backs an order claim');
+  assert.match(html, /href="\/p\/offer\/thank-you"[^>]*>\s*Continue\s*<\/a>/);
 });
 
-test('Option 1: expired courtesy offer renders informative fallback message and suppresses discount', () => {
-  const queryExpPast = Date.now() - 5000; // 5 seconds in the past
-  const queryCoupon = 'SAVE10';
-  const isCourtesyRecovery = true;
-
-  const isCourtesyExpired = isCourtesyRecovery && queryExpPast && Date.now() > queryExpPast;
-  assert.equal(isCourtesyExpired, true);
-
-  const rawProductPrice = '$40.00';
-  const regularPrice = '$50.00';
-  const numericBasePrice = 40;
-
-  let finalPriceStr = rawProductPrice;
-  let recordedAmount = numericBasePrice;
-
-  // When expired, courtesy discount is suppressed
-  if (isCourtesyRecovery && numericBasePrice > 0 && !isCourtesyExpired) {
-    const discountedNum = Number((numericBasePrice * 0.9).toFixed(2));
-    finalPriceStr = `$${discountedNum.toFixed(2)}`;
-    recordedAmount = discountedNum;
-  }
-
-  assert.equal(finalPriceStr, '$40.00');
-  assert.equal(recordedAmount, 40);
-
-  // Expired fallback card content
-  const expiredCardTitle = 'This Private Courtesy Offer Has Expired';
-  const expiredBadge = 'Courtesy Window Concluded';
-  const expiredActionText = 'Continue to My Order Confirmation';
-
-  assert.ok(expiredCardTitle.includes('Expired'));
-  assert.ok(expiredBadge.includes('Courtesy Window Concluded'));
-  assert.ok(expiredActionText.includes('Order Confirmation'));
+test('a code with no known expiry gets no clock and cannot "expire" in the browser', async () => {
+  const html = await renderUpsell(upsellPage(), { coupon: 'FRIEND5', ref: 'recovery' });
+  assert.match(html, /id="jv-recovery-banner"/);
+  assert.ok(!html.includes('jv-recovery-timer'), 'no countdown without an expiry');
+  assert.ok(!html.includes('sessionStorage'), 'the page no longer starts its own 24 hours');
+  assert.ok(!html.includes('24:00:00'));
 });
 
+test('a known expiry shows its real time left', async () => {
+  const exp = Date.now() + 5 * 3600000 + 30 * 60000;
+  const html = await renderUpsell(upsellPage(), { coupon: 'FRIEND5', ref: 'recovery', exp: String(exp) });
+  assert.match(html, /Link expires in:/);
+  assert.match(html, /id="jv-recovery-timer"[^>]*>05:(29|30):\d\d</);
+  assert.match(html, new RegExp(`var recoveryExp = ${exp};`));
+});
 
+function inlineScripts(html) {
+  return [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+}
 
+test('a link cannot close the page\'s script: query values are written as safe JS literals', async () => {
+  const email = '</script><script>alert(1)</script>';
+  const html = await renderUpsell(upsellPage(), { coupon: 'X', ref: 'recovery', email });
+  assert.ok(!html.includes('<script>alert(1)'), 'the injected tag is not in the page');
+  for (const src of inlineScripts(html)) new Function(src); // every inline script still parses
+  // The value survives intact for the page's own use.
+  assert.ok(html.includes('"\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e"'));
+});
+
+test('a referral code ending in a backslash no longer breaks the landing page script', async () => {
+  const { renderPublicFunnelHtml } = await import('./server/routes/publicRoutes.mjs');
+  const page = { slug: 'offer', data: { headline: 'H', buttonText: 'Go' }, shopifyConfig: {} };
+  const html = renderPublicFunnelHtml(page, { query: { ref: 'ab\\' }, headers: {}, params: {}, cookies: {} }, { cookie() {}, setHeader() {} });
+  const scripts = inlineScripts(html);
+  assert.ok(scripts.length > 0);
+  for (const src of scripts) new Function(src);
+  assert.match(html, /const referralCode = "ab\\\\";/);
+});

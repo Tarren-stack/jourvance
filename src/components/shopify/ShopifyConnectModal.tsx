@@ -25,6 +25,7 @@ import {
   type WebhookHealthData,
   type WebhookDeliveryReceipt
 } from '../../lib/shopifyClient';
+import { ModalDialog } from '../modals/ModalDialog';
 
 interface Props {
   isOpen: boolean;
@@ -33,6 +34,9 @@ interface Props {
   onWorkspaceUpdated: (updated: Workspace) => void;
   onOpenBilling?: () => void;
 }
+
+// Names the dialog: ModalDialog's aria-labelledby points at the visible heading.
+const TITLE_ID = 'jv-shopify-connect-title';
 
 export const ShopifyConnectModal: React.FC<Props> = ({
   isOpen,
@@ -219,19 +223,7 @@ export const ShopifyConnectModal: React.FC<Props> = ({
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(5, 5, 8, 0.85)',
-        backdropFilter: 'blur(8px)',
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px'
-      }}
-    >
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={720} fallbackFocusSelectors={['#journey-map']}>
       <div
         style={{
           width: '100%',
@@ -274,7 +266,7 @@ export const ShopifyConnectModal: React.FC<Props> = ({
               <ShoppingBag size={22} />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
+              <h3 id={TITLE_ID} style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
                 Shopify Integration & Telemetry
               </h3>
               <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>
@@ -284,6 +276,7 @@ export const ShopifyConnectModal: React.FC<Props> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             style={{
               background: 'transparent',
               border: 'none',
@@ -439,7 +432,7 @@ export const ShopifyConnectModal: React.FC<Props> = ({
                           <span style={{ color: topic.registered ? '#34d399' : '#9ca3af' }}>{topic.registered ? 'Registered' : 'Not registered'}</span>
                           {' '}{topic.topic}{' '}
                           <code style={{ color: '#93c5fd' }}>{topic.path}</code>
-                          {topic.detail ? ` — ${topic.detail}` : ''}
+                          {topic.detail ? `: ${topic.detail}` : ''}
                         </li>
                       ))}
                     </ul>
@@ -534,10 +527,11 @@ export const ShopifyConnectModal: React.FC<Props> = ({
 
               <form onSubmit={handleConnect} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#e5e7eb', marginBottom: '6px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#e5e7eb', marginBottom: '6px' }} htmlFor="shopify-store-domain">
                     Shopify Store Domain
                   </label>
                   <input
+                    id="shopify-store-domain"
                     type="text"
                     placeholder="e.g. yourbrand.myshopify.com"
                     value={storeDomain}
@@ -889,6 +883,7 @@ export const ShopifyConnectModal: React.FC<Props> = ({
 
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
                   <select
+                    aria-label="Webhook event to simulate"
                     value={selectedTopic}
                     onChange={(e) => setSelectedTopic(e.target.value)}
                     style={{
@@ -1112,6 +1107,6 @@ export const ShopifyConnectModal: React.FC<Props> = ({
           )}
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 };

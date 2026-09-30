@@ -14,6 +14,31 @@ export interface EcomBlueprint {
   edges: JourneyEdge[];
 }
 
+// A blueprint opens exactly where these positions put its cards (the Tidy layout never runs on
+// load), so a card under another one must start below that upper card and its bottom handles,
+// plus room for the line and its pill between them. At 240 to 280 px apart the cards had grown
+// over each other and the lower card covered the "Left checkout" and "Rescue flow" handles, so a
+// drag from them moved the card instead of making a line (C01). The room is taken from the UPPER
+// card's kind and not from the tallest card of all: one pitch sized for the upsell pushed the
+// short sequence rows 230 px down, the map grew taller, and the first fit put the top row's line
+// pills under the map toolbar and the corner cards under the legend and the minimap.
+// BLUEPRINT_CARD_HEIGHTS is the tallest card of each kind in the shipped blueprints, top to its
+// lowest handle, measured in Chrome at 1440x900 on 2026-09-29. Two cards in the same column (x
+// less than BLUEPRINT_CARD_MAX_WIDTH apart) sit at least the upper card's height plus
+// BLUEPRINT_LINE_ROOM apart; blueprint-spacing.test.mjs holds that, and npm run check:canvas
+// opens every blueprint in Chrome and fails on a card over a handle, over another card or under
+// a map overlay, and on a line pill a pointer cannot reach.
+export const BLUEPRINT_CARD_HEIGHTS: Record<string, number> = {
+  'ad-source': 218,
+  'landing-page': 328,
+  'lead-form': 209,
+  'follow-up-sequence': 280,
+  'thank-you': 336,
+  upsell: 375
+};
+export const BLUEPRINT_LINE_ROOM = 60;
+export const BLUEPRINT_CARD_MAX_WIDTH = 300;
+
 export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
   {
     id: 'single-product-flash-drop',
@@ -40,7 +65,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
           impressions: 14200,
           clicks: 680,
           ctr: 4.8,
-          spend: 340
+          spend: 0
         }
       },
       {
@@ -59,7 +84,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
             'Free express priority shipping and dedicated 24/7 customer care'
           ],
           trustBadge: 'Rated 4.9/5 stars by over 1,400+ verified customers worldwide',
-          buttonText: 'Order Now — Instant Checkout',
+          buttonText: 'Order Now, Instant Checkout',
           discountCode: 'WELCOME20',
           checkoutMode: 'direct',
           shopifyProductId: '',
@@ -109,7 +134,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       {
         id: 'bp1-ty',
         type: 'thank-you',
-        position: { x: 800, y: 360 },
+        position: { x: 800, y: 490 },
         data: {
           type: 'thank-you',
           label: 'Order Confirmation & VIP Pass',
@@ -163,7 +188,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
           impressions: 11000,
           clicks: 520,
           ctr: 4.7,
-          spend: 480
+          spend: 0
         }
       },
       {
@@ -194,7 +219,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       {
         id: 'bp2-form',
         type: 'lead-form',
-        position: { x: 420, y: 380 },
+        position: { x: 420, y: 530 },
         data: {
           type: 'lead-form',
           label: 'Intake Application Form',
@@ -248,7 +273,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       {
         id: 'bp2-ty',
         type: 'thank-you',
-        position: { x: 800, y: 380 },
+        position: { x: 800, y: 530 },
         data: {
           type: 'thank-you',
           label: 'Booking Confirmed Portal',
@@ -301,7 +326,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
           impressions: 28000,
           clicks: 1350,
           ctr: 4.82,
-          spend: 540
+          spend: 0
         }
       },
       {
@@ -320,7 +345,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
             'Full 30-day no-questions-asked satisfaction guarantee'
           ],
           trustBadge: 'Used by over 3,200+ professionals across 40+ countries',
-          buttonText: 'Enroll Now — Instant Download',
+          buttonText: 'Enroll Now, Instant Download',
           discountCode: 'EARLYBIRD',
           checkoutMode: 'direct',
           shopifyProductId: '',
@@ -378,12 +403,12 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       {
         id: 'bp3-ty',
         type: 'thank-you',
-        position: { x: 800, y: 360 },
+        position: { x: 800, y: 490 },
         data: {
           type: 'thank-you',
           label: 'Digital Delivery & Access Portal',
           slug: 'digital-mastery-pass',
-          headline: 'Welcome to the Program — Your Access is Active',
+          headline: 'Welcome to the Program. Your Access is Active',
           subhead: 'Your account has been provisioned and your receipt has been dispatched to your email.',
           badgeText: 'Verified Member',
           bounceBackDiscountCode: 'MEMBER20',
@@ -432,7 +457,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
           impressions: 22000,
           clicks: 980,
           ctr: 4.45,
-          spend: 420
+          spend: 0
         }
       },
       {
@@ -505,7 +530,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       {
         id: 'bp4-ty',
         type: 'thank-you',
-        position: { x: 800, y: 360 },
+        position: { x: 800, y: 490 },
         data: {
           type: 'thank-you',
           label: 'Download Delivery Portal',
@@ -559,7 +584,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
           impressions: 24000,
           clicks: 1100,
           ctr: 4.6,
-          spend: 520
+          spend: 0
         }
       },
       {
@@ -578,7 +603,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
             'Priority courier delivery included with every order'
           ],
           trustBadge: 'Rated 4.9/5 stars by over 2,400+ verified customers',
-          buttonText: 'Order Core Bundle — Instant Checkout',
+          buttonText: 'Order Core Bundle, Instant Checkout',
           discountCode: 'WELCOME20',
           checkoutMode: 'direct',
           shopifyProductId: '',
@@ -624,7 +649,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       {
         id: 'bp5-downsell',
         type: 'upsell',
-        position: { x: 740, y: 380 },
+        position: { x: 740, y: 580 },
         data: {
           type: 'upsell',
           label: 'Downsell Alternative',
@@ -678,9 +703,9 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     edges: [
       { id: 'e-bp5-1', source: 'bp5-ad', target: 'bp5-page', data: { sourceThroughput: 1100, targetCount: 1100, rate: 100 } },
       { id: 'e-bp5-2', source: 'bp5-page', target: 'bp5-upsell', data: { sourceThroughput: 1100, targetCount: 165, rate: 15.0 } },
-      { id: 'e-bp5-3', source: 'bp5-upsell', target: 'bp5-downsell', data: { sourceThroughput: 107, targetCount: 107, rate: 100 } },
-      { id: 'e-bp5-4', source: 'bp5-upsell', target: 'bp5-ty', data: { sourceThroughput: 58, targetCount: 58, rate: 100 } },
-      { id: 'e-bp5-5', source: 'bp5-downsell', target: 'bp5-ty', data: { sourceThroughput: 107, targetCount: 107, rate: 100 } }
+      { id: 'e-bp5-3', source: 'bp5-upsell', target: 'bp5-downsell', sourceHandle: 'declined', data: { sourceHandle: 'declined', sourceThroughput: 107, targetCount: 107, rate: 100 } },
+      { id: 'e-bp5-4', source: 'bp5-upsell', target: 'bp5-ty', sourceHandle: 'accepted', data: { sourceHandle: 'accepted', sourceThroughput: 58, targetCount: 58, rate: 100 } },
+      { id: 'e-bp5-5', source: 'bp5-downsell', target: 'bp5-ty', sourceHandle: 'accepted', data: { sourceHandle: 'accepted', sourceThroughput: 107, targetCount: 107, rate: 100 } }
     ]
   },
   {
@@ -708,7 +733,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
           impressions: 32000,
           clicks: 1480,
           ctr: 4.6,
-          spend: 680
+          spend: 0
         }
       },
       {
@@ -727,7 +752,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
             'Includes personalized concierge guidance and insured priority dispatch'
           ],
           trustBadge: 'Handcrafted in small batches with sustainably sourced botanical extracts',
-          buttonText: 'Claim Your Radiance Set — Instant Checkout',
+          buttonText: 'Claim Your Radiance Set, Instant Checkout',
           discountCode: 'WELCOME10',
           checkoutMode: 'direct',
           shopifyProductId: '',
@@ -767,7 +792,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
           productImage: 'https://images.unsplash.com/photo-1608248597359-54859e9177a4?auto=format&fit=crop&w=600&q=80',
           benefits: [
             'Evening lipid barrier support that works in synergy with your daytime ritual',
-            'Zero additional shipping fee — packed directly into your primary parcel',
+            'Zero additional shipping fee, packed directly into your primary parcel',
             'Small-batch botanical formula bottled fresh'
           ],
           acceptButtonText: 'Yes! Add Overnight Elixir to My Order ($38.00)',
@@ -809,7 +834,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       {
         id: 'bp6-cart-recovery',
         type: 'follow-up-sequence',
-        position: { x: 420, y: 440 },
+        position: { x: 420, y: 600 },
         data: {
           type: 'follow-up-sequence',
           label: 'Cart Abandonment Recovery',
@@ -846,7 +871,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
       {
         id: 'bp6-upsell-rescue',
         type: 'follow-up-sequence',
-        position: { x: 790, y: 440 },
+        position: { x: 790, y: 600 },
         data: {
           type: 'follow-up-sequence',
           label: '24h Courtesy Rescue (Upsell Decline)',
@@ -875,7 +900,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     ],
     edges: [
       { id: 'e-bp6-1', source: 'bp6-ad', target: 'bp6-page', data: { sourceThroughput: 1480, targetCount: 1480, rate: 100 } },
-      { id: 'e-bp6-2', source: 'bp6-page', target: 'bp6-upsell', sourceHandle: 'accepted', data: { sourceThroughput: 1480, targetCount: 236, rate: 15.9, sourceHandle: 'accepted' } },
+      { id: 'e-bp6-2', source: 'bp6-page', target: 'bp6-upsell', data: { sourceThroughput: 1480, targetCount: 236, rate: 15.9 } },
       { id: 'e-bp6-3', source: 'bp6-page', target: 'bp6-cart-recovery', sourceHandle: 'abandon', targetHandle: 'retention-in', data: { isRetentionEdge: true, sourceHandle: 'abandon', targetHandle: 'retention-in', sourceThroughput: 1244, targetCount: 380, rate: 30.5 } },
       { id: 'e-bp6-4', source: 'bp6-upsell', target: 'bp6-ty', sourceHandle: 'accepted', data: { sourceHandle: 'accepted', sourceThroughput: 236, targetCount: 94, rate: 39.8 } },
       { id: 'e-bp6-5', source: 'bp6-upsell', target: 'bp6-upsell-rescue', sourceHandle: 'rescue', targetHandle: 'retention-in', data: { isRetentionEdge: true, sourceHandle: 'rescue', targetHandle: 'retention-in', sourceThroughput: 142, targetCount: 142, rate: 100 } },

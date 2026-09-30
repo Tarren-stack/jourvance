@@ -241,14 +241,14 @@ export function simulateTestPing({ wsId, shopifyConfig, topic = 'orders/create' 
       currency: 'USD',
       email: 'test-shopper@jourvance.store',
       line_items: [
-        { title: 'Velvet Botanical Night Balm (Test)', price: '64.00', quantity: 1 }
+        { title: 'Test product (Test)', price: '64.00', quantity: 1 }
       ]
     };
   } else if (topic.includes('product')) {
     mockBody = {
       id: 9918239,
-      title: 'Rose Glow Peptide Serum (Test)',
-      handle: 'rose-glow-serum',
+      title: 'Test product (Test)',
+      handle: 'test-product',
       variants: [{ id: 4410293, title: 'Default', price: '49.00' }]
     };
   } else {
@@ -261,7 +261,7 @@ export function simulateTestPing({ wsId, shopifyConfig, topic = 'orders/create' 
       currency: 'USD',
       financial_status: 'paid',
       line_items: [
-        { title: 'Rose Glow Peptide Serum (Test)', price: '49.00', quantity: 1 }
+        { title: 'Test product (Test)', price: '49.00', quantity: 1 }
       ],
       customer: {
         first_name: 'Test',

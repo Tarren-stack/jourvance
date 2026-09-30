@@ -68,8 +68,34 @@ export function setupDomainRoutes(app, ctx) {
     verifyDomainOwnership,
     getDomainVerificationToken,
     publicPageCache,
-    persistPublicPages
+    persistPublicPages,
+    persistDomainRegistry
   } = ctx;
+
+  // Once a domain verifies, a published page already asking for it is served on it at once. A
+  // domain is verified per user, not per journey, so this never moves a domain already serving
+  // one of the user's pages (verifying again from another journey handed it to that journey's page
+  // with no warning), and it picks a page only when one journey asks for the domain: the asking
+  // journey when the caller names it, otherwise the journey it was last verified from when that
+  // journey still asks for it, otherwise the only one. Anything else waits for a publish, whose
+  // address check refuses a domain another journey is live on. A page the pointer was left on
+  // after the user took the domain off it holds nothing, so the domain moves.
+  const asksFor = (page, domain) =>
+    String(page.customDomain || page.data?.customDomain || '').toLowerCase().trim() === domain;
+  const activateDomain = (domain, uid, journeyId, storedJourneyId) => {
+    const pointerKey = `domain:${domain}`;
+    const held = publicPageCache[publicPageCache[pointerKey]];
+    if (held && typeof held === 'object' && held.userId === uid && asksFor(held, domain)) return;
+    const userAsking = Object.entries(publicPageCache).filter(([, page]) =>
+      page && typeof page === 'object' && page.userId === uid && asksFor(page, domain));
+    const ofJourney = (id) => userAsking.filter(([, page]) => String(page.journeyId || '') === id);
+    const asking = journeyId
+      ? ofJourney(journeyId)
+      : (storedJourneyId && ofJourney(storedJourneyId).length ? ofJourney(storedJourneyId) : userAsking);
+    if (!asking.length || new Set(asking.map(([, page]) => String(page.journeyId || ''))).size !== 1) return;
+    publicPageCache[pointerKey] = asking[0][0];
+    persistPublicPages();
+  };
 
   // Real-time custom domain verification
   app.get('/api/domain/verify', requireUser, async (req, res) => {
@@ -78,21 +104,30 @@ export function setupDomainRoutes(app, ctx) {
       return res.status(400).json({ success: false, error: 'A valid subdomain is required (e.g. offer.yourbrand.com).' });
     }
 
-    const result = await verifyDomainOwnership(domain, req.user.uid);
-    if (result.verified) {
-      // If user has published pages using this custom domain, immediately activate domain routing
-      for (const [slug, page] of Object.entries(publicPageCache)) {
-        if (page && typeof page === 'object' && page.userId === req.user.uid) {
-          const pageDomain = (page.customDomain || page.data?.customDomain || '').toLowerCase().trim();
-          if (pageDomain === domain) {
-            publicPageCache[`domain:${domain}`] = slug;
-            persistPublicPages();
-            break;
-          }
-        }
-      }
+    // The journey the check was made from (the page editor's Check DNS names it, as the address
+    // check does). A verified domain records it, so an older client's check that names none still
+    // goes to that journey's page rather than to whichever journey asks. verifyDomainOwnership
+    // writes a fresh record, so the journey already recorded is read before it runs.
+    const uid = req.user.uid;
+    const journeyId = String(req.query.journeyId || '').trim().slice(0, 200);
+    reloadDomainRegistry();
+    const before = domainRegistryCache[domain];
+    const recordedJourneyId = before && typeof before === 'object' && before.userId === uid
+      ? String(before.journeyId || '')
+      : '';
+    const result = await verifyDomainOwnership(domain, uid);
+    if (!result.verified) return res.json(result);
+    const reg = domainRegistryCache[domain];
+    const ownRecord = Boolean(reg && typeof reg === 'object' && reg.verified && reg.userId === uid);
+    const tiedJourneyId = journeyId || recordedJourneyId;
+    // Stored only where it survives: the registry file is reread on every route, so an unsaved
+    // field would be gone by the next request.
+    if (ownRecord && tiedJourneyId && reg.journeyId !== tiedJourneyId && typeof persistDomainRegistry === 'function') {
+      reg.journeyId = tiedJourneyId;
+      persistDomainRegistry();
     }
-    return res.json(result);
+    activateDomain(domain, uid, journeyId, ownRecord ? recordedJourneyId : '');
+    return res.json(ownRecord && reg.journeyId ? { ...result, journeyId: reg.journeyId } : result);
   });
 
   // Pre-flight challenge token generation & retrieval

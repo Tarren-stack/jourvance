@@ -15,18 +15,35 @@ import {
   ChevronRight,
   HelpCircle
 } from 'lucide-react';
-import type { JourneyNode, FunnelForecast } from '../../types/journey';
+import type { JourneyNode, JourneyEdge, FunnelForecast } from '../../types/journey';
+// This drawer is written in utility classes; Jourvance has no Tailwind, so they come from a
+// generated stylesheet scoped to .jv-utility (scripts/build-drawer-css.mjs).
+import '../../styles/drawerUtilities.css';
 import { 
   DEFAULT_FORECAST, 
   SCENARIO_PRESETS, 
   extractPricingFromNodes, 
-  calculateFunnelForecast 
+  calculateFunnelForecast,
+  retentionFlowsThatFit,
+  sellsThroughCheckout
 } from '../../lib/funnelForecaster';
+import { useDialogFocus } from '../../lib/a11yHooks';
+
+// Every slider is a 24px tall target (WCAG 2.5.8) that draws its 6px track in the middle. The
+// h-1.5 track used to be the whole input, so at 390px the order bump slider sat 6px tall and too
+// close to its neighbours (#19, check:canvas). Inline because the generated stylesheet has no
+// class for a centred background band.
+const SLIDER_STYLE: React.CSSProperties = {
+  height: 24,
+  background: 'linear-gradient(rgb(30 41 59), rgb(30 41 59)) center / 100% 6px no-repeat'
+};
 
 interface FinancialSimulatorDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   nodes: JourneyNode[];
+  /** The journey's lines. With them, a sequence is offered only while its step's exit is free. */
+  edges?: JourneyEdge[];
   initialForecast?: FunnelForecast;
   onSaveForecast: (forecast: FunnelForecast) => void;
   onSyncRetentionToCanvas?: (options: { addCartRecovery?: boolean; addUpsellRescue?: boolean }) => void;
@@ -36,12 +53,21 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
   isOpen,
   onClose,
   nodes,
+  edges,
   initialForecast,
   onSaveForecast,
   onSyncRetentionToCanvas
 }) => {
   // Extract pricing info once from canvas nodes
   const extractedNodes = useMemo(() => extractPricingFromNodes(nodes), [nodes]);
+  // The sequences Sync to Canvas may add: only one that a step leads to, by the same rule as the
+  // store checks' fix (R12). A lead journey has no checkout to leave and no upsell to decline.
+  const retentionFit = useMemo(() => retentionFlowsThatFit(nodes, edges), [nodes, edges]);
+  const fitCount = (retentionFit.cartRecovery ? 1 : 0) + (retentionFit.upsellRescue ? 1 : 0);
+  const cartUnfitReason = sellsThroughCheckout(nodes.find(n => n.data?.type === 'landing-page'))
+    ? 'Left checkout exit in use'
+    : 'Needs a page with a product or checkout link';
+  const rescueUnfitReason = nodes.some(n => n.data?.type === 'upsell') ? 'Rescue exit in use' : 'Needs an upsell step';
 
   // One-click retention sync feedback state
   const [syncToast, setSyncToast] = useState<string | null>(null);
@@ -77,6 +103,10 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
 
   // Compute real-time simulation metrics
   const sim = useMemo(() => calculateFunnelForecast(forecast), [forecast]);
+
+  // A modal dialog: focus moves to the heading, Tab stays inside, Escape closes only this, and
+  // focus returns to what opened it (the map region when that is gone). Above the early return.
+  const panelRef = useDialogFocus<HTMLDivElement>(isOpen, onClose, { modal: true, fallbackFocusId: 'journey-map' });
 
   if (!isOpen) return null;
 
@@ -195,39 +225,57 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm flex justify-end transition-opacity">
-      <div className="w-full max-w-4xl bg-slate-900 border-l border-slate-800 h-full flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-right duration-200">
+    <div className="jv-utility fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm flex justify-end transition-opacity">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="jv-forecaster-title"
+        className="w-full max-w-4xl bg-slate-900 border-l border-slate-800 h-full flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-right duration-200"
+      >
         
         {/* Drawer Header */}
-        <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur flex items-center justify-between shrink-0">
+        <div className="px-4 md:px-6 py-3 md:py-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur flex items-start md:items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 hidden md:flex items-center justify-center shadow-lg shadow-emerald-500/20">
               <TrendingUp className="w-5 h-5 text-slate-950 font-bold" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-white tracking-tight">Funnel Economics & ROAS Forecaster</h2>
-                <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <h2 id="jv-forecaster-title" tabIndex={-1} data-dialog-start className="text-base md:text-lg font-bold text-white tracking-tight">Funnel Economics & ROAS Forecaster</h2>
+                <span className="hidden md:block text-[11px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                   Pre-Flight Simulator
                 </span>
               </div>
               <p className="text-xs text-slate-400">
                 Model traffic volume, AOV expansion, and breakeven margins before launching paid ads.
               </p>
+              <button
+                type="button"
+                onClick={handleSyncFromCanvas}
+                title="Pull prices from active canvas nodes"
+                className="md:hidden mt-2 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-lg transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-rose-400" />
+                <span>Sync Canvas Prices</span>
+              </button>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handleSyncFromCanvas}
               title="Pull prices from active canvas nodes"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-lg transition"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-lg transition"
             >
               <RefreshCw className="w-3.5 h-3.5 text-rose-400" />
               <span>Sync Canvas Prices</span>
             </button>
             <button
+              type="button"
               onClick={onClose}
+              aria-label="Close ROAS Forecaster"
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
             >
               <X className="w-5 h-5" />
@@ -237,19 +285,21 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
 
         {/* Sync Notice Alert */}
         {syncNotice && (
-          <div className="px-6 py-2 bg-emerald-950/60 border-b border-emerald-800/40 text-xs text-emerald-300 flex items-center gap-2">
+          <div className="px-4 md:px-6 py-2 bg-emerald-950/60 border-b border-emerald-800/40 text-xs text-emerald-300 flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
             <span>{syncNotice}</span>
           </div>
         )}
 
         {/* Scenario Presets Bar */}
-        <div className="px-6 py-3 bg-slate-950/60 border-b border-slate-800/60 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Presets:</span>
-            <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-800">
+        <div className="px-4 md:px-6 py-3 bg-slate-950/60 border-b border-slate-800/60 flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4">
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-2">
+            <span id="jv-forecaster-presets" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Presets:</span>
+            <div role="group" aria-labelledby="jv-forecaster-presets" className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-800">
               <button
+                type="button"
                 onClick={() => applyPreset('conservative')}
+                aria-pressed={activePreset === 'conservative'}
                 className={`px-2.5 py-1 text-xs font-medium rounded-md transition ${
                   activePreset === 'conservative' 
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' 
@@ -259,7 +309,9 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 Conservative
               </button>
               <button
+                type="button"
                 onClick={() => applyPreset('target')}
+                aria-pressed={activePreset === 'target'}
                 className={`px-2.5 py-1 text-xs font-medium rounded-md transition ${
                   activePreset === 'target' 
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm' 
@@ -269,7 +321,9 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 Example rates
               </button>
               <button
+                type="button"
                 onClick={() => applyPreset('aggressive')}
+                aria-pressed={activePreset === 'aggressive'}
                 className={`px-2.5 py-1 text-xs font-medium rounded-md transition ${
                   activePreset === 'aggressive' 
                     ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm' 
@@ -281,8 +335,8 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
             </div>
           </div>
 
-          <div className="text-right">
-            <span className="text-[11px] text-slate-500 italic">
+          <div className="text-left md:text-right">
+            <span className="text-[11px] text-slate-400 italic">
               {activePreset !== 'custom' 
                 ? SCENARIO_PRESETS[activePreset].description 
                 : 'Custom user-adjusted assumptions'}
@@ -294,7 +348,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
         <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x divide-slate-800">
           
           {/* LEFT COLUMN: Input Sliders & Controls (5 Cols) */}
-          <div className="p-6 md:col-span-5 space-y-6 overflow-y-auto bg-slate-900/40">
+          <div className="p-4 md:p-6 md:col-span-5 space-y-6 md:overflow-y-auto bg-slate-900/40">
             
             {/* Section 1: Traffic & Ad Spend */}
             <div className="space-y-4">
@@ -311,7 +365,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               {/* Monthly Ad Budget */}
               <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/70 space-y-2">
                 <div className="flex justify-between items-center text-xs">
-                  <label htmlFor="ad-spend-input" className="text-slate-400 font-medium">Monthly Ad Budget</label>
+                  <label id="ad-spend-label" htmlFor="ad-spend-input" className="text-slate-400 font-medium">Monthly Ad Budget</label>
                   <div className="flex items-center gap-1 font-mono font-bold text-white text-sm">
                     <span>$</span>
                     <input
@@ -328,14 +382,16 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 </div>
                 <input
                   type="range"
+                  aria-labelledby="ad-spend-label"
                   min="200"
                   max="30000"
                   step="100"
                   value={forecast.monthlyAdSpend}
                   onChange={e => updateField('monthlyAdSpend', parseFloat(e.target.value))}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                  className="w-full appearance-none cursor-pointer accent-emerald-500"
+                  style={SLIDER_STYLE}
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                <div className="flex justify-between text-[11px] text-slate-400 font-mono">
                   <span>$200</span>
                   <span>$15,000</span>
                   <span>$30,000</span>
@@ -345,7 +401,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               {/* Average CPC */}
               <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/70 space-y-2">
                 <div className="flex justify-between items-center text-xs">
-                  <label htmlFor="cpc-input" className="text-slate-400 font-medium">Average Cost Per Click (CPC)</label>
+                  <label id="cpc-label" htmlFor="cpc-input" className="text-slate-400 font-medium">Average Cost Per Click (CPC)</label>
                   <div className="flex items-center gap-1 font-mono font-bold text-white text-sm">
                     <span>$</span>
                     <input
@@ -362,14 +418,16 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 </div>
                 <input
                   type="range"
+                  aria-labelledby="cpc-label"
                   min="0.20"
                   max="6.00"
                   step="0.05"
                   value={forecast.cpc}
                   onChange={e => updateField('cpc', parseFloat(e.target.value))}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                  className="w-full appearance-none cursor-pointer accent-emerald-500"
+                  style={SLIDER_STYLE}
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                <div className="flex justify-between text-[11px] text-slate-400 font-mono">
                   <span>$0.20</span>
                   <span>$3.00</span>
                   <span>$6.00</span>
@@ -392,7 +450,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               {/* Conversion Rate */}
               <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/70 space-y-2">
                 <div className="flex justify-between items-center text-xs">
-                  <label htmlFor="cvr-input" className="text-slate-400 font-medium">Landing Page Conversion Rate</label>
+                  <label id="cvr-label" htmlFor="cvr-input" className="text-slate-400 font-medium">Landing Page Conversion Rate</label>
                   <div className="flex items-center gap-1 font-mono font-bold text-white text-sm">
                     <input
                       id="cvr-input"
@@ -409,14 +467,16 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 </div>
                 <input
                   type="range"
+                  aria-labelledby="cvr-label"
                   min="0.5"
                   max="10.0"
                   step="0.1"
                   value={forecast.conversionRate}
                   onChange={e => updateField('conversionRate', parseFloat(e.target.value))}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                  className="w-full appearance-none cursor-pointer accent-rose-500"
+                  style={SLIDER_STYLE}
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                <div className="flex justify-between text-[11px] text-slate-400 font-mono">
                   <span>0.5%</span>
                   <span>5.0%</span>
                   <span>10.0%</span>
@@ -426,7 +486,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               {/* Core Product Price */}
               <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/70 space-y-2">
                 <div className="flex justify-between items-center text-xs">
-                  <label htmlFor="core-price-input" className="text-slate-400 font-medium">Core Product Price</label>
+                  <label id="core-price-label" htmlFor="core-price-input" className="text-slate-400 font-medium">Core Product Price</label>
                   <div className="flex items-center gap-1 font-mono font-bold text-white text-sm">
                     <span>$</span>
                     <input
@@ -443,12 +503,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 </div>
                 <input
                   type="range"
+                  aria-labelledby="core-price-label"
                   min="10"
                   max="250"
                   step="1"
                   value={forecast.corePrice}
                   onChange={e => updateField('corePrice', parseFloat(e.target.value))}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                  className="w-full appearance-none cursor-pointer accent-rose-500"
+                  style={SLIDER_STYLE}
                 />
               </div>
 
@@ -456,7 +518,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/70 space-y-2">
                 <div className="flex justify-between items-center text-xs">
                   <div className="flex items-center gap-1.5 text-slate-400 font-medium">
-                    <label htmlFor="cogs-input">Product COGS & Fulfillment</label>
+                    <label id="cogs-label" htmlFor="cogs-input">Product COGS & Fulfillment</label>
                     <span title="Cost of Goods Sold (inventory manufacturing, packaging, and shipping). Digital/SaaS is typically 0% to 10%." className="cursor-help">
                       <HelpCircle className="w-3 h-3 text-slate-500" />
                     </span>
@@ -477,12 +539,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 </div>
                 <input
                   type="range"
+                  aria-labelledby="cogs-label"
                   min="0"
                   max="60"
                   step="1"
                   value={forecast.cogsPercentage}
                   onChange={e => updateField('cogsPercentage', parseFloat(e.target.value))}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-slate-400"
+                  className="w-full appearance-none cursor-pointer accent-slate-400"
+                  style={SLIDER_STYLE}
                 />
               </div>
             </div>
@@ -501,7 +565,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                       <span>Checkout Order Bump</span>
                       {extractedNodes.hasBump && (
-                        <span className="text-[10px] text-amber-400 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+                        <span className="text-[11px] text-amber-400 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
                           {extractedNodes.bumpTitle ? `Canvas: ${extractedNodes.bumpTitle}` : 'On Canvas'}
                         </span>
                       )}
@@ -513,12 +577,13 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                       <span>$</span>
                       <input
                         type="number"
+                        aria-label="Order bump price"
                         min="1"
                         max="200"
                         step="1"
                         value={forecast.bumpPrice}
                         onChange={e => updateField('bumpPrice', Math.max(0, parseFloat(e.target.value) || 0))}
-                        className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-right font-mono text-white text-xs"
+                        className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-1 text-right font-mono text-white text-xs"
                       />
                     </div>
                   </div>
@@ -531,12 +596,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   </div>
                   <input
                     type="range"
+                    aria-label="Order bump take rate"
                     min="0"
                     max="60"
                     step="1"
                     value={forecast.bumpTakeRate}
                     onChange={e => updateField('bumpTakeRate', parseFloat(e.target.value))}
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                    className="w-full appearance-none cursor-pointer accent-amber-500"
+                    style={SLIDER_STYLE}
                   />
                 </div>
               </div>
@@ -548,12 +615,12 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                       <span>Post-Purchase Upsell (OTO)</span>
                       {extractedNodes.hasUpsell && (
-                        <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">
+                        <span className="text-[11px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">
                           {extractedNodes.upsellTitle ? `Canvas: ${extractedNodes.upsellTitle}` : 'On Canvas'}
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-500">1-Click offer shown after checkout</span>
+                    <span className="text-[11px] text-slate-400">1-Click offer shown after checkout</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-slate-400 font-mono">Price:</span>
@@ -561,12 +628,13 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                       <span>$</span>
                       <input
                         type="number"
+                        aria-label="Upsell price"
                         min="1"
                         max="500"
                         step="1"
                         value={forecast.upsellPrice}
                         onChange={e => updateField('upsellPrice', Math.max(0, parseFloat(e.target.value) || 0))}
-                        className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-right font-mono text-white text-xs"
+                        className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-1 text-right font-mono text-white text-xs"
                       />
                     </div>
                   </div>
@@ -579,12 +647,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   </div>
                   <input
                     type="range"
+                    aria-label="Upsell take rate"
                     min="0"
                     max="50"
                     step="1"
                     value={forecast.upsellTakeRate}
                     onChange={e => updateField('upsellTakeRate', parseFloat(e.target.value))}
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                    className="w-full appearance-none cursor-pointer accent-emerald-500"
+                    style={SLIDER_STYLE}
                   />
                 </div>
               </div>
@@ -596,12 +666,12 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                       <span>Downsell Offer (Downsell OTO)</span>
                       {extractedNodes.hasDownsell && (
-                        <span className="text-[10px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+                        <span className="text-[11px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
                           {extractedNodes.downsellTitle ? `Canvas: ${extractedNodes.downsellTitle}` : 'On Canvas'}
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-500">Offered to buyers who decline initial upsell</span>
+                    <span className="text-[11px] text-slate-400">Offered to buyers who decline initial upsell</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-slate-400 font-mono">Price:</span>
@@ -609,12 +679,13 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                       <span>$</span>
                       <input
                         type="number"
+                        aria-label="Downsell price"
                         min="1"
                         max="500"
                         step="1"
                         value={forecast.downsellPrice ?? 19}
                         onChange={e => updateField('downsellPrice', Math.max(0, parseFloat(e.target.value) || 0))}
-                        className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-right font-mono text-white text-xs"
+                        className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-1 text-right font-mono text-white text-xs"
                       />
                     </div>
                   </div>
@@ -627,12 +698,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   </div>
                   <input
                     type="range"
+                    aria-label="Downsell take rate"
                     min="0"
                     max="50"
                     step="1"
                     value={forecast.downsellTakeRate ?? 15}
                     onChange={e => updateField('downsellTakeRate', parseFloat(e.target.value))}
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                    className="w-full appearance-none cursor-pointer accent-amber-500"
+                    style={SLIDER_STYLE}
                   />
                 </div>
               </div>
@@ -647,7 +720,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     Automated Retention Safety Nets
                   </h3>
                 </div>
-                <span className="text-[10px] text-amber-400/90 font-medium px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800/40">
+                <span className="text-[11px] text-amber-400/90 font-medium px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800/40">
                   $0 Extra Ad Cost
                 </span>
               </div>
@@ -656,30 +729,29 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
               </p>
 
               {/* Option A: One-Click Retention Sync Banner */}
-              {((!extractedNodes.hasCartRecovery ? 1 : 0) + (!extractedNodes.hasUpsellRescue ? 1 : 0) > 0) && onSyncRetentionToCanvas && (
+              {fitCount > 0 && onSyncRetentionToCanvas && (
                 <div className="p-3.5 bg-gradient-to-r from-amber-950/50 via-amber-900/30 to-slate-900/60 border border-amber-500/40 rounded-xl flex items-center justify-between gap-3 shadow-sm">
                   <div className="space-y-0.5">
                     <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                      <span>✦ {(!extractedNodes.hasCartRecovery ? 1 : 0) + (!extractedNodes.hasUpsellRescue ? 1 : 0)} Retention Safety {(!extractedNodes.hasCartRecovery ? 1 : 0) + (!extractedNodes.hasUpsellRescue ? 1 : 0) === 1 ? 'Net' : 'Nets'} Missing on Canvas</span>
+                      <span>✦ {fitCount} Retention Safety {fitCount === 1 ? 'Net' : 'Nets'} Missing on Canvas</span>
                     </div>
                     <p className="text-[11px] text-slate-300">
-                      Drop pre-configured courtesy follow-up sequences directly onto your visual journey with $0 extra ad cost.
+                      Add draft follow-up sequences to your journey. You write each letter before anyone receives it.
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      const missingCount = (!extractedNodes.hasCartRecovery ? 1 : 0) + (!extractedNodes.hasUpsellRescue ? 1 : 0);
                       onSyncRetentionToCanvas({
-                        addCartRecovery: !extractedNodes.hasCartRecovery,
-                        addUpsellRescue: !extractedNodes.hasUpsellRescue
+                        addCartRecovery: retentionFit.cartRecovery,
+                        addUpsellRescue: retentionFit.upsellRescue
                       });
                       setSyncToast(
-                        missingCount === 2 
-                          ? 'Added Cart Recovery and 24h Upsell Rescue to journey canvas.' 
-                          : !extractedNodes.hasCartRecovery 
-                            ? 'Added Cart Abandonment Recovery flow to journey canvas.' 
-                            : 'Added 24h Courtesy Upsell Rescue flow to journey canvas.'
+                        fitCount === 2 
+                          ? 'Added cart recovery and upsell decline draft sequences to the canvas.' 
+                          : retentionFit.cartRecovery 
+                            ? 'Added a cart recovery draft sequence to the canvas.' 
+                            : 'Added an upsell decline draft sequence to the canvas.'
                       );
                     }}
                     className="shrink-0 px-3 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
@@ -706,25 +778,27 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     />
                     <label htmlFor="enable-cart-recovery" className="text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5">
                       <span>Cart Abandonment Recovery</span>
-                      {extractedNodes.hasCartRecovery ? (
-                        <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/50">
-                          Active on Canvas
-                        </span>
-                      ) : onSyncRetentionToCanvas ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onSyncRetentionToCanvas({ addCartRecovery: true });
-                            setSyncToast('Added Cart Abandonment Recovery flow to journey canvas.');
-                          }}
-                          className="text-[9px] text-amber-300 hover:text-amber-200 bg-amber-950/80 hover:bg-amber-900/80 border border-amber-600/50 px-2 py-0.5 rounded transition-all font-semibold"
-                        >
-                          ✦ Add to Canvas
-                        </button>
-                      ) : null}
                     </label>
+                    {extractedNodes.hasCartRecovery ? (
+                      <span className="text-[11px] font-bold text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/50">
+                        Active on Canvas
+                      </span>
+                    ) : onSyncRetentionToCanvas && retentionFit.cartRecovery ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onSyncRetentionToCanvas({ addCartRecovery: true });
+                          setSyncToast('Added a cart recovery draft sequence to the canvas.');
+                        }}
+                        className="text-[11px] text-amber-300 hover:text-amber-200 bg-amber-950/80 hover:bg-amber-900/80 border border-amber-600/50 px-2 py-0.5 rounded transition-all font-semibold"
+                      >
+                        ✦ Add to Canvas
+                      </button>
+                    ) : onSyncRetentionToCanvas ? (
+                      <span className="text-[11px] text-slate-400">{cartUnfitReason}</span>
+                    ) : null}
                   </div>
                   {forecast.cartRecoveryEnabled && (
                     <span className="text-xs font-mono font-bold text-amber-400">
@@ -738,18 +812,20 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center text-xs text-slate-400">
                         <span>Recovery Rate: {forecast.cartRecoveryRate ?? 18}%</span>
-                        <span className="text-[10px] text-slate-500 font-mono">
+                        <span className="text-[11px] text-slate-400 font-mono">
                           of ~{sim.abandonedCartCount} abandoned carts
                         </span>
                       </div>
                       <input
                         type="range"
+                        aria-label="Cart recovery rate"
                         min="0"
                         max="40"
                         step="1"
                         value={forecast.cartRecoveryRate ?? 18}
                         onChange={e => updateField('cartRecoveryRate', parseFloat(e.target.value))}
-                        className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                        className="w-full appearance-none cursor-pointer accent-amber-500"
+                        style={SLIDER_STYLE}
                       />
                     </div>
 
@@ -758,12 +834,13 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                       <div className="flex items-center gap-1">
                         <input
                           type="number"
+                          aria-label="Cart recovery voucher discount, percent off"
                           min="0"
                           max="30"
                           step="1"
                           value={forecast.cartRecoveryDiscount ?? 10}
                           onChange={e => updateField('cartRecoveryDiscount', Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)))}
-                          className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+                          className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-right font-mono text-white text-xs"
                         />
                         <span className="text-xs font-mono text-slate-400">% off</span>
                       </div>
@@ -789,25 +866,27 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     />
                     <label htmlFor="enable-upsell-rescue" className="text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5">
                       <span>24h Courtesy Upsell Rescue</span>
-                      {extractedNodes.hasUpsellRescue ? (
-                        <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/50">
-                          Active on Canvas
-                        </span>
-                      ) : onSyncRetentionToCanvas ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onSyncRetentionToCanvas({ addUpsellRescue: true });
-                            setSyncToast('Added 24h Courtesy Upsell Rescue flow to journey canvas.');
-                          }}
-                          className="text-[9px] text-amber-300 hover:text-amber-200 bg-amber-950/80 hover:bg-amber-900/80 border border-amber-600/50 px-2 py-0.5 rounded transition-all font-semibold"
-                        >
-                          ✦ Add to Canvas
-                        </button>
-                      ) : null}
                     </label>
+                    {extractedNodes.hasUpsellRescue ? (
+                      <span className="text-[11px] font-bold text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/50">
+                        Active on Canvas
+                      </span>
+                    ) : onSyncRetentionToCanvas && retentionFit.upsellRescue ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onSyncRetentionToCanvas({ addUpsellRescue: true });
+                          setSyncToast('Added an upsell decline draft sequence to the canvas.');
+                        }}
+                        className="text-[11px] text-amber-300 hover:text-amber-200 bg-amber-950/80 hover:bg-amber-900/80 border border-amber-600/50 px-2 py-0.5 rounded transition-all font-semibold"
+                      >
+                        ✦ Add to Canvas
+                      </button>
+                    ) : onSyncRetentionToCanvas ? (
+                      <span className="text-[11px] text-slate-400">{rescueUnfitReason}</span>
+                    ) : null}
                   </div>
                   {forecast.upsellRescueEnabled && (
                     <span className="text-xs font-mono font-bold text-amber-400">
@@ -821,18 +900,20 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center text-xs text-slate-400">
                         <span>Rescue Rate: {forecast.upsellRescueRate ?? 15}%</span>
-                        <span className="text-[10px] text-slate-500 font-mono">
+                        <span className="text-[11px] text-slate-400 font-mono">
                           of {Math.max(0, sim.declinedUpsellCount - sim.downsellSales)} decliners
                         </span>
                       </div>
                       <input
                         type="range"
+                        aria-label="Upsell rescue rate"
                         min="0"
                         max="40"
                         step="1"
                         value={forecast.upsellRescueRate ?? 15}
                         onChange={e => updateField('upsellRescueRate', parseFloat(e.target.value))}
-                        className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                        className="w-full appearance-none cursor-pointer accent-amber-500"
+                        style={SLIDER_STYLE}
                       />
                     </div>
 
@@ -841,12 +922,13 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                       <div className="flex items-center gap-1">
                         <input
                           type="number"
+                          aria-label="Upsell rescue voucher discount, percent off"
                           min="0"
                           max="30"
                           step="1"
                           value={forecast.upsellRescueDiscount ?? 10}
                           onChange={e => updateField('upsellRescueDiscount', Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)))}
-                          className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+                          className="w-14 bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-right font-mono text-white text-xs"
                         />
                         <span className="text-xs font-mono text-slate-400">% off</span>
                       </div>
@@ -859,7 +941,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
           </div>
 
           {/* RIGHT COLUMN: Live Projections & Decision Intelligence (7 Cols) */}
-          <div className="p-6 md:col-span-7 space-y-6 overflow-y-auto bg-slate-950/70">
+          {/* From 768px this column scrolls on its own and holds no control, so it takes focus
+              itself: without a tab stop a keyboard user could not scroll the results (#19). */}
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Forecast results"
+            className="p-4 md:p-6 md:col-span-7 space-y-6 md:overflow-y-auto bg-slate-950/70"
+          >
             
             {/* Top Scorecard Grid (4 KPIs) */}
             <div className="grid grid-cols-2 gap-3">
@@ -872,7 +961,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 <div className="text-2xl font-black font-mono text-white mt-1">
                   ${sim.grossRevenue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
+                <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
                   <span>{sim.frontEndOrders + sim.recoveredCartOrders} buyers</span>
                   <span>•</span>
                   <span>${forecast.monthlyAdSpend.toLocaleString()} spend</span>
@@ -893,7 +982,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 }`}>
                   {sim.netProfit >= 0 ? '+' : '-'}${Math.abs(sim.netProfit).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
-                <div className="text-[10px] mt-1 font-mono flex items-center gap-1">
+                <div className="text-[11px] mt-1 font-mono flex items-center gap-1">
                   <span className={sim.isProfitable ? 'text-emerald-400' : 'text-rose-400'}>
                     {sim.grossRevenue > 0 ? ((sim.netProfit / sim.grossRevenue) * 100).toFixed(1) : 0}% Net Margin
                   </span>
@@ -902,17 +991,17 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
 
               {/* Card 3: Blended ROAS */}
               <div className="bg-slate-900/90 border border-slate-800/80 rounded-xl p-3.5 relative overflow-hidden">
-                <div className="flex justify-between items-center text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                <div className="flex flex-wrap gap-1 justify-between items-center text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   <span>Blended ROAS</span>
                   {sim.totalRetentionRevenue > 0 && (
-                    <span className="text-[9px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+                    <span className="text-[11px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
                       Incl. Retention
                     </span>
                   )}
                 </div>
-                <div className="text-2xl font-black font-mono text-white mt-1 flex items-baseline gap-2">
+                <div className="text-2xl font-black font-mono text-white mt-1 flex flex-wrap items-baseline gap-2">
                   <span>{sim.blendedRoas.toFixed(2)}x</span>
-                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                  <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
                     sim.blendedRoas >= 2.2 
                       ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
                       : sim.blendedRoas >= 1.3 
@@ -922,10 +1011,10 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     {sim.blendedRoas >= 2.2 ? 'Scaling Zone' : sim.blendedRoas >= 1.3 ? 'Modest Margin' : 'Unprofitable'}
                   </span>
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1 font-mono flex items-center justify-between">
+                <div className="text-[11px] text-slate-400 mt-1 font-mono flex items-center justify-between">
                   <span>${sim.blendedRoas.toFixed(2)} return per $1 spent</span>
                   {sim.totalRetentionRevenue > 0 && (
-                    <span className="text-slate-500">Day-0: {sim.dayZeroRoas.toFixed(2)}x</span>
+                    <span className="text-slate-400">Day-0: {sim.dayZeroRoas.toFixed(2)}x</span>
                   )}
                 </div>
               </div>
@@ -935,7 +1024,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Effective AOV
                 </div>
-                <div className="text-2xl font-black font-mono text-white mt-1 flex items-baseline gap-2">
+                <div className="text-2xl font-black font-mono text-white mt-1 flex flex-wrap items-baseline gap-2">
                   <span>${sim.effectiveAov.toFixed(2)}</span>
                   {sim.aovLift > 0 && (
                     <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/40">
@@ -943,7 +1032,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     </span>
                   )}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1 font-mono">
+                <div className="text-[11px] text-slate-400 mt-1 font-mono">
                   Base: ${sim.baseAov.toFixed(2)} • +{((sim.aovLift / sim.baseAov) * 100).toFixed(0)}% AOV Expansion
                 </div>
               </div>
@@ -960,7 +1049,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   <div>
                     <div className="text-xs font-bold text-white flex items-center gap-2">
                       <span>✦ Jourvance Retention Advantage</span>
-                      <span className="text-[10px] font-mono text-amber-300 bg-amber-950/80 px-1.5 py-0.2 rounded border border-amber-800/40">
+                      <span className="text-[11px] font-mono text-amber-300 bg-amber-950/80 px-1.5 py-0.2 rounded border border-amber-800/40">
                         Zero Extra Ad Cost
                       </span>
                     </div>
@@ -970,7 +1059,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   </div>
                 </div>
                 <div className="text-right shrink-0 pl-3">
-                  <div className="text-[10px] uppercase font-bold text-amber-400/80">Net Profit Lift</div>
+                  <div className="text-[11px] uppercase font-bold text-amber-400/80">Net Profit Lift</div>
                   <div className="text-base font-black font-mono text-emerald-400">
                     +${Math.round(sim.retentionProfitLift).toLocaleString()}
                   </div>
@@ -998,7 +1087,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   <div className="text-lg font-bold font-mono text-white mt-0.5">
                     ${sim.breakevenCac.toFixed(2)}
                   </div>
-                  <div className="text-[10px] text-slate-500">Max allowable cost to acquire 1 buyer</div>
+                  <div className="text-[11px] text-slate-400">Max allowable cost to acquire 1 buyer</div>
                 </div>
 
                 <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/60">
@@ -1008,7 +1097,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                   }`}>
                     ${sim.projectedCac.toFixed(2)}
                   </div>
-                  <div className="text-[10px] text-slate-500">Based on ${forecast.cpc.toFixed(2)} CPC & {forecast.conversionRate}% CVR</div>
+                  <div className="text-[11px] text-slate-400">Based on ${forecast.cpc.toFixed(2)} CPC & {forecast.conversionRate}% CVR</div>
                 </div>
               </div>
 
@@ -1026,7 +1115,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
                     style={{ width: `${Math.min(100, Math.max(5, (sim.projectedCac / Math.max(1, sim.breakevenCac)) * 100))}%` }}
                   />
                 </div>
-                <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
+                <div className="flex justify-between text-[11px] text-slate-400 mt-1 font-mono">
                   <span>$0 CAC</span>
                   <span>Breakeven Line: ${sim.breakevenCac.toFixed(2)}</span>
                 </div>
@@ -1157,9 +1246,10 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
         </div>
 
         {/* Drawer Footer Actions */}
-        <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/90 backdrop-blur flex items-center justify-between shrink-0">
+        <div className="px-4 md:px-6 py-4 border-t border-slate-800 bg-slate-900/90 backdrop-blur flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handleExportCsv}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition"
             >
@@ -1170,12 +1260,14 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
 
           <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
+              className="hidden md:block px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition"
             >
               Close
             </button>
             <button
+              type="button"
               onClick={handleSave}
               className={`flex items-center gap-2 px-5 py-2 text-xs font-bold rounded-lg transition shadow-lg ${
                 saveSuccess 
@@ -1200,7 +1292,7 @@ export const FinancialSimulatorDrawer: React.FC<FinancialSimulatorDrawerProps> =
 
         {/* Option A: Retention Sync Toast Notification */}
         {syncToast && (
-          <div className="fixed bottom-6 right-6 z-50 max-w-md bg-slate-900/95 backdrop-blur border border-amber-500/50 shadow-2xl rounded-xl p-3.5 flex items-center justify-between gap-3 text-xs text-white animate-in fade-in slide-in-from-bottom-2">
+          <div role="status" className="fixed bottom-6 right-6 z-50 max-w-md bg-slate-900/95 backdrop-blur border border-amber-500/50 shadow-2xl rounded-xl p-3.5 flex items-center justify-between gap-3 text-xs text-white animate-in fade-in slide-in-from-bottom-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse"></span>
               <span className="text-slate-200 font-medium">{syncToast}</span>

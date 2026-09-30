@@ -2,28 +2,60 @@ import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Layout, GitFork, Clock, TrendingUp } from 'lucide-react';
 import type { PageNodeData } from '../../../types/journey';
+import { branchHandleStyle } from '../../../lib/edgeKinds';
+import { stepKind, cardFrame } from '../../../lib/stepKinds';
+import { StepIcon } from '../StepIcon';
+import { DesignIssueBadge } from '../DesignIssueBadge';
+import { PublishStatusStrip } from '../PublishStatus';
+import { StepSummary } from '../StepSummary';
+import { useNodeMetrics, metricValueStyle } from '../CanvasMetrics';
+import { orderBumpPriceText } from '../../../lib/orderBumpPrice';
+import { countText, measureValue, moneyText, percentText, rateOf, splitTest, UNAVAILABLE } from '../../../lib/journeyMetrics';
+import { stepAddress } from '../../../lib/stepNames';
 
-export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
+export const PageNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as PageNodeData;
+  const kind = stepKind('landing-page', d);
   const isRoasMode = (d as any).canvasViewMode === 'roas';
-  const visitors = d.visitors || 0;
-  const conv = d.conversions || 0;
-  const grossRev = d.grossRevenue || d.liveRevenue || 0;
-  const aov = conv > 0 ? Math.round(grossRev / conv) : 0;
-  const bumpTakes = d.orderBumpTakes || 0;
-  const bumpRev = d.orderBumpRevenue || 0;
-  const bumpRate = conv > 0 ? Math.round((bumpTakes / conv) * 100) : 0;
+  // Every figure comes from the map's stats snapshot (#9). null means not measured, never 0.
+  const { measure: m, note } = useNodeMetrics(id);
+  const visitors = measureValue(m, 'visitors');
+  const conv = measureValue(m, 'conversions');
+  const convRate = measureValue(m, 'conversionRate');
+  const grossRev = measureValue(m, 'grossRevenue');
+  const orders = measureValue(m, 'liveOrders');
+  const bumpTakes = measureValue(m, 'orderBumpTakes');
+  const aov = grossRev !== null && orders !== null && orders > 0 ? grossRev / orders : null;
+  const bumpRate = rateOf(bumpTakes, orders);
 
   const isAbActive = Boolean(d.abTestingEnabled);
   const splitRatio = d.splitRatio ?? 50;
-  const varAVis = d.variantAVisitors || 0;
-  const varBVis = d.variantBVisitors || 0;
-  const varAConv = d.variantAConversions || 0;
-  const varBConv = d.variantBConversions || 0;
-  const varARate = varAVis > 0 ? ((varAConv / varAVis) * 100).toFixed(1) : '0.0';
-  const varBRate = varBVis > 0 ? ((varBConv / varBVis) * 100).toFixed(1) : '0.0';
-  const isBLeading = parseFloat(varBRate) > parseFloat(varARate);
-  const isALeading = parseFloat(varARate) > parseFloat(varBRate);
+  const varAVis = measureValue(m, 'variantAVisitors');
+  const varBVis = measureValue(m, 'variantBVisitors');
+  const varAConv = measureValue(m, 'variantAConversions');
+  const varBConv = measureValue(m, 'variantBConversions');
+  const varARate = rateOf(varAConv, varAVis);
+  const varBRate = rateOf(varBConv, varBVis);
+  // A variant leads only once the split's confidence test has run (C23, journeyMetrics' splitTest).
+  const variantTest = splitTest(varAVis, varAConv, varBVis, varBConv);
+  const isBLeading = variantTest.ran && variantTest.leader === 'b';
+  const isALeading = variantTest.ran && variantTest.leader === 'a';
+  const leaderText = isBLeading
+    ? 'Variant B leading'
+    : isALeading
+    ? 'Variant A leading'
+    : variantTest.ran
+    ? 'Even split'
+    : variantTest.reason === 'too_few_visits'
+    ? 'Too few visits to call a leader'
+    : 'No leader yet';
+  const live = visitors !== null && visitors > 0;
+  const visitorsText = countText(visitors);
+  const convText = countText(conv);
+  const rateText = percentText(convRate);
+  // Same rule as the step's spoken name and the step panel (T11): no saved address says so, muted.
+  const address = stepAddress({ ...d, type: 'landing-page' });
+  const name = address || 'No address yet';
 
   return (
     <div
@@ -31,25 +63,21 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
         width: isAbActive ? '280px' : '260px',
         borderRadius: '12px',
         background: isRoasMode ? 'rgba(11, 15, 25, 0.95)' : 'rgba(15, 23, 42, 0.9)',
-        border: selected
-          ? '1.5px solid #6366F1'
-          : isAbActive
-          ? '1px solid rgba(236, 72, 153, 0.4)'
-          : isRoasMode
-          ? '1px solid rgba(16, 185, 129, 0.3)'
-          : '1px solid rgba(255, 255, 255, 0.1)',
-        boxShadow: selected
-          ? '0 0 20px rgba(99, 102, 241, 0.3)'
-          : isAbActive
-          ? '0 10px 25px rgba(236, 72, 153, 0.15)'
-          : '0 10px 25px rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(12px)',
+        ...cardFrame(selected, {
+          border: isAbActive
+            ? '1px solid rgba(236, 72, 153, 0.4)'
+            : isRoasMode
+            ? '1px solid rgba(16, 185, 129, 0.3)'
+            : '1px solid rgba(255, 255, 255, 0.1)',
+          boxShadow: isAbActive ? '0 10px 25px rgba(236, 72, 153, 0.15)' : '0 10px 25px rgba(0, 0, 0, 0.4)'
+        }),
         overflow: 'hidden',
         color: '#FFFFFF',
         cursor: 'pointer',
         transition: 'all 0.2s ease'
       }}
     >
+      <DesignIssueBadge nodeId={id} />
       {/* Target Handle (from Ad) */}
       <Handle
         type="target"
@@ -59,25 +87,23 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
       />
 
       {/* Top Banner */}
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: isRoasMode ? 'rgba(16, 185, 129, 0.15)' : isAbActive ? 'rgba(236, 72, 153, 0.15)' : 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isRoasMode ? '#34D399' : isAbActive ? '#F472B6' : '#818CF8' }}>
-            <Layout size={15} />
-          </div>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: isRoasMode ? '#34D399' : isAbActive ? '#F472B6' : '#818CF8' }}>
+      <div data-jv-detail-row style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          <StepIcon kind={kind} icon={Layout} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: kind.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {isRoasMode ? 'Offer Revenue' : 'Landing Page'}
             </div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: '#F8FAFC' }}>
-              /{d.slug || 'offer'}
+            <div data-jv-title style={{ fontSize: '13px', fontWeight: 600, color: '#F8FAFC', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {address || <span style={{ color: '#94A3B8' }}>{name}</span>}
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '5px' }}>
           {isAbActive && (
             <span
               style={{
-                fontSize: '9px',
+                fontSize: '11px',
                 padding: '2px 6px',
                 borderRadius: '9999px',
                 background: 'rgba(236, 72, 153, 0.2)',
@@ -86,94 +112,109 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
                 fontWeight: 700,
                 display: 'flex',
                 alignItems: 'center',
-                gap: '3px'
+                gap: '3px',
+                whiteSpace: 'nowrap'
               }}
             >
               <GitFork size={10} />
               A/B {splitRatio}/{100 - splitRatio}
             </span>
           )}
-          <span
-            style={{
-              fontSize: '10px',
-              padding: '2px 8px',
-              borderRadius: '9999px',
-              background: isRoasMode ? 'rgba(16, 185, 129, 0.25)' : 'rgba(56, 189, 248, 0.15)',
-              color: isRoasMode ? '#34D399' : '#38BDF8',
-              fontWeight: 700
-            }}
-          >
-            {isRoasMode ? `AOV: $${aov}` : (d.published ? 'Published' : 'Draft')}
-          </span>
+          {/* Whether the page is live is the strip below, read from the server (#23). */}
+          {isRoasMode && (
+            <span
+              style={{
+                fontSize: '11px',
+                padding: '2px 8px',
+                borderRadius: '9999px',
+                background: 'rgba(16, 185, 129, 0.25)',
+                color: '#34D399',
+                fontWeight: 700,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              AOV: {moneyText(aov)}
+            </span>
+          )}
         </div>
       </div>
+      <PublishStatusStrip nodeId={id} nodeType="landing-page" />
 
       {/* Content Preview / Financial Breakdown */}
       {isRoasMode ? (
-        <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div data-jv-detail-row style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
             <span style={{ color: '#94A3B8' }}>Gross Funnel Sales:</span>
-            <span style={{ fontWeight: 800, color: '#34D399' }}>${grossRev.toLocaleString()}</span>
+            <span data-metric style={{ fontWeight: 800, color: grossRev === null ? '#94A3B8' : '#34D399' }}>{moneyText(grossRev)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-            <span style={{ color: '#64748B' }}>Order Bump Boost:</span>
-            <span style={{ color: '#F472B6', fontWeight: 700 }}>+${bumpRev} ({bumpRate}% accept)</span>
+            <span style={{ color: '#94A3B8' }}>Order bump take rate:</span>
+            <span data-metric style={{ color: bumpRate === null ? '#94A3B8' : '#F472B6', fontWeight: 700 }}>{percentText(bumpRate)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-            <span style={{ color: '#64748B' }}>Purchases:</span>
-            <span style={{ color: '#F1F5F9', fontWeight: 600 }}>{conv} Orders</span>
+            <span style={{ color: '#94A3B8' }}>Order bump revenue:</span>
+            <span data-metric style={{ color: '#94A3B8', fontWeight: 600 }}>{UNAVAILABLE}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+            <span style={{ color: '#94A3B8' }}>Orders:</span>
+            <span data-metric style={{ color: orders === null ? '#94A3B8' : '#F1F5F9', fontWeight: 600 }}>{countText(orders)}</span>
           </div>
         </div>
       ) : (
-        <div style={{ padding: '12px 14px' }}>
+        <div data-jv-detail-row style={{ padding: '12px 14px' }}>
           {/* Performance & Revenue Live Pill */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              background: visitors > 0 ? 'rgba(99, 102, 241, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-              border: `1px solid ${visitors > 0 ? 'rgba(99, 102, 241, 0.28)' : 'rgba(255, 255, 255, 0.08)'}`,
+              background: live ? 'rgba(99, 102, 241, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+              border: `1px solid ${live ? 'rgba(99, 102, 241, 0.28)' : 'rgba(255, 255, 255, 0.08)'}`,
               borderRadius: '8px',
               padding: '5px 9px',
               marginBottom: '8px'
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <TrendingUp size={12} color={visitors > 0 ? '#818CF8' : '#64748B'} />
+              <TrendingUp size={12} color={live ? '#818CF8' : '#64748B'} />
               <span
+                data-metric
                 style={{
-                  fontSize: '10px',
+                  fontSize: '11px',
                   fontWeight: 700,
-                  color: visitors > 0 ? '#E0E7FF' : '#94A3B8',
+                  color: live ? '#E0E7FF' : '#94A3B8',
                   letterSpacing: '0.03em'
                 }}
               >
-                {visitors > 0 ? `${d.conversionRate || (conv > 0 ? ((conv / visitors) * 100).toFixed(1) : '0.0')}% CVR` : '0 Visitors'}
+                {visitors === null ? UNAVAILABLE : visitors === 0 ? '0 visitors' : `${rateText} CVR`}
               </span>
-              {visitors > 0 && (
-                <span style={{ fontSize: '9px', color: '#94A3B8' }}>
-                  ({conv} orders)
+              {live && (
+                <span style={{ fontSize: '11px', color: '#94A3B8' }}>
+                  ({visitorsText} visitors)
                 </span>
               )}
             </div>
-            <div
-              style={{
-                fontSize: '11px',
-                fontWeight: 800,
-                color: grossRev > 0 ? '#34D399' : '#94A3B8',
-                fontFamily: "'JetBrains Mono', monospace"
-              }}
-            >
-              {grossRev > 0 ? `$${grossRev.toLocaleString()}` : '$0 rev'}
-            </div>
+            {grossRev !== null && (
+              <div
+                data-metric
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  color: grossRev > 0 ? '#34D399' : '#94A3B8',
+                  fontFamily: "'JetBrains Mono', monospace"
+                }}
+              >
+                {moneyText(grossRev)} rev
+              </div>
+            )}
           </div>
 
           <div style={{ fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '4px', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-            {d.headline || 'Offer Page'}
+            {/* What the page says, or that it says nothing yet: never a sentence it does not have (U04). */}
+            {(d.headline || '').trim() || 'No headline yet'}
           </div>
           <div style={{ fontSize: '11px', color: '#94A3B8', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-            {d.subhead || 'Clean single-offer landing page.'}
+            {(d.subhead || '').trim() || 'No subheadline yet'}
           </div>
 
           {d.orderBumpEnabled && (
@@ -183,7 +224,7 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                fontSize: '10px',
+                fontSize: '11px',
                 color: '#FBCFE8',
                 background: 'rgba(236, 72, 153, 0.08)',
                 padding: '3px 7px',
@@ -196,13 +237,13 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
                 <span>Bump: {d.orderBumpTitle ? (d.orderBumpTitle.length > 14 ? d.orderBumpTitle.slice(0, 14) + '…' : d.orderBumpTitle) : 'Order Bump'}</span>
               </span>
               <span style={{ fontWeight: 700, color: '#F472B6' }}>
-                {bumpTakes > 0 ? `+${bumpTakes} (${bumpRate}%)` : d.orderBumpPrice || '$18'}
+                {bumpTakes !== null && bumpTakes > 0 ? `+${countText(bumpTakes)} (${percentText(bumpRate)})` : orderBumpPriceText(d.orderBumpPrice)}
               </span>
             </div>
           )}
 
           {(d.urgencyTimerEnabled || d.scarcityBatchEnabled) && (
-            <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#FBCFE8', background: 'rgba(236, 72, 153, 0.1)', padding: '3px 7px', borderRadius: '6px', border: '1px solid rgba(236, 72, 153, 0.2)' }}>
+            <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#FBCFE8', background: 'rgba(236, 72, 153, 0.1)', padding: '3px 7px', borderRadius: '6px', border: '1px solid rgba(236, 72, 153, 0.2)' }}>
               <Clock size={11} color="#F472B6" />
               <span>
                 {d.urgencyTimerEnabled && d.scarcityBatchEnabled
@@ -221,7 +262,7 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                fontSize: '10px',
+                fontSize: '11px',
                 color: '#FDE68A',
                 background: 'rgba(245, 158, 11, 0.08)',
                 padding: '3px 7px',
@@ -231,10 +272,11 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#FBBF24' }} />
-                <span>Exit Gift: {d.exitIntentDiscountCode || d.discountCode || 'VIP Voucher'}</span>
+                {/* Only what the user set: the drawer is published once it has a headline, and names a code only when one exists. */}
+                <span>Exit drawer{(d.exitIntentHeadline || '').trim() && (d.exitIntentDiscountCode || d.discountCode) ? `: ${d.exitIntentDiscountCode || d.discountCode}` : ''}</span>
               </span>
               <span style={{ fontWeight: 700, color: '#FBBF24' }}>
-                Drawer
+                {(d.exitIntentHeadline || '').trim() ? 'On' : 'Needs a headline'}
               </span>
             </div>
           )}
@@ -243,33 +285,33 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
 
       {/* A/B Testing Comparative Pod if Active */}
       {isAbActive && (
-        <div style={{ padding: '8px 14px', background: 'rgba(236, 72, 153, 0.05)', borderTop: '1px dashed rgba(236, 72, 153, 0.25)' }}>
+        <div data-jv-detail-row style={{ padding: '8px 14px', background: 'rgba(236, 72, 153, 0.05)', borderTop: '1px dashed rgba(236, 72, 153, 0.25)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#F472B6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#F472B6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               Split Test Leader
             </span>
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#34D399', display: 'flex', alignItems: 'center', gap: '3px' }}>
-              <TrendingUp size={11} />
-              {isBLeading ? 'Variant B +Lift' : isALeading ? 'Variant A Leading' : 'Even Split'}
+            <span style={{ fontSize: '11px', fontWeight: 700, color: isALeading || isBLeading ? '#34D399' : '#94A3B8', display: 'flex', alignItems: 'center', gap: '3px', textAlign: 'right' }}>
+              {(isALeading || isBLeading) && <TrendingUp size={11} aria-hidden="true" />}
+              {leaderText}
             </span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
             <div style={{ background: 'rgba(0, 0, 0, 0.3)', padding: '5px 8px', borderRadius: '6px', border: isALeading ? '1px solid rgba(52, 211, 153, 0.4)' : '1px solid rgba(255, 255, 255, 0.05)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94A3B8' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94A3B8' }}>
                 <span>Var A (Ctrl)</span>
-                <span style={{ fontWeight: 700, color: isALeading ? '#34D399' : '#E2E8F0' }}>{varARate}%</span>
+                <span data-metric style={{ fontWeight: 700, color: isALeading ? '#34D399' : '#E2E8F0' }}>{percentText(varARate)}</span>
               </div>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: '#F8FAFC', marginTop: '2px' }}>
-                {varAConv} <span style={{ fontSize: '9px', fontWeight: 500, color: '#64748B' }}>/ {varAVis}</span>
+              <div data-metric style={{ fontSize: '11px', fontWeight: 700, color: '#F8FAFC', marginTop: '2px' }}>
+                {varAConv === null || varAVis === null ? UNAVAILABLE : <>{countText(varAConv)} <span style={{ fontSize: '11px', fontWeight: 500, color: '#94A3B8' }}>/ {countText(varAVis)}</span></>}
               </div>
             </div>
             <div style={{ background: 'rgba(0, 0, 0, 0.3)', padding: '5px 8px', borderRadius: '6px', border: isBLeading ? '1px solid rgba(52, 211, 153, 0.4)' : '1px solid rgba(255, 255, 255, 0.05)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#94A3B8' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94A3B8' }}>
                 <span>Var B (Test)</span>
-                <span style={{ fontWeight: 700, color: isBLeading ? '#34D399' : '#E2E8F0' }}>{varBRate}%</span>
+                <span data-metric style={{ fontWeight: 700, color: isBLeading ? '#34D399' : '#E2E8F0' }}>{percentText(varBRate)}</span>
               </div>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: '#F8FAFC', marginTop: '2px' }}>
-                {varBConv} <span style={{ fontSize: '9px', fontWeight: 500, color: '#64748B' }}>/ {varBVis}</span>
+              <div data-metric style={{ fontSize: '11px', fontWeight: 700, color: '#F8FAFC', marginTop: '2px' }}>
+                {varBConv === null || varBVis === null ? UNAVAILABLE : <>{countText(varBConv)} <span style={{ fontSize: '11px', fontWeight: 500, color: '#94A3B8' }}>/ {countText(varBVis)}</span></>}
               </div>
             </div>
           </div>
@@ -277,31 +319,22 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
       )}
 
       {/* Metrics Bar */}
-      <div style={{ padding: '10px 14px', background: 'rgba(0, 0, 0, 0.25)', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-        <div>
-          <div style={{ fontSize: '10px', color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            {isRoasMode ? 'Revenue' : 'Visitors'}
+      <div data-jv-detail-row style={{ padding: '10px 14px', background: 'rgba(0, 0, 0, 0.25)', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+        {([
+          isRoasMode ? ['Revenue', moneyText(grossRev), '#34D399'] : ['Visitors', visitorsText, '#F1F5F9'],
+          isRoasMode ? ['Bump', percentText(bumpRate), '#F472B6'] : ['Conv.', convText, '#34D399'],
+          isRoasMode ? ['AOV', moneyText(aov), '#F8FAFC'] : ['Rate', rateText, '#F8FAFC']
+        ] as const).map(([name, text, color]) => (
+          <div key={name} style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '11px', color: '#94A3B8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {name}
+            </div>
+            <div data-metric style={metricValueStyle(text, color)}>
+              {text}
+            </div>
           </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: isRoasMode ? '#34D399' : '#F1F5F9' }}>
-            {isRoasMode ? `$${grossRev}` : (d.visitors ? d.visitors.toLocaleString() : '0')}
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: '10px', color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            {isRoasMode ? 'Bump' : 'Conv.'}
-          </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: isRoasMode ? '#F472B6' : '#34D399' }}>
-            {isRoasMode ? `${bumpRate}%` : (d.conversions ? d.conversions.toLocaleString() : '0')}
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: '10px', color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            {isRoasMode ? 'AOV' : 'Rate'}
-          </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: '#F8FAFC' }}>
-            {isRoasMode ? `$${aov}` : (d.conversionRate ? `${d.conversionRate}%` : '0%')}
-          </div>
-        </div>
+        ))}
+        <div data-metrics-note style={{ gridColumn: '1 / -1', fontSize: '11px', color: '#94A3B8' }}>{note}</div>
       </div>
 
       {/* Source Handle (to Form / Checkout) */}
@@ -318,8 +351,16 @@ export const PageNode: React.FC<NodeProps> = ({ data, selected }) => {
         position={Position.Bottom}
         id="abandon"
         className="custom-handle"
-        style={{ bottom: -6, left: '50%', background: '#F59E0B' }}
+        style={{ bottom: -6, left: '50%', ...branchHandleStyle('declined') }}
         title="Cart Abandonment: Route to Checkout Recovery Sequence"
+      />
+
+      <StepSummary
+        nodeId={id}
+        kind={kind}
+        icon={Layout}
+        name={name}
+        figure={isRoasMode ? { label: 'Revenue', value: moneyText(grossRev) } : { label: 'Visitors', value: visitorsText }}
       />
     </div>
   );

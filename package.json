@@ -9,7 +9,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "server": "node server.mjs",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "check:canvas": "node scripts/canvas-browser-check.mjs",
+    "check:a11y": "node scripts/a11y-browser-check.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.4.4",

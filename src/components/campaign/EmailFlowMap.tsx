@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Controls, Handle, Position, ReactFlow, type Edge, type Node } from '@xyflow/react';
 import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
+import { chooseFlowId, LINKED_FLOW_MISSING } from '../../lib/editorReturn';
+import { moneyText, statText, withNote } from '../../lib/emailStats';
+import { FLOW_MAP_UNREACHABLE, FLOW_MAP_WRITE_UNREACHABLE, retryFlowMapArgs, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
 
 type FlowPath = { id: string; label?: string; else?: boolean; clauses?: { kind: string; field?: string; op?: string; value?: string; event?: string; since?: string; done?: boolean; note?: string }[]; note?: string };
 type FlowNode = {
@@ -92,7 +95,7 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MailNode = ({ data }: { data: { title: string; detail: string; kind: string; paths?: FlowPath[] } }) => (
   <div style={{ padding: '8px 10px', borderRadius: 10, background: '#121217', border: '1px solid rgba(255,255,255,0.16)', color: '#f3f4f6', width: 190, fontSize: 12 }}>
     <Handle type="target" position={Position.Top} />
-    <div style={{ fontSize: 10, letterSpacing: '0.04em', color: '#9ca3af', fontWeight: 700 }}>{data.title}</div>
+    <div style={{ fontSize: 11, letterSpacing: '0.04em', color: '#9ca3af', fontWeight: 700 }}>{data.title}</div>
     <div style={{ marginTop: 4, lineHeight: 1.35 }}>{data.detail}</div>
     {data.kind === 'condition' ? (
       (data.paths || [{ id: 'yes' }, { id: 'no' }]).map((path, index, all) => (
@@ -193,12 +196,12 @@ const SmsCount: React.FC<{ message: string }> = ({ message }) => {
   const [line, setLine] = useState('');
   useEffect(() => {
     const handle = setTimeout(async () => {
-      const res = await fetch('/api/sms/preview', {
+      const read = await settleRead(async () => readJson(await fetch('/api/sms/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({ message })
-      });
-      const data = await readJson(res);
+      })));
+      const data = read.answered ? read.data : null;
       if (!data || data.success === false) {
         setLine('');
         return;
@@ -214,12 +217,15 @@ const SmsCount: React.FC<{ message: string }> = ({ message }) => {
   return line ? <p style={{ margin: 0, fontSize: 12, color: '#d1d5db' }}>{line}</p> : null;
 };
 
-export const EmailFlowMap: React.FC = () => {
+export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlowId }) => {
   const [flows, setFlows] = useState<FlowView[]>([]);
   const [currentId, setCurrentId] = useState('');
   const [draft, setDraft] = useState<FlowView | null>(null);
   const [selected, setSelected] = useState('');
   const [notice, setNotice] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const retried = useRef(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const [enrollEmail, setEnrollEmail] = useState('');
   const [pathBranch, setPathBranch] = useState('yes');
   const [joinTarget, setJoinTarget] = useState('');
@@ -229,26 +235,51 @@ export const EmailFlowMap: React.FC = () => {
   const [klaviyoSends, setKlaviyoSends] = useState(false);
   const [klaviyoFlows, setKlaviyoFlows] = useState<{ id: string; name: string; status: string; handoff: string }[]>([]);
 
-  const load = async (prefer?: string) => {
-    const data = await readJson(await fetch('/api/email/flow-map', { headers: await authHeaders() }));
-    const list: FlowView[] = Array.isArray(data?.flows) ? data.flows : [];
+  // fromStep is true when a step on the funnel asked for `prefer`. Only then is a missing flow
+  // worth saying, and only when the list really loaded.
+  const load = async (prefer?: string, fromStep = false) => {
+    const read = await settleRead(async () => readJson(await fetch('/api/email/flow-map', { headers: await authHeaders() })));
+    // No answer is not an empty account: keep the last list and say so, with Retry.
+    if (!read.answered) {
+      // Retry is still on screen and still holds focus, so there is nothing to hand on.
+      retried.current = false;
+      setLoadError(FLOW_MAP_UNREACHABLE);
+      return;
+    }
+    setLoadError('');
+    const data = read.data;
+    const loaded = Array.isArray(data?.flows);
+    const list: FlowView[] = loaded ? data.flows : [];
     setFlows(list);
     if (Array.isArray(data?.triggers) && data.triggers.length) setTriggers(data.triggers);
     if (typeof data?.timezone === 'string') setTimezone(data.timezone);
-    const id = prefer && list.some((flow) => flow.id === prefer) ? prefer : (list[0]?.id || '');
-    setCurrentId(id);
-    setDraft(list.find((flow) => flow.id === id) || null);
+    const pick = chooseFlowId(loaded ? list.map((flow) => flow.id) : null, prefer);
+    setCurrentId(pick.id);
+    setDraft(list.find((flow) => flow.id === pick.id) || null);
+    if (fromStep && pick.missing) setNotice(LINKED_FLOW_MISSING);
   };
 
   useEffect(() => {
-    load();
+    load(initialFlowId, true);
     (async () => {
-      const data = await readJson(await fetch('/api/klaviyo', { headers: await authHeaders() }));
+      // No answer leaves Klaviyo off, which already disables its picker.
+      const read = await settleRead(async () => readJson(await fetch('/api/klaviyo', { headers: await authHeaders() })));
+      if (!read.answered) return;
+      const data = read.data;
       setKlaviyoOn(Boolean(data?.klaviyo?.connected));
       setKlaviyoSends(data?.klaviyo?.sendWith === 'klaviyo');
       setKlaviyoFlows(Array.isArray(data?.klaviyo?.flows) ? data.klaviyo.flows : []);
     })();
   }, []);
+
+  // A retry that answers removes the alert and the Retry button that held focus; hand focus to
+  // the Flow map heading rather than letting it fall to the page.
+  useEffect(() => {
+    if (!retried.current || loadError) return;
+    retried.current = false;
+    const active = document.activeElement;
+    if (!active || active === document.body) headingRef.current?.focus();
+  }, [loadError]);
 
   const current = draft && draft.id === currentId ? draft : flows.find((flow) => flow.id === currentId) || null;
   const graph = useMemo(() => current ? layout(current) : { nodes: [], edges: [] }, [current]);
@@ -264,7 +295,7 @@ export const EmailFlowMap: React.FC = () => {
 
   const save = async (next: FlowView) => {
     setNotice('');
-    const res = await fetch(`/api/email/flows/${next.id}`, {
+    const sent = await sendFlowWrite(async () => fetch(`/api/email/flows/${next.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({
@@ -288,9 +319,13 @@ export const EmailFlowMap: React.FC = () => {
         nodes: next.nodes,
         edges: next.edges
       })
-    });
-    const data = await readJson(res);
-    if (!res.ok || !data?.success) {
+    }));
+    if (!sent.answered) {
+      setNotice(FLOW_MAP_WRITE_UNREACHABLE.save);
+      return;
+    }
+    const data = sent.data;
+    if (!sent.ok || !data?.success) {
       setNotice(data?.error || 'That flow was not saved.');
       return;
     }
@@ -299,23 +334,33 @@ export const EmailFlowMap: React.FC = () => {
   };
 
   const saveTimezone = async () => {
-    const res = await fetch('/api/email/timezone', {
+    setNotice('');
+    const sent = await sendFlowWrite(async () => fetch('/api/email/timezone', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ timezone })
-    });
-    const data = await readJson(res);
-    setNotice(data?.error || (res.ok ? 'Timezone saved. An empty value uses UTC.' : 'The timezone was not saved.'));
+    }));
+    if (!sent.answered) {
+      setNotice(FLOW_MAP_WRITE_UNREACHABLE.timezone);
+      return;
+    }
+    const data = sent.data;
+    setNotice(data?.error || (sent.ok ? 'Timezone saved. An empty value uses UTC.' : 'The timezone was not saved.'));
   };
 
   const create = async () => {
-    const res = await fetch('/api/email/flows', {
+    setNotice('');
+    const sent = await sendFlowWrite(async () => fetch('/api/email/flows', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ name: 'New flow', trigger: 'manual' })
-    });
-    const data = await readJson(res);
-    if (!res.ok || !data?.flow?.id) {
+    }));
+    if (!sent.answered) {
+      setNotice(FLOW_MAP_WRITE_UNREACHABLE.create);
+      return;
+    }
+    const data = sent.data;
+    if (!sent.ok || !data?.flow?.id) {
       setNotice(data?.error || 'A flow was not created.');
       return;
     }
@@ -324,8 +369,13 @@ export const EmailFlowMap: React.FC = () => {
 
   const remove = async () => {
     if (!current?.editable) return;
-    const res = await fetch(`/api/email/flows/${current.id}`, { method: 'DELETE', headers: await authHeaders() });
-    if (!res.ok) {
+    setNotice('');
+    const sent = await sendFlowWrite(async () => fetch(`/api/email/flows/${current.id}`, { method: 'DELETE', headers: await authHeaders() }));
+    if (!sent.answered) {
+      setNotice(FLOW_MAP_WRITE_UNREACHABLE.remove);
+      return;
+    }
+    if (!sent.ok) {
       setNotice('That flow was not deleted.');
       return;
     }
@@ -429,12 +479,17 @@ export const EmailFlowMap: React.FC = () => {
 
   const enroll = async () => {
     if (!current) return;
-    const res = await fetch(`/api/email/flows/${current.id}/enroll`, {
+    setNotice('');
+    const sent = await sendFlowWrite(async () => fetch(`/api/email/flows/${current.id}/enroll`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ email: enrollEmail })
-    });
-    const data = await readJson(res);
+    }));
+    if (!sent.answered) {
+      setNotice(FLOW_MAP_WRITE_UNREACHABLE.enroll);
+      return;
+    }
+    const data = sent.data;
     setNotice(data?.error || (data?.viaKlaviyo && data?.enrolled
       ? 'Handed to the linked Klaviyo flow. Klaviyo sends only if that flow is live. They were not subscribed.'
       : data?.enrolled
@@ -450,13 +505,19 @@ export const EmailFlowMap: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18, color: '#f3f4f6' }}>Flow map</h2>
+          <h2 ref={headingRef} tabIndex={-1} style={{ margin: 0, fontSize: 18, color: '#f3f4f6' }}>Flow map</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#9ca3af', maxWidth: 760 }}>
             Each account can build its own flow. A step runs only when the queue is run and the flow is on. A new flow stays off. A text goes only to a number that has already opted in. When Klaviyo is the sender, an email step linked to a Klaviyo flow is handed there instead.
           </p>
         </div>
         <button type="button" style={solidBtn} onClick={create}>New flow</button>
       </div>
+      {loadError && (
+        <div role="alert" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <p style={{ margin: 0, fontSize: 13, color: '#fca5a5' }}>{loadError}</p>
+          <button type="button" style={ghostBtn} onClick={() => { retried.current = true; load(...retryFlowMapArgs(currentId, initialFlowId)); }}>Retry</button>
+        </div>
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
         <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 720, overflow: 'auto' }}>
           {flows.map((flow) => (
@@ -474,7 +535,7 @@ export const EmailFlowMap: React.FC = () => {
                 <div style={{ fontSize: 12, color: '#9ca3af' }}>{current.compileError || current.note || `${current.active || 0} active · ${current.stepCount || 0} send steps`}</div>
                 {current.stats && (
                   <p style={{ margin: '6px 0 0', fontSize: 12, color: '#d1d5db' }}>
-                    Enrolled {current.enrolled == null ? '—' : current.enrolled} · Sent {current.stats.sent == null ? '—' : current.stats.sent} · Delivered {current.stats.delivered == null ? '—' : current.stats.delivered} · Opened {current.stats.opened == null ? '—' : current.stats.opened} · Clicked {current.stats.clicked == null ? '—' : current.stats.clicked} · Unsubscribed {current.stats.unsubscribed == null ? '—' : current.stats.unsubscribed} · Revenue {current.stats.revenue == null ? '—' : `$${current.stats.revenue.toFixed(2)}`}
+                    Enrolled {statText(current.enrolled)} · Sent {statText(current.stats.sent)} · Delivered {statText(current.stats.delivered)} · Opened {statText(current.stats.opened)} · Clicked {statText(current.stats.clicked)} · Unsubscribed {statText(current.stats.unsubscribed)} · Revenue {moneyText(current.stats.revenue)}
                     {current.stats.prefetchOpens ? ` · ${current.stats.prefetchOpens} opens included an Apple Mail prefetch flag.` : ''}
                   </p>
                 )}
@@ -771,7 +832,7 @@ export const EmailFlowMap: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {(selectedNode.paths || []).map((path) => (
                     <p key={path.id} style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>
-                      {path.label || path.id}{path.else ? ' (everyone else)' : ''}{path.note ? ` — ${path.note}` : ''}
+                      {withNote(`${path.label || path.id}${path.else && !/everyone else/i.test(path.label || '') ? ' (everyone else)' : ''}`, path.note)}
                     </p>
                   ))}
                   <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>The first matching path wins. An empty path is skipped. Everyone else stays and cannot be removed. A predicted value or predicted next order matches only after this store has computed it.</p>
@@ -847,9 +908,13 @@ export const EmailFlowMap: React.FC = () => {
                   </label>
                   <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>After this many days, someone who was sent mail and did not open or click is marked unengaged. This flow sends nothing. The button below is the only suppress action.</p>
                   <button type="button" style={ghostBtn} onClick={async () => {
-                    const res = await fetch(`/api/email/flows/${current.id}/suppress`, { method: 'POST', headers: await authHeaders() });
-                    const data = await readJson(res);
-                    setNotice(data?.message || data?.error || 'Nobody was suppressed.');
+                    setNotice('');
+                    const sent = await sendFlowWrite(async () => fetch(`/api/email/flows/${current.id}/suppress`, { method: 'POST', headers: await authHeaders() }));
+                    if (!sent.answered) {
+                      setNotice(FLOW_MAP_WRITE_UNREACHABLE.suppress);
+                      return;
+                    }
+                    setNotice(sent.data?.message || sent.data?.error || 'Nobody was suppressed.');
                   }}>Suppress people marked unengaged</button>
                 </div>
               )}
@@ -861,7 +926,8 @@ export const EmailFlowMap: React.FC = () => {
               )}
             </div>
           )}
-          {notice && <p style={{ margin: '8px 0 0', fontSize: 13, color: '#d1d5db' }}>{notice}</p>}
+          {/* Always mounted, so a screen reader hears each outcome, the failures included. */}
+          <p role="status" style={{ margin: notice ? '8px 0 0' : 0, fontSize: 13, color: '#d1d5db' }}>{notice}</p>
         </div>
       </div>
     </div>

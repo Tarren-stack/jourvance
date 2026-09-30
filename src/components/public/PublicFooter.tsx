@@ -19,7 +19,8 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ onNavigate }) => {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '2fr 1fr 1fr 1fr',
+            // Four columns on a wide screen, one on a phone, so the footer never scrolls sideways at 390px.
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))',
             gap: '3rem',
             marginBottom: '3rem'
           }}
@@ -130,7 +131,7 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ onNavigate }) => {
                 </button>
               </li>
               <li>
-                <a href="mailto:support@jourvance.com" style={{ color: '#94A3B8', textDecoration: 'none' }}>
+                <a href="mailto:support@jourvance.com" style={{ color: '#94A3B8', textDecoration: 'none', overflowWrap: 'anywhere' }}>
                   support@jourvance.com
                 </a>
               </li>

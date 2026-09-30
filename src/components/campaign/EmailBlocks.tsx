@@ -572,7 +572,7 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontWeight: 600, fontSize: 13, color: '#f3f4f6' }}>{product.title || 'Product'}</span>
                     {product.badge && (
-                      <span style={{ fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: 10, backgroundColor: 'rgba(236,72,153,0.15)', color: '#f472b6', border: '1px solid rgba(236,72,153,0.3)' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, padding: '1px 6px', borderRadius: 10, backgroundColor: 'rgba(236,72,153,0.15)', color: '#f472b6', border: '1px solid rgba(236,72,153,0.3)' }}>
                         {product.badge}
                       </span>
                     )}

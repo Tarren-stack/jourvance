@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import express from 'express';
+import { setupDomainRoutes } from './server/routes/domainRoutes.mjs';
+
+// Live-server checks run only when JOURVANCE_LIVE_TEST_URL names a server you started for
+// testing. They used to fetch http://localhost:3005 unconditionally, which on a developer machine
+// is server.mjs holding the live hub key, and a catch swallowed their own assertion failures.
+const LIVE_URL = process.env.JOURVANCE_LIVE_TEST_URL || '';
+const LIVE = { skip: LIVE_URL ? false : 'set JOURVANCE_LIVE_TEST_URL to run against a test server' };
 
 function createDomainVerificationSimulator() {
   const publicPageCache = {};
@@ -369,15 +377,145 @@ test('Tamper Protection: Stolen domain pointer in cache is rejected if registry 
   assert.equal(routed, null, 'Must reject pointer when target page owner does not match verified domain owner');
 });
 
-test('Live Server Verification: GET /api/domain/token and /api/domain/verify require authentication', async () => {
-  try {
-    const tokenRes = await fetch('http://localhost:3005/api/domain/token?domain=offer.testbrand.com');
-    assert.equal(tokenRes.status, 401, 'Unauthenticated /api/domain/token must return 401');
+test('Live Server Verification: GET /api/domain/token and /api/domain/verify require authentication', LIVE, async () => {
+  const tokenRes = await fetch(`${LIVE_URL}/api/domain/token?domain=offer.testbrand.com`);
+  assert.equal(tokenRes.status, 401, 'Unauthenticated /api/domain/token must return 401');
 
-    const verifyRes = await fetch('http://localhost:3005/api/domain/verify?domain=offer.testbrand.com');
-    assert.equal(verifyRes.status, 401, 'Unauthenticated /api/domain/verify must return 401');
-  } catch (err) {
-    // If running in offline test environment, pass
-    assert.ok(true);
+  const verifyRes = await fetch(`${LIVE_URL}/api/domain/verify?domain=offer.testbrand.com`);
+  assert.equal(verifyRes.status, 401, 'Unauthenticated /api/domain/verify must return 401');
+});
+
+// T12 / R26: Check DNS in the page editor named no journey, so a verified domain went to whichever
+// of the user's journeys asked for it. The route now takes the journey id, records it on the
+// verified domain (saved, because the registry file is reread on every route) and serves that
+// journey's page. Driven on a bare Express app over the real route module; the DNS answer is
+// stubbed and writes a fresh record the way verifyDomainOwnership does. Nothing loads .env.
+async function serveDomainRoutes({ uid = 'u1', verifies = true, withPersist = true } = {}) {
+  const publicPageCache = {};
+  const domainRegistryCache = {};
+  let domainsFile = '{}';
+  const counts = { persistDomainRegistry: 0 };
+  const ctx = {
+    requireUser: (req, _res, next) => { req.user = { uid: req.get('x-test-uid') || uid }; next(); },
+    domainRegistryCache,
+    // Refilled from the saved file in place, like server.mjs: an unsaved field does not survive it.
+    reloadDomainRegistry() {
+      for (const k of Object.keys(domainRegistryCache)) delete domainRegistryCache[k];
+      Object.assign(domainRegistryCache, JSON.parse(domainsFile));
+      return domainRegistryCache;
+    },
+    verifyDomainOwnership: async (domain, requestingUid) => {
+      if (!verifies) return { success: true, verified: false, domain };
+      domainRegistryCache[domain] = { domain, userId: requestingUid, verified: true, method: 'cname' };
+      domainsFile = JSON.stringify(domainRegistryCache);
+      return { success: true, verified: true, domain };
+    },
+    getDomainVerificationToken: () => 'jrv_test',
+    publicPageCache,
+    persistPublicPages() {}
+  };
+  if (withPersist) {
+    ctx.persistDomainRegistry = () => { counts.persistDomainRegistry += 1; domainsFile = JSON.stringify(domainRegistryCache); };
+  }
+  const app = express();
+  setupDomainRoutes(app, ctx);
+  const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const verify = async (query, headers = {}) => {
+    const r = await fetch(`${base}/api/domain/verify?${query}`, { headers });
+    return { status: r.status, body: await r.json() };
+  };
+  const saved = () => JSON.parse(domainsFile);
+  return {
+    verify, saved, counts, publicPageCache, domainRegistryCache, ctx,
+    close: () => new Promise(r => { server.closeAllConnections(); server.close(r); })
+  };
+}
+
+const askingPage = (slug, journeyId, userId = 'u1') => ({ slug, userId, journeyId, customDomain: 'shop.example.com', data: { headline: slug } });
+
+test('Check DNS from a journey records that journey on the verified domain and serves its page', async () => {
+  const s = await serveDomainRoutes();
+  try {
+    s.publicPageCache['first-offer'] = askingPage('first-offer', 'j1');
+    s.publicPageCache['second-offer'] = askingPage('second-offer', 'j2');
+
+    const r = await s.verify('domain=shop.example.com&journeyId=j2');
+    assert.equal(r.status, 200);
+    assert.equal(r.body.verified, true);
+    assert.equal(r.body.journeyId, 'j2', 'the reply says which journey the domain is tied to');
+    assert.equal(s.saved()['shop.example.com'].journeyId, 'j2', 'the journey is saved with the verified domain');
+    assert.equal(s.counts.persistDomainRegistry, 1);
+    assert.equal(s.publicPageCache['domain:shop.example.com'], 'second-offer', "the domain serves that journey's page");
+
+    // A later check that names no journey (an older client) keeps the tie, and with the pointer
+    // gone it goes back to the recorded journey rather than refusing between the two.
+    delete s.publicPageCache['domain:shop.example.com'];
+    const again = await s.verify('domain=shop.example.com');
+    assert.equal(again.body.journeyId, 'j2');
+    assert.equal(s.saved()['shop.example.com'].journeyId, 'j2', 'a fresh verification record keeps the journey');
+    assert.equal(s.publicPageCache['domain:shop.example.com'], 'second-offer');
+
+    // Checked again from the other journey: the tie moves, the live page keeps the domain.
+    const fromFirst = await s.verify('domain=shop.example.com&journeyId=j1');
+    assert.equal(fromFirst.body.journeyId, 'j1');
+    assert.equal(s.saved()['shop.example.com'].journeyId, 'j1');
+    assert.equal(s.publicPageCache['domain:shop.example.com'], 'second-offer', 'checking DNS never moves a live domain');
+  } finally {
+    await s.close();
   }
 });
+
+test('Check DNS stores no journey on a domain that did not verify, or that verified for another user', async () => {
+  const unverified = await serveDomainRoutes({ verifies: false });
+  try {
+    const r = await unverified.verify('domain=shop.example.com&journeyId=j2');
+    assert.equal(r.body.verified, false);
+    assert.equal(r.body.journeyId, undefined);
+    assert.deepEqual(unverified.saved(), {});
+    assert.equal(unverified.counts.persistDomainRegistry, 0);
+  } finally {
+    await unverified.close();
+  }
+
+  // Another user's earlier tie is not carried onto this user's record.
+  const s = await serveDomainRoutes();
+  try {
+    s.domainRegistryCache['shop.example.com'] = { domain: 'shop.example.com', userId: 'u2', verified: true, journeyId: 'their-journey' };
+    s.ctx.persistDomainRegistry();
+    const r = await s.verify('domain=shop.example.com');
+    assert.equal(r.body.verified, true);
+    assert.equal(r.body.journeyId, undefined);
+    assert.equal(s.saved()['shop.example.com'].userId, 'u1');
+    assert.equal(s.saved()['shop.example.com'].journeyId, undefined);
+  } finally {
+    await s.close();
+  }
+});
+
+test('Without a way to save the registry the route stores nothing it would lose', async () => {
+  const s = await serveDomainRoutes({ withPersist: false });
+  try {
+    s.publicPageCache['second-offer'] = askingPage('second-offer', 'j2');
+    const r = await s.verify('domain=shop.example.com&journeyId=j2');
+    assert.equal(r.body.verified, true);
+    assert.equal(s.domainRegistryCache['shop.example.com'].journeyId, undefined, 'no unsaved field');
+    assert.equal(s.publicPageCache['domain:shop.example.com'], 'second-offer', 'the named journey still gets the domain');
+  } finally {
+    await s.close();
+  }
+});
+
+// The bare-Express tests above hand the route persistDomainRegistry; the live server builds its own
+// ctx in server.mjs. Without it the route skips the save (the test above), so the tie is lost on a
+// real server, so the live ctx must pass it too.
+{
+  const fs = await import('node:fs');
+  const serverSrc = fs.readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  const start = serverSrc.indexOf('setupDomainRoutes(app, {');
+  const liveCtx = start < 0 ? '' : serverSrc.slice(start, serverSrc.indexOf('});', start));
+  test('The live server gives the domain routes a way to save the registry', () => {
+    assert.ok(liveCtx, 'server.mjs mounts the domain routes');
+    assert.match(liveCtx, /\bpersistDomainRegistry\b/);
+  });
+}

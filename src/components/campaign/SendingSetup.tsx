@@ -256,7 +256,7 @@ export const SendingSetup: React.FC = () => {
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: '#F1F5F9' }}>SPF Record</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: report.spf.valid ? '#34D399' : '#F87171' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: report.spf.valid ? '#34D399' : '#F87171' }}>
                     {report.spf.valid ? '✓ Active' : '✕ Missing'}
                   </span>
                 </div>
@@ -278,7 +278,7 @@ export const SendingSetup: React.FC = () => {
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: '#F1F5F9' }}>DKIM Signature</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: report.dkim.valid ? '#34D399' : '#FBBF24' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: report.dkim.valid ? '#34D399' : '#FBBF24' }}>
                     {report.dkim.valid ? '✓ Verified' : '⚠️ Pending'}
                   </span>
                 </div>
@@ -300,7 +300,7 @@ export const SendingSetup: React.FC = () => {
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: '#F1F5F9' }}>DMARC Policy</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: report.dmarc.valid ? '#34D399' : '#F87171' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: report.dmarc.valid ? '#34D399' : '#F87171' }}>
                     {report.dmarc.valid ? `✓ ${report.dmarc.policy?.toUpperCase()}` : '✕ Missing'}
                   </span>
                 </div>
@@ -322,7 +322,7 @@ export const SendingSetup: React.FC = () => {
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: '#F1F5F9' }}>MX Routing</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: report.mx.valid ? '#34D399' : '#F87171' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: report.mx.valid ? '#34D399' : '#F87171' }}>
                     {report.mx.valid ? '✓ Receiving' : '✕ No Server'}
                   </span>
                 </div>
@@ -522,7 +522,7 @@ export const SendingSetup: React.FC = () => {
                                   style={{
                                     padding: '2px 6px',
                                     borderRadius: 4,
-                                    fontSize: 10,
+                                    fontSize: 11,
                                     backgroundColor: 'rgba(255, 255, 255, 0.08)',
                                     border: 'none',
                                     color: '#FFFFFF',

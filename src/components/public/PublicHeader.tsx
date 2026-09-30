@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Layers, ArrowRight, Play, User as UserIcon, LogOut, ShieldCheck, Zap, ChevronDown } from 'lucide-react';
 import type { User } from '../../lib/firebase';
 import { isOperator } from '../../lib/firebase';
@@ -14,6 +14,34 @@ interface PublicHeaderProps {
   onSignOut: () => void;
 }
 
+// The links and buttons wrap onto more rows when they do not fit on one (they ran off the right
+// edge, Sign In included). From a tablet up that is at most two rows, which stay pinned to the top;
+// on a phone it is three or four, which would cover the screen, so there it scrolls with the page.
+const WIDE_QUERY = '(min-width: 768px)';
+const matchesWide = () => {
+  try {
+    return window.matchMedia(WIDE_QUERY).matches;
+  } catch {
+    return true;
+  }
+};
+const useWide = () => {
+  const [wide, setWide] = useState(matchesWide);
+  useEffect(() => {
+    let query: MediaQueryList;
+    try {
+      query = window.matchMedia(WIDE_QUERY);
+    } catch {
+      return;
+    }
+    const update = () => setWide(query.matches);
+    update();
+    query.addEventListener?.('change', update);
+    return () => query.removeEventListener?.('change', update);
+  }, []);
+  return wide;
+};
+
 export const PublicHeader: React.FC<PublicHeaderProps> = ({
   activePage,
   onNavigate,
@@ -25,23 +53,30 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
   onSignOut
 }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
+  // The account menu opens toward the side it has room on: a wrapped row can put its button at
+  // the left edge, where a right-aligned menu would start off-screen.
+  const [menuFromLeft, setMenuFromLeft] = useState(false);
   const operator = isOperator(user);
+  const wide = useWide();
 
   return (
     <header
       style={{
-        position: 'sticky',
+        position: wide ? 'sticky' : 'relative',
         top: 0,
         zIndex: 50,
         backgroundColor: 'rgba(11, 15, 25, 0.85)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-        padding: '0 2rem',
-        height: '68px',
+        padding: '0.5rem clamp(1rem, 4vw, 2rem)',
+        minHeight: '68px',
+        flexShrink: 0,
         display: 'flex',
+        flexWrap: 'wrap',
         alignItems: 'center',
-        justifyContent: 'space-between'
+        justifyContent: 'space-between',
+        gap: '0.5rem 1rem'
       }}
     >
       {/* Brand Logo */}
@@ -97,7 +132,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
       </div>
 
       {/* Navigation Links */}
-      <nav style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <nav style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.25rem 0.5rem' }}>
         <button
           onClick={() => onNavigate('home')}
           style={{
@@ -189,7 +224,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
       </nav>
 
       {/* Action Buttons & Auth */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem 0.75rem' }}>
         <button
           onClick={onTestJourney}
           style={{
@@ -239,7 +274,10 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
         {user ? (
           <div style={{ position: 'relative' }}>
             <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
+              onClick={e => {
+                setMenuFromLeft(e.currentTarget.getBoundingClientRect().right < 226);
+                setShowUserMenu(!showUserMenu);
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -280,7 +318,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
                 style={{
                   position: 'absolute',
                   top: '42px',
-                  right: 0,
+                  ...(menuFromLeft ? { left: 0 } : { right: 0 }),
                   width: '210px',
                   backgroundColor: '#1E293B',
                   borderRadius: '10px',

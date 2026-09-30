@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X, ShoppingBag, Search, Sparkles, Check, ChevronRight,
   RefreshCw, ExternalLink, AlertCircle, Tag, Layers
 } from 'lucide-react';
 import type { Workspace, ShopifyProduct, ShopifyProductVariant } from '../../types/journey';
 import { fetchShopifyProducts } from '../../lib/shopifyClient';
+import { pickerCatalog, NO_STORE_CONNECTED } from '../../lib/productPickerCatalog';
+import { useDialogFocus, useFieldIds } from '../../lib/a11yHooks';
 
 export interface SelectedProductPayload {
   product: ShopifyProduct;
@@ -22,73 +24,6 @@ interface Props {
   selectedVariantId?: string;
 }
 
-const DEMO_LUXURY_PRODUCTS: ShopifyProduct[] = [
-  {
-    id: 'prod_rose_elixir',
-    title: 'Rosewater Hydration Radiance Elixir',
-    handle: 'rosewater-hydration-radiance-elixir',
-    description: 'Ultra-pure Bulgarian rose distillate with micro-molecular hyaluronic acid for instant dewy glass skin.',
-    price: '$34.00',
-    imageUrl: 'https://images.unsplash.com/photo-1608248597359-251c6c06a323?w=500&auto=format&fit=crop&q=80',
-    images: ['https://images.unsplash.com/photo-1608248597359-251c6c06a323?w=500&auto=format&fit=crop&q=80'],
-    variants: [
-      { id: '42109840101', title: '60ml Travel Mist', price: '$34.00', available: true, sku: 'RSE-60ML' },
-      { id: '42109840102', title: '120ml Ritual Size', price: '$52.00', available: true, sku: 'RSE-120ML' }
-    ]
-  },
-  {
-    id: 'prod_barrier_creme',
-    title: 'Bioactive Triple Barrier Restorative Crème',
-    handle: 'bioactive-triple-barrier-restorative-creme',
-    description: 'Ceramide NP, phytosterols, and squalane lipid complex to lock in hydration and repair environmental damage.',
-    price: '$48.00',
-    imageUrl: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?w=500&auto=format&fit=crop&q=80',
-    images: ['https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?w=500&auto=format&fit=crop&q=80'],
-    variants: [
-      { id: '42109840201', title: '50ml Standard Jar', price: '$48.00', available: true, sku: 'BAR-50ML' },
-      { id: '42109840202', title: '100ml Luxury Value Size', price: '$78.00', available: true, sku: 'BAR-100ML' }
-    ]
-  },
-  {
-    id: 'prod_night_balm',
-    title: 'Silk Peptide Cellular Night Renewal Balm',
-    handle: 'silk-peptide-cellular-night-renewal-balm',
-    description: 'Overnight peptide restorative balm infused with blue tansy and Bakuchiol to visibly plump fine lines.',
-    price: '$62.00',
-    imageUrl: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=500&auto=format&fit=crop&q=80',
-    images: ['https://images.unsplash.com/photo-1556228720-195a672e8a03?w=500&auto=format&fit=crop&q=80'],
-    variants: [
-      { id: '42109840301', title: '30ml Night Allocation', price: '$62.00', available: true, sku: 'NBLM-30ML' },
-      { id: '42109840302', title: '60ml Double Allocation', price: '$98.00', available: true, sku: 'NBLM-60ML' }
-    ]
-  },
-  {
-    id: 'prod_clarifying_cleanse',
-    title: 'Botanical Cold-Pressed Clarifying Cleanser',
-    handle: 'botanical-cold-pressed-clarifying-cleanser',
-    description: 'Gentle pH-balanced foaming oil wash with green tea seed and chamomile to dissolve stubborn SPF and makeup.',
-    price: '$28.00',
-    imageUrl: 'https://images.unsplash.com/photo-1556228722-d0b777a94435?w=500&auto=format&fit=crop&q=80',
-    images: ['https://images.unsplash.com/photo-1556228722-d0b777a94435?w=500&auto=format&fit=crop&q=80'],
-    variants: [
-      { id: '42109840401', title: '150ml Pump Bottle', price: '$28.00', available: true, sku: 'CLN-150ML' }
-    ]
-  },
-  {
-    id: 'prod_rose_gua_sha',
-    title: 'Velvet Rose Quartz Sculpting Contour Tool',
-    handle: 'velvet-rose-quartz-sculpting-contour-tool',
-    description: 'Handcrafted grade-A Brazilian rose quartz crafted for lymphatic drainage, facial sculpting, and circulation.',
-    price: '$24.00',
-    imageUrl: 'https://images.unsplash.com/photo-1617897903246-719242758050?w=500&auto=format&fit=crop&q=80',
-    images: ['https://images.unsplash.com/photo-1617897903246-719242758050?w=500&auto=format&fit=crop&q=80'],
-    variants: [
-      { id: '42109840501', title: 'Pure Rose Quartz', price: '$24.00', available: true, sku: 'GUA-RQ' },
-      { id: '42109840502', title: 'Heated Bian Stone Edition', price: '$32.00', available: true, sku: 'GUA-BS' }
-    ]
-  }
-];
-
 export const ShopifyProductPickerModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -102,32 +37,34 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [liveProducts, setLiveProducts] = useState<ShopifyProduct[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   const isConnected = workspace?.shopifyConfig?.status === 'connected' && Boolean(workspace?.shopifyConfig?.storeDomain);
   const storeDomain = workspace?.shopifyConfig?.storeDomain || '';
+  const noStore = !(isConnected && Boolean(workspace?.id));
 
+  // Only the connected store's own products can be picked. A connected store whose read fails or
+  // comes back empty gets an error and Try again, and a workspace with no store gets a note and
+  // nothing to pick: a sample catalog offered in either case wrote an invented product, price and
+  // variant id into the merchant's page or upsell, and the page published them (C25, R14).
   const loadProducts = async () => {
-    if (!workspace?.id || !isConnected) {
-      setLiveProducts(DEMO_LUXURY_PRODUCTS);
-      setIsDemoMode(true);
+    const apply = (res: Parameters<typeof pickerCatalog>[1]) => {
+      const next = pickerCatalog(!noStore, res);
+      setLiveProducts(next.products);
+      setLoadError(next.mode === 'error' ? next.message : '');
+    };
+    if (noStore || !workspace?.id) {
+      apply(null);
       return;
     }
 
     setLoading(true);
+    setLoadError('');
     try {
-      const res = await fetchShopifyProducts(workspace.id);
-      if (res.products && res.products.length > 0) {
-        setLiveProducts(res.products);
-        setIsDemoMode(false);
-      } else {
-        setLiveProducts(DEMO_LUXURY_PRODUCTS);
-        setIsDemoMode(true);
-      }
+      apply(await fetchShopifyProducts(workspace.id));
     } catch {
-      setLiveProducts(DEMO_LUXURY_PRODUCTS);
-      setIsDemoMode(true);
+      apply(null);
     } finally {
       setLoading(false);
     }
@@ -153,6 +90,26 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
     });
   }, [liveProducts, searchQuery]);
 
+  // A modal on the shared dialog stack: Escape closes the picker and leaves the step panel around
+  // it open, Tab stays inside, and focus goes back to the button that opened it.
+  const panelRef = useDialogFocus<HTMLDivElement>(isOpen, onClose, { modal: true });
+  const fid = useFieldIds();
+
+  // Try again unmounts itself while the read runs, so focus would fall to the page. Put it back on
+  // Try again if the read failed again, or on the search box once products are listed.
+  const retryRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [retried, setRetried] = useState(0);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!retried || !panel || panel.contains(document.activeElement)) return;
+    (retryRef.current ?? searchRef.current)?.focus();
+  }, [retried]);
+  const retry = async () => {
+    await loadProducts();
+    setRetried(n => n + 1);
+  };
+
   if (!isOpen) return null;
 
   const handlePick = (product: ShopifyProduct, variant: ShopifyProductVariant) => {
@@ -177,6 +134,10 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={fid('title')}
         style={{
           width: '100%',
           maxWidth: '720px',
@@ -219,7 +180,7 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
               <ShoppingBag size={20} />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }}>
+              <h3 id={fid('title')} tabIndex={-1} data-dialog-start style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }}>
                 {title}
               </h3>
               <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94A3B8', lineHeight: 1.4 }}>
@@ -229,7 +190,9 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close"
             style={{
               background: 'rgba(255, 255, 255, 0.06)',
               border: 'none',
@@ -251,7 +214,7 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
         <div
           style={{
             padding: '10px 24px',
-            backgroundColor: isConnected && !isDemoMode ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 114, 182, 0.08)',
+            backgroundColor: !noStore && !loadError ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 114, 182, 0.08)',
             borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
             display: 'flex',
             alignItems: 'center',
@@ -265,22 +228,26 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
                 width: '7px',
                 height: '7px',
                 borderRadius: '50%',
-                backgroundColor: isConnected && !isDemoMode ? '#10B981' : '#F472B6'
+                backgroundColor: !noStore && !loadError ? '#10B981' : '#F472B6'
               }}
             />
-            {isConnected && !isDemoMode ? (
+            {!noStore && loadError ? (
+              <span style={{ color: '#F472B6', fontWeight: 600 }}>
+                Connected store: <strong style={{ color: '#FFFFFF' }}>{storeDomain}</strong> <span style={{ color: '#94A3B8', fontWeight: 500 }}>(products unavailable)</span>
+              </span>
+            ) : !noStore ? (
               <span style={{ color: '#10B981', fontWeight: 600 }}>
                 Live Catalog: <strong style={{ color: '#FFFFFF' }}>{storeDomain}</strong> ({liveProducts.length} items synced)
               </span>
             ) : (
               <span style={{ color: '#F472B6', fontWeight: 500 }}>
-                Demo Luxury Catalog Active <span style={{ color: '#94A3B8' }}>(Connect store to sync live inventory)</span>
+                No store connected
               </span>
             )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {isConnected && (
+            {!noStore && (
               <button
                 type="button"
                 onClick={loadProducts}
@@ -301,7 +268,7 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
                 Refresh
               </button>
             )}
-            {!isConnected && onOpenShopifyConnect && (
+            {noStore && onOpenShopifyConnect && (
               <button
                 type="button"
                 onClick={() => {
@@ -325,7 +292,8 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Search Bar */}
+        {/* Search Bar: nothing to search until a store is connected */}
+        {!noStore && (
         <div style={{ padding: '16px 24px 12px' }}>
           <div
             style={{
@@ -340,10 +308,12 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
           >
             <Search size={16} color="#94A3B8" />
             <input
+              ref={searchRef}
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Search by product name, shade, volume, or SKU..."
+              aria-label="Search products"
               style={{
                 flex: 1,
                 background: 'transparent',
@@ -352,12 +322,12 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
                 fontSize: '13px',
                 outline: 'none'
               }}
-              autoFocus
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
                 style={{
                   background: 'transparent',
                   border: 'none',
@@ -371,6 +341,7 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
             )}
           </div>
         </div>
+        )}
 
         {/* Product Cards Container */}
         <div
@@ -383,10 +354,55 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
             gap: '12px'
           }}
         >
-          {loading ? (
+          {noStore ? (
+            <div
+              style={{
+                padding: '40px 20px',
+                textAlign: 'center',
+                backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                borderRadius: '12px',
+                border: '1px dashed rgba(255, 255, 255, 0.1)'
+              }}
+            >
+              <ShoppingBag size={24} style={{ color: '#94A3B8', margin: '0 auto 8px' }} />
+              <div style={{ color: '#FFFFFF', fontSize: '13px', fontWeight: 600 }}>{NO_STORE_CONNECTED}</div>
+            </div>
+          ) : loading ? (
             <div style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
               <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 12px', color: '#F472B6' }} />
               <div style={{ fontSize: '13px', fontWeight: 600 }}>Syncing Shopify catalog...</div>
+            </div>
+          ) : loadError ? (
+            <div
+              role="alert"
+              style={{
+                padding: '40px 20px',
+                textAlign: 'center',
+                backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                borderRadius: '12px',
+                border: '1px dashed rgba(255, 255, 255, 0.1)'
+              }}
+            >
+              <AlertCircle size={24} style={{ color: '#F472B6', margin: '0 auto 8px' }} />
+              <div style={{ color: '#FFFFFF', fontSize: '13px', fontWeight: 600 }}>{loadError}</div>
+              <button
+                ref={retryRef}
+                type="button"
+                onClick={retry}
+                style={{
+                  marginTop: '12px',
+                  background: 'rgba(244, 114, 182, 0.2)',
+                  border: '1px solid rgba(244, 114, 182, 0.4)',
+                  borderRadius: '6px',
+                  padding: '6px 14px',
+                  color: '#F472B6',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Try again
+              </button>
             </div>
           ) : filteredProducts.length === 0 ? (
             <div
@@ -448,7 +464,7 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
                       {product.imageUrl ? (
                         <img
                           src={product.imageUrl}
-                          alt={product.title}
+                          alt=""
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         />
                       ) : (
@@ -488,7 +504,7 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
                         {hasMultipleVariants && (
                           <span
                             style={{
-                              fontSize: '10px',
+                              fontSize: '11px',
                               fontWeight: 600,
                               color: '#A855F7',
                               backgroundColor: 'rgba(168, 85, 247, 0.12)',
@@ -569,7 +585,7 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
                         gap: '6px'
                       }}
                     >
-                      <div style={{ fontSize: '10px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                         Select Specific Variant to Connect:
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '6px' }}>
@@ -600,7 +616,7 @@ export const ShopifyProductPickerModal: React.FC<Props> = ({
                                   {variant.title}
                                 </div>
                                 {variant.sku && (
-                                  <div style={{ fontSize: '9px', color: '#64748B', fontFamily: 'monospace' }}>
+                                  <div style={{ fontSize: '11px', color: '#64748B', fontFamily: 'monospace' }}>
                                     SKU: {variant.sku}
                                   </div>
                                 )}

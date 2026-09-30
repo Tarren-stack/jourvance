@@ -252,8 +252,9 @@ test('Flagship Turnkey Retention Blueprint contains valid 6-node dual-retention 
   assert.equal(pageNode.position.y, 160, 'Page node on main axis');
   assert.equal(upsellNode.position.y, 160, 'Upsell node on main axis');
   assert.equal(tyNode.position.y, 160, 'Thank-you node on main axis');
-  assert.equal(cartRecoveryNode.position.y, 440, 'Cart recovery on retention branch axis');
-  assert.equal(upsellRescueNode.position.y, 440, 'Upsell rescue on retention branch axis');
+  // Below the bp6 upsell card, which is 375 map px tall with its handles (160 to 535).
+  assert.equal(cartRecoveryNode.position.y, 600, 'Cart recovery on retention branch axis');
+  assert.equal(upsellRescueNode.position.y, 600, 'Upsell rescue on retention branch axis');
 
   // Verify Retention Handles on Edges
   const cartEdge = bp.edges.find(e => e.source === pageNode.id && e.target === cartRecoveryNode.id);
@@ -283,3 +284,24 @@ test('Flagship Turnkey Retention Blueprint contains valid 6-node dual-retention 
   assert.equal(zeroedRescue.data.contactsEnrolled, 0, 'Contacts enrolled must be reset to 0');
 });
 
+
+test('C18: the Forecaster\'s Sync to Canvas writes drafts with no voucher, like the design fix', async () => {
+  const fs = (await import('node:fs')).default;
+  const app = fs.readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8');
+  const start = app.indexOf('const handleSyncRetentionToCanvas');
+  assert.ok(start > 0, 'App has no handleSyncRetentionToCanvas');
+  const call = app.slice(app.indexOf('injectRetentionFlows({', start), app.indexOf('});', app.indexOf('injectRetentionFlows({', start)));
+  assert.match(call, /placeholderCopy:\s*true/, 'the sync must ask for placeholder drafts');
+
+  // What that call writes: no voucher, no invented subject, on a journey with a page and an upsell.
+  const { injectRetentionFlows } = await import('./src/lib/funnelForecaster.ts');
+  const nodes = [
+    { id: 'p', type: 'landing-page', position: { x: 0, y: 0 }, data: { type: 'landing-page', label: 'P' } },
+    { id: 'u', type: 'upsell', position: { x: 400, y: 0 }, data: { type: 'upsell', label: 'U' } }
+  ];
+  const r = injectRetentionFlows({ nodes, edges: [], addCartRecovery: true, addUpsellRescue: true, cartRecoveryDiscount: 15, upsellRescueDiscount: 15, placeholderCopy: true });
+  assert.equal(r.addedNodes.length, 2);
+  const text = JSON.stringify(r.addedNodes);
+  assert.ok(r.addedNodes.every(n => !n.data.voucherCode));
+  assert.doesNotMatch(text, /SAVE\d|COMPLETE10|15%|complimentary|held for 24|✨/);
+});

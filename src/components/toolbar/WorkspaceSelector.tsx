@@ -21,6 +21,8 @@ export const WorkspaceSelector: React.FC<Props> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -32,13 +34,39 @@ export const WorkspaceSelector: React.FC<Props> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Escape closes the list and hands focus back to its button, like the header's other menus (C31).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (containerRef.current?.contains(document.activeElement)) triggerRef.current?.focus();
+      setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  // Tabbing out of the button and the list closes it, so it never sits open over the header. The
+  // list takes focus itself (tabIndex -1), so a click on its heading still counts as inside.
+  const closeWhenFocusLeaves = (e: React.FocusEvent) => {
+    const next = e.relatedTarget as Node | null;
+    if (next && (triggerRef.current?.contains(next) || menuRef.current?.contains(next))) return;
+    setOpen(false);
+  };
+
   const isConnected = currentWorkspace?.shopifyConfig?.status === 'connected' && !!currentWorkspace?.shopifyConfig?.storeDomain;
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
+    // minWidth 0 down the row, so on a 320px phone the two names shorten with an ellipsis instead of
+    // Connect Shopify running past the right edge (R03).
+    <div ref={containerRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, maxWidth: '100%' }}>
       {/* Workspace Menu Trigger */}
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
+        onBlur={open ? closeWhenFocusLeaves : undefined}
+        aria-expanded={open}
+        aria-controls={open ? 'jv-workspace-menu' : undefined}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -51,52 +79,26 @@ export const WorkspaceSelector: React.FC<Props> = ({
           fontSize: '13px',
           fontWeight: 500,
           cursor: 'pointer',
-          transition: 'all 0.15s ease'
+          transition: 'all 0.15s ease',
+          minWidth: 0
         }}
       >
-        <Layers size={15} style={{ color: '#ec4899' }} />
-        <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <Layers size={15} style={{ color: '#ec4899', flexShrink: 0 }} />
+        <span style={{ maxWidth: '140px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {currentWorkspace?.name || 'Workspace'}
         </span>
-        <ChevronDown size={14} style={{ color: '#9ca3af' }} />
+        <ChevronDown size={14} style={{ color: '#9ca3af', flexShrink: 0 }} />
       </button>
 
-      {/* Shopify Connection Pill */}
-      <button
-        onClick={onOpenShopifyConnect}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          padding: '6px 10px',
-          backgroundColor: isConnected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.04)',
-          border: `1px solid ${isConnected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
-          borderRadius: '8px',
-          color: isConnected ? '#34d399' : '#9ca3af',
-          fontSize: '12px',
-          fontWeight: 500,
-          cursor: 'pointer',
-          transition: 'all 0.15s ease'
-        }}
-        title={isConnected ? `Shopify Store: ${currentWorkspace?.shopifyConfig?.storeDomain}` : 'Click to connect a Shopify store'}
-      >
-        <ShoppingBag size={14} style={{ color: isConnected ? '#10b981' : '#9ca3af' }} />
-        <span style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {isConnected ? currentWorkspace?.shopifyConfig?.storeDomain : 'Connect Shopify'}
-        </span>
-        <span
-          style={{
-            width: '6px',
-            height: '6px',
-            borderRadius: '50%',
-            backgroundColor: isConnected ? '#10b981' : '#6b7280'
-          }}
-        />
-      </button>
-
-      {/* Dropdown Menu */}
+      {/* Dropdown Menu: straight after its button, so Tab walks into the list before the Shopify pill */}
       {open && (
         <div
+          id="jv-workspace-menu"
+          ref={menuRef}
+          role="group"
+          aria-label="Workspaces"
+          tabIndex={-1}
+          onBlur={closeWhenFocusLeaves}
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
@@ -206,6 +208,44 @@ export const WorkspaceSelector: React.FC<Props> = ({
           </button>
         </div>
       )}
+
+      {/* Shopify Connection Pill */}
+      <button
+        onClick={onOpenShopifyConnect}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '6px 10px',
+          backgroundColor: isConnected ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+          border: `1px solid ${isConnected ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
+          borderRadius: '8px',
+          color: isConnected ? '#34d399' : '#9ca3af',
+          fontSize: '12px',
+          fontWeight: 500,
+          cursor: 'pointer',
+          transition: 'all 0.15s ease',
+          minWidth: 0,
+          // "Connect Shopify" is the action, so the workspace name gives way first.
+          flexShrink: isConnected ? 1 : 0
+        }}
+        title={isConnected ? `Shopify Store: ${currentWorkspace?.shopifyConfig?.storeDomain}` : 'Click to connect a Shopify store'}
+      >
+        <ShoppingBag size={14} style={{ color: isConnected ? '#10b981' : '#9ca3af', flexShrink: 0 }} />
+        <span style={{ maxWidth: '160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {isConnected ? currentWorkspace?.shopifyConfig?.storeDomain : 'Connect Shopify'}
+        </span>
+        <span
+          style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            flexShrink: 0,
+            backgroundColor: isConnected ? '#10b981' : '#6b7280'
+          }}
+        />
+      </button>
+
     </div>
   );
 };

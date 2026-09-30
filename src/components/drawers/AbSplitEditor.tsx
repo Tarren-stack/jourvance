@@ -1,71 +1,34 @@
 import React, { useState } from 'react';
 import { GitFork, Trophy, ExternalLink, Copy, Check, RotateCcw, TrendingUp, AlertCircle, Sparkles } from 'lucide-react';
 import type { AbSplitNodeData } from '../../types/journey';
+import { measureValue, splitTest, MIN_SPLIT_BRANCH_SAMPLE, type NodeMeasure } from '../../lib/journeyMetrics';
+import { useFieldIds } from '../../lib/a11yHooks';
 
 interface Props {
   data: AbSplitNodeData;
   onChange: (updated: AbSplitNodeData) => void;
+  /** This split's figures from the map's stats snapshot (#9); null when it was not measured. */
+  measure?: NodeMeasure | null;
 }
 
-/**
- * Calculates two-proportion Z-test statistical confidence for A/B testing.
- * Returns percentage confidence (0% to 99.9%).
- */
-function calculateStatisticalConfidence(
-  visA: number,
-  convA: number,
-  visB: number,
-  convB: number
-): { confidence: number; zScore: number; pValue: number; isSignificant: boolean } {
-  if (visA < 10 || visB < 10 || (convA === 0 && convB === 0)) {
-    return { confidence: 0, zScore: 0, pValue: 1, isSignificant: false };
-  }
-
-  const p1 = convA / visA;
-  const p2 = convB / visB;
-  const pPool = (convA + convB) / (visA + visB);
-  const sePool = Math.sqrt(pPool * (1 - pPool) * (1 / visA + 1 / visB));
-
-  if (sePool === 0) {
-    return { confidence: 0, zScore: 0, pValue: 1, isSignificant: false };
-  }
-
-  const z = Math.abs((p1 - p2) / sePool);
-  // Standard normal CDF approximation (Abramowitz & Stegun formula)
-  const t = 1 / (1 + 0.2316419 * z);
-  const d = 0.3989422804014337;
-  const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  const pValue = 2 * (d * Math.exp(-0.5 * z * z) * poly);
-  const confidence = Math.min(99.9, Math.max(0, Number(((1 - pValue) * 100).toFixed(1))));
-
-  return {
-    confidence,
-    zScore: Number(z.toFixed(2)),
-    pValue: Number(pValue.toFixed(4)),
-    isSignificant: confidence >= 95.0
-  };
-}
-
-export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
+export const AbSplitEditor: React.FC<Props> = ({ data, onChange, measure = null }) => {
   const [copiedLink, setCopiedLink] = useState(false);
+  // Ties each label to its control (#19). Ids are unique per mounted editor.
+  const fid = useFieldIds();
 
   const splitRatio = typeof data.splitRatio === 'number' ? Math.max(0, Math.min(100, data.splitRatio)) : 50;
   const ratioA = splitRatio;
   const ratioB = 100 - splitRatio;
 
-  const visA = data.branchAVisitors || 0;
-  const convA = data.branchAConversions || 0;
-  const revA = data.branchAGrossRevenue || 0;
-  const rateA = visA > 0 ? Number(((convA / visA) * 100).toFixed(1)) : 0;
-  const aovA = convA > 0 ? Math.round(revA / convA) : 0;
-
-  const visB = data.branchBVisitors || 0;
-  const convB = data.branchBConversions || 0;
-  const revB = data.branchBGrossRevenue || 0;
-  const rateB = visB > 0 ? Number(((convB / visB) * 100).toFixed(1)) : 0;
-  const aovB = convB > 0 ? Math.round(revB / convB) : 0;
-
-  const stats = calculateStatisticalConfidence(visA, convA, visB, convB);
+  // Branch figures come from the stats snapshot, never from counts saved on the step. The
+  // confidence test is journeyMetrics' splitTest, the same rule the split card reads (C23), so a
+  // test that did not run reads 'Unavailable' here while the card names no leader.
+  const visA = measureValue(measure, 'branchAVisitors');
+  const convA = measureValue(measure, 'branchAConversions');
+  const visB = measureValue(measure, 'branchBVisitors');
+  const convB = measureValue(measure, 'branchBConversions');
+  const test = splitTest(visA, convA, visB, convB);
+  const stats = test.ran ? test : null;
 
   const handleCopyRouterUrl = () => {
     const slug = data.slug || 'split-test';
@@ -135,6 +98,7 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>
             <span>Traffic Router URL:</span>
             <button
+              type="button"
               onClick={handleCopyRouterUrl}
               style={{
                 background: 'transparent',
@@ -156,7 +120,7 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
             /p/split/{data.slug || 'split-test'}
           </div>
 
-          <div style={{ marginTop: '8px', display: 'flex', gap: '8px', fontSize: '10px' }}>
+          <div style={{ marginTop: '8px', display: 'flex', gap: '8px', fontSize: '11px' }}>
             <a
               href={`/p/split/${data.slug || 'split-test'}?jv_var=a`}
               target="_blank"
@@ -181,10 +145,11 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
       {/* Basic Settings: Label & Slug */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
+          <label htmlFor={fid('label')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
             Split Test Label
           </label>
           <input
+            id={fid('label')}
             type="text"
             value={data.label || ''}
             onChange={e => onChange({ ...data, label: e.target.value })}
@@ -203,7 +168,7 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
         </div>
 
         <div>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
+          <label htmlFor={fid('slug')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
             Router URL Slug
           </label>
           <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0, 0, 0, 0.3)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
@@ -211,6 +176,7 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
               /p/split/
             </span>
             <input
+              id={fid('slug')}
               type="text"
               value={data.slug || ''}
               onChange={e => onChange({ ...data, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '') })}
@@ -229,10 +195,11 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
         </div>
 
         <div>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
+          <label htmlFor={fid('goal')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
             Primary Optimization Goal
           </label>
           <select
+            id={fid('goal')}
             value={data.goal || 'conversion_rate'}
             onChange={e => onChange({ ...data, goal: e.target.value as any })}
             style={{
@@ -256,7 +223,7 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
       {/* Traffic Distribution Controls */}
       <div style={{ background: 'rgba(0, 0, 0, 0.25)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <label style={{ fontSize: '13px', fontWeight: 700, color: '#F1F5F9' }}>
+          <label htmlFor={fid('ratio')} style={{ fontSize: '13px', fontWeight: 700, color: '#F1F5F9' }}>
             Traffic Distribution
           </label>
           <span style={{ fontSize: '12px', fontWeight: 700, color: '#A78BFA' }}>
@@ -272,11 +239,13 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
 
         {/* Range Slider */}
         <input
+          id={fid('ratio')}
           type="range"
           min="0"
           max="100"
           step="5"
           value={splitRatio}
+          aria-valuetext={`${ratioA}% A, ${ratioB}% B`}
           onChange={e => onChange({ ...data, splitRatio: parseInt(e.target.value, 10), winner: null })}
           style={{
             width: '100%',
@@ -287,7 +256,7 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
         />
 
         {/* Preset Quick Toggles */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
+        <div role="group" aria-label="Split presets" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
           {[
             { label: '50 / 50', ratio: 50 },
             { label: '70 / 30', ratio: 70 },
@@ -299,6 +268,8 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
             return (
               <button
                 key={preset.label}
+                type="button"
+                aria-pressed={isActive}
                 onClick={() => onChange({ ...data, splitRatio: preset.ratio, winner: preset.ratio === 100 ? 'a' : preset.ratio === 0 ? 'b' : null })}
                 style={{
                   padding: '6px 0',
@@ -332,35 +303,45 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
               padding: '2px 8px',
               borderRadius: '9999px',
               fontWeight: 700,
-              background: stats.isSignificant ? 'rgba(16, 185, 129, 0.2)' : 'rgba(139, 92, 246, 0.15)',
-              color: stats.isSignificant ? '#34D399' : '#C4B5FD',
-              border: stats.isSignificant ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(139, 92, 246, 0.3)'
+              background: stats?.isSignificant ? 'rgba(16, 185, 129, 0.2)' : 'rgba(139, 92, 246, 0.15)',
+              color: stats?.isSignificant ? '#34D399' : '#C4B5FD',
+              border: stats?.isSignificant ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(139, 92, 246, 0.3)'
             }}
           >
-            {stats.confidence}% Confidence
+            {stats ? `${stats.confidence}% Confidence` : 'Confidence Unavailable'}
           </span>
         </div>
 
         <div style={{ fontSize: '12px', color: '#94A3B8', lineHeight: '1.5', marginBottom: '14px' }}>
-          {stats.isSignificant ? (
+          {!test.ran ? (
+            test.reason === 'too_few_visits'
+              ? `Too few visits in each branch to test yet. The test runs once both branches have ${MIN_SPLIT_BRANCH_SAMPLE} visitors.`
+              : test.reason === 'nothing_to_compare'
+              ? (convA ?? 0) + (convB ?? 0) === 0
+                ? 'Neither branch has a conversion yet, so there is nothing to compare.'
+                : 'Every visitor in both branches converted, so there is nothing to compare.'
+              : 'Numbers for this split are unavailable.'
+          ) : test.isSignificant ? (
             <span style={{ color: '#34D399', fontWeight: 600 }}>
               ✓ Statistically Significant Result (p &lt; 0.05). You have sufficient sample certainty to declare a winner.
             </span>
-          ) : visA + visB < 50 ? (
-            'Awaiting test sample data. We recommend at least 50–100 visitors per branch before making permanent decisions.'
           ) : (
-            `Currently trending at ${stats.confidence}% confidence (Z: ${stats.zScore}). Let the test run to reach 95%+ confidence.`
+            `Currently trending at ${test.confidence}% confidence (Z: ${test.zScore}). Let the test run to reach 95%+ confidence.`
           )}
         </div>
 
         {/* 1-Click Winner Resolution */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <div id={fid('winner')} style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             Declare Winner (Route 100% Traffic)
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+          {/* One name per button whatever its state: aria-pressed says whether that branch won. */}
+          <div role="group" aria-labelledby={fid('winner')} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <button
+              type="button"
+              aria-label="Lock Branch A"
+              aria-pressed={data.winner === 'a'}
               onClick={() => handleDeclareWinner('a')}
               style={{
                 padding: '9px 12px',
@@ -382,6 +363,9 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
             </button>
 
             <button
+              type="button"
+              aria-label="Lock Branch B"
+              aria-pressed={data.winner === 'b'}
               onClick={() => handleDeclareWinner('b')}
               style={{
                 padding: '9px 12px',
@@ -405,6 +389,7 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
 
           {data.winner && (
             <button
+              type="button"
               onClick={handleResetSplit}
               style={{
                 marginTop: '4px',
@@ -440,9 +425,10 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
           <div style={{ padding: '10px', borderRadius: '8px', background: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#8B5CF6' }} />
-              <span style={{ fontSize: '12px', fontWeight: 700, color: '#DDD6FE' }}>Branch A (Control)</span>
+              <label htmlFor={fid('branch-a-name')} id={fid('branch-a')} style={{ fontSize: '12px', fontWeight: 700, color: '#DDD6FE' }}>Branch A (Control)</label>
             </div>
             <input
+              id={fid('branch-a-name')}
               type="text"
               value={data.branchALabel || ''}
               onChange={e => onChange({ ...data, branchALabel: e.target.value })}
@@ -460,9 +446,10 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
               }}
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '11px', color: '#64748B' }}>Target Page:</span>
+              <span id={fid('branch-a-page')} style={{ fontSize: '11px', color: '#64748B' }}>Target Page:</span>
               <input
                 type="text"
+                aria-labelledby={`${fid('branch-a')} ${fid('branch-a-page')}`}
                 value={data.branchAPageSlug || ''}
                 onChange={e => onChange({ ...data, branchAPageSlug: e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '') })}
                 placeholder="offer-control (or connect edge)"
@@ -484,9 +471,10 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
           <div style={{ padding: '10px', borderRadius: '8px', background: 'rgba(236, 72, 153, 0.08)', border: '1px solid rgba(236, 72, 153, 0.2)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#EC4899' }} />
-              <span style={{ fontSize: '12px', fontWeight: 700, color: '#FBCFE8' }}>Branch B (Challenger)</span>
+              <label htmlFor={fid('branch-b-name')} id={fid('branch-b')} style={{ fontSize: '12px', fontWeight: 700, color: '#FBCFE8' }}>Branch B (Challenger)</label>
             </div>
             <input
+              id={fid('branch-b-name')}
               type="text"
               value={data.branchBLabel || ''}
               onChange={e => onChange({ ...data, branchBLabel: e.target.value })}
@@ -504,9 +492,10 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange }) => {
               }}
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '11px', color: '#64748B' }}>Target Page:</span>
+              <span id={fid('branch-b-page')} style={{ fontSize: '11px', color: '#64748B' }}>Target Page:</span>
               <input
                 type="text"
+                aria-labelledby={`${fid('branch-b')} ${fid('branch-b-page')}`}
                 value={data.branchBPageSlug || ''}
                 onChange={e => onChange({ ...data, branchBPageSlug: e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '') })}
                 placeholder="offer-discount (or connect edge)"

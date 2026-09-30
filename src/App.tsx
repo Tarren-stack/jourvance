@@ -1,7 +1,22 @@
-import React, { useState, useEffect, Suspense, lazy, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy, useMemo, useCallback } from 'react';
 import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, NodeType, Workspace, CanvasViewMode, ActiveAppView } from './types/journey';
-import { loadCurrentJourney, saveCurrentJourney } from './lib/journeyStorage';
-import { applyLiveStats } from './lib/liveStats';
+import { loadInitialJourney, saveCurrentJourney, keepJourney, parkJourney, readParkedJourney } from './lib/journeyStorage';
+import { adoptChangesNothing, chooseOnLoad, forgetOtherAccounts, isSaveConflict, readSyncRecord, recordAfterConflict, writeSyncRecord, setAsideName, setAsideNotice, LOAD_FAILED, LOAD_PENDING, SAVE_CONFLICT, SET_ASIDE_FAILED, type SyncRecord } from './lib/accountSync';
+import { parseAppLocation, type AppPage } from './lib/journeyRoute';
+import { newJourneyId, journeyToken } from './lib/journeyLibrary';
+import { useJourneyNavigation } from './lib/useJourneyNavigation';
+import { repairJourneyHandles } from './lib/stepHandles';
+import {
+  readStoredRange,
+  writeStoredRange,
+  statsRequestBody,
+  readStatsAnswer,
+  metricsView,
+  metricsLoading,
+  metricsFailed,
+  type MetricsState,
+  type RangeDays
+} from './lib/journeyMetrics';
 import { CanvasHeader } from './components/toolbar/CanvasHeader';
 import { PublicHeader } from './components/public/PublicHeader';
 import { PublicFooter } from './components/public/PublicFooter';
@@ -11,15 +26,27 @@ import { BlogPage } from './components/public/BlogPage';
 import { ContactPage } from './components/public/ContactPage';
 import { fetchWorkspaces, createWorkspace } from './lib/shopifyClient';
 import { auth, onAuthStateChanged, logOut, authHeaders, type User } from './lib/firebase';
-import type { PageNodeData, FunnelForecast } from './types/journey';
+import type { FunnelForecast } from './types/journey';
 import type { PublishedPageInfo } from './components/preview/PublishModal';
-import { injectRetentionFlows, DEFAULT_FORECAST } from './lib/funnelForecaster';
-import { auditFunnel } from './lib/funnelAuditor';
+import { injectRetentionFlows, retentionFlowsThatFit, DEFAULT_FORECAST } from './lib/funnelForecaster';
+import { checkJourneyDesign } from './lib/designChecks';
+import { saveOutcome, browserSaveOutcome, publishRefusal, publishedPartly, publishWarning, unpublishRefusal, requestAnswer, type SaveStatus, type Refusal } from './lib/saveOutcome';
+import { applyPublishResult, type PublishedStep } from './lib/publishState';
+import { usePublication } from './lib/usePublication';
+import { PublishStatusContext } from './components/canvas/PublishStatus';
+import { useJourneyEditing } from './lib/useJourneyEditing';
+import { noteAccountRead, postAccountJourney, refusedBase } from './lib/journeyClient';
+import { revealsHiddenStep } from './lib/stepNavigation';
+import { makeStep, newStamp } from './lib/stepDefaults';
+import { linesWithBothEnds } from './lib/lineEnds';
+import { slotForNewStep, type CanvasView } from './lib/addStep';
+import { SIGN_OUT_QUESTION } from './lib/journeyAutosave';
+import { funnelReturnFor, returnStepId, returnBannerText, openAfterSave, type FunnelReturn } from './lib/editorReturn';
+import { FunnelReturnBanner } from './components/campaign/FunnelReturnBanner';
 
 // Code-split heavy interior app and modal bundles to ensure sub-second public page loads
 const JourneyCanvas = lazy(() => import('./components/canvas/JourneyCanvas').then(m => ({ default: m.JourneyCanvas })));
-const NodeInspector = lazy(() => import('./components/drawers/NodeInspector').then(m => ({ default: m.NodeInspector })));
-const EdgeInspector = lazy(() => import('./components/drawers/EdgeInspector').then(m => ({ default: m.EdgeInspector })));
+const StepDock = lazy(() => import('./components/drawers/StepDock').then(m => ({ default: m.StepDock })));
 const HubEmailSuite = lazy(() => import('./components/campaign/HubEmailSuite').then(m => ({ default: m.HubEmailSuite })));
 const AttributionReports = lazy(() => import('./components/analytics/AttributionReports').then(m => ({ default: m.AttributionReports })));
 const FinancialSimulatorDrawer = lazy(() => import('./components/drawers/FinancialSimulatorDrawer').then(m => ({ default: m.FinancialSimulatorDrawer })));
@@ -34,6 +61,8 @@ const ExportAssetsModal = lazy(() => import('./components/export/ExportAssetsMod
 const PublishModal = lazy(() => import('./components/preview/PublishModal').then(m => ({ default: m.PublishModal })));
 const BlueprintModal = lazy(() => import('./components/modals/BlueprintModal').then(m => ({ default: m.BlueprintModal })));
 const SaveBlueprintModal = lazy(() => import('./components/modals/SaveBlueprintModal').then(m => ({ default: m.SaveBlueprintModal })));
+const JourneyLibraryDialog = lazy(() => import('./components/modals/JourneyLibraryDialog').then(m => ({ default: m.JourneyLibraryDialog })));
+const AiJourneyBuilder = lazy(() => import('./components/modals/AiJourneyBuilder').then(m => ({ default: m.AiJourneyBuilder })));
 
 const SuspenseLoader: React.FC<{ label?: string }> = ({ label = 'Loading studio...' }) => (
   <div style={{
@@ -60,38 +89,26 @@ const SuspenseLoader: React.FC<{ label?: string }> = ({ label = 'Loading studio.
 );
 
 export const App: React.FC = () => {
-  const [project, setProject] = useState<JourneyProject>(() => loadCurrentJourney());
-  const [activePage, setActivePage] = useState<'home' | 'about' | 'blog' | 'contact' | 'canvas'>(() => {
-    if (typeof window === 'undefined') return 'home';
-    const path = window.location.pathname.replace(/^\//, '').toLowerCase();
-    if (path === 'about' || path === 'blog' || path === 'contact' || path === 'canvas') {
-      return path;
-    }
-    return 'home';
-  });
+  // The first address, read once: /canvas/:journeyId?step=<nodeId> (#18). After this the address
+  // belongs to useJourneyNavigation, which keeps it in step with what is on screen.
+  const [initialRoute] = useState(() => parseAppLocation(window.location.pathname, window.location.search));
+  const [initialLoad] = useState(() => loadInitialJourney(initialRoute.page === 'canvas' ? initialRoute.journeyId : null));
+  const [project, setProject] = useState<JourneyProject>(initialLoad.project);
+  const [activePage, setActivePage] = useState<AppPage>(initialRoute.page);
 
-  useEffect(() => {
-    const targetPath = activePage === 'home' ? '/' : `/${activePage}`;
-    if (window.location.pathname !== targetPath) {
-      window.history.pushState({ page: activePage }, '', targetPath);
-    }
-  }, [activePage]);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      const path = window.location.pathname.replace(/^\//, '').toLowerCase();
-      if (path === 'about' || path === 'blog' || path === 'contact' || path === 'canvas') {
-        setActivePage(path);
-      } else {
-        setActivePage('home');
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(() => (
+    initialRoute.step && initialLoad.project.nodes.some(n => n.id === initialRoute.step) ? initialRoute.step : null
+  ));
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  // Stable, so the canvas callbacks that list them are not rebuilt on every App render.
+  const selectNode = useCallback((node: JourneyNode | null) => {
+    setSelectedNodeId(node ? node.id : null);
+    if (node) setSelectedEdgeId(null);
+  }, []);
+  const selectEdge = useCallback((edge: JourneyEdge | null) => {
+    setSelectedEdgeId(edge ? edge.id : null);
+    if (edge) setSelectedNodeId(null);
+  }, []);
 
   const selectedEdge = useMemo(() => {
     return project.edges.find(e => e.id === selectedEdgeId) || null;
@@ -121,11 +138,25 @@ export const App: React.FC = () => {
   const [showShopifyModal, setShowShopifyModal] = useState(false);
   const [showShopifySyncModal, setShowShopifySyncModal] = useState(false);
   const [activeView, setActiveView] = useState<ActiveAppView>('canvas');
+  // The editor round trip (#21): the step Email Studio was opened from, and the step whose Email
+  // Studio button takes focus on the way back. A return belongs to one trip into Email Studio, and
+  // a focus hand-back to one landing on the map.
+  const [funnelReturn, setFunnelReturn] = useState<FunnelReturn | null>(null);
+  const [returnFocusNodeId, setReturnFocusNodeId] = useState<string | null>(null);
+  useEffect(() => {
+    if (activeView !== 'email-studio') setFunnelReturn(null);
+    if (activeView !== 'canvas') setReturnFocusNodeId(null);
+  }, [activeView]);
+  useEffect(() => {
+    setReturnFocusNodeId(prev => (prev === selectedNodeId ? prev : null));
+  }, [selectedNodeId]);
   const [canvasViewMode, setCanvasViewMode] = useState<CanvasViewMode>('edit');
   const [showRetentionBranches, setShowRetentionBranches] = useState<boolean>(true);
 
   // Modals & Authentication
   const [user, setUser] = useState<User | null>(null);
+  // False until Firebase answers once, so a signed-in user never sees "Not published" early (#23).
+  const [authReady, setAuthReady] = useState(false);
   const [showLiveModal, setShowLiveModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showBillingModal, setShowBillingModal] = useState(false);
@@ -134,16 +165,54 @@ export const App: React.FC = () => {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showBlueprintModal, setShowBlueprintModal] = useState(false);
   const [showSaveBlueprintModal, setShowSaveBlueprintModal] = useState(false);
+  const [showAiBuilder, setShowAiBuilder] = useState(false);
   const [blueprintModalTab, setBlueprintModalTab] = useState<'turnkey' | 'custom' | 'import'>('turnkey');
   const [blueprintImportCode, setBlueprintImportCode] = useState<string>('');
   const [showSimulatorDrawer, setShowSimulatorDrawer] = useState(false);
   const [showAuditDrawer, setShowAuditDrawer] = useState(false);
+  // Check design opened from a card's badge scrolls to that step's rows (#10).
+  const [auditFocusNodeId, setAuditFocusNodeId] = useState<string | null>(null);
+  const openIssues = useCallback((id: string) => { setAuditFocusNodeId(id); setShowAuditDrawer(true); }, []);
+  const openAudit = () => { setAuditFocusNodeId(null); setShowAuditDrawer(true); };
   const [publishing, setPublishing] = useState(false);
   const [publishedPages, setPublishedPages] = useState<PublishedPageInfo[]>([]);
+  const [publishNotice, setPublishNotice] = useState<string | null>(null);
   const [unpublishing, setUnpublishing] = useState(false);
   
   const [saving, setSaving] = useState(false);
-  const [savedRecently, setSavedRecently] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>({ kind: 'idle' });
+  // Signed in, nothing is saved to the account over a journey until its account copy has been read
+  // and reconciled with this browser's (C00), whichever way it was opened: at sign-in, by a switch,
+  // Back or a deep link. `reconciled` lists those journeys for the signed-in user; every other one is
+  // held, and accountHold says why for the open one: loading, failed, or blocked when the browser's
+  // own copy could not be set aside.
+  const [reconciled, setReconciled] = useState<{ uid: string; ids: ReadonlySet<string> }>({ uid: '', ids: new Set() });
+  const isReconciled = (id: string) => !!user && reconciled.uid === user.uid && reconciled.ids.has(id);
+  const isReconciledRef = useRef(isReconciled);
+  isReconciledRef.current = isReconciled;
+  const markReconciled = useCallback((uid: string, id: string) => setReconciled(r => (
+    r.uid === uid ? (r.ids.has(id) ? r : { uid, ids: new Set(r.ids).add(id) }) : { uid, ids: new Set([id]) }
+  )), []);
+  const [accountHold, setAccountHold] = useState<{ id: string; why: 'loading' | 'failed' | 'blocked' } | null>(null);
+  const accountHoldRef = useRef(accountHold);
+  accountHoldRef.current = accountHold;
+  // The notice names the journey it is about, and shows only while that journey is open.
+  const [accountNotice, setAccountNotice] = useState<{ id: string; message: string; retry?: boolean; openId?: string } | null>(null);
+  const [accountLoadAttempt, setAccountLoadAttempt] = useState(0);
+  const journeyLoadSettled = !user || isReconciled(project.id);
+  // This browser's own copy of a journey a switch opens, taken before it is overwritten: the switch
+  // may have shown the account copy instead, and the load below must not lose this one (C00).
+  // Its record is the account's that was signed in at the switch, so another account never uses it (F1).
+  const openedBaseRef = useRef<{ id: string; uid: string | null; parked: JourneyProject | null; record: SyncRecord | null; shownAt: string } | null>(null);
+  // The journey whose save the server refused as a conflict, and the base that save named: the load
+  // it runs again weighs the shared sync record only when it is this tab's (F1).
+  const conflictRef = useRef<{ id: string; uid: string; base: string | null } | null>(null);
+  // So its Try again reloads the journey it describes, never whichever one is open.
+  const shownAccountNotice = accountNotice && accountNotice.id === project.id ? accountNotice : null;
+  const projectRef = useRef(project);
+  projectRef.current = project;
+  const [publishError, setPublishError] = useState<Refusal | null>(null);
+  const [unpublishError, setUnpublishError] = useState<Refusal | null>(null);
 
   // Deep-link listener for ?import_blueprint=...
   useEffect(() => {
@@ -152,6 +221,11 @@ export const App: React.FC = () => {
       const params = new URLSearchParams(window.location.search);
       const importCode = params.get('import_blueprint');
       if (importCode) {
+        // Read once: every later address keeps foreign parameters, so a journey link would
+        // otherwise reopen the import.
+        params.delete('import_blueprint');
+        const rest = params.toString();
+        window.history.replaceState(window.history.state, '', window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash);
         setBlueprintImportCode(importCode);
         setBlueprintModalTab('import');
         setShowBlueprintModal(true);
@@ -178,100 +252,204 @@ export const App: React.FC = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, u => {
       setUser(u);
+      setAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
 
-  // Load the server copy on sign-in. Saves used to be write-only: nothing ever read a journey
-  // back, so signing in on a second device showed the default blueprint, and the next save
-  // replaced the stored journey with it. The server copy wins only when it is strictly NEWER
-  // than what this browser holds, so unsaved local edits are never thrown away.
+  // Load the server copy of the open journey. Saves used to be write-only: nothing ever read a
+  // journey back, so signing in on a second device showed the default blueprint, and the next save
+  // replaced the stored journey with it. Choosing the copy with the later updatedAt was not enough
+  // either (C00): an edit made while the load was slow, or a signed-out map on a new device, is
+  // stamped "now" without coming from the account copy. chooseOnLoad reads which account revision
+  // this browser's copy descends from; one that does not is set aside as its own journey. It runs
+  // for every journey opened while signed in, because #18's switch keeps the newer copy by the same
+  // timestamp rule and opens the browser copy when the account cannot be read.
   useEffect(() => {
-    if (!user) return;
+    // Signing in again reads every journey again: edits made while signed out never met the account.
+    if (!user) { setReconciled({ uid: '', ids: new Set() }); setAccountHold(null); setAccountNotice(null); return; }
+    const uid = user.uid;
+    // A switch cancels this load, and reopening the journey runs it again.
+    const requestedId = project.id;
+    if (isReconciledRef.current(requestedId)) {
+      setAccountHold(h => (h && h.id === requestedId ? null : h));
+      return;
+    }
     let cancelled = false;
+    const base = openedBaseRef.current && openedBaseRef.current.id === requestedId ? openedBaseRef.current : null;
+    // Reconciled, the copy a switch passed over has been dealt with and is never weighed again.
+    const consumeBase = () => { if (base && openedBaseRef.current === base) openedBaseRef.current = null; };
+    const conflict = conflictRef.current && conflictRef.current.id === requestedId && conflictRef.current.uid === uid ? conflictRef.current : null;
+    // Reconciled, the refused save has been dealt with and its base is weighed no more.
+    const consumeConflict = () => { if (conflict && conflictRef.current === conflict) conflictRef.current = null; };
+    setAccountHold({ id: requestedId, why: 'loading' });
     (async () => {
+      let answered = false;
+      let raw: Partial<JourneyProject> | null = null;
       try {
-        const res = await fetch(`/api/journey/${encodeURIComponent(project.id)}`, { headers: await authHeaders() });
+        const res = await fetch(`/api/journey/${encodeURIComponent(requestedId)}`, { headers: await authHeaders() });
         const data = await res.json().catch(() => ({}));
-        const remote = data?.success ? data.journey : null;
-        if (cancelled || !remote || !Array.isArray(remote.nodes) || !Array.isArray(remote.edges)) return;
-        setProject(p => (String(remote.updatedAt) > String(p.updatedAt)
-          ? {
-              ...p,
-              name: remote.name || p.name,
-              businessType: remote.businessType || p.businessType,
-              offerHeadline: remote.offerHeadline || p.offerHeadline,
-              goal: remote.goal || p.goal,
-              workspaceId: remote.workspaceId || p.workspaceId,
-              shopifyStoreDomain: remote.shopifyStoreDomain || p.shopifyStoreDomain,
-              forecast: remote.forecast || p.forecast,
-              nodes: remote.nodes,
-              edges: remote.edges,
-              updatedAt: remote.updatedAt
-            }
-          : p));
-      } catch { /* offline or signed out mid-flight: the local copy stands */ }
+        answered = res.ok && data?.success === true;
+        raw = answered ? data.journey : null;
+      } catch { /* offline or signed out mid-flight */ }
+      if (cancelled) return;
+      if (!answered) {
+        // Nothing is saved over an account copy this browser could not read.
+        setAccountHold({ id: requestedId, why: 'failed' });
+        setAccountNotice({ id: requestedId, message: LOAD_FAILED, retry: true });
+        return;
+      }
+      const p = projectRef.current;
+      // Rendered but not yet committed as another journey: the effect runs again for that one.
+      if (p.id !== requestedId) return;
+      // This browser's copy is this account's to reconcile now, and every save names the revision read.
+      forgetOtherAccounts(uid, requestedId);
+      noteAccountRead(uid, requestedId, raw ?? null);
+      if (!raw || !Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) {
+        consumeBase();
+        consumeConflict();
+        markReconciled(uid, requestedId);
+        setAccountHold(null);
+        setAccountNotice(null);
+        return;
+      }
+      const remote = raw as JourneyProject;
+      const remoteAt = String(remote.updatedAt);
+      const repaired = repairJourneyHandles(remote);
+      // The copy to reconcile is this browser's: the one on screen, or the one a switch passed over.
+      const hidden = base?.parked && base.parked.updatedAt !== base.shownAt && !adoptChangesNothing(base.parked, repaired) ? base.parked : null;
+      const same = !hidden && adoptChangesNothing(p, repaired);
+      const choice = hidden
+        ? (chooseOnLoad(hidden.updatedAt, remoteAt, base!.uid === uid ? base!.record : null, false) === 'adopt' ? 'keep' : 'set-aside')
+        : chooseOnLoad(p.updatedAt, remoteAt, conflict ? recordAfterConflict(readSyncRecord(uid, p.id), conflict.base, p.updatedAt) : readSyncRecord(uid, p.id), same);
+      if (choice === 'set-aside') {
+        const from = hidden || p;
+        const kept = { ...from, id: newJourneyId(Date.now(), journeyToken()), name: setAsideName(from.name) };
+        if (!parkJourney(kept)) {
+          setAccountHold({ id: requestedId, why: 'blocked' });
+          setAccountNotice({ id: requestedId, message: SET_ASIDE_FAILED });
+          return;
+        }
+        // Minted here this moment, so the account has no copy of it to replace.
+        markReconciled(uid, kept.id);
+        setAccountNotice({ id: requestedId, message: setAsideNotice(kept.name), openId: kept.id });
+      } else {
+        setAccountNotice(null);
+      }
+      // The account copy as the load shows it: its fields, keeping this browser's where it has none.
+      const asAccount = (cur: JourneyProject): JourneyProject => ({
+        ...cur,
+        name: remote.name || cur.name,
+        businessType: remote.businessType || cur.businessType,
+        offerHeadline: remote.offerHeadline || cur.offerHeadline,
+        goal: remote.goal || cur.goal,
+        workspaceId: remote.workspaceId || cur.workspaceId,
+        shopifyStoreDomain: remote.shopifyStoreDomain || cur.shopifyStoreDomain,
+        forecast: remote.forecast || cur.forecast,
+        nodes: repaired.nodes,
+        edges: repaired.edges,
+        updatedAt: remoteAt
+      });
+      // The same content under another stamp is that account revision, so record it as one.
+      if (choice === 'keep' && same) writeSyncRecord(uid, p.id, remoteAt, p.updatedAt);
+      // Edits kept on top of the account copy (made signed out, or refused by a 409 the account then
+      // agreed with) are this journey's next save: they read as unsaved and autosave sends them (F1).
+      if (choice === 'keep' && !same && !hidden) editing.markAccountCopy(asAccount(p));
+      // A copy a switch passed over is set aside, and the account copy it showed stays.
+      if (choice !== 'keep' && !hidden) {
+        // The adopted copy is already saved: not an edit, not a step (#8), and edits are counted
+        // from it (#18's leave check).
+        editing.markLoaded(remoteAt);
+        nav.noteLoaded(remoteAt);
+        setProject(cur => (cur.id !== requestedId ? cur : asAccount(cur)));
+      }
+      consumeBase();
+      consumeConflict();
+      markReconciled(uid, requestedId);
+      setAccountHold(null);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid]);
+  }, [user?.uid, project.id, accountLoadAttempt]);
 
-  // Auto-save changes locally
+  // Auto-save changes locally. Signed out this IS the save, so remember whether the browser kept it.
+  // `full` says the browser refused because its storage is full, which the status words apart.
+  const localWrite = useRef({ kept: true, full: false });
   useEffect(() => {
-    saveCurrentJourney(project);
+    localWrite.current = keepJourney(project);
   }, [project]);
 
-  // Measured counts come from the event log. The effect depends on the journey's shape,
-  // not on the counts themselves, so applying a result does not schedule another fetch.
-  const statsShape = `${project.id}:${project.nodes.map(n => `${n.id}:${(n.data as { spend?: number }).spend || 0}:${(n.data as { jourvanceFlowId?: string }).jourvanceFlowId || ''}`).join(',')}:${project.edges.map(e => e.id).join(',')}`;
+  // Measured counts come from the event log into ONE snapshot held here, never into the journey
+  // (#9), so a poll never marks the journey edited, never enters undo history and is never saved.
+  // The effect depends on the fields the request sends and the range, not on any count.
+  const [statsDays, setStatsDays] = useState<RangeDays>(() => readStoredRange());
+  const changeStatsDays = useCallback((d: RangeDays) => { setStatsDays(d); writeStoredRange(d); }, []);
+  const [metricsState, setMetricsState] = useState<MetricsState>({ status: 'signed-out' });
+  const metrics = useMemo(() => metricsView(metricsState, project.id, statsDays), [metricsState, project.id, statsDays]);
+  const statsShape = JSON.stringify(statsRequestBody(project, statsDays));
   useEffect(() => {
-    if (!user) return;
+    if (!user) { setMetricsState({ status: 'signed-out' }); return; }
     let cancelled = false;
+    const journeyId = project.id;
+    const days = statsDays;
     const pull = async () => {
+      setMetricsState(p => metricsLoading(p, journeyId, days));
       try {
         const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) };
-        const res = await fetch('/api/funnel/stats', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            journeyId: project.id,
-            nodes: project.nodes.map(n => ({
-              id: n.id,
-              type: n.type,
-              slug: (n.data as { slug?: string }).slug || '',
-              utmCampaign: (n.data as { utmCampaign?: string }).utmCampaign || '',
-              offerType: (n.data as { offerType?: string }).offerType || '',
-              spend: (n.data as { spend?: number }).spend || 0,
-              jourvanceFlowId: (n.data as { jourvanceFlowId?: string }).jourvanceFlowId || ''
-            })),
-            edges: project.edges.map(e => ({ id: e.id, source: e.source, target: e.target }))
-          })
-        });
-        if (!res.ok) return;
-        const data = await res.json().catch(() => ({}));
-        if (cancelled || !data?.success || !data.stats) return;
-        setProject(p => applyLiveStats(p, data.stats));
-      } catch { /* offline: the canvas keeps the last real counts */ }
+        const res = await fetch('/api/funnel/stats', { method: 'POST', headers, body: statsShape });
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        // Only an answer that echoes this journey and this range is shown.
+        const snapshot = res.ok ? readStatsAnswer(data, journeyId, days) : null;
+        setMetricsState(p => (snapshot ? { status: 'ready', snapshot } : metricsFailed(p, journeyId, days)));
+      } catch {
+        if (!cancelled) setMetricsState(p => metricsFailed(p, journeyId, days));
+      }
     };
     pull();
     const timer = window.setInterval(pull, 20000);
     return () => { cancelled = true; window.clearInterval(timer); };
-    // project.id/nodes/edges are read from the render that matches statsShape
+    // statsShape is the request body, built from the render's project and range.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid, statsShape]);
 
   const selectedNode = project.nodes.find(n => n.id === selectedNodeId) || null;
 
-  const handleUpdateProjectName = (name: string) => {
-    setProject(p => ({ ...p, name }));
+  // The one way to choose a step (#7): it clears the line selection and turns Retention Flows back
+  // on when the step is one they hide. The map pans to the selected step on its own. Bump
+  // inspectorFocus (openStep) when the choice should also move focus to the panel heading.
+  // A journey switch names the journey it is opening (#18): this render's project is the old one.
+  const [inspectorFocus, setInspectorFocus] = useState(0);
+  const selectStep = (nodeId: string | null, inJourney: JourneyProject = project) => {
+    setSelectedEdgeId(null);
+    setSelectedNodeId(nodeId);
+    const node = nodeId ? inJourney.nodes.find(n => n.id === nodeId) : undefined;
+    if (node && revealsHiddenStep(node, showRetentionBranches)) setShowRetentionBranches(true);
+  };
+  const openStep = (nodeId: string) => {
+    selectStep(nodeId);
+    setInspectorFocus(n => n + 1);
+  };
+  // Enter on a line's rate pill: the line panel opens and its heading takes focus, as a step's does.
+  const openEdge = (edgeId: string) => {
+    setSelectedNodeId(null);
+    setSelectedEdgeId(edgeId);
+    setInspectorFocus(n => n + 1);
   };
 
+  const handleUpdateProjectName = (name: string) => {
+    setProject(p => ({ ...p, name, updatedAt: new Date().toISOString() }));
+  };
+
+  // Every node and line change keeps only lines with both steps still on the map (C06): with
+  // Retention Flows hidden, React Flow never removes the lines into a hidden step, and it sends
+  // the line removals before the step removal, so whichever of these runs second drops them.
   const handleNodesChange = (nodes: JourneyNode[]) => {
-    setProject(p => ({ ...p, nodes, updatedAt: new Date().toISOString() }));
+    setProject(p => ({ ...p, nodes, edges: linesWithBothEnds(nodes, p.edges), updatedAt: new Date().toISOString() }));
   };
 
   const handleEdgesChange = (edges: JourneyEdge[]) => {
-    setProject(p => ({ ...p, edges, updatedAt: new Date().toISOString() }));
+    setProject(p => ({ ...p, edges: linesWithBothEnds(p.nodes, edges), updatedAt: new Date().toISOString() }));
   };
 
   const handleUpdateNode = (nodeId: string, data: JourneyNodeData) => {
@@ -292,187 +470,154 @@ export const App: React.FC = () => {
     setSelectedNodeId(null);
   };
 
+  // The header's Add Step: an unconnected step in a free slot at the centre of the visible map
+  // (#12), selected, so the map pans to it only when that slot is off screen. The step's data
+  // carries no invented product copy (stepDefaults.ts).
+  const canvasView = useRef<CanvasView | null>(null);
   const handleAddNode = (type: NodeType) => {
-    const id = `node-${type}-${Date.now().toString(36)}`;
-    const xOffset = (project.nodes.length * 280) % 1200 + 100;
-    const yOffset = 180 + (project.nodes.length % 2 === 0 ? 0 : 40);
-
-    let newNodeData: JourneyNodeData;
-
-    switch (type) {
-      case 'ad-source':
-        newNodeData = {
-          type: 'ad-source',
-          label: 'New Ad Campaign',
-          platform: 'meta',
-          headline: 'Your ad headline',
-          body: 'Describe the offer in words you can stand behind.',
-          ctaText: 'Learn More',
-          utmCampaign: 'promo-blast',
-          impressions: 0,
-          clicks: 0,
-          ctr: 0,
-          spend: 0
-        };
-        break;
-      case 'landing-page':
-        newNodeData = {
-          type: 'landing-page',
-          label: 'Promotion Landing Page',
-          slug: `offer-${Date.now().toString(36)}`,
-          headline: 'Your offer headline',
-          subhead: 'Describe what the visitor gets.',
-          bullets: ['First point you can stand behind', 'Second point you can stand behind'],
-          trustBadge: '',
-          buttonText: 'Claim Offer',
-          visitors: 0,
-          conversions: 0,
-          conversionRate: 0
-        };
-        break;
-      case 'lead-form':
-        newNodeData = {
-          type: 'lead-form',
-          label: 'Consultation Form',
-          formTitle: 'Enter your details to reserve your consultation',
-          submitButtonText: 'Confirm Reservation',
-          successMessage: 'We received your reservation! Check your email for details.',
-          fields: [
-            { id: 'f_name', label: 'Full Name', type: 'text', required: true, enabled: true, placeholder: 'Alex Smith' },
-            { id: 'f_email', label: 'Email Address', type: 'email', required: true, enabled: true, placeholder: 'alex@example.com' },
-            { id: 'f_phone', label: 'Phone Number', type: 'tel', required: true, enabled: true, placeholder: '(555) 123-4567' }
-          ],
-          views: 0,
-          submissions: 0,
-          completionRate: 0
-        };
-        break;
-      case 'follow-up-sequence':
-        newNodeData = {
-          type: 'follow-up-sequence',
-          label: 'Client Welcome Flow',
-          sequenceTitle: 'Automated Follow-Up',
-          contactsEnrolled: 0,
-          avgOpenRate: 0,
-          avgClickRate: 0,
-          steps: [
-            {
-              id: `step-1`,
-              channel: 'email',
-              delay: 'Instant (0m)',
-              subject: 'Your confirmation and VIP welcome guide',
-              body: 'Hi [First Name],\n\nThank you for reaching out! We are excited to connect with you.\n\nBest,\nThe Team'
-            }
-          ]
-        };
-        break;
-      case 'thank-you':
-        newNodeData = {
-          type: 'thank-you',
-          label: 'VIP Order Confirmation',
-          slug: 'thank-you',
-          headline: 'Your VIP Allocation & Order is Confirmed',
-          subhead: 'Thank you for your order! Your confirmation and receipt have been emailed to you.',
-          badgeText: 'VIP Member Privilege',
-          bounceBackDiscountCode: 'VIPRETURN',
-          bounceBackDiscountText: '$15 Off Your Next Order',
-          usageGuideTitle: 'The 3-Step Quick Start Onboarding Guide',
-          usageGuideSteps: [
-            'Review your order receipt and welcome guide in your inbox.',
-            'Follow the setup steps or initial instructions for maximum results.',
-            'Reach out to our dedicated concierge support if you have any questions.'
-          ],
-          storeReturnText: 'Explore More Best-Sellers & Add-Ons',
-          communityInviteText: 'Join Our Private VIP Customer Community',
-          pageViews: 0,
-          bounceBackClaims: 0
-        };
-        break;
-      case 'upsell':
-        newNodeData = {
-          type: 'upsell',
-          label: 'Post-Purchase Upsell (OTO)',
-          offerType: 'upsell',
-          headline: 'Special VIP Allocation: Complete Your Routine with 40% Off',
-          subhead: 'Your initial parcel is reserved! Add our triple-action replenishment reserve before order dispatch.',
-          badgeText: 'SAVE 40% VIP OFFER',
-          urgencyMinutes: 5,
-          productTitle: 'Bioactive Triple Barrier Replenishment Reserve',
-          productPrice: '$38.00',
-          regularPrice: '$64.00',
-          discountPercentage: 40,
-          discountCode: 'VIPOTO40',
-          productImage: 'https://images.unsplash.com/photo-1601049541289-9b1b7bbbfe19?auto=format&fit=crop&w=600&q=80',
-          benefits: [
-            'Direct batch allocation from master cosmetic formulation',
-            'Full 90-day cellular renewal supply',
-            'Includes free complimentary expedited priority shipping'
-          ],
-          acceptButtonText: '⚡ Yes, Upgrade My Order (1-Tap Checkout)',
-          declineButtonText: 'No thanks, continue to my order confirmation',
-          views: 0,
-          takes: 0,
-          conversionRate: 0,
-          attributedRevenue: 0
-        };
-        break;
-      case 'ab-split':
-        newNodeData = {
-          type: 'ab-split',
-          label: 'A/B Traffic Splitter',
-          slug: `split-${Date.now().toString(36)}`,
-          splitRatio: 50,
-          goal: 'conversion_rate',
-          branchALabel: 'Branch A (Control)',
-          branchBLabel: 'Branch B (Challenger)',
-          branchAVisitors: 0,
-          branchAConversions: 0,
-          branchAGrossRevenue: 0,
-          branchBVisitors: 0,
-          branchBConversions: 0,
-          branchBGrossRevenue: 0
-        };
-        break;
-    }
-
-    const newNode: JourneyNode = {
-      id,
-      type,
-      position: { x: xOffset, y: yOffset },
-      data: newNodeData
-    };
-
-    setProject(p => ({
-      ...p,
-      nodes: [...p.nodes, newNode],
-      updatedAt: new Date().toISOString()
-    }));
-    setSelectedNodeId(id);
+    const node = makeStep(type, slotForNewStep(project.nodes, canvasView.current), newStamp());
+    setProject(p => ({ ...p, nodes: [...p.nodes, node], updatedAt: new Date().toISOString() }));
+    setSelectedEdgeId(null);
+    setSelectedNodeId(node.id);
   };
 
-  const handleSave = async () => {
+  // A step added from the map (+ Next, + Before, + Step, a dragged line, a step dropped on a line)
+  // is ONE setProject, so it is one undo step and one autosave.
+  const handleGraphChange = (nodes: JourneyNode[], edges: JourneyEdge[]) =>
+    setProject(p => ({ ...p, nodes, edges, updatedAt: new Date().toISOString() }));
+
+  /** Save one journey and report what actually happened. Resolves true only when the save landed. */
+  const saveJourney = async (doc: JourneyProject): Promise<boolean> => {
+    // Signed out, the canvas is local-only and the effect above has already written it. There is
+    // no 'anonymous' tenant to save into: the server derives the owner from a verified token.
+    if (!user) {
+      const s = browserSaveOutcome(localWrite.current.kept, doc.updatedAt, localWrite.current.full);
+      setSaveStatus(s);
+      return s.kind !== 'failed';
+    }
+    // Save included (C00): a journey whose account copy has not been read and reconciled is never
+    // written over it. The notice says why, and Try again re-runs the load.
+    if (!isReconciledRef.current(doc.id)) {
+      const held = accountHoldRef.current;
+      const hold = held && held.id === doc.id ? held : { id: doc.id, why: 'loading' as const };
+      setAccountNotice(hold.why === 'loading' ? { id: hold.id, message: LOAD_PENDING }
+        : hold.why === 'failed' ? { id: hold.id, message: LOAD_FAILED, retry: true }
+        : { id: hold.id, message: SET_ASIDE_FAILED });
+      return false;
+    }
     setSaving(true);
     try {
-      saveCurrentJourney(project);
-      // Signed out, the canvas is local-only. There is no 'anonymous' tenant to save into:
-      // the server derives the owner from a verified token, so a keyless POST is a 401.
-      if (user) {
-        const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) };
-        await fetch(`/api/user/${user.uid}/journey/${project.id}`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(project)
-        }).catch(() => {});
+      // The one save request, which also records the account revision a landed save now is.
+      const answer = await postAccountJourney(user.uid, doc);
+      if (isSaveConflict(answer)) {
+        // The account copy changed after this browser read it (another device or tab saved), so
+        // nothing was replaced (F1). Read it again: the load keeps this copy and saves it when it
+        // still comes from that revision, and otherwise sets it aside beside the account copy.
+        const uid = user.uid;
+        conflictRef.current = { id: doc.id, uid, base: refusedBase(uid, doc.id) };
+        setReconciled(r => {
+          if (r.uid !== uid || !r.ids.has(doc.id)) return r;
+          const ids = new Set(r.ids);
+          ids.delete(doc.id);
+          return { uid, ids };
+        });
+        setAccountHold({ id: doc.id, why: 'loading' });
+        setAccountNotice({ id: doc.id, message: SAVE_CONFLICT });
+        setAccountLoadAttempt(n => n + 1);
+        setSaveStatus({ kind: 'idle' });
+        return false;
       }
-      
-      setSavedRecently(true);
-      setTimeout(() => setSavedRecently(false), 2500);
+      const status = saveOutcome(answer, doc.updatedAt);
+      if (status.kind === 'not-backed-up') {
+        console.warn('[Jourvance] Journey saved without a backup:', (answer?.body as { reason?: string })?.reason);
+      }
+      setSaveStatus(status);
+      return status.kind !== 'failed';
     } finally {
       setSaving(false);
     }
   };
 
-  const handleLoadBlueprint = (
+  // Undo, autosave and the leave warning. Every setProject is one undoable step with no extra call.
+  const editing = useJourneyEditing({
+    project,
+    setProject,
+    save: saveJourney,
+    signedIn: !!user,
+    accountUid: user?.uid ?? null,
+    ready: journeyLoadSettled,
+    shortcutsActive: activePage === 'canvas' && activeView === 'canvas'
+  });
+
+  // What is live, read from the server (#23). The cards and the inspector get it by context.
+  const pub = usePublication({ authReady, signedIn: !!user, journeyId: project.id, workspaceId: currentWorkspace?.id, nodes: project.nodes, edges: project.edges, save: editing.saveNow });
+  const publishCtx = useMemo(() => ({ states: pub.states, read: pub.read, refresh: pub.refresh, preview: pub.preview }), [pub.states, pub.read, pub.refresh, pub.preview]);
+
+  // The journey library and the address (#18): every switch, Back and Forward goes through here.
+  // Leaving saves through #8's saveNow and keeps a browser copy; a step is chosen through selectStep.
+  const [showJourneyLibrary, setShowJourneyLibrary] = useState(false);
+  // A switch puts another journey on screen: keep this browser's copy of it as it was, for the load.
+  const openJourneyOnScreen: typeof setProject = next => {
+    if (typeof next !== 'function' && next.id !== projectRef.current.id) {
+      const uid = user?.uid ?? null;
+      openedBaseRef.current = { id: next.id, uid, parked: readParkedJourney(next.id), record: uid ? readSyncRecord(uid, next.id) : null, shownAt: next.updatedAt };
+    }
+    setProject(next);
+  };
+  const nav = useJourneyNavigation({
+    project,
+    setProject: openJourneyOnScreen,
+    user,
+    authReady,
+    saveStatus,
+    setSaveStatus,
+    handleSave: editing.saveNow,
+    markLoaded: editing.markLoaded,
+    activePage,
+    setActivePage,
+    selectedNodeId,
+    setSelectedNodeId: selectStep,
+    setSelectedEdgeId,
+    initialMissingId: initialLoad.missing ? initialRoute.journeyId : null,
+    initialStep: initialRoute.step,
+    onSwitched: () => {
+      setPublishedPages([]);
+      setShowPublishModal(false);
+      setPublishError(null);
+      setUnpublishError(null);
+    }
+  });
+
+  // Every way back to the map (the banner, Email Studio's own button, the header's switch) lands
+  // on the step Email Studio was opened from, through the one step chooser, which also pans to it.
+  const showCanvas = () => {
+    const stepId = returnStepId(project, funnelReturn);
+    if (stepId) selectStep(stepId);
+    setReturnFocusNodeId(stepId);
+    setFunnelReturn(null);
+    setActiveView('canvas');
+  };
+
+  // A sequence step's Email Studio button: the same save as the header's Save, and Email Studio
+  // opens only once it landed. A failed save leaves the map as it was, and the button says why.
+  const handleOpenEmailStudio = (nodeId: string): Promise<boolean> => {
+    const ret = funnelReturnFor(project, nodeId);
+    if (!ret) return Promise.resolve(false);
+    const { saveNow } = editing;
+    return openAfterSave(saveNow, () => { setFunnelReturn(ret); setActiveView('email-studio'); });
+  };
+
+  // An undo can take away the selected step or line, so let go of an id that no longer exists.
+  useEffect(() => {
+    if (selectedNodeId && !project.nodes.some(n => n.id === selectedNodeId)) setSelectedNodeId(null);
+    if (selectedEdgeId && !project.edges.some(e => e.id === selectedEdgeId)) setSelectedEdgeId(null);
+  }, [project.nodes, project.edges, selectedNodeId, selectedEdgeId]);
+
+  const handleSignOut = async () => {
+    if (await editing.confirmLeave(SIGN_OUT_QUESTION)) logOut();
+  };
+
+  const handleLoadBlueprint = async (
     prepared: { name: string; nodes: JourneyNode[]; edges: JourneyEdge[] },
     mode: 'replace' | 'new'
   ) => {
@@ -486,7 +631,7 @@ export const App: React.FC = () => {
       }));
     } else {
       const newJourney: JourneyProject = {
-        id: `journey_${Date.now()}`,
+        id: newJourneyId(Date.now(), journeyToken()),
         name: prepared.name,
         businessType: project.businessType || 'E-Commerce Brand',
         offerHeadline: prepared.name,
@@ -496,22 +641,44 @@ export const App: React.FC = () => {
         edges: prepared.edges,
         updatedAt: new Date().toISOString()
       };
-      setProject(newJourney);
+      // A new journey leaves this one through the library (#18): it is saved first when signed in,
+      // kept in this browser either way, and stays one Back away. A refusal keeps it on screen.
+      // Its id is minted here, so the account has no copy for it to replace (C00).
+      if (user) markReconciled(user.uid, newJourney.id);
+      if (await nav.startJourney(newJourney)) return;
     }
     setActivePage('canvas');
     setActiveView('canvas');
     setSelectedNodeId(null);
   };
 
+  // Draft with AI (#25) adds its journey to the library (#18): the open journey is saved first
+  // when signed in, kept in this browser either way, and stays one Back away. A refusal changes
+  // nothing and is said once, in the dialog, which stays open. (Worded here, not in journeyAi.ts,
+  // so the builder's logic stays in its own lazy chunk.)
+  const handleCreateFromAi = async (journey: JourneyProject): Promise<string | null> => {
+    const refused = await nav.startJourney(journey);
+    if (refused) {
+      nav.dismissNotice();
+      return `Not created. ${refused.message}`;
+    }
+    setActiveView('canvas');
+    return null;
+  };
+
   const handleSyncRetentionToCanvas = (options: { addCartRecovery?: boolean; addUpsellRescue?: boolean }) => {
     setProject(prev => {
+      // The drawer offers only what fits; ask the same rule again so no caller can wire a used exit (R12).
+      const fit = retentionFlowsThatFit(prev.nodes, prev.edges);
       const result = injectRetentionFlows({
         nodes: prev.nodes,
         edges: prev.edges,
-        addCartRecovery: options.addCartRecovery,
-        addUpsellRescue: options.addUpsellRescue,
+        addCartRecovery: options.addCartRecovery && fit.cartRecovery,
+        addUpsellRescue: options.addUpsellRescue && fit.upsellRescue,
         cartRecoveryDiscount: prev.forecast?.cartRecoveryDiscount ?? 10,
-        upsellRescueDiscount: prev.forecast?.upsellRescueDiscount ?? 10
+        upsellRescueDiscount: prev.forecast?.upsellRescueDiscount ?? 10,
+        // Drafts only: the Forecaster's discount is a what-if, not a code that exists in the store (C18).
+        placeholderCopy: true
       });
 
       const updatedForecast: FunnelForecast = {
@@ -548,126 +715,82 @@ export const App: React.FC = () => {
   };
 
   const handlePublishFunnel = async () => {
-    // Option A: Pre-Flight Funnel Audit clearance check
-    const auditReport = auditFunnel(project, currentWorkspace);
-    if (auditReport.overallScore < 80 && auditReport.fixableChecks > 0) {
-      const proceed = window.confirm(
-        `Pre-Flight Funnel Audit: Conversion Readiness Score is ${auditReport.overallScore}/100 with ${auditReport.fixableChecks} quick revenue-protection wins available.\n\nClick Cancel to review the audit and apply 1-click fixes, or OK to publish anyway.`
-      );
-      if (!proceed) {
-        setShowAuditDrawer(true);
-        return;
-      }
+    // Publishing puts pages on the web under an account. Signed out there is none, and the old
+    // fallback marked pages live on this screen while nothing was served anywhere. This comes
+    // before the audit gate: fixing audit items first would not make a signed-out publish work.
+    if (!user) {
+      setPublishError({ message: 'Not published. Sign in first: publishing puts your pages on the web under your account.', retryable: false });
+      setShowAuthModal(true);
+      return;
+    }
+
+    // Open design checks ask once (#10). The store score never blocks or prompts.
+    const open = checkJourneyDesign(project).issues.length;
+    if (open > 0 && !window.confirm(`This journey has ${open} open design ${open === 1 ? 'check' : 'checks'}. Choose Cancel to see ${open === 1 ? 'it' : 'them'}, or OK to publish anyway.`)) {
+      openAudit();
+      return;
     }
 
     setPublishing(true);
+    setPublishError(null);
     try {
-      await handleSave();
-
-      let pubPages: PublishedPageInfo[] = [];
-
-      if (user) {
-        const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) };
-        const res = await fetch(`/api/journey/${project.id}/publish`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ workspaceId: currentWorkspace?.id })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (data.success && Array.isArray(data.publishedPages)) {
-          pubPages = data.publishedPages;
-        }
+      // The server publishes its own saved copy, so an unsaved canvas would publish stale pages.
+      if (!(await editing.saveNow())) {
+        setPublishError({ message: 'Not published, because the journey could not be saved first. Fix the save problem above, then publish again.', retryable: false });
+        return;
       }
 
-      if (!pubPages.length) {
-        pubPages = project.nodes
-          .filter(n => n.type === 'landing-page' || n.type === 'ab-split')
-          .map(n => {
-            if (n.type === 'ab-split') {
-              const d = n.data as any;
-              const cleanSlug = (d.slug || n.id)
-                .toLowerCase()
-                .replace(/[^a-z0-9_-]/g, '-')
-                .replace(/^-+|-+$/g, '') || `split-${n.id.slice(0, 6)}`;
-              return {
-                nodeId: n.id,
-                slug: cleanSlug,
-                url: `/p/split/${cleanSlug}`,
-                headline: d.label || 'A/B Traffic Splitter',
-                productTitle: `A/B Split (${d.splitRatio ?? 50}% / ${100 - (d.splitRatio ?? 50)}%)`,
-                checkoutMode: 'ab-split'
-              };
-            }
-            const d = n.data as PageNodeData;
-            const cleanSlug = (d.slug || n.id)
-              .toLowerCase()
-              .replace(/[^a-z0-9_-]/g, '-')
-              .replace(/^-+|-+$/g, '') || `offer-${n.id.slice(0, 6)}`;
-            return {
-              nodeId: n.id,
-              slug: cleanSlug,
-              url: `/p/${cleanSlug}`,
-              customDomain: d.customDomain ? d.customDomain.toLowerCase().trim() : undefined,
-              headline: d.headline,
-              productTitle: d.shopifyProductTitle,
-              checkoutMode: d.checkoutMode || 'direct'
-            };
-          });
+      const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) };
+      const answer = await requestAnswer(`/api/journey/${encodeURIComponent(project.id)}/publish`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ workspaceId: currentWorkspace?.id })
+      });
+      const refused = publishRefusal(answer);
+      if (refused) {
+        setPublishError(refused);
+        // Some pages did go live, so the steps' status has to be read again.
+        if (publishedPartly(answer)) void pub.refresh();
+        return;
       }
 
-      setProject(prev => ({
-        ...prev,
-        nodes: prev.nodes.map(n => {
-          if (n.type === 'landing-page') {
-            const pageInfo = pubPages.find(p => p.nodeId === n.id);
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                published: true,
-                publishedAt: new Date().toISOString(),
-                publishedUrl: pageInfo?.url || `/p/${(n.data as PageNodeData).slug || 'offer'}`
-              }
-            };
-          }
-          return n;
-        })
-      }));
+      const pubPages = (answer!.body as { publishedPages: PublishedPageInfo[] }).publishedPages;
+      // The server's own slugs and times, so every published step reads "Published" at once.
+      setProject(prev => applyPublishResult(prev, ((answer!.body as { steps?: PublishedStep[] }).steps) || []));
+      void pub.refresh();
 
       setPublishedPages(pubPages);
+      setPublishNotice(publishWarning(answer));
+      setUnpublishError(null);
       setShowPublishModal(true);
-    } catch (err) {
-      console.error('Publish funnel failed:', err);
     } finally {
       setPublishing(false);
     }
   };
 
   const handleUnpublishFunnel = async () => {
+    if (!user) return;
     setUnpublishing(true);
+    setUnpublishError(null);
     try {
-      if (user) {
-        const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) };
-        await fetch(`/api/journey/${project.id}/unpublish`, {
-          method: 'POST',
-          headers
-        }).catch(() => {});
+      const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) };
+      const answer = await requestAnswer(`/api/journey/${encodeURIComponent(project.id)}/unpublish`, {
+        method: 'POST',
+        headers
+      });
+      const refused = unpublishRefusal(answer);
+      if (refused) {
+        setUnpublishError(refused);
+        return;
       }
+      // Mirror what the server took down: landing pages, upsells and A/B splits.
       setProject(prev => ({
         ...prev,
-        nodes: prev.nodes.map(n => {
-          if (n.type === 'landing-page') {
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                published: false
-              }
-            };
-          }
-          return n;
-        })
+        nodes: prev.nodes.map(n => (n.type === 'landing-page' || n.type === 'upsell' || n.type === 'ab-split')
+          ? { ...n, data: { ...n.data, published: false } }
+          : n)
       }));
+      void pub.refresh();
       setShowPublishModal(false);
     } finally {
       setUnpublishing(false);
@@ -682,7 +805,13 @@ export const App: React.FC = () => {
           <CanvasHeader
             project={project}
             onUpdateProjectName={handleUpdateProjectName}
-            onSave={handleSave}
+            onSave={() => { void editing.saveNow(); }}
+            canUndo={editing.canUndo}
+            canRedo={editing.canRedo}
+            onUndo={editing.undo}
+            onRedo={editing.redo}
+            savePending={editing.savePending}
+            unsaved={editing.unsaved}
             onTestJourney={() => setShowLiveModal(true)}
             onExportAssets={() => setShowExportModal(true)}
             onAddNode={handleAddNode}
@@ -691,9 +820,12 @@ export const App: React.FC = () => {
             onOpenAuth={() => setShowAuthModal(true)}
             onOpenBilling={() => setShowBillingModal(true)}
             onOpenAdmin={() => setShowOperatorDashboard(true)}
-            onSignOut={() => logOut()}
+            onSignOut={handleSignOut}
             saving={saving}
-            savedRecently={savedRecently}
+            saveStatus={saveStatus}
+            publishError={publishError}
+            onDismissSaveError={() => setSaveStatus({ kind: 'idle' })}
+            onDismissPublishError={() => setPublishError(null)}
             onPublishFunnel={handlePublishFunnel}
             publishing={publishing}
             workspaces={workspaces}
@@ -702,21 +834,42 @@ export const App: React.FC = () => {
             onOpenShopifyConnect={() => setShowShopifyModal(true)}
             onCreateWorkspace={handleCreateWorkspace}
             activeView={activeView}
-            onSelectView={setActiveView}
+            onSelectView={view => (view === 'canvas' ? showCanvas() : setActiveView(view))}
             onOpenBlueprints={() => {
               setBlueprintModalTab('turnkey');
               setShowBlueprintModal(true);
             }}
             onSaveBlueprint={() => setShowSaveBlueprintModal(true)}
+            onOpenAiBuilder={() => setShowAiBuilder(true)}
             canvasViewMode={canvasViewMode}
             onToggleCanvasViewMode={setCanvasViewMode}
-            showRetentionBranches={showRetentionBranches}
-            onToggleRetentionBranches={() => setShowRetentionBranches(prev => !prev)}
             onOpenShopifySync={() => setShowShopifySyncModal(true)}
             onOpenSimulator={() => setShowSimulatorDrawer(true)}
-            onOpenAudit={() => setShowAuditDrawer(true)}
-            onSelectNode={nodeId => setSelectedNodeId(nodeId)}
+            onOpenAudit={openAudit}
+            metrics={metrics}
+            onOpenJourneyLibrary={() => setShowJourneyLibrary(true)}
+            journeyNotice={nav.notice}
+            onDismissJourneyNotice={nav.dismissNotice}
+            onRetryJourneyNotice={nav.retryNotice}
+            accountNotice={shownAccountNotice && {
+              message: shownAccountNotice.message,
+              actionLabel: shownAccountNotice.retry ? 'Try again' : shownAccountNotice.openId ? 'Open it' : undefined
+            }}
+            onAccountNoticeAction={() => {
+              const n = shownAccountNotice;
+              if (n?.retry) { setAccountNotice(null); setAccountLoadAttempt(a => a + 1); }
+              else if (n?.openId) { setAccountNotice(null); void nav.openJourney(n.openId); }
+            }}
+            onDismissAccountNotice={() => setAccountNotice(null)}
           />
+
+          {activeView === 'email-studio' && funnelReturn && (
+            <FunnelReturnBanner
+              text={returnBannerText(project, funnelReturn)}
+              onBack={showCanvas}
+              onDismiss={() => setFunnelReturn(null)}
+            />
+          )}
 
           {/* Main Area: Funnel Canvas, Email Studio, OR Attribution Reports */}
           <Suspense fallback={<SuspenseLoader label="Loading studio view..." />}>
@@ -724,7 +877,10 @@ export const App: React.FC = () => {
               <HubEmailSuite
                 workspace={currentWorkspace}
                 onOpenShopifyConnect={() => setShowShopifyModal(true)}
-                onReturnToCanvas={() => setActiveView('canvas')}
+                // While the banner shows, its Back to funnel is the one way back.
+                onReturnToCanvas={funnelReturn ? undefined : showCanvas}
+                initialTab={funnelReturn ? 'map' : undefined}
+                openFlowId={funnelReturn?.flowId || undefined}
               />
             ) : activeView === 'attribution' ? (
               <AttributionReports
@@ -732,55 +888,73 @@ export const App: React.FC = () => {
                 nodes={project.nodes}
                 forecast={project.forecast}
                 onOpenShopifySync={() => setShowShopifySyncModal(true)}
+                journeyId={project.id}
+                edges={project.edges}
+                onSelectStep={nodeId => {
+                  // Back to the map through the one step chooser (#7), which also pans to the step.
+                  if (!project.nodes.some(n => n.id === nodeId)) return;
+                  selectStep(nodeId);
+                  setActiveView('canvas');
+                }}
               />
             ) : (
-              <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                <JourneyCanvas
+              <PublishStatusContext.Provider value={publishCtx}>
+              <main className="jv-canvas-layout">
+                <div className="jv-canvas-pane">
+                {/* One canvas per journey, so no step position carries across a switch (#18) and a
+                    new journey is fitted into view (#25). */}
+                <JourneyCanvas key={project.id}
                   nodes={project.nodes}
                   edges={project.edges}
                   onNodesChange={handleNodesChange}
                   onEdgesChange={handleEdgesChange}
                   selectedNodeId={selectedNodeId}
-                  onSelectNode={node => {
-                    setSelectedNodeId(node ? node.id : null);
-                    if (node) setSelectedEdgeId(null);
-                  }}
+                  onSelectNode={selectNode}
                   selectedEdgeId={selectedEdgeId}
-                  onSelectEdge={edge => {
-                    setSelectedEdgeId(edge ? edge.id : null);
-                    if (edge) setSelectedNodeId(null);
-                  }}
+                  onSelectEdge={selectEdge}
                   canvasViewMode={canvasViewMode}
                   showRetentionBranches={showRetentionBranches}
                   onToggleRetentionBranches={setShowRetentionBranches}
+                  onUndoMove={editing.undoMove}
+                  metrics={metrics}
+                  onChangeStatsDays={changeStatsDays}
+                  onOpenStep={openStep}
+                  onOpenEdge={openEdge}
+                  focusRequest={inspectorFocus}
+                  onOpenIssues={openIssues}
+                  onGraphChange={handleGraphChange}
+                  canvasViewRef={canvasView}
                 />
+                </div>
 
-                {/* Slide-Over Drawer Inspector */}
-                <NodeInspector
+                {/* The docked step panel beside the map, or under it below 768px: the finder, then the opened step or line. */}
+                <StepDock
+                  key={project.id}
+                  nodes={project.nodes}
+                  edges={project.edges}
                   node={selectedNode}
-                  onClose={() => setSelectedNodeId(null)}
+                  edge={selectedEdge}
+                  edgeSourceNode={edgeSourceNode}
+                  edgeTargetNode={edgeTargetNode}
+                  showRetentionBranches={showRetentionBranches}
+                  focusRequest={inspectorFocus}
+                  onSelectStep={selectStep}
+                  onCloseEdge={() => setSelectedEdgeId(null)}
                   onUpdateNode={handleUpdateNode}
                   onDeleteNode={handleDeleteNode}
+                  onDeleteEdge={handleDeleteEdge}
                   offerHeadline={project.offerHeadline}
                   businessType={project.businessType}
                   journeyId={project.id}
                   workspace={currentWorkspace}
                   onOpenShopifyConnect={() => setShowShopifyModal(true)}
-                />
-
-                {/* Step Transition Analytics & Leakage Drawer */}
-                <EdgeInspector
-                  edge={selectedEdge}
-                  sourceNode={edgeSourceNode}
-                  targetNode={edgeTargetNode}
-                  onClose={() => setSelectedEdgeId(null)}
-                  onSelectNode={nodeId => {
-                    setSelectedEdgeId(null);
-                    setSelectedNodeId(nodeId);
-                  }}
-                  onDeleteEdge={handleDeleteEdge}
+                  metrics={metrics}
+                  onOpenEmailStudio={handleOpenEmailStudio}
+                  openingEmailStudio={saving}
+                  returnFocusNodeId={returnFocusNodeId}
                 />
               </main>
+              </PublishStatusContext.Provider>
             )}
           </Suspense>
         </>
@@ -795,7 +969,7 @@ export const App: React.FC = () => {
             onOpenAuth={() => setShowAuthModal(true)}
             onOpenBilling={() => setShowBillingModal(true)}
             onOpenAdmin={() => setShowOperatorDashboard(true)}
-            onSignOut={() => logOut()}
+            onSignOut={handleSignOut}
           />
 
           <main style={{ flex: 1 }}>
@@ -872,7 +1046,7 @@ export const App: React.FC = () => {
             currentProject={project}
             onClose={() => setShowOperatorDashboard(false)}
             onLoadProject={p => {
-              setProject(p);
+              void nav.startJourney(p);
               setShowOperatorDashboard(false);
             }}
           />
@@ -893,10 +1067,30 @@ export const App: React.FC = () => {
           isOpen={showPublishModal}
           onClose={() => setShowPublishModal(false)}
           publishedPages={publishedPages}
+          notice={publishNotice}
           workspace={currentWorkspace}
           onUnpublish={handleUnpublishFunnel}
           unpublishing={unpublishing}
+          unpublishError={unpublishError?.message || null}
         />
+
+        {/* The journey library (#18): open, rename and duplicate, in this browser and the account */}
+        {showJourneyLibrary && (
+          <JourneyLibraryDialog
+            project={project}
+            user={user}
+            onClose={() => setShowJourneyLibrary(false)}
+            onOpen={nav.openJourney}
+            onRename={nav.renameJourneyById}
+            onDuplicate={nav.duplicateJourneyById}
+            onNewJourney={() => { setShowJourneyLibrary(false); setBlueprintModalTab('turnkey'); setShowBlueprintModal(true); }}
+            onFreedSpace={() => {
+              // A removal may have made room: keep the open journey again, and signed out say so.
+              localWrite.current = keepJourney(projectRef.current);
+              if (!user) void editing.saveNow();
+            }}
+          />
+        )}
 
         {/* Save as Reusable Blueprint Modal */}
         <SaveBlueprintModal
@@ -906,6 +1100,20 @@ export const App: React.FC = () => {
           edges={project.edges}
           currentJourneyName={project.name}
         />
+
+        {/* Draft with AI (#25): a reviewed draft becomes a new journey in the library */}
+        {showAiBuilder && (
+          <AiJourneyBuilder
+            signedIn={!!user}
+            businessType={project.businessType}
+            workspaceId={currentWorkspace?.id}
+            onOpenAuth={() => { setShowAiBuilder(false); setShowAuthModal(true); }}
+            onOpenBlueprints={() => { setShowAiBuilder(false); setBlueprintModalTab('turnkey'); setShowBlueprintModal(true); }}
+            onCreate={handleCreateFromAi}
+            createMode="add"
+            onClose={() => setShowAiBuilder(false)}
+          />
+        )}
 
         {/* E-Commerce Funnel Blueprints Modal */}
         <BlueprintModal
@@ -926,6 +1134,7 @@ export const App: React.FC = () => {
           isOpen={showSimulatorDrawer}
           onClose={() => setShowSimulatorDrawer(false)}
           nodes={project.nodes}
+          edges={project.edges}
           initialForecast={project.forecast}
           onSaveForecast={(forecast: FunnelForecast) => {
             setProject(prev => {
@@ -937,23 +1146,22 @@ export const App: React.FC = () => {
           onSyncRetentionToCanvas={handleSyncRetentionToCanvas}
         />
 
-        {/* Pre-Flight Conversion Audit & Readiness Inspector */}
+        {/* Check design (#10): design checks, and the store score when a store is connected */}
         <PreFlightAuditDrawer
           isOpen={showAuditDrawer}
-          onClose={() => setShowAuditDrawer(false)}
+          onClose={() => { setShowAuditDrawer(false); setAuditFocusNodeId(null); }}
           project={project}
           workspace={currentWorkspace}
-          onUpdateProject={(updated) => {
-            setProject(updated);
-            saveCurrentJourney(updated);
-          }}
+          signedIn={!!user}
+          focusNodeId={auditFocusNodeId}
+          onOpenShopifyConnect={() => setShowShopifyModal(true)}
+          // One setProject is one edit (and one undo step); the [project] effect saves it locally.
+          onUpdateProject={updated => setProject(updated)}
           onOpenPublish={() => {
             setShowAuditDrawer(false);
             handlePublishFunnel();
           }}
-          onSelectNode={(nodeId) => {
-            setSelectedNodeId(nodeId);
-          }}
+          onSelectNode={openStep}
         />
       </Suspense>
     </div>

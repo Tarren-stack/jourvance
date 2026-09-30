@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
+import { SMS_STARTERS, smsStarterText, type SmsStarterId } from '../../lib/offerPresets';
 
 type SmsStatus = {
   configured?: boolean;
@@ -19,9 +20,11 @@ export const SmsPanel: React.FC = () => {
   const [status, setStatus] = useState<SmsStatus | null>(null);
   const [phoneCount, setPhoneCount] = useState<number>(0);
   const [totalContacts, setTotalContacts] = useState<number>(0);
-  const [message, setMessage] = useState<string>(
-    'Hi {{first_name}}, we miss you! Enjoy a private 15% courtesy treat for your next self-care ritual with code WELCOMEBACK15: https://jourvance.com/r/wb15'
-  );
+  // The composer starts empty and a starter draft names no code, amount or gift: the old ones
+  // offered WELCOMEBACK15, 15% and 10% off and a free gift the store may not have (T13). A code
+  // goes in only when the merchant types their own below.
+  const [message, setMessage] = useState<string>('');
+  const [starterCode, setStarterCode] = useState<string>('');
   const [notifyMe, setNotifyMe] = useState(false);
   const [notifiedMsg, setNotifiedMsg] = useState(false);
 
@@ -48,14 +51,8 @@ export const SmsPanel: React.FC = () => {
     load();
   }, []);
 
-  const handleApplyPreset = (preset: 'winback' | 'whale' | 'cart') => {
-    if (preset === 'winback') {
-      setMessage('Hi {{first_name}}, we miss you! Enjoy a private 15% courtesy treat for your next self-care ritual with code WELCOMEBACK15: https://jourvance.com/r/wb15');
-    } else if (preset === 'whale') {
-      setMessage('Hi {{first_name}}, your private VIP first-access to our newest reserve collection is live! Enjoy a complimentary gift with your order: https://jourvance.com/r/vip');
-    } else if (preset === 'cart') {
-      setMessage('Hi {{first_name}}, your beauty favorites have been carefully saved in your bag. Claim your 10% courtesy discount here: https://jourvance.com/r/cart');
-    }
+  const handleApplyPreset = (preset: SmsStarterId) => {
+    setMessage(smsStarterText(preset, starterCode));
   };
 
   const handleNotifyToggle = () => {
@@ -98,7 +95,7 @@ export const SmsPanel: React.FC = () => {
             </span>
           </div>
           <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#9ca3af', lineHeight: 1.5, maxWidth: '640px' }}>
-            Send instant flash announcements, VIP preview drops, and courtesy winback treats directly to your clients' mobile phones with industry-leading 98% open rates.
+            Send announcements, VIP notes and winback check-ins directly to your clients' mobile phones with industry-leading 98% open rates.
           </p>
         </div>
 
@@ -197,8 +194,9 @@ export const SmsPanel: React.FC = () => {
         </p>
       </div>
 
-      {/* Main Interactive Sandbox Grid: Composer (Left) & Phone Preview (Right) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1.2fr) minmax(280px, 0.8fr)', gap: '20px' }}>
+      {/* Main Interactive Sandbox Grid: Composer (Left) & Phone Preview (Right). On a phone the
+          preview stacks under the composer rather than scrolling the page sideways (U08). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '20px' }}>
         {/* Left Column: Interactive Composer & Presets */}
         <div
           style={{
@@ -220,58 +218,49 @@ export const SmsPanel: React.FC = () => {
             </span>
           </div>
 
-          {/* Quick Presets */}
+          {/* Starter drafts: plain words with no offer. The merchant's own code is added only when typed. */}
           <div>
-            <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '6px' }}>Pre-tested High-Converting Beauty Copy:</div>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => handleApplyPreset('winback')}
-                style={{
-                  padding: '5px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                  backgroundColor: 'rgba(245, 158, 11, 0.08)',
-                  color: '#fef3c7',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                At-Risk 15% Winback
-              </button>
-              <button
-                type="button"
-                onClick={() => handleApplyPreset('whale')}
-                style={{
-                  padding: '5px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(168, 85, 247, 0.3)',
-                  backgroundColor: 'rgba(168, 85, 247, 0.08)',
-                  color: '#e9d5ff',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                VIP Whale Drop
-              </button>
-              <button
-                type="button"
-                onClick={() => handleApplyPreset('cart')}
-                style={{
-                  padding: '5px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(16, 185, 129, 0.3)',
-                  backgroundColor: 'rgba(16, 185, 129, 0.08)',
-                  color: '#a7f3d0',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                Cart Recovery
-              </button>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <label htmlFor="sms-starter-code" style={{ fontSize: '11px', color: '#9ca3af', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                Your discount code (optional)
+                <input
+                  id="sms-starter-code"
+                  type="text"
+                  value={starterCode}
+                  onChange={e => setStarterCode(e.target.value.trim().slice(0, 40))}
+                  placeholder="A code that exists in your store"
+                  style={{ width: '220px', maxWidth: '100%', boxSizing: 'border-box', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.12)', backgroundColor: 'rgba(0, 0, 0, 0.35)', color: '#ffffff', fontSize: '12px' }}
+                />
+              </label>
+            </div>
+            <div id="sms-starter-hint" style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '6px' }}>Starter drafts (edit before sending):</div>
+            <div role="group" aria-labelledby="sms-starter-hint" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {SMS_STARTERS.map((starter, index) => {
+                const tone = [
+                  { border: 'rgba(245, 158, 11, 0.3)', bg: 'rgba(245, 158, 11, 0.08)', color: '#fef3c7' },
+                  { border: 'rgba(168, 85, 247, 0.3)', bg: 'rgba(168, 85, 247, 0.08)', color: '#e9d5ff' },
+                  { border: 'rgba(16, 185, 129, 0.3)', bg: 'rgba(16, 185, 129, 0.08)', color: '#a7f3d0' }
+                ][index % 3];
+                return (
+                  <button
+                    key={starter.id}
+                    type="button"
+                    onClick={() => handleApplyPreset(starter.id)}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: '6px',
+                      border: `1px solid ${tone.border}`,
+                      backgroundColor: tone.bg,
+                      color: tone.color,
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {starter.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -281,7 +270,8 @@ export const SmsPanel: React.FC = () => {
               rows={4}
               value={message}
               onChange={e => setMessage(e.target.value)}
-              placeholder="Draft your promotional text message..."
+              aria-label="Text message"
+              placeholder="Write your text, or pick a starter draft above. {{first_name}} becomes the customer's first name."
               style={{
                 width: '100%',
                 boxSizing: 'border-box',
@@ -355,6 +345,7 @@ export const SmsPanel: React.FC = () => {
           <div
             style={{
               width: '280px',
+              maxWidth: '100%',
               height: '460px',
               backgroundColor: '#000000',
               borderRadius: '36px',
@@ -401,12 +392,12 @@ export const SmsPanel: React.FC = () => {
                 JV
               </div>
               <div style={{ fontSize: '11px', fontWeight: 600, color: '#f3f4f6' }}>Jourvance VIP</div>
-              <div style={{ fontSize: '9px', color: '#6b7280' }}>SMS Text Message</div>
+              <div style={{ fontSize: '11px', color: '#6b7280' }}>SMS Text Message</div>
             </div>
 
             {/* Message Bubble Stream */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '8px' }}>
-              <div style={{ fontSize: '9px', color: '#6b7280', textAlign: 'center' }}>Today 2:15 PM</div>
+              <div style={{ fontSize: '11px', color: '#6b7280', textAlign: 'center' }}>Today 2:15 PM</div>
               <div
                 style={{
                   backgroundColor: '#27272a',
@@ -419,8 +410,10 @@ export const SmsPanel: React.FC = () => {
                   wordBreak: 'break-word'
                 }}
               >
-                {message.replace('{{first_name}}', 'Sarah')}
-                <div style={{ marginTop: '6px', fontSize: '9px', color: '#9ca3af' }}>
+                {message.trim()
+                  ? message.split('{{first_name}}').join('Sarah')
+                  : <span style={{ color: '#9ca3af' }}>Your message appears here.</span>}
+                <div style={{ marginTop: '6px', fontSize: '11px', color: '#9ca3af' }}>
                   Reply STOP to opt out
                 </div>
               </div>

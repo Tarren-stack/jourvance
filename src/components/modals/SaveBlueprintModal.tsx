@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { X, BookmarkPlus, CheckCircle2, Sparkles, Copy, Share2 } from 'lucide-react';
 import type { JourneyNode, JourneyEdge, CustomBlueprint } from '../../types/journey';
 import { saveCustomBlueprint } from '../../lib/templateClient';
+import { ModalDialog } from './ModalDialog';
+import { useFieldIds } from '../../lib/a11yHooks';
 
 interface Props {
   isOpen: boolean;
@@ -11,6 +13,9 @@ interface Props {
   currentJourneyName?: string;
   onBlueprintSaved?: (blueprint: CustomBlueprint) => void;
 }
+
+// Names the dialog: ModalDialog's aria-labelledby points at the visible heading.
+const TITLE_ID = 'jv-save-blueprint-title';
 
 export const SaveBlueprintModal: React.FC<Props> = ({
   isOpen,
@@ -27,6 +32,7 @@ export const SaveBlueprintModal: React.FC<Props> = ({
   const [error, setError] = useState<string | null>(null);
   const [savedBlueprint, setSavedBlueprint] = useState<CustomBlueprint | null>(null);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
+  const fid = useFieldIds();
 
   if (!isOpen) return null;
 
@@ -72,20 +78,7 @@ export const SaveBlueprintModal: React.FC<Props> = ({
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px'
-      }}
-    >
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={520} fallbackFocusSelectors={['[data-more-trigger]']}>
       <div
         style={{
           width: '100%',
@@ -94,7 +87,9 @@ export const SaveBlueprintModal: React.FC<Props> = ({
           border: '1px solid rgba(255, 255, 255, 0.12)',
           borderRadius: '16px',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)',
-          overflow: 'hidden',
+          maxHeight: '90vh',
+          overflowX: 'hidden',
+          overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column'
         }}
@@ -127,7 +122,7 @@ export const SaveBlueprintModal: React.FC<Props> = ({
               <BookmarkPlus size={16} />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#FFFFFF' }}>
+              <h3 id={TITLE_ID} style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#FFFFFF' }}>
                 Save Canvas as Blueprint
               </h3>
               <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#94A3B8' }}>
@@ -138,6 +133,7 @@ export const SaveBlueprintModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close"
             style={{
               background: 'none',
               border: 'none',
@@ -205,6 +201,7 @@ export const SaveBlueprintModal: React.FC<Props> = ({
                   <input
                     type="text"
                     readOnly
+                    aria-label="Blueprint share link"
                     value={shareUrl}
                     style={{
                       flex: 1,
@@ -299,10 +296,11 @@ export const SaveBlueprintModal: React.FC<Props> = ({
 
               {/* Title */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '6px' }}>
+                <label htmlFor={fid('title')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '6px' }}>
                   Blueprint Title <span style={{ color: '#F472B6' }}>*</span>
                 </label>
                 <input
+                  id={fid('title')}
                   type="text"
                   required
                   value={name}
@@ -324,10 +322,11 @@ export const SaveBlueprintModal: React.FC<Props> = ({
 
               {/* Category */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '6px' }}>
+                <label htmlFor={fid('category')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '6px' }}>
                   Funnel Model Category
                 </label>
                 <select
+                  id={fid('category')}
                   value={category}
                   onChange={e => setCategory(e.target.value as any)}
                   style={{
@@ -352,10 +351,11 @@ export const SaveBlueprintModal: React.FC<Props> = ({
 
               {/* Description */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '6px' }}>
+                <label htmlFor={fid('notes')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '6px' }}>
                   Strategy Notes / Description
                 </label>
                 <textarea
+                  id={fid('notes')}
                   rows={3}
                   value={description}
                   onChange={e => setDescription(e.target.value)}
@@ -420,6 +420,6 @@ export const SaveBlueprintModal: React.FC<Props> = ({
           )}
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 };

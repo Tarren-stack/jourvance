@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
 import { X, CheckCircle2, Sparkles, ArrowRight, ShieldCheck, Store, Mail } from 'lucide-react';
+import { ModalDialog } from '../modals/ModalDialog';
+import { useFieldIds } from '../../lib/a11yHooks';
 
 interface BillingModalProps {
   onClose: () => void;
   onUpgradeSuccess?: () => void;
   userEmail?: string;
 }
+
+// Names the dialog: ModalDialog's aria-labelledby points at the visible heading.
+const TITLE_ID = 'jv-billing-title';
 
 export const BillingModal: React.FC<BillingModalProps> = ({
   onClose,
@@ -17,6 +22,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [submitted, setSubmitted] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const fid = useFieldIds();
 
   const handleRequestAccess = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,24 +62,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 100,
-        backgroundColor: 'rgba(0, 0, 0, 0.78)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '1.5rem',
-        color: '#F8FAFC'
-      }}
-      onClick={e => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={720} fallbackFocusSelectors={['#journey-map']}>
       <div
         style={{
           width: '100%',
@@ -85,7 +74,8 @@ export const BillingModal: React.FC<BillingModalProps> = ({
           border: '1px solid rgba(255, 255, 255, 0.12)',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 35px rgba(99, 102, 241, 0.22)',
           padding: '2.5rem',
-          position: 'relative'
+          position: 'relative',
+          color: '#F8FAFC'
         }}
       >
         <button
@@ -129,7 +119,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({
             <Sparkles size={12} />
             <span>Zero Lead Caps • Zero Transaction Fees</span>
           </div>
-          <h2 style={{ fontSize: '1.85rem', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em', margin: 0 }}>
+          <h2 id={TITLE_ID} style={{ fontSize: '1.85rem', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em', margin: 0 }}>
             Jourvance Growth Pro
           </h2>
           <p style={{ fontSize: '0.9rem', color: '#94A3B8', marginTop: '0.4rem' }}>
@@ -329,14 +319,16 @@ export const BillingModal: React.FC<BillingModalProps> = ({
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
+                <label htmlFor={fid('email')} style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
                   Work Email
                 </label>
                 <div style={{ position: 'relative' }}>
                   <Mail size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748B' }} />
                   <input
+                    id={fid('email')}
                     type="email"
                     required
+                    autoComplete="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="you@yourbrand.com"
@@ -355,12 +347,13 @@ export const BillingModal: React.FC<BillingModalProps> = ({
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
+                <label htmlFor={fid('store')} style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
                   Shopify Store URL <span style={{ color: '#64748B' }}>(optional)</span>
                 </label>
                 <div style={{ position: 'relative' }}>
                   <Store size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748B' }} />
                   <input
+                    id={fid('store')}
                     type="text"
                     value={storeDomain}
                     onChange={e => setStoreDomain(e.target.value)}
@@ -417,6 +410,6 @@ export const BillingModal: React.FC<BillingModalProps> = ({
           </form>
         )}
       </div>
-    </div>
+    </ModalDialog>
   );
 };

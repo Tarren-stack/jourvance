@@ -74,7 +74,10 @@ import {
   syncAllContactsRfm
 } from './rfm-engine.mjs';
 import { setupDomainRoutes, checkSslCertificate } from './server/routes/domainRoutes.mjs';
+import { reloadJsonInPlace } from './server/liveJsonCache.mjs';
+import { stripSeededOffers, readSignupForms } from './server/seededOffers.mjs';
 import { setupShopifyRoutes, ensureShopifyCoreDiscounts as ensureShopifyCoreDiscountsModular } from './server/routes/shopifyRoutes.mjs';
+import { reviewUrlFor } from './server/reviewTokens.mjs';
 import {
   recordWebhookDelivery,
   getWebhookHealth,
@@ -84,10 +87,16 @@ import {
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 
 import { setupJourneyRoutes } from './server/routes/journeyRoutes.mjs';
+import { setupJourneySaveRoutes } from './server/routes/journeySaveRoutes.mjs';
+import { setupJourneyListRoutes } from './server/routes/journeyListRoutes.mjs';
+import { listJourneyDocs, summarizeJourney } from './server/journeyList.mjs';
 import { setupAnalyticsRoutes } from './server/routes/analyticsRoutes.mjs';
+import { setupAiJourneyRoutes } from './server/routes/aiJourneyRoutes.mjs';
 import {
   setupAuthWorkspaceRoutes,
   requireUser,
+  aiBudgetLeft,
+  aiBudgetRetryAfter,
   requireOperator,
   verifyIdToken,
   listWorkspaces,
@@ -112,6 +121,7 @@ import {
 import {
   setupPublicRoutes,
   loadPublicPage,
+  readPublicPage,
   savePublicPage,
   removePublicPage,
   validateSlugAvailability,
@@ -163,15 +173,6 @@ const hub = createHubClient({
 const hubReady = Boolean(process.env.HUB_API_KEY);
 hubStorage.init({ hub, hubReady, dataDir: __dirname });
 
-// ── Modular Auth & Workspace Multi-Tenancy Routes (server/routes/authWorkspaceRoutes.mjs) ──
-setupAuthWorkspaceRoutes(app, {
-  hub,
-  hubReady,
-  FIREBASE_PROJECT_ID,
-  OPERATOR_EMAIL,
-  journeyCache,
-  summarize
-});
 if (!hubReady) {
   console.warn('[Jourvance] HUB_API_KEY is not set: journeys will persist locally only and AI copy will use templates.');
 }
@@ -203,13 +204,38 @@ const safe = (s) => (/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(s) ? s : crypto.createHa
 const docName = (uid, id) => `journey.${safe(uid)}.${crypto.createHash('sha256').update(String(id)).digest('hex').slice(0, 16)}`;
 const cacheKey = (uid, id) => `${uid}:${id}`;
 
-async function loadJourney(uid, id) {
-  if (hubReady) {
-    try {
-      const r = await hub.store.docs.get(docName(uid, id));
-      if (r && r.document) return r.document;
-    } catch { /* fall through to the cache */ }
+// ok:false only when the hub was asked and answered neither a document nor a 404. The SDK never
+// throws: a 503, a 409 or a network failure comes back as { error }, and reading that as "not
+// there" answered GET with journey null (which released the browser's autosave over the account
+// copy) and let publish and unpublish run on an older cached copy. A 404 falls back to this
+// server's copy, which is the only one when a hub put failed.
+async function readJourney(uid, id) {
+  const local = journeyCache[cacheKey(uid, id)];
+  const cached = local && local.userId === uid ? local : null;
+  if (!hubReady) return { ok: true, journey: cached };
+  try {
+    const r = await hub.store.docs.get(docName(uid, id));
+    if (r && r.document) {
+      // A later save whose hub put failed is on this server's copy only, and that save's answer gave
+      // the browser its stamp as the next base: the hub's older document is not the stored copy, and
+      // reading it refused the next save as changed somewhere else (F1). Both stamps are a server's.
+      const newer = cached && Date.parse(cached.updatedAt) > Date.parse(r.document.updatedAt);
+      return { ok: true, journey: newer ? cached : r.document };
+    }
+    if (r && r.status === 404) return { ok: true, journey: cached };
+    return { ok: false };
+  } catch {
+    return { ok: false };
   }
+}
+
+// Best effort, for background reads that only look up which flows a map links (enrollment and
+// the Klaviyo handoff): a hub that cannot answer falls back to this server's copy rather than
+// dropping a real customer's enrollment. Anything a user sees or that writes goes through
+// readJourney.
+async function loadJourney(uid, id) {
+  const read = await readJourney(uid, id);
+  if (read.ok) return read.journey;
   const local = journeyCache[cacheKey(uid, id)];
   return local && local.userId === uid ? local : null;
 }
@@ -244,30 +270,83 @@ async function saveJourney(uid, id, body) {
   }
 }
 
-async function listJourneys(uid) {
-  if (hubReady) {
-    try {
-      const listed = await hub.store.docs.list();
-      const prefix = `journey.${safe(uid)}.`;
-      const names = (listed?.documents || []).map((d) => d.name).filter((n) => n.startsWith(prefix)).slice(0, 50);
-      if (names.length) {
-        const got = await hub.store.docs.batchGet(names);
-        return (got?.documents || [])
-          .filter((d) => d.found && d.document)
-          .map((d) => d.document);
-      }
-      return [];
-    } catch { /* fall through to the cache */ }
+// ── Publish logs: one per journey, hub app store with a local cache ─────────
+// Each publish reserves the next revision number here before it writes a page. The doc name
+// starts 'journeypub.', which the 'journey.' prefix filters below do not match.
+
+const publishLogsFile = path.join(__dirname, 'journey_publish_logs.json');
+let publishLogCache = {};
+try {
+  if (fs.existsSync(publishLogsFile)) {
+    publishLogCache = JSON.parse(fs.readFileSync(publishLogsFile, 'utf8'));
   }
-  return Object.values(journeyCache).filter((j) => j.userId === uid);
+} catch (e) {
+  console.warn('[Jourvance] Failed to read journey_publish_logs.json, starting empty:', e.message);
 }
 
-const summarize = (j) => ({
-  id: j.id,
-  name: j.name || j.metadata?.name || 'Untitled Journey',
-  updatedAt: j.updatedAt,
-  nodeCount: j.nodes?.length || 0
+const persistPublishLogs = () => {
+  try {
+    fs.writeFileSync(publishLogsFile, JSON.stringify(publishLogCache, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[Jourvance] Failed to persist journey_publish_logs.json:', e.message);
+  }
+};
+
+const publishLogDocName = (uid, id) => `journeypub.${safe(uid)}.${crypto.createHash('sha256').update(String(id)).digest('hex').slice(0, 16)}`;
+const logNumber = (log) => (log && Number.isFinite(log.lastNumber) ? log.lastNumber : -1);
+
+// ok:false only when the hub was asked and could not answer. A 404 is "no log yet". When both
+// copies exist the one with the higher lastNumber wins, so a hub put that failed can never make
+// a revision number come round again.
+async function loadPublishLog(uid, id) {
+  const local = publishLogCache[cacheKey(uid, id)] || null;
+  if (!hubReady) return { ok: true, log: local };
+  try {
+    const r = await hub.store.docs.get(publishLogDocName(uid, id));
+    if (r && r.document) return { ok: true, log: logNumber(local) > logNumber(r.document) ? local : r.document };
+    if (r && r.status === 404) return { ok: true, log: local };
+    return { ok: false };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function savePublishLog(uid, id, log) {
+  publishLogCache[cacheKey(uid, id)] = log;
+  persistPublishLogs();
+  if (!hubReady) return { durable: false, reason: 'HUB_API_KEY is not set on this server.' };
+  try {
+    const r = await hub.store.docs.put(publishLogDocName(uid, id), log);
+    if (r && r.error) return { durable: false, reason: r.error };
+    return { durable: true };
+  } catch (e) {
+    return { durable: false, reason: e.message };
+  }
+}
+
+// Answers {journeys, complete, reason?}: a hub that refused or answered part of the list is
+// reported as such, never as an empty list, and there is no 50-journey cap.
+async function listJourneys(uid) {
+  return listJourneyDocs({ hub, hubReady, uid, prefix: `journey.${safe(uid)}.`, cached: Object.values(journeyCache).filter((j) => j.userId === uid) });
+}
+
+const summarize = summarizeJourney;
+
+// ── Modular Auth & Workspace Multi-Tenancy Routes (server/routes/authWorkspaceRoutes.mjs) ──
+// Registered here, below `let journeyCache` and `const summarize`: reading either before its
+// declaration is a TDZ ReferenceError at boot. These are still the first routes registered.
+setupAuthWorkspaceRoutes(app, {
+  hub,
+  hubReady,
+  FIREBASE_PROJECT_ID,
+  OPERATOR_EMAIL,
+  journeyCache,
+  summarize
 });
+
+// POST /api/ai/journey-plan (#25): one AI draft of a journey's copy. Signed-in only, and it
+// draws on the same per-user hourly budget as /api/ai/copy above. No template fallback.
+setupAiJourneyRoutes(app, { requireUser, hub, hubReady, aiBudgetLeft, aiBudgetRetryAfter });
 
 // ── Workspace & Shopify Tenancy ──────────────────────────────────────────────
 function acceptShopifyWebhook(req, res) {
@@ -565,14 +644,10 @@ function cleanDomain(raw) {
 
 // ── Wave 6: Persistent CRM Storage Helpers (Contacts, Orders, Campaigns) ────────
 const publicPagesFile = path.join(__dirname, 'public_pages.json');
-let publicPageCache = {};
+// The route modules hold this object from mount, so a reload refills it rather than replacing it.
+const publicPageCache = {};
 function reloadPublicPageCache() {
-  try {
-    if (fs.existsSync(publicPagesFile)) {
-      publicPageCache = JSON.parse(fs.readFileSync(publicPagesFile, 'utf8'));
-    }
-  } catch (e) {}
-  return publicPageCache;
+  return reloadJsonInPlace(publicPageCache, publicPagesFile);
 }
 reloadPublicPageCache();
 
@@ -773,19 +848,22 @@ const INITIAL_DRIP_SEQUENCES = [
         id: 'cart_step_1',
         stepNumber: 1,
         delayHours: 1,
-        subject: 'We saved your beauty essentials',
+        // Plain words for any store: the old subject named "beauty essentials" and said the items were
+        // saved, which step 2 contradicts (T13). A stored copy of the old words takes these.
+        subject: 'You left something in your cart',
         previewText: 'Your order is waiting for you',
-        body: 'Hi {{first_name}},\n\nWe noticed you didn’t get a chance to finish your order. Your selected items have been carefully saved so you can pick right back up where you left off.\n\nReturn to your checkout here:\n{{abandoned_checkout_url}}',
+        body: 'Hi {{first_name}},\n\nWe noticed you did not get a chance to finish your order. You can pick up where you left off.\n\nReturn to your checkout here:\n{{abandoned_checkout_url}}',
         discountVoucher: ''
       },
       {
         id: 'cart_step_2',
         stepNumber: 2,
         delayHours: 24,
-        subject: 'A complimentary 10% courtesy for your bag',
-        previewText: 'A little gift to complete your ritual',
-        body: 'Hi {{first_name}},\n\nWe want to make sure you get the best experience with us. As a special courtesy, enjoy 10% off your saved beauty items with code SAVE10.\n\nClaim your 10% courtesy discount here:\n{{abandoned_checkout_url}}',
-        discountVoucher: 'SAVE10'
+        subject: 'Your checkout is still open',
+        previewText: 'You can pick up where you left off',
+        body: 'Hey {{first_name}},\n\nYou started a checkout and did not finish it. The items were not held aside.\n\nYou can return to the checkout here:\n{{abandoned_checkout_url}}',
+        // No code is seeded: a discount is the merchant's own to set (C18).
+        discountVoucher: ''
       }
     ],
     activeEnrollments: 0,
@@ -798,7 +876,7 @@ const INITIAL_DRIP_SEQUENCES = [
   {
     id: 'drip_seq_upsell_recovery',
     name: 'Post-Purchase Courtesy Offer',
-    description: 'Reaches out to clients who passed on their post-purchase upgrade, offering a gentle second chance with a private courtesy discount.',
+    description: 'Reaches out to clients who passed on their post-purchase upgrade with a gentle second chance at the offer.',
     triggerType: 'upsell_recovery',
     smartExitOnPurchase: true,
     steps: [
@@ -806,10 +884,11 @@ const INITIAL_DRIP_SEQUENCES = [
         id: 'upsell_rec_step_1',
         stepNumber: 1,
         delayHours: 18,
-        subject: 'A little courtesy for your recent order',
-        previewText: 'In case you still wanted to complete your ritual',
-        body: 'Hey {{first_name}},\n\nThank you again for your order {{order_number}}. We are already preparing everything for you.\n\nWhen you checked out, you skipped the upgrade offer. In case you still wanted to add it to your routine, we saved a private 10% courtesy voucher for you:\n\nCode: {{discount_code}}\n\nYou can review the offer and claim your discount here:\n{{offer_url}}\n\nNo pressure at all—we simply wanted to make sure you had the option before your order ships.\n\nWarmly,\nThe Jourvance Team',
-        discountVoucher: 'SAVE10'
+        subject: 'About the offer on your recent order',
+        previewText: 'In case you still wanted it',
+        body: 'Hey {{first_name}},\n\nThank you again for your order {{order_number}}. We are already preparing everything for you.\n\nWhen you checked out, you skipped the upgrade offer. In case you still wanted to add it to your order, you can review the offer here:\n{{offer_url}}\n\nNo pressure at all, we simply wanted to make sure you had the option before your order ships.\n\nWarmly,\nThe Jourvance Team',
+        // No code is seeded, so the letter names none (C18).
+        discountVoucher: ''
       }
     ],
     activeEnrollments: 0,
@@ -822,7 +901,7 @@ const INITIAL_DRIP_SEQUENCES = [
   {
     id: 'drip_seq_at_risk_winback',
     name: 'At-Risk Inactive Client Winback',
-    description: 'Automatically re-engages clients who reach the at-risk inactivity threshold (90 days since last purchase) with a gentle check-in and 15% courtesy treat.',
+    description: 'Checks in with clients who reach the at-risk inactivity threshold (90 days since last purchase).',
     triggerType: 'at_risk_inactivity',
     smartExitOnPurchase: true,
     steps: [
@@ -830,10 +909,11 @@ const INITIAL_DRIP_SEQUENCES = [
         id: 'winback_step_1',
         stepNumber: 1,
         delayHours: 0,
-        subject: 'We miss you — a private 15% courtesy treat for your next ritual',
-        previewText: "It's been a little while, and we'd love to welcome you back",
-        body: 'Hello {{first_name}},\n\nWe noticed it’s been a little while since your last visit, and we wanted to check in.\n\nSelf-care should always feel effortless. To welcome you back, we’ve placed a special 15% courtesy reward on your profile for your next restock:\n\nUse code {{discount_code}} at checkout.\n\nWhenever you’re ready to replenish your favorites, we are here for you.\n\nWarmly,\nThe Jourvance Team',
-        discountVoucher: 'WELCOMEBACK15'
+        subject: 'It has been a little while',
+        previewText: "We'd love to welcome you back",
+        body: 'Hello {{first_name}},\n\nWe noticed it has been a little while since your last order, and we wanted to check in.\n\nWhenever you are ready, we would be glad to see you again.',
+        // Auto-winback sends this unattended, so it is a finished note with no offer and no code (R24).
+        discountVoucher: ''
       }
     ],
     activeEnrollments: 0,
@@ -846,7 +926,7 @@ const INITIAL_DRIP_SEQUENCES = [
   {
     id: 'drip_seq_review_request',
     name: 'Post-Purchase Review & Social Proof Engine',
-    description: 'Invites verified buyers 7 days after fulfillment to share their ritual feedback in exchange for a complimentary $10 courtesy gift voucher (REVIEW10).',
+    description: 'Invites verified buyers 7 days after fulfillment to share a review of their order.',
     triggerType: 'fulfillment_review',
     smartExitOnPurchase: false,
     steps: [
@@ -854,19 +934,20 @@ const INITIAL_DRIP_SEQUENCES = [
         id: 'review_step_1',
         stepNumber: 1,
         delayHours: 168,
-        subject: 'How is your new ritual feeling? (A $10 treat inside)',
+        subject: 'How is your order working for you?',
         previewText: 'We would love your thoughts on your recent order',
-        body: 'Hi {{first_name}},\n\nIt has been a week since your order {{order_number}} arrived, and we hope your new ritual is treating you wonderfully.\n\nCould you take 60 seconds to share your honest experience? As a heartfelt thank you, we will instantly gift you $10 toward your next replenishment.\n\nShare your review & claim your $10 treat here:\n{{review_url}}\n\nWith gratitude,\nThe Jourvance Team',
-        discountVoucher: 'REVIEW10'
+        body: 'Hi {{first_name}},\n\nIt has been a week since your order {{order_number}} arrived. Could you share your honest experience?\n\nShare your review here:\n{{review_url}}',
+        // No code is seeded: a thank-you gift is the merchant's to set, and only if it exists (R24).
+        discountVoucher: ''
       },
       {
         id: 'review_step_2',
         stepNumber: 2,
         delayHours: 72,
-        subject: 'Quick reminder: Your $10 beauty treat is waiting',
-        previewText: 'A fast 60 seconds to claim your courtesy voucher',
-        body: 'Hi {{first_name}},\n\nJust a gentle reminder that your private $10 courtesy gift is still waiting for you.\n\nWhenever you have a quiet moment, let us know how your formulas are working for your skin:\n\nShare your review & get $10:\n{{review_url}}\n\nWarmly,\nThe Jourvance Team',
-        discountVoucher: 'REVIEW10'
+        subject: 'A quick reminder about your review',
+        previewText: 'Whenever you have a moment',
+        body: 'Hi {{first_name}},\n\nA gentle reminder: whenever you have a moment, we would love to hear how your order is working for you.\n\nShare your review here:\n{{review_url}}',
+        discountVoucher: ''
       }
     ],
     activeEnrollments: 0,
@@ -878,6 +959,14 @@ const INITIAL_DRIP_SEQUENCES = [
   }
 ];
 
+// The cart and upsell recovery seeds used to carry SAVE10 and promise 10% off, the winback seed
+// WELCOMEBACK15 and 15%, and the review seed REVIEW10 and $10, none a code the merchant chose (C18,
+// R24). A stored step that is still that seed, unedited, takes the new seed's words and no code, and
+// its active enrolments stop carrying the code. A step the merchant rewrote is theirs and is left alone.
+function stripSeededVoucher(data) {
+  return stripSeededOffers(data, INITIAL_DRIP_SEQUENCES);
+}
+
 function loadDrips() {
   const data = hubStorage.get('store.drips', 'drips.json', null);
   if (data && Array.isArray(data.sequences)) {
@@ -888,6 +977,7 @@ function loadDrips() {
         modified = true;
       }
     }
+    if (stripSeededVoucher(data)) modified = true;
     const cleaned = recomputeDripCounters({
       sequences: data.sequences,
       enrollments: (Array.isArray(data.enrollments) ? data.enrollments : []).filter(row => !isDemoRecord(row))
@@ -2658,6 +2748,7 @@ const emailCtx = {
   loadOrders,
   isDemoRecord,
   loadCheckouts,
+  loadRedirects,
   orderMailVars,
   personFields,
   composeLetter,
@@ -2845,19 +2936,23 @@ async function processUserAutomationsTick(uid) {
         const defaultDomain = realStoreDomain(userStore) || '';
         const customerOrder = orders.find(o => String(o.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase());
         let offerUrl = enr.offerUrl || (enr.sourceSlug ? `${publicBase()}/p/${enr.sourceSlug}` : '');
-        const discountCode = step.discountVoucher || enr.discountCode || 'SAVE10';
+        // Only a code the merchant set on the step, or the one the enrolment carries; never a made-up one (C18).
+        const discountCode = String(step.discountVoucher || enr.discountCode || '').trim();
         const resolvedCheckoutUrl = checkout ? resolveCheckoutRecoveryUrl(checkout, defaultDomain, (seq.triggerType === 'checkout_abandonment' && step.stepNumber > 1) ? discountCode : '') : '';
         if (offerUrl && seq.triggerType === 'upsell_recovery') {
           const sep = offerUrl.includes('?') ? '&' : '?';
           const expTime = Date.now() + 24 * 3600000;
-          if (!offerUrl.includes('coupon=')) {
-            offerUrl += `${sep}coupon=${encodeURIComponent(discountCode)}&email=${encodeURIComponent(enr.customerEmail)}&ref=recovery&exp=${expTime}`;
+          if (!offerUrl.includes('coupon=') && !offerUrl.includes('ref=recovery')) {
+            const coupon = discountCode ? `coupon=${encodeURIComponent(discountCode)}&` : '';
+            offerUrl += `${sep}${coupon}email=${encodeURIComponent(enr.customerEmail)}&ref=recovery&exp=${expTime}`;
           } else if (!offerUrl.includes('exp=')) {
             offerUrl += `&exp=${expTime}`;
           }
         }
         const effectiveCheckoutUrl = resolvedCheckoutUrl || checkout?.abandonedCheckoutUrl || offerUrl;
-        const reviewUrl = enr.reviewUrl || (enr.orderId ? `/review?order=${encodeURIComponent(enr.orderId)}&email=${encodeURIComponent(enr.customerEmail || '')}` : '/review');
+        // Signed now with this server's key: a stored link may carry a token from the key once written
+        // in reviewEngine.mjs, which the review route no longer accepts (R24).
+        const reviewUrl = enr.orderId ? reviewUrlFor(enr.orderId, enr.customerEmail) : (enr.reviewUrl || '/review');
         const letter = await composeForSend(uid, dripContact, [{ kind: 'text', text: step.body || '' }], {
           checkout_url: effectiveCheckoutUrl,
           abandoned_checkout_url: effectiveCheckoutUrl,
@@ -2955,8 +3050,9 @@ async function processUserAutomationsTick(uid) {
             catalog: catalogFor(uid)
           });
           const recoveryBlocks = [
-            { kind: 'heading', text: 'We saved your beauty essentials' },
-            { kind: 'text', text: `Hi ${recoveryContact.name || 'there'},\n\nWe noticed you didn't finish completing your order. Your items are currently saved and waiting for you, but inventory is limited.` },
+            // Plain words for any store: no product category, and no claim the cart was held (T13).
+            { kind: 'heading', text: 'You left something in your cart' },
+            { kind: 'text', text: `Hi ${recoveryContact.name || 'there'},\n\nWe noticed you did not finish your order. You can pick up where you left off.` },
             ...(cartCardsHtml ? [{ kind: 'html', text: cartCardsHtml }] : []),
             { kind: 'button', label: 'Resume My Bag & Checkout', url: resolvedUrl, color: '#EC4899', radius: 8, padding: 12 },
             { kind: 'text', text: 'If you have any questions or need assistance with your selection, simply reply directly to this email and our team will be glad to assist you.' }
@@ -2969,7 +3065,7 @@ async function processUserAutomationsTick(uid) {
           const result = await deliverLetter({
             to: chk.customerEmail,
             name: recoveryContact.name || '',
-            subject: 'We saved your beauty essentials',
+            subject: 'You left something in your cart',
             text: letter.text,
             html: letter.html,
             userId: uid,
@@ -2986,35 +3082,38 @@ async function processUserAutomationsTick(uid) {
         checkoutsModified = true;
       }
     }
-    // Stage 2: Courtesy incentive (10% off) after 24 hours of Stage 1 email
+    // Stage 2: a second reminder 24 hours after the Stage 1 email. It names a code only when the
+    // merchant set one on the cart recovery sequence's later step, and claims no percentage (C18).
     else if (chk.recoveryStatus === 'email_sent') {
       const sentTime = new Date(chk.recoveryEmailSentAt || chk.abandonedAt).getTime();
       if (now - sentTime >= 86400000) {
         if (!holdForKlaviyo && hubReady && chk.customerEmail) {
           const recoveryContact = loadContacts().find(c => c.email === chk.customerEmail && contactOwnerId(c) === uid) || { email: chk.customerEmail };
-          const resolvedUrl2 = resolveCheckoutRecoveryUrl(chk, userStoreDomain, 'SAVE10');
+          const cartSeq = dripsData.sequences.find(s => s.triggerType === 'checkout_abandonment');
+          const merchantCode = String((cartSeq?.steps || []).find(st => Number(st.stepNumber) > 1 && String(st.discountVoucher || '').trim())?.discountVoucher || '').trim();
+          const resolvedUrl2 = resolveCheckoutRecoveryUrl(chk, userStoreDomain, merchantCode);
           const cartCardsHtml2 = renderLineItemCardsHtml(chk.lineItems, chk.totalPrice, chk.currency, {
-            discountPercent: 10,
-            discountCode: 'SAVE10',
+            discountPercent: 0,
+            discountCode: merchantCode,
             catalog: catalogFor(uid)
           });
           const incentiveBlocks = [
-            { kind: 'heading', text: 'A courtesy incentive for your order' },
-            { kind: 'text', text: `Hi ${recoveryContact.name || 'there'},\n\nWe want to make sure you get the best experience. As a special courtesy, use code SAVE10 at checkout to take 10% off your saved items today.` },
+            { kind: 'heading', text: 'Your checkout is still open' },
+            { kind: 'text', text: `Hi ${recoveryContact.name || 'there'},\n\nYou started a checkout and did not finish it. You can pick up where you left off.${merchantCode ? ` Use code ${merchantCode} at checkout.` : ''}` },
             ...(cartCardsHtml2 ? [{ kind: 'html', text: cartCardsHtml2 }] : []),
-            { kind: 'button', label: 'Claim 10% Off & Complete Checkout', url: resolvedUrl2, color: '#EC4899', radius: 8, padding: 12 },
-            { kind: 'text', text: 'Your 10% courtesy discount will be automatically pre-applied to your cart. This code is active for 48 hours. Let us know if you need any help completing your purchase!' }
+            { kind: 'button', label: 'Complete My Checkout', url: resolvedUrl2, color: '#EC4899', radius: 8, padding: 12 },
+            { kind: 'text', text: 'If you have any questions, simply reply to this email and our team will be glad to help.' }
           ];
           const letter2 = composeLetter(uid, recoveryContact, incentiveBlocks, {
             checkout_url: resolvedUrl2,
             abandoned_checkout_url: resolvedUrl2,
-            discount_code: 'SAVE10',
+            discount_code: merchantCode,
             eventLineItems: chk.lineItems || []
           }, { marketing: true });
           const result2 = await deliverLetter({
             to: chk.customerEmail,
             name: recoveryContact.name || '',
-            subject: 'A complimentary 10% courtesy for your bag',
+            subject: 'Your checkout is still open',
             text: letter2.text,
             html: letter2.html,
             userId: uid,
@@ -3169,9 +3268,12 @@ function cleanSignupForm(input, options = {}) {
   return cleaned.form;
 }
 
+// A form saved from an old preset carries the preset's code (WELCOME15, SANCTUARY, FREESHIP,
+// WELCOME10), which minted a code of that name for every visitor. Read with its coupon and words
+// unedited, it has no code and the current starter's words; a form the merchant changed keeps its
+// own (T13). Every reader of the stored forms comes through here (signup-forms-read.test.mjs).
 function signupFormsFor(uid) {
-  const rows = loadSignupStore()[uid];
-  return (Array.isArray(rows) ? rows : []).map((row) => cleanSignupForm(row)).filter((row) => row && !row.error).slice(0, 20);
+  return readSignupForms(loadSignupStore()[uid], cleanSignupForm);
 }
 
 function writeSignupForms(uid, forms) {
@@ -4263,38 +4365,14 @@ app.post('/api/email/send', requireUser, async (req, res) => {
   res.status(503).json({ success: false, error: 'Email sending is not connected, so nothing was sent.' });
 });
 
-// A journey belongs to the verified caller. `:userId` is accepted for older clients but
-// must equal the token's uid; naming somebody else is refused.
-app.get('/api/user/:userId/journeys', requireUser, async (req, res) => {
-  if (req.params.userId !== req.user.uid) {
-    return res.status(403).json({ success: false, error: 'That is not your account.' });
-  }
-  const journeys = (await listJourneys(req.user.uid)).map(summarize);
-  res.json({ success: true, journeys });
-});
+// GET /api/user/:userId/journeys and GET /api/journeys: {success, journeys, complete, reason?}.
+setupJourneyListRoutes(app, { requireUser, listJourneys, summarize });
 
-app.get('/api/journeys', requireUser, async (req, res) => {
-  const journeys = (await listJourneys(req.user.uid)).map(summarize);
-  res.json({ success: true, journeys });
-});
+// GET /api/journey/:id is mounted by setupJourneyRoutes, below the literal /api/journey/check-slug, so the literal route answers first.
 
-app.get('/api/journey/:id', requireUser, async (req, res) => {
-  const journey = await loadJourney(req.user.uid, req.params.id);
-  res.json({ success: true, journey: journey || null });
-});
-
-app.post('/api/journey/:id', requireUser, async (req, res) => {
-  const { journey, durable, reason } = await saveJourney(req.user.uid, req.params.id, req.body || {});
-  res.json({ success: true, journey, durable, ...(reason ? { reason } : {}) });
-});
-
-app.post('/api/user/:userId/journey/:id', requireUser, async (req, res) => {
-  if (req.params.userId !== req.user.uid) {
-    return res.status(403).json({ success: false, error: 'That is not your account.' });
-  }
-  const { journey, durable, reason } = await saveJourney(req.user.uid, req.params.id, req.body || {});
-  res.json({ success: true, journey, durable, ...(reason ? { reason } : {}) });
-});
+// POST /api/journey/:id and POST /api/user/:userId/journey/:id: a save naming baseUpdatedAt is
+// refused with 409 when the stored copy is another revision (F1).
+setupJourneySaveRoutes(app, { requireUser, readJourney, saveJourney });
 
 // ── Custom Journey Template & Blueprint Library ─────────────────────────────────
 
@@ -4447,14 +4525,10 @@ const persistPublicPages = () => {
 };
 
 const domainsFilePath = path.join(__dirname, 'domains.json');
-let domainRegistryCache = {};
+// Refilled in place, like publicPageCache: a domain verified after boot is verified for every route.
+const domainRegistryCache = {};
 function reloadDomainRegistry() {
-  try {
-    if (fs.existsSync(domainsFilePath)) {
-      domainRegistryCache = JSON.parse(fs.readFileSync(domainsFilePath, 'utf8'));
-    }
-  } catch (e) {}
-  return domainRegistryCache;
+  return reloadJsonInPlace(domainRegistryCache, domainsFilePath);
 }
 reloadDomainRegistry();
 
@@ -4623,6 +4697,7 @@ async function verifyDomainOwnership(domain, requestingUserId) {
 setupJourneyRoutes(app, {
   requireUser,
   loadJourney,
+  readJourney,
   saveJourney,
   loadWorkspace,
   realStoreDomain,
@@ -4632,7 +4707,13 @@ setupJourneyRoutes(app, {
   savePublicPage,
   removePublicPage,
   persistPublicPages,
-  publicPageCache
+  publicPageCache,
+  loadPublishLog,
+  savePublishLog,
+  loadPublicPage,
+  readPublicPage,
+  renderPublicFunnelHtml,
+  renderPublicUpsellHtml
 });
 
 
@@ -4644,7 +4725,8 @@ setupDomainRoutes(app, {
   verifyDomainOwnership,
   getDomainVerificationToken,
   publicPageCache,
-  persistPublicPages
+  persistPublicPages,
+  persistDomainRegistry
 });
 
 // ── Modular Public Funnel SSR & Ingestion Routes (server/routes/publicRoutes.mjs) ──
@@ -4690,7 +4772,10 @@ const publicCtx = {
   noteSegmentChanges,
   verifyConfirmToken,
   publicBase,
-  mailLinkSecret
+  mailLinkSecret,
+  loadDiscounts,
+  hubStorage,
+  requireUser
 };
 setupPublicRoutes(app, publicCtx);
 
@@ -4764,6 +4849,13 @@ function purgeSeededFiles() {
   }
   if (dripsChanged) saveDrips(dripsData);
 }
+
+// Express 4 does not catch a rejected async route handler, and Node exits on an unhandled
+// rejection by default, so one throwing route stopped the server for every tenant. Log it and
+// keep serving; the route itself still owes its caller an answer.
+process.on('unhandledRejection', (reason) => {
+  console.error('[Jourvance] Unhandled rejection (server kept running):', reason);
+});
 
 (async () => {
   try {

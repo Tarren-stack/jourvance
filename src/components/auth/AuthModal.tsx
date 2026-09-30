@@ -6,11 +6,16 @@ import {
   createUserWithEmailAndPassword,
   auth
 } from '../../lib/firebase';
+import { ModalDialog } from '../modals/ModalDialog';
+import { useFieldIds } from '../../lib/a11yHooks';
 
 interface AuthModalProps {
   onClose: () => void;
   onSuccess?: () => void;
 }
+
+// Names the dialog: ModalDialog's aria-labelledby points at the visible heading.
+const TITLE_ID = 'jv-auth-dialog-title';
 
 export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -18,6 +23,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fid = useFieldIds();
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
@@ -71,23 +77,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 100,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-        padding: '1.5rem'
-      }}
-      onClick={e => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={420} fallbackFocusSelectors={['#journey-map']}>
       <div
         style={{
           width: '100%',
@@ -98,7 +88,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 30px rgba(99, 102, 241, 0.2)',
           padding: '2rem',
           position: 'relative',
-          color: '#F8FAFC'
+          color: '#F8FAFC',
+          maxHeight: '90vh',
+          overflowY: 'auto'
         }}
       >
         {/* Close Button */}
@@ -140,7 +132,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
             <span>Jourvance Cloud Account</span>
           </div>
 
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em' }}>
+          <h2 id={TITLE_ID} style={{ fontSize: '1.5rem', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em' }}>
             {mode === 'signin' ? 'Welcome Back' : 'Create Your Account'}
           </h2>
           <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '0.35rem' }}>
@@ -228,12 +220,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
         {/* Email & Password Form */}
         <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
+            <label htmlFor={fid('email')} style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
               Work Email
             </label>
             <div style={{ position: 'relative' }}>
               <input
+                id={fid('email')}
                 type="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -254,12 +248,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
+            <label htmlFor={fid('password')} style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
               Password
             </label>
             <div style={{ position: 'relative' }}>
               <input
+                id={fid('password')}
                 type="password"
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
@@ -330,6 +326,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
           )}
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 };

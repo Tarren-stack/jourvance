@@ -271,7 +271,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
                 gap: '1.25rem',
                 position: 'relative'
               }}
@@ -411,7 +411,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2rem' }}>
             {/* The Old Way */}
             <div
               style={{
@@ -548,7 +548,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
         >
           {/* TAB 1: VISUAL JOURNEY MAP */}
           {activeBuilderTab === 'map' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
                   The Master Orchestrator
@@ -659,7 +659,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
 
           {/* TAB 2: LANDING PAGE BUILDER */}
           {activeBuilderTab === 'pages' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
                   High-Speed Conversion Engineering
@@ -770,7 +770,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
 
           {/* TAB 3: AD CREATIVE STUDIO */}
           {activeBuilderTab === 'ads' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
                   Audience Acquisition
@@ -868,7 +868,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
 
           {/* TAB 4: EMAIL DRIP SEQUENCER */}
           {activeBuilderTab === 'emails' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
                   Automated Conversion Nurture
@@ -968,7 +968,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
 
           {/* TAB 5: LEAD INTAKE & FORM BUILDER */}
           {activeBuilderTab === 'forms' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
                   Frictionless Qualification
@@ -1060,7 +1060,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
 
           {/* TAB 6: PIPELINE TRACKING & ANALYTICS */}
           {activeBuilderTab === 'tracking' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
                   Clarity Over Confusion
@@ -1312,7 +1312,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: '2rem' }}>
             {/* Tier 1: Free Starter Studio */}
             <div
               style={{

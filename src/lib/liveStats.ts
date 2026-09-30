@@ -1,7 +1,7 @@
 import type { JourneyEdge, JourneyNode, JourneyNodeData, JourneyProject } from '../types/journey';
 
 /** Fields that are measurements. Copy, prices, and ad spend the operator typed stay put. */
-const MEASURED_KEYS = [
+export const MEASURED_KEYS = [
   'impressions', 'clicks', 'ctr', 'roas',
   'visitors', 'conversions', 'conversionRate',
   'grossRevenue', 'orderBumpRevenue', 'orderBumpTakes', 'bumpTakeRate', 'aov',
@@ -16,6 +16,21 @@ const MEASURED_KEYS = [
   'takes', 'attributedRevenue',
   'totalDeclines', 'recoveredTakes', 'recoveredRevenue', 'recoveryRate'
 ] as const;
+
+/**
+ * Counts the follow-up-sequence branch of POST /api/funnel/stats (server/routes/analyticsRoutes.mjs)
+ * writes onto a sequence card from its linked flow. Measurements too, so never an undo step, but
+ * not zeroed with MEASURED_KEYS: they are always read live, never seeded by a template.
+ */
+export const FLOW_STAT_KEYS = ['flowEnrolled', 'flowSent', 'flowClicked', 'flowOpened', 'flowRevenue'] as const;
+
+/**
+ * Counts the landing-page branch of the same route writes beyond MEASURED_KEYS (`leads`, and
+ * `leads: null` while the page is not measured). Live only, like the flow counts: no template
+ * seeds them, so zeroMeasured leaves them alone. A key the poll writes that no list here names
+ * becomes an undo step and an autosave on every poll.
+ */
+export const PAGE_STAT_KEYS = ['leads'] as const;
 
 const TEMPLATE_NODE = /^(node-(ad|page|form|seq)-1|bp[1-4]-)/;
 
@@ -35,8 +50,9 @@ function zeroMeasured(data: JourneyNodeData): JourneyNodeData {
   }
   if (typeof next.trustBadge === 'string') next.trustBadge = scrubSeedText(next.trustBadge, '');
   if (typeof next.headline === 'string') next.headline = scrubSeedText(next.headline, 'Your offer headline');
-  if (typeof next.subhead === 'string') next.subhead = scrubSeedText(next.subhead, 'Describe what the visitor gets.');
-  if (typeof next.body === 'string') next.body = scrubSeedText(next.body, 'Describe the offer in words you can stand behind.');
+  // An invented line becomes empty, never an instruction: a stored instruction publishes as copy (R19).
+  if (typeof next.subhead === 'string') next.subhead = scrubSeedText(next.subhead, '');
+  if (typeof next.body === 'string') next.body = scrubSeedText(next.body, '');
   if (typeof next.buttonText === 'string') next.buttonText = scrubSeedText(next.buttonText, 'Continue');
   if (typeof next.formTitle === 'string') next.formTitle = scrubSeedText(next.formTitle, 'Where should we reach you?');
   if (typeof next.submitButtonText === 'string') next.submitButtonText = scrubSeedText(next.submitButtonText, 'Submit');
@@ -82,10 +98,18 @@ export function clearTemplateMetrics(project: JourneyProject): JourneyProject {
   };
 }
 
+/**
+ * Drops a blueprint's ad spend too. Unlike the other entries, the canvas labels spend as the
+ * one number the person typed, so a figure the blueprint carried would read as theirs.
+ */
+function clearSeededSpend(data: JourneyNodeData): JourneyNodeData {
+  return 'spend' in data ? ({ ...data, spend: 0 } as JourneyNodeData) : data;
+}
+
 /** A blueprint is a starting layout, not a history of results. */
 export function zeroBlueprintMetrics(nodes: JourneyNode[], edges: JourneyEdge[]): { nodes: JourneyNode[]; edges: JourneyEdge[] } {
   return {
-    nodes: nodes.map(n => ({ ...n, data: zeroMeasured(n.data) })),
+    nodes: nodes.map(n => ({ ...n, data: clearSeededSpend(zeroMeasured(n.data)) })),
     edges: edges.map(e => ({ ...e, data: { ...(e.data || {}), sourceThroughput: 0, targetCount: 0, rate: 0 } }))
   };
 }
@@ -125,5 +149,7 @@ export function applyLiveStats(project: JourneyProject, stats: LiveStatsPayload 
     return { ...e, data: { ...prev, ...patch } };
   });
   if (!changed) return project;
-  return { ...project, nodes, edges, updatedAt: new Date().toISOString() };
+  // Counts are not an edit, so updatedAt stays put. Bumping it let the first stats poll after
+  // sign-in outrun the server-copy load and make an untouched local map look newer.
+  return { ...project, nodes, edges };
 }

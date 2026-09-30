@@ -2,21 +2,24 @@
  * Review & Social Proof UGC Engine (server/reviewEngine.mjs)
  * 
  * Manages post-purchase review collection, cryptographic token verification,
- * verified reviewer tagging, and instant courtesy reward reveals ($10 REVIEW10).
+ * verified reviewer tagging, and the merchant's own thank-you code when they set one.
  * Fully self-contained with $0 third-party app or subscription dependencies.
  */
 import crypto from 'crypto';
-
-const DEFAULT_REVIEW_SECRET = process.env.REVIEW_SECRET || 'jourvance_review_sig_2026';
+import { REFERRAL_CODE, referralAmountText } from './seededOffers.mjs';
 
 /**
  * Generates an order-bound cryptographic token for verified buyer review submission.
+ * The caller supplies the key (server/reviewTokens.mjs). With no key it answers '' and signs
+ * nothing: a key written here in the source let anyone mint a "verified buyer" token (R24).
  */
-export function generateReviewToken(orderId, email, secret = DEFAULT_REVIEW_SECRET) {
+export function generateReviewToken(orderId, email, secret) {
+  const key = String(secret || '');
+  if (!key) return '';
   const cleanOrder = String(orderId || '').trim();
   const cleanEmail = String(email || '').toLowerCase().trim();
   return crypto
-    .createHmac('sha256', secret || DEFAULT_REVIEW_SECRET)
+    .createHmac('sha256', key)
     .update(`${cleanOrder}:${cleanEmail}`)
     .digest('hex')
     .slice(0, 24);
@@ -25,8 +28,8 @@ export function generateReviewToken(orderId, email, secret = DEFAULT_REVIEW_SECR
 /**
  * Verifies that a review submission token matches the order and purchaser email.
  */
-export function verifyReviewToken(orderId, email, token, secret = DEFAULT_REVIEW_SECRET) {
-  if (!orderId || !email || !token) return false;
+export function verifyReviewToken(orderId, email, token, secret) {
+  if (!secret || !orderId || !email || !token) return false;
   try {
     const expected = generateReviewToken(orderId, email, secret);
     const a = Buffer.from(String(token).trim());
@@ -76,13 +79,16 @@ export function saveReview(review, hubStorage) {
  * 1. Saves review record
  * 2. Marks review drip sequence as reviewed_exit (suppressing follow-up reminder)
  * 3. Tags CRM contact with Verified-Reviewer & 5-Star-Advocate
- * 4. Returns discount reward ($10 REVIEW10)
+ * 4. Returns the merchant's own discount code as the reward, or no reward when they set none
+ *
+ * A missing or out of range rating is refused rather than saved as five stars, and a photo is kept
+ * only as a base64 image or an https URL with no quote, bracket, parenthesis or backslash (R24).
  */
 export function submitCustomerReview({
   orderId,
   customerEmail,
   customerName,
-  rating = 5,
+  rating,
   reviewTitle = '',
   reviewText = '',
   tags = [],
@@ -90,7 +96,7 @@ export function submitCustomerReview({
   photoUrl = '',
   storeDomain = '',
   userId = 'usr_default',
-  discountCode = 'REVIEW10',
+  discountCode = '',
   hubStorage,
   loadDrips,
   saveDrips,
@@ -98,7 +104,10 @@ export function submitCustomerReview({
   saveContacts
 }) {
   const cleanEmail = String(customerEmail || '').toLowerCase().trim();
-  const cleanRating = Math.max(1, Math.min(5, Math.round(Number(rating) || 5)));
+  const cleanRating = Number(rating);
+  if (!Number.isInteger(cleanRating) || cleanRating < 1 || cleanRating > 5) {
+    return { success: false, error: 'Choose a rating from 1 to 5 stars.' };
+  }
 
   // Validate and sanitize photos (max 2, base64 or https, max 350k chars each)
   const rawPhotos = Array.isArray(photos) ? photos : (photoUrl ? [photoUrl] : []);
@@ -107,8 +116,8 @@ export function submitCustomerReview({
     if (typeof p !== 'string') continue;
     const trimmed = p.trim();
     if (!trimmed) continue;
-    const isDataUri = /^data:image\/(webp|jpeg|jpg|png|svg\+xml);base64,/i.test(trimmed) || trimmed.startsWith('data:image/svg+xml');
-    const isHttps = /^https:\/\/[^\s]+$/i.test(trimmed);
+    const isDataUri = /^data:image\/(png|jpe?g|webp|gif|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/i.test(trimmed);
+    const isHttps = /^https:\/\/[^\s"'`()<>\\{}]+$/i.test(trimmed);
     if (!isDataUri && !isHttps) continue;
     if (trimmed.length > 350000) continue; // Size cap ~250KB binary
     validPhotos.push(trimmed);
@@ -126,9 +135,9 @@ export function submitCustomerReview({
     reviewText: String(reviewText || '').slice(0, 1500),
     tags: Array.isArray(tags) ? tags.map(t => String(t).trim()).filter(Boolean) : [],
     photos: validPhotos,
-    photoUrl: validPhotos[0] || String(photoUrl || '').slice(0, 500),
+    photoUrl: validPhotos[0] || '',
     storeDomain: String(storeDomain || ''),
-    discountCodeAwarded: discountCode || 'REVIEW10',
+    discountCodeAwarded: String(discountCode || ''),
     verifiedBuyer: true,
     createdAt: new Date().toISOString()
   };
@@ -183,16 +192,18 @@ export function submitCustomerReview({
   return {
     success: true,
     review: reviewRecord,
-    reward: {
-      code: discountCode,
-      value: '$10.00 Off',
-      notice: 'Enjoy $10 off your next replenishment ritual with code ' + discountCode
-    }
+    reward: discountCode ? { code: String(discountCode) } : null
   };
 }
 
 /**
  * Renders the high-converting luxury mobile-first Review Submission Portal HTML.
+ * The thank-you block shows only the merchant's own code (discountCode) and offers no reward when
+ * they set none. A link that did not verify says so instead of showing a form the review route
+ * will refuse (R24).
+ * The referral card shows only when the merchant has defined GIVE15 for this store (referralRule,
+ * from definedReferralRule), states their amount, and promises the reviewer nothing: it used to
+ * offer "Give $15, Get $15" and a $15 gift to the reviewer's inbox that nothing sends (T13).
  */
 export function renderReviewPortalHtml({
   orderId = '',
@@ -202,15 +213,24 @@ export function renderReviewPortalHtml({
   storeDomain = '',
   slug = '',
   verified = true,
-  discountCode = 'REVIEW10'
+  discountCode = '',
+  referralRule = null,
+  currency = ''
 }) {
   const cleanOrder = String(orderId || '').replace(/^#/, '');
   const cleanEmail = String(email || '').trim();
-  const safeStoreName = String(storeName || 'Jourvance');
+  const safeStoreName = escapeHtml(String(storeName || 'Jourvance'));
+  const code = String(discountCode || '').trim();
   const referralCode = generateAmbassadorReferralCode(cleanEmail);
-  const referralUrl = storeDomain
-    ? (slug ? `https://${storeDomain}/p/${slug}?ref=${referralCode}&coupon=GIVE15` : `https://${storeDomain}?ref=${referralCode}&discount=GIVE15`)
-    : `https://jourvance.app/p/${slug || 'offer'}?ref=${referralCode}&coupon=GIVE15`;
+  slug = String(slug || '').replace(/[^a-z0-9_-]/gi, '');
+  // A referral link needs the store it checks out on and the merchant's own GIVE15 rule.
+  const referralOn = Boolean(storeDomain && referralRule);
+  const referralAmount = referralOn ? referralAmountText(referralRule, currency) : '';
+  const referralUrl = referralOn
+    ? (slug ? `https://${storeDomain}/p/${slug}?ref=${referralCode}&coupon=${REFERRAL_CODE}` : `https://${storeDomain}?ref=${referralCode}&discount=${REFERRAL_CODE}`)
+    : '';
+  const referralOffer = referralAmount ? `${referralAmount} with code ${REFERRAL_CODE}` : `code ${REFERRAL_CODE}`;
+  const shareText = `I thought of you. Here is ${referralOffer} at ${String(storeName || '').trim() || 'this store'}: ${referralUrl}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -351,6 +371,7 @@ export function renderReviewPortalHtml({
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.1);
       color: #d1d5db;
+      font-family: inherit;
       cursor: pointer;
       user-select: none;
       transition: all 0.15s ease;
@@ -500,7 +521,7 @@ export function renderReviewPortalHtml({
       gap: 6px;
       padding: 3px 10px;
       border-radius: 9999px;
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -572,14 +593,14 @@ export function renderReviewPortalHtml({
 </head>
 <body>
   <div class="jv-container">
-    <!-- Review Form View -->
+${verified ? `    <!-- Review Form View -->
     <div id="jv-form-view">
       <div class="jv-badge">
-        ✦ ${safeStoreName} · Verified Order #${cleanOrder}
+        ✦ ${safeStoreName} · Verified Order #${escapeHtml(cleanOrder)}
       </div>
-      <h1>How is your new ritual?</h1>
+      <h1>How was your order?</h1>
       <p class="jv-subtitle">
-        Your honest feedback helps our team craft better formulas. Share a brief note to reveal your complimentary $10 courtesy gift.
+        Share a short review of your order.
       </p>
 
       <form id="jv-review-form">
@@ -591,7 +612,7 @@ export function renderReviewPortalHtml({
           <svg class="jv-star active" data-val="4" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
           <svg class="jv-star active" data-val="5" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
         </div>
-        <div class="jv-star-label" id="jv-star-desc">Exceptional Ritual ✨</div>
+        <div class="jv-star-label" id="jv-star-desc">Excellent</div>
 
         <div class="jv-field">
           <label>Your Display Name</label>
@@ -600,41 +621,41 @@ export function renderReviewPortalHtml({
 
         <div class="jv-field">
           <label>Headline</label>
-          <input type="text" id="jv-title" placeholder="e.g. My skin has never looked so luminous" required />
+          <input type="text" id="jv-title" placeholder="Sum up your review in a few words" required />
         </div>
 
         <div class="jv-field">
           <label>Your Experience</label>
-          <textarea id="jv-body" placeholder="How does it feel? When did you first notice a difference in your skin?" required></textarea>
+          <textarea id="jv-body" placeholder="What did you like, and what could be better?" required></textarea>
         </div>
 
         <div class="jv-field">
-          <label>Highlight Highlights</label>
+          <label>Highlights (Optional)</label>
           <div class="jv-tags">
-            <span class="jv-tag-chip selected" data-tag="Glowing Results">Glowing Results</span>
-            <span class="jv-tag-chip" data-tag="Luxury Texture">Luxury Texture</span>
-            <span class="jv-tag-chip" data-tag="Gentle & Hydrating">Gentle & Hydrating</span>
-            <span class="jv-tag-chip" data-tag="Fast Absorption">Fast Absorption</span>
-            <span class="jv-tag-chip" data-tag="Daily Essential">Daily Essential</span>
+            <button type="button" class="jv-tag-chip" data-tag="Great Quality" aria-pressed="false">Great Quality</button>
+            <button type="button" class="jv-tag-chip" data-tag="Good Value" aria-pressed="false">Good Value</button>
+            <button type="button" class="jv-tag-chip" data-tag="As Described" aria-pressed="false">As Described</button>
+            <button type="button" class="jv-tag-chip" data-tag="Would Buy Again" aria-pressed="false">Would Buy Again</button>
+            <button type="button" class="jv-tag-chip" data-tag="Fast Delivery" aria-pressed="false">Fast Delivery</button>
           </div>
         </div>
 
         <div class="jv-field">
-          <label>Add Photos of Your Ritual (Optional · Up to 2)</label>
+          <label>Add Photos (Optional · Up to 2)</label>
           <input type="file" id="jv-photos-input" accept="image/*" multiple style="display: none;" />
           <div class="jv-photo-dropzone" id="jv-dropzone" role="button" tabindex="0">
             <svg width="22" height="22" fill="none" stroke="#f472b6" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <span style="font-size: 12px; font-weight: 600; color: #e5e7eb;">+ Add Before &amp; After or Ritual Photo</span>
+            <span style="font-size: 12px; font-weight: 600; color: #e5e7eb;">+ Add a Photo</span>
             <span style="font-size: 11px; color: #9ca3af;">Auto-compressed for fast upload · Max 2 photos</span>
           </div>
           <div class="jv-photo-previews" id="jv-photo-previews"></div>
         </div>
 
         <button type="submit" class="jv-submit-btn" id="jv-submit-btn">
-          <span>Submit Review & Reveal $10 Treat →</span>
+          <span>Submit review</span>
         </button>
       </form>
     </div>
@@ -646,43 +667,45 @@ export function renderReviewPortalHtml({
       </div>
       <h1>With Deep Gratitude</h1>
       <p class="jv-subtitle" id="jv-reward-thankyou">
-        Your verified review has been recorded. Here is your private $10 courtesy reward code for your next ritual:
+        ${code ? 'Your review is saved. Here is your thank-you code:' : 'Your review is saved. Thank you.'}
       </p>
-
+${code ? `
       <div class="jv-code-box">
-        <span style="font-size: 11px; text-transform: uppercase; color: #9ca3af; font-weight: 700;">Courtesy Voucher ($10 Off)</span>
-        <div class="jv-code" id="jv-revealed-code">${discountCode || 'REVIEW10'}</div>
-        <button type="button" class="jv-copy-btn" id="jv-copy-btn">Copy Voucher Code</button>
+        <span style="font-size: 11px; text-transform: uppercase; color: #9ca3af; font-weight: 700;">Your code</span>
+        <div class="jv-code" id="jv-revealed-code">${escapeHtml(code)}</div>
+        <button type="button" class="jv-copy-btn" id="jv-copy-btn">Copy code</button>
       </div>
-
-      <!-- VIP Ambassador Referral Card (Phase 15: Give $15, Get $15) -->
+` : ''}
+${referralOn ? `      <!-- Referral card (Phase 15): only for the merchant's own GIVE15, at their amount -->
       <div class="jv-ambassador-box">
         <div class="jv-ambassador-badge">
-          ✦ VIP Ambassador Club · Give $15, Get $15
+          ✦ Refer a friend
         </div>
-        <h2 style="font-family: 'Playfair Display', serif; font-size: 19px; color: #ffffff; margin-bottom: 6px;">Share Your Glow with Friends</h2>
+        <h2 style="font-family: 'Playfair Display', serif; font-size: 19px; color: #ffffff; margin-bottom: 6px;">Share with a friend</h2>
         <p style="font-size: 13px; color: #cbd5e1; line-height: 1.45; margin-bottom: 14px;">
-          Gift your friends $15 toward their first ritual with code <strong style="color: #f472b6;">${referralCode}</strong>. When they place an order, we will send an extra $15 gift straight to your inbox.
+          ${referralAmount
+            ? `Share your link and your friend gets ${escapeHtml(referralAmount)} with code <strong style="color: #f472b6;">${REFERRAL_CODE}</strong>.`
+            : `Share your link and your friend can check out with code <strong style="color: #f472b6;">${REFERRAL_CODE}</strong>.`}
         </p>
 
         <div class="jv-ref-input-group">
-          <input type="text" id="jv-ref-url" value="${referralUrl}" readonly class="jv-ref-input" />
+          <input type="text" id="jv-ref-url" value="${escapeHtml(referralUrl)}" aria-label="Your referral link" readonly class="jv-ref-input" />
           <button type="button" id="jv-copy-ref-btn" class="jv-copy-ref-btn">Copy Link</button>
         </div>
 
         <div class="jv-quick-share-row">
-          <a href="sms:?&body=${encodeURIComponent(`I thought of you! Here is $15 off your first beauty ritual: ${referralUrl}`)}" class="jv-quick-share-btn">
+          <a href="sms:?&body=${encodeURIComponent(shareText)}" class="jv-quick-share-btn">
             💬 Text a Friend
           </a>
-          <a href="https://api.whatsapp.com/send?text=${encodeURIComponent(`I thought of you! Here is $15 off your first beauty ritual: ${referralUrl}`)}" target="_blank" rel="noopener" class="jv-quick-share-btn jv-quick-share-wa">
+          <a href="https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener" class="jv-quick-share-btn jv-quick-share-wa">
             🌿 WhatsApp
           </a>
         </div>
       </div>
-
-      <a href="${storeDomain ? `https://${storeDomain}?discount=${discountCode || 'REVIEW10'}` : '#'}" class="jv-shop-link" id="jv-shop-link">
+` : ''}
+      ${storeDomain ? `<a href="${escapeHtml(`https://${storeDomain}${code ? `?discount=${encodeURIComponent(code)}` : ''}`)}" class="jv-shop-link" id="jv-shop-link">
         Continue to ${safeStoreName} →
-      </a>
+      </a>` : ''}
     </div>
   </div>
 
@@ -693,9 +716,9 @@ export function renderReviewPortalHtml({
     const labels = {
       1: 'Needs Improvement',
       2: 'Fair',
-      3: 'Good Routine',
-      4: 'Really Loved It ✨',
-      5: 'Exceptional Ritual ✨'
+      3: 'Good',
+      4: 'Very Good',
+      5: 'Excellent'
     };
 
     stars.forEach(s => {
@@ -711,7 +734,7 @@ export function renderReviewPortalHtml({
     });
 
     document.querySelectorAll('.jv-tag-chip').forEach(chip => {
-      chip.addEventListener('click', () => chip.classList.toggle('selected'));
+      chip.addEventListener('click', () => chip.setAttribute('aria-pressed', String(chip.classList.toggle('selected'))));
     });
 
     // Zero-Cost Client-Side WebP Photo Compression
@@ -813,11 +836,11 @@ export function renderReviewPortalHtml({
 
       const selectedTags = Array.from(document.querySelectorAll('.jv-tag-chip.selected')).map(c => c.dataset.tag);
       const payload = {
-        orderId: '${cleanOrder}',
-        email: '${cleanEmail}',
-        token: '${token}',
+        orderId: ${jsString(cleanOrder)},
+        email: ${jsString(cleanEmail)},
+        token: ${jsString(token)},
         rating: parseInt(ratingInput.value),
-        customerName: document.getElementById('jv-name').value || '${cleanEmail.split('@')[0]}',
+        customerName: document.getElementById('jv-name').value || ${jsString(cleanEmail.split('@')[0])},
         reviewTitle: document.getElementById('jv-title').value,
         reviewText: document.getElementById('jv-body').value,
         tags: selectedTags,
@@ -834,29 +857,32 @@ export function renderReviewPortalHtml({
         if (data.success) {
           document.getElementById('jv-form-view').style.display = 'none';
           document.getElementById('jv-reward-view').style.display = 'block';
-          if (data.reward && data.reward.code) {
-            document.getElementById('jv-revealed-code').textContent = data.reward.code;
+          const revealed = document.getElementById('jv-revealed-code');
+          if (revealed && data.reward && data.reward.code) {
+            revealed.textContent = data.reward.code;
           }
         } else {
           alert(data.error || 'Could not submit review. Please check your network and try again.');
           submitBtn.disabled = false;
-          submitBtn.innerHTML = '<span>Submit Review & Reveal $10 Treat →</span>';
+          submitBtn.innerHTML = '<span>Submit review</span>';
         }
       } catch (err) {
         alert('Network error submitting review.');
         submitBtn.disabled = false;
-        submitBtn.innerHTML = '<span>Submit Review & Reveal $10 Treat →</span>';
+        submitBtn.innerHTML = '<span>Submit review</span>';
       }
     });
 
-    document.getElementById('jv-copy-btn').addEventListener('click', () => {
-      const code = document.getElementById('jv-revealed-code').textContent.trim();
-      navigator.clipboard.writeText(code).then(() => {
-        const btn = document.getElementById('jv-copy-btn');
-        btn.textContent = 'Copied to Clipboard!';
-        setTimeout(() => { btn.textContent = 'Copy Voucher Code'; }, 2500);
+    const copyCodeBtn = document.getElementById('jv-copy-btn');
+    if (copyCodeBtn) {
+      copyCodeBtn.addEventListener('click', () => {
+        const code = document.getElementById('jv-revealed-code').textContent.trim();
+        navigator.clipboard.writeText(code).then(() => {
+          copyCodeBtn.textContent = 'Copied';
+          setTimeout(() => { copyCodeBtn.textContent = 'Copy code'; }, 2500);
+        });
       });
-    });
+    }
 
     const copyRefBtn = document.getElementById('jv-copy-ref-btn');
     if (copyRefBtn) {
@@ -873,8 +899,19 @@ export function renderReviewPortalHtml({
       });
     }
   </script>
+` : `    <div id="jv-invalid-view">
+      <h1>This review link is not valid</h1>
+      <p class="jv-subtitle">Open the link from your review email.</p>
+    </div>
+  </div>
+`}
 </body>
 </html>`;
+}
+
+// A value for a JS string literal inside an inline <script>: quoted, escaped, and unable to close the tag.
+function jsString(value) {
+  return JSON.stringify(String(value ?? '')).replace(/</g, '\\u003c');
 }
 
 /**
@@ -923,6 +960,9 @@ export const DEFAULT_CURATED_REVIEWS = [
 
 /**
  * Retrieves sanitized public approved verified reviews for storefront social proof walls.
+ * Only stored reviews with a real 1 to 5 rating, and with a userId only that owner's: the written
+ * sample reviews above and a "148 reviews, 4.9 stars, 97%" summary once stood in for an empty store,
+ * and reviews filed under usr_default or under nobody reached every merchant's page (R24).
  */
 export function getPublicVerifiedReviews({
   userId,
@@ -936,15 +976,15 @@ export function getPublicVerifiedReviews({
 
   // Filter reviews: must not be hidden and must meet minimum star threshold
   let matched = all.filter((r) => {
-    if (r.hidden === true) return false;
-    if ((Number(r.rating) || 5) < min) return false;
-    if (userId && r.userId && r.userId !== userId && r.userId !== 'usr_default') return false;
+    if (!r || r.hidden === true) return false;
+    const rating = Number(r.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5 || rating < min) return false;
+    if (userId && r.userId !== userId) return false;
     if (storeDomain && r.storeDomain && r.storeDomain !== storeDomain) return false;
     return true;
   });
 
-  const activeList = matched.length > 0 ? matched : DEFAULT_CURATED_REVIEWS;
-  const sliced = activeList.slice(0, Math.max(1, Number(limit) || 12));
+  const sliced = matched.slice(0, Math.max(1, Number(limit) || 12));
 
   // Sanitize customer names for privacy: "First L."
   const sanitizedReviews = sliced.map((r) => {
@@ -960,7 +1000,7 @@ export function getPublicVerifiedReviews({
     return {
       id: r.id,
       customerName: displayName,
-      rating: Math.max(1, Math.min(5, Math.round(Number(r.rating) || 5))),
+      rating: Number(r.rating),
       reviewTitle: String(r.reviewTitle || ''),
       reviewText: String(r.reviewText || ''),
       tags: Array.isArray(r.tags) ? r.tags : [],
@@ -970,16 +1010,19 @@ export function getPublicVerifiedReviews({
     };
   });
 
-  const totalCount = matched.length > 0 ? matched.length : 148;
-  const avgRating = matched.length > 0
-    ? (matched.reduce((acc, r) => acc + (Number(r.rating) || 5), 0) / matched.length).toFixed(1)
-    : '4.9';
+  const totalCount = matched.length;
+  const averageRating = totalCount
+    ? Number((matched.reduce((acc, r) => acc + Number(r.rating), 0) / totalCount).toFixed(1))
+    : null;
+  const fiveStarPercentage = totalCount
+    ? Math.round((matched.filter(r => Number(r.rating) === 5).length / totalCount) * 100)
+    : null;
 
   return {
     summary: {
-      averageRating: parseFloat(avgRating) || 4.9,
+      averageRating,
       totalCount,
-      fiveStarPercentage: 97
+      fiveStarPercentage
     },
     reviews: sanitizedReviews
   };
@@ -1005,18 +1048,24 @@ export function toggleReviewVisibility(reviewId, hidden = true, hubStorage) {
  * Generates the high-converting Social Proof Wall HTML & CSS
  * Mobile: Swipeable horizontal card carousel with scroll snap
  * Desktop: 3-column responsive card grid
+ * The summary states the exact count and the stored average, and shows no rating when there is none.
+ * Each photo is a button carrying its URL in a data attribute and opened by a listener: an inline
+ * onclick string once carried it, and the browser decodes an escaped quote before the script runs,
+ * so a submitted photo URL could run code on the merchant's page (R24).
  */
 export function renderSocialProofWallHtml(summary = {}, reviews = [], {
   brandColor = '#ec4899',
-  title = 'Loved by Thousands of Radiant Routines',
+  title = 'Customer reviews',
   photosEnabled = true
 } = {}) {
-  const avg = Number(summary?.averageRating || 4.9).toFixed(1);
-  const count = Number(summary?.totalCount || 140);
-  const safeTitle = String(title || 'Loved by Thousands of Radiant Routines');
+  const rawAvg = Number(summary?.averageRating);
+  const avg = summary?.averageRating != null && Number.isFinite(rawAvg) && rawAvg > 0 ? rawAvg.toFixed(1) : '';
+  const rawCount = Number(summary?.totalCount);
+  const count = Number.isFinite(rawCount) && rawCount >= 0 ? Math.floor(rawCount) : reviews.length;
+  const safeTitle = String(title || 'Customer reviews');
 
   const starSvg = `<svg style="width: 14px; height: 14px; color: #fbbf24; fill: currentColor; flex-shrink: 0;" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>`;
-  const starsGroup = (rating = 5) => Array.from({ length: rating }).map(() => starSvg).join('');
+  const starsGroup = (rating) => Array.from({ length: rating }).map(() => starSvg).join('');
 
   return `
 <!-- ── Jourvance Live Verified UGC Social Proof Wall (Phase 13) ── -->
@@ -1115,7 +1164,7 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.04em;
@@ -1146,7 +1195,7 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
       margin-bottom: 10px;
     }
     .jv-ugc-tag {
-      font-size: 9px;
+      font-size: 11px;
       font-weight: 600;
       color: #f472b6;
       background: rgba(236, 72, 153, 0.1);
@@ -1169,6 +1218,13 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
       background: #111;
       transition: transform 0.15s ease, border-color 0.15s ease;
       flex-shrink: 0;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+    }
+    .jv-ugc-photo-thumb:focus-visible {
+      outline: 2px solid #f9a8d4;
+      outline-offset: 2px;
     }
     .jv-ugc-photo-thumb:hover {
       transform: scale(1.05);
@@ -1184,7 +1240,7 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
       position: absolute;
       bottom: 2px;
       right: 2px;
-      font-size: 9px;
+      font-size: 11px;
       background: rgba(0, 0, 0, 0.65);
       border-radius: 4px;
       padding: 1px 2px;
@@ -1192,7 +1248,8 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
       opacity: 0;
       transition: opacity 0.15s ease;
     }
-    .jv-ugc-photo-thumb:hover .jv-ugc-photo-zoom-icon {
+    .jv-ugc-photo-thumb:hover .jv-ugc-photo-zoom-icon,
+    .jv-ugc-photo-thumb:focus-visible .jv-ugc-photo-zoom-icon {
       opacity: 1;
     }
     .jv-ugc-author {
@@ -1206,12 +1263,12 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
       padding-top: 8px;
     }
     .jv-ugc-author-avatar {
-      width: 20px;
-      height: 20px;
+      width: 22px;
+      height: 22px;
       border-radius: 50%;
       background: linear-gradient(135deg, #ec4899, #f59e0b);
       color: #ffffff;
-      font-size: 10px;
+      font-size: 11px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1299,19 +1356,18 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
 
   <div class="jv-ugc-header">
     <div class="jv-ugc-summary-pill">
-      <span>★ ${avg} / 5.0</span>
-      <span style="opacity: 0.5;">·</span>
-      <span>${count}+ Verified Client Reviews</span>
+      ${avg ? `<span>★ ${avg} / 5.0</span>
+      <span style="opacity: 0.5;" aria-hidden="true">·</span>
+      ` : ''}<span>${count} ${count === 1 ? 'review' : 'reviews'}</span>
     </div>
     <h2 class="jv-ugc-title">${escapeHtml(safeTitle)}</h2>
-    <p class="jv-ugc-sub">Real ritual experiences and authentic feedback from our verified community.</p>
   </div>
 
   <div class="jv-ugc-cards-wrap">
     ${reviews.map(r => `
       <div class="jv-ugc-card">
         <div class="jv-ugc-card-top">
-          <div class="jv-ugc-stars">${starsGroup(r.rating || 5)}</div>
+          <div class="jv-ugc-stars" role="img" aria-label="${Number(r.rating)} out of 5 stars">${starsGroup(Number(r.rating))}</div>
           <span class="jv-ugc-verified">✓ Verified</span>
         </div>
         <div class="jv-ugc-headline">${escapeHtml(r.reviewTitle)}</div>
@@ -1324,15 +1380,15 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
         ${photosEnabled !== false && r.photos && r.photos.length ? `
           <div class="jv-ugc-photos">
             ${r.photos.map(p => `
-              <div class="jv-ugc-photo-thumb" onclick="window.openJvLightbox && window.openJvLightbox('${escapeHtml(p)}')">
-                <img src="${escapeHtml(p)}" alt="Customer photo" loading="lazy" />
-                <span class="jv-ugc-photo-zoom-icon">🔍</span>
-              </div>
+              <button type="button" class="jv-ugc-photo-thumb" data-jv-photo="${escapeHtml(p)}" aria-label="Open customer photo">
+                <img src="${escapeHtml(p)}" alt="" loading="lazy" />
+                <span class="jv-ugc-photo-zoom-icon" aria-hidden="true">🔍</span>
+              </button>
             `).join('')}
           </div>
         ` : ''}
         <div class="jv-ugc-author">
-          <span class="jv-ugc-author-avatar">${escapeHtml((r.customerName || 'V')[0])}</span>
+          <span class="jv-ugc-author-avatar" aria-hidden="true">${escapeHtml((r.customerName || 'V')[0])}</span>
           <span>${escapeHtml(r.customerName)}</span>
         </div>
       </div>
@@ -1340,35 +1396,51 @@ export function renderSocialProofWallHtml(summary = {}, reviews = [], {
   </div>
 
   <!-- Lightbox Modal -->
-  <div id="jv-ugc-lightbox" class="jv-lightbox-overlay" onclick="if(event.target===this) window.closeJvLightbox && window.closeJvLightbox()">
+  <div id="jv-ugc-lightbox" class="jv-lightbox-overlay" role="dialog" aria-modal="true" aria-label="Customer photo">
     <div class="jv-lightbox-content">
-      <button type="button" class="jv-lightbox-close" onclick="window.closeJvLightbox && window.closeJvLightbox()" aria-label="Close Lightbox">×</button>
-      <img id="jv-lightbox-target" class="jv-lightbox-img" src="" alt="Verified review photo preview" />
+      <button type="button" class="jv-lightbox-close" aria-label="Close photo">×</button>
+      <img id="jv-lightbox-target" class="jv-lightbox-img" src="" alt="Customer photo" />
     </div>
   </div>
 
   <script>
-    window.openJvLightbox = function(src) {
-      const modal = document.getElementById('jv-ugc-lightbox');
-      const target = document.getElementById('jv-lightbox-target');
-      if (modal && target) {
+    (function () {
+      var opener = null;
+      function modal() { return document.getElementById('jv-ugc-lightbox'); }
+      window.openJvLightbox = function (src) {
+        var box = modal();
+        var target = document.getElementById('jv-lightbox-target');
+        if (!box || !target) return;
         target.src = src;
-        modal.classList.add('active');
+        box.classList.add('active');
         document.body.style.overflow = 'hidden';
-      }
-    };
-    window.closeJvLightbox = function() {
-      const modal = document.getElementById('jv-ugc-lightbox');
-      const target = document.getElementById('jv-lightbox-target');
-      if (modal && target) {
-        modal.classList.remove('active');
+        var close = box.querySelector('.jv-lightbox-close');
+        if (close) close.focus();
+      };
+      window.closeJvLightbox = function () {
+        var box = modal();
+        var target = document.getElementById('jv-lightbox-target');
+        if (!box || !target || !box.classList.contains('active')) return;
+        box.classList.remove('active');
         target.src = '';
         document.body.style.overflow = '';
-      }
-    };
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && window.closeJvLightbox) window.closeJvLightbox();
-    });
+        if (opener) { opener.focus(); opener = null; }
+      };
+      document.addEventListener('click', function (e) {
+        var el = e.target;
+        var thumb = el && el.closest ? el.closest('[data-jv-photo]') : null;
+        if (thumb) {
+          opener = thumb;
+          window.openJvLightbox(thumb.getAttribute('data-jv-photo'));
+          return;
+        }
+        var box = modal();
+        if (box && (el === box || (el.closest && el.closest('.jv-lightbox-close')))) window.closeJvLightbox();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') window.closeJvLightbox();
+      });
+    })();
   </script>
 </section>
 `;

@@ -2,10 +2,23 @@ import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Mail, Clock, Users, ShieldAlert, Sparkles, ShoppingBag, Gift, CheckCircle, Star } from 'lucide-react';
 import type { SequenceNodeData } from '../../../types/journey';
+import { branchHandleStyle, isRetentionStep } from '../../../lib/edgeKinds';
+import { stepKind, cardFrame } from '../../../lib/stepKinds';
+import { StepIcon } from '../StepIcon';
+import { DesignIssueBadge } from '../DesignIssueBadge';
+import { StepSummary } from '../StepSummary';
+import { countText, measureValue, moneyText, retentionDelayText } from '../../../lib/journeyMetrics';
+import { useNodeMetrics, metricValueStyle } from '../CanvasMetrics';
 
-export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
+export const SequenceNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as SequenceNodeData;
+  // Figures come from the map's snapshot (#9). A linked flow's figures cover the whole flow.
+  const { measure: m, note } = useNodeMetrics(id);
+  const opened = measureValue(m, 'flowOpened');
   const steps = d.steps || [];
+  const kind = stepKind('follow-up-sequence', d);
+  const name = d.sequenceTitle || 'Follow-Up Flow';
+  const enrolledText = countText(measureValue(m, 'flowEnrolled'));
 
   const seqType = d.sequenceType || 'lead_nurture';
   const isRetention = Boolean(
@@ -16,38 +29,32 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
     seqType === 'fulfillment_review'
   );
 
-  let themeColor = '#FBBF24';
+  const themeColor = kind.color;
   let badgeBg = 'rgba(245, 158, 11, 0.15)';
   let borderColor = 'rgba(255, 255, 255, 0.1)';
   let headerLabel = 'Nurture Sequence';
   let IconComponent = Mail;
 
   if (seqType === 'upsell_recovery') {
-    themeColor = '#F59E0B';
     badgeBg = 'rgba(245, 158, 11, 0.2)';
-    borderColor = selected ? '#F59E0B' : 'rgba(245, 158, 11, 0.35)';
+    borderColor = 'rgba(245, 158, 11, 0.35)';
     headerLabel = 'Courtesy Rescue';
     IconComponent = Sparkles;
   } else if (seqType === 'checkout_recovery') {
-    themeColor = '#10B981';
     badgeBg = 'rgba(16, 185, 129, 0.2)';
-    borderColor = selected ? '#10B981' : 'rgba(16, 185, 129, 0.35)';
+    borderColor = 'rgba(16, 185, 129, 0.35)';
     headerLabel = 'Cart Abandon Recovery';
     IconComponent = ShoppingBag;
   } else if (seqType === 'at_risk_winback') {
-    themeColor = '#8B5CF6';
     badgeBg = 'rgba(139, 92, 246, 0.2)';
-    borderColor = selected ? '#8B5CF6' : 'rgba(139, 92, 246, 0.35)';
+    borderColor = 'rgba(139, 92, 246, 0.35)';
     headerLabel = 'VIP Winback Journey';
     IconComponent = Gift;
   } else if (seqType === 'fulfillment_review') {
-    themeColor = '#EC4899';
     badgeBg = 'rgba(236, 72, 153, 0.2)';
-    borderColor = selected ? '#EC4899' : 'rgba(236, 72, 153, 0.35)';
-    headerLabel = '7-Day Review & VIP Reward';
+    borderColor = 'rgba(236, 72, 153, 0.35)';
+    headerLabel = '7-Day Review Request';
     IconComponent = Star;
-  } else if (selected) {
-    borderColor = '#6366F1';
   }
 
   return (
@@ -56,19 +63,19 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
         width: '270px',
         borderRadius: '12px',
         background: 'rgba(15, 23, 42, 0.94)',
-        border: `1.5px solid ${borderColor}`,
-        boxShadow: selected
-          ? `0 0 20px ${themeColor}55`
-          : isRetention
-          ? `0 10px 25px rgba(0, 0, 0, 0.45), 0 0 15px ${themeColor}22`
-          : '0 10px 25px rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(12px)',
+        ...cardFrame(selected, {
+          border: `1.5px solid ${borderColor}`,
+          boxShadow: isRetention
+            ? `0 10px 25px rgba(0, 0, 0, 0.45), 0 0 15px ${themeColor}22`
+            : '0 10px 25px rgba(0, 0, 0, 0.4)'
+        }),
         overflow: 'hidden',
         color: '#FFFFFF',
         cursor: 'pointer',
         transition: 'all 0.2s ease'
       }}
     >
+      <DesignIssueBadge nodeId={id} />
       {/* Standard Left Handle */}
       <Handle
         type="target"
@@ -87,8 +94,18 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
         title="Retention flow inbound connection"
       />
 
+      {/* Where a reader goes after the emails: back to a page, or on to a thank-you page once they buy. */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="custom-handle"
+        style={{ right: -6, top: '50%', ...(isRetentionStep(d) ? branchHandleStyle('retention') : {}) }}
+        title="Next step after the emails"
+      />
+
       {/* Top Banner */}
       <div
+        data-jv-detail-row
         style={{
           padding: '12px 14px',
           borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
@@ -98,20 +115,7 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div
-            style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '8px',
-              background: badgeBg,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: themeColor
-            }}
-          >
-            <IconComponent size={15} />
-          </div>
+          <StepIcon kind={kind} icon={IconComponent} />
           <div>
             <div
               style={{
@@ -124,13 +128,13 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
             >
               {headerLabel}
             </div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: '#F8FAFC' }}>
-              {d.sequenceTitle || 'Follow-Up Flow'}
+            <div data-jv-title style={{ fontSize: '13px', fontWeight: 600, color: '#F8FAFC' }}>
+              {name}
             </div>
             {d.jourvanceFlowName && (
               <div
                 style={{
-                  fontSize: '10px',
+                  fontSize: '11px',
                   color: '#FDE68A',
                   marginTop: 2,
                   maxWidth: 150,
@@ -145,7 +149,7 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
             {d.klaviyoFlowName && (
               <div
                 style={{
-                  fontSize: '10px',
+                  fontSize: '11px',
                   color: '#C4B5FD',
                   marginTop: 2,
                   maxWidth: 150,
@@ -161,7 +165,7 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
         </div>
         <span
           style={{
-            fontSize: '10px',
+            fontSize: '11px',
             padding: '2px 8px',
             borderRadius: '9999px',
             background: badgeBg,
@@ -177,6 +181,7 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
       {/* Retention Parameters Pill (Delay, Voucher, Smart Exit) */}
       {isRetention && (
         <div
+          data-jv-detail-row
           style={{
             padding: '6px 12px',
             background: 'rgba(0, 0, 0, 0.3)',
@@ -185,7 +190,7 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
             alignItems: 'center',
             flexWrap: 'wrap',
             gap: '6px',
-            fontSize: '10px'
+            fontSize: '11px'
           }}
         >
           <span
@@ -201,7 +206,7 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
             }}
           >
             <Clock size={10} color={themeColor} />
-            {d.delayHours ? `${d.delayHours}h delay` : '18h delay'}
+            {retentionDelayText(d)}
           </span>
 
           {d.voucherCode && (
@@ -239,7 +244,7 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
       )}
 
       {/* Steps Preview */}
-      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <div data-jv-detail-row style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {steps.slice(0, 3).map((s, idx) => (
           <div
             key={s.id || idx}
@@ -255,7 +260,7 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-              <span style={{ fontSize: '10px', color: '#94A3B8', fontWeight: 600 }}>#{idx + 1}</span>
+              <span style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 600 }}>#{idx + 1}</span>
               <span
                 style={{
                   color: '#E2E8F0',
@@ -265,12 +270,12 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
                   maxWidth: '140px'
                 }}
               >
-                {s.subject}
+                {s.subject || 'No subject yet'}
               </span>
             </div>
             <span
               style={{
-                fontSize: '10px',
+                fontSize: '11px',
                 color: themeColor,
                 display: 'flex',
                 alignItems: 'center',
@@ -286,6 +291,7 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
 
       {/* Performance & Revenue Live Metrics */}
       <div
+        data-jv-detail-row
         style={{
           padding: '10px 14px',
           background: 'rgba(0, 0, 0, 0.25)',
@@ -296,16 +302,16 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
         }}
       >
         {([
-          ['Enrolled', d.flowEnrolled ?? d.contactsEnrolled],
-          ['Sent', d.flowSent],
-          ['Clicked', d.flowClicked],
-          ['Revenue', d.flowRevenue]
-        ] as const).map(([name, value]) => (
-          <div key={name}>
+          ['Enrolled', enrolledText],
+          ['Sent', countText(measureValue(m, 'flowSent'))],
+          ['Clicked', countText(measureValue(m, 'flowClicked'))],
+          ['Revenue', moneyText(measureValue(m, 'flowRevenue'), 2)]
+        ] as const).map(([name, text]) => (
+          <div key={name} style={{ minWidth: 0 }}>
             <div
               style={{
-                fontSize: '10px',
-                color: '#64748B',
+                fontSize: '11px',
+                color: '#94A3B8',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px'
@@ -313,21 +319,20 @@ export const SequenceNode: React.FC<NodeProps> = ({ data, selected }) => {
             >
               {name === 'Enrolled' ? <Users size={10} /> : null} {name}
             </div>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: '#F1F5F9' }}>
-              {value == null
-                ? '—'
-                : name === 'Revenue'
-                ? `$${Number(value).toFixed(2)}`
-                : value.toLocaleString()}
+            <div data-metric style={metricValueStyle(text, '#F1F5F9')}>
+              {text}
             </div>
           </div>
         ))}
-        {typeof d.flowOpened === 'number' && (
-          <div style={{ gridColumn: '1 / -1', fontSize: '11px', color: '#d1d5db' }}>
-            Opened {d.flowOpened}
+        {opened !== null && (
+          <div data-metric style={{ gridColumn: '1 / -1', fontSize: '11px', color: '#d1d5db' }}>
+            Opened {countText(opened)}
           </div>
         )}
+        <div data-metrics-note style={{ gridColumn: '1 / -1', fontSize: '11px', color: '#94A3B8' }}>{note}</div>
       </div>
+
+      <StepSummary nodeId={id} kind={kind} icon={IconComponent} name={name} figure={{ label: 'Enrolled', value: enrolledText }} />
     </div>
   );
 };

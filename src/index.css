@@ -22,6 +22,9 @@
   --color-success: #10B981;
   --color-warning: #F59E0B;
   --color-danger: #EF4444;
+
+  /* The one keyboard focus ring colour (#19), about 6.9 to 1 on the app background. */
+  --color-focus: #818CF8;
 }
 
 * {
@@ -107,19 +110,342 @@ body {
   border-radius: 10px !important;
 }
 
-/* Custom Connection Handles */
+/* Custom Connection Handles. Only size and shape are forced: a branch handle sets its own
+   colour inline so it matches the line that leaves it (src/lib/edgeKinds.ts). Hover draws a ring
+   and changes no geometry: React Flow places each handle with `transform`, so a transform on hover
+   moved the dot 6px out from under the pointer, and even `scale` shifted it 2px. */
 .custom-handle {
   width: 10px !important;
   height: 10px !important;
   border-radius: 50% !important;
-  background: var(--color-surface-2) !important;
-  border: 2px solid var(--color-primary) !important;
-  transition: transform 0.15s ease, background 0.15s ease;
+  background: var(--color-surface-2);
+  border: 2px solid var(--color-primary);
+  transition: box-shadow 0.15s ease;
 }
 
 .custom-handle:hover {
-  transform: scale(1.3);
-  background: var(--color-primary) !important;
+  box-shadow: 0 0 0 4px rgba(248, 250, 252, 0.3);
+}
+
+/* A handle takes the pointer over at least 24px of screen (F3): an invisible circle about the dot,
+   sized by JourneyCanvas from the zoom (--jv-handle-hit, src/lib/semanticZoom.ts). The dot
+   and where a line attaches stay where they were, because React Flow reads the handle's own box. */
+.custom-handle::before {
+  content: '';
+  position: absolute;
+  /* Centred by insets that grow out of the dot's own box, so nothing here can move the dot. */
+  inset: calc((100% - var(--jv-handle-hit, 24px)) / 2);
+  /* How far the area slides back into its own card (T03), so it reaches out of the card no further
+     than HANDLE_OUT_REACH_TARGET_FLOW_PX (an input) or HANDLE_OUT_REACH_SOURCE_FLOW_PX (an output). */
+  --jv-hit-slide: max(0px, var(--jv-handle-hit, 24px) / 2 - 12px);
+  /* How far it reaches past the dot's centre into its own card (U01): what the slide leaves, but
+     never past --jv-hit-in-max, so a press on the card body selects the card and starts no line. */
+  --jv-hit-in: min(var(--jv-handle-hit, 24px) / 2 + var(--jv-hit-slide), var(--jv-hit-in-max, 8px));
+  /* Rounded by the shorter of the two reaches, so it keeps its full width along the edge at the dot. */
+  border-radius: min(calc(var(--jv-handle-hit, 24px) / 2 - var(--jv-hit-slide)), var(--jv-hit-in));
+}
+
+/* The in-card reach cap (U01, HANDLE_IN_REACH_*_SCREEN_PX in src/lib/semanticZoom.ts): 8px on screen
+   past the dot with a mouse, and nothing past the dot itself on a touch screen, where the browser
+   snaps a tap onto any target near it. --jv-zoom is written by JourneyCanvas beside --jv-handle-hit. */
+.react-flow {
+  --jv-hit-in-max: calc(8px / var(--jv-zoom, 1));
+}
+
+@media (any-pointer: coarse) {
+  .react-flow {
+    --jv-hit-in-max: 0px;
+  }
+}
+
+/* Zoomed out, facing handles on neighbouring cards sit closer than their circles are wide, and the
+   later card's input took presses just past the earlier card's output dot (T03). Each area keeps
+   its size and its place along the card's edge, and slides away from the gap along its own axis:
+   the output keeps the gap almost to its middle, the input stops well short of it, and neither
+   covers the other's dot. handleHitReach (src/lib/semanticZoom.ts) says where each one reaches. */
+.custom-handle.source::before {
+  --jv-hit-slide: max(0px, var(--jv-handle-hit, 24px) / 2 - 28px);
+}
+
+.custom-handle.react-flow__handle-right::before {
+  left: calc(50% - var(--jv-hit-in));
+  right: calc((100% - var(--jv-handle-hit, 24px)) / 2 + var(--jv-hit-slide));
+}
+
+.custom-handle.react-flow__handle-left::before {
+  left: calc((100% - var(--jv-handle-hit, 24px)) / 2 + var(--jv-hit-slide));
+  right: calc(50% - var(--jv-hit-in));
+}
+
+.custom-handle.react-flow__handle-bottom::before {
+  top: calc(50% - var(--jv-hit-in));
+  bottom: calc((100% - var(--jv-handle-hit, 24px)) / 2 + var(--jv-hit-slide));
+}
+
+.custom-handle.react-flow__handle-top::before {
+  top: calc((100% - var(--jv-handle-hit, 24px)) / 2 + var(--jv-hit-slide));
+  bottom: calc(50% - var(--jv-hit-in));
+}
+
+/* Semantic zoom (F3, src/lib/semanticZoom.ts). JourneyCanvas marks the map data-jv-detail="summary"
+   or "compact" below 0.85 zoom and writes --jv-title-scale; no card re-renders on a zoom frame.
+   A card's detail rows (data-jv-detail-row) fade out but keep their space, so no handle or line
+   moves, and its StepSummary fades in over the card: one figure, the type icon and step name at
+   14px on screen in two lines at most, and a page's publish status. Compact keeps icon and name
+   (13px).
+   Every size is also capped by the card's own height (cqh), so nothing spills out of a card. The
+   fade is off under reduced motion by the one switch below (#19), which stops every transition. */
+[data-jv-detail-row] {
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.react-flow[data-jv-detail='summary'] [data-jv-detail-row],
+.react-flow[data-jv-detail='compact'] [data-jv-detail-row] {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.jv-step-summary {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(4px * var(--jv-title-scale, 1));
+  padding: calc(6px * var(--jv-title-scale, 1));
+  overflow: hidden;
+  border-radius: 12px;
+  pointer-events: none;
+  color: #F8FAFC;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.react-flow[data-jv-detail='summary'] .jv-step-summary,
+.react-flow[data-jv-detail='compact'] .jv-step-summary {
+  opacity: 1;
+  visibility: visible;
+}
+
+.jv-step-summary__row {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--jv-title-scale, 1));
+  min-width: 0;
+  font-size: min(calc(11px * var(--jv-title-scale, 1)), 22cqh);
+  line-height: 1.2;
+}
+
+/* The icon tile, 1em square, so it is always the name's own size and sits inside the name's line
+   (-0.15em to 0.85em, inside the line box of 1.15em): the first line is no taller than the second,
+   and two lines of name take exactly 2 x 1.15em. The diamond's corners reach past the square. */
+.jv-step-summary__icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  margin-right: 0.2em;
+  overflow: visible;
+}
+
+.jv-step-summary__figure {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+  color: #F1F5F9;
+  /* Two lines at most, so a narrow card puts "Unavailable" under its label rather than cut it. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.jv-step-summary__publish .jv-step-summary__figure {
+  -webkit-line-clamp: 1;
+  color: inherit;
+}
+
+.jv-step-summary__label {
+  font-weight: 600;
+  color: #94A3B8;
+}
+
+.jv-step-summary__dot {
+  width: 0.5em;
+  height: 0.5em;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 0.1em solid;
+}
+
+.jv-step-summary__name {
+  font-size: min(calc(13px * var(--jv-title-scale, 1)), 30cqh);
+  font-weight: 700;
+  line-height: 1.15;
+  /* Sized to fit, so it never shrinks: a shrunk name was cut mid-glyph rather than clamped. */
+  flex-shrink: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Lines break only between words (U02): a word split across two lines ('/radia', 'nce-') read as
+     neither. A word wider than its line keeps its line and ends in the ellipsis there. */
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}
+
+.react-flow[data-jv-detail='compact'] .jv-step-summary__more {
+  display: none;
+}
+
+/* The icon and name alone take the card's width: at a phone's fit a card is about 60px across. */
+.react-flow[data-jv-detail='compact'] .jv-step-summary {
+  padding: calc(3px * var(--jv-title-scale, 1));
+}
+
+/* An address has no space to break at beside the icon, so the icon sits in the first line's
+   indent, where the inline icon would sit (0.095em down its 1.15em line), and the address fills
+   that line and breaks after a hyphen or slash, never inside a part. */
+.jv-step-summary__name--address {
+  position: relative;
+  text-indent: 1.2em;
+}
+
+.jv-step-summary__name--address .jv-step-summary__icon {
+  position: absolute;
+  top: 0.095em;
+  left: 0;
+}
+
+/* Two lines of name (2 x 1.15 x 43cqh = 99cqh) fit the summary's content box of the shortest card,
+   so the clamp ends the second line with an ellipsis and nothing is cut. The compact name is 13px on
+   screen, not the summary's 14px (U02, --jv-compact-title-scale): a card here is about 60px across,
+   and a name breaks only between words. */
+.react-flow[data-jv-detail='compact'] .jv-step-summary__name {
+  font-size: min(calc(13px * var(--jv-compact-title-scale, 1)), 43cqh);
+}
+
+/* Far enough out, a short card's height caps its name under the 11px floor on screen (the ad card
+   at about zoom 0.17). Its text then draws at 0 and the card keeps its icon: the clamp answers
+   1em, the name's own size, while 1em x --jv-zoom is over 11px, and 0 at or below it (the factor
+   leaves no size in between that could be drawn). --jv-zoom is rounded down, so a name is never
+   drawn under the floor. */
+.react-flow[data-jv-detail='compact'] .jv-step-summary__text {
+  font-size: clamp(0px, calc((1em * var(--jv-zoom, 1) - 11px) * 1000000000), 1em);
+}
+
+/* Line captions and design-check badges below zoom 1 (T02, src/lib/semanticZoom.ts). Both carry
+   11px text, so both scale by --jv-caption-scale and stay 11px on screen; it is 1 from zoom 1 up,
+   where nothing changes. The badge grows up and left from its bottom-right corner, 10px inside the
+   card's top-right corner, so it sits on the corner above the step name rather than over it. A caption
+   scales about its centre (ConversionEdge), and EdgeLabelLayout decides how much of it fits: all,
+   its figure only (compact), or nothing (hidden). A hidden caption is not drawn and takes no
+   pointer and no room (scale 0, like a skip link), keeps its place in the tab order and its name,
+   and shows while it holds focus, so a keyboard user can still open the line. */
+.react-flow [data-jv-design-badge] {
+  scale: var(--jv-caption-scale, 1);
+  transform-origin: 100% 100%;
+}
+
+/* Further out the 11px badge is bigger than its card, so EdgeLabelLayout (placeBadges in
+   edgeLabelLayout.ts) marks a badge that would reach another card, a handle or another badge. It
+   grows up and right instead where that is clear (full-right). Failing that it is a dot: the badge at
+   half that size on the same corner, with its text not drawn (it keeps its box, so the layout's
+   measure does not change). Failing that it is hidden: not drawn and takes no pointer. A dot and a
+   hidden badge keep their name and their place in the tab order, and show whole while they hold
+   keyboard focus. */
+.react-flow [data-jv-badge-form='full-right'] {
+  transform-origin: 0% 100%;
+}
+
+.react-flow [data-jv-badge-form='dot']:not(:focus-visible) {
+  scale: calc(var(--jv-caption-scale, 1) * 0.5);
+}
+
+.react-flow [data-jv-badge-form='dot']:not(:focus-visible) [data-jv-badge-text] {
+  visibility: hidden;
+}
+
+.react-flow [data-jv-badge-form='hidden']:not(:focus-visible) {
+  opacity: 0;
+  scale: 0;
+  pointer-events: none !important;
+}
+
+/* Zoomed out, a card's own handles sit above its badge (the badge's inline z-index is 5), so where
+   the badge reaches a handle's 24px hit circle a press there still starts a line. placeBadges keeps
+   the badge off the handle's dot itself. From 0.85 zoom up the badge is nowhere near a handle. */
+.react-flow:not([data-jv-detail='full']) .react-flow__node .react-flow__handle {
+  z-index: 6;
+}
+
+[data-jv-caption-form='compact'] [data-jv-caption-part]:not([data-jv-caption-part='value']) {
+  display: none;
+}
+
+[data-jv-caption-form='hidden']:not(:focus-within) {
+  opacity: 0;
+  scale: 0;
+  pointer-events: none !important;
+}
+
+/* Keyboard focus is always visible (#19). !important beats the inline outline: 'none' many
+   controls set and React Flow's own outline: none on a focused step. */
+:focus-visible {
+  outline: 2px solid var(--color-focus) !important;
+  outline-offset: 2px !important;
+}
+
+/* A step's ring sits clear of its card's own border and follows its rounded corners. */
+.react-flow__node:focus-visible {
+  outline: 2px solid var(--color-focus) !important;
+  outline-offset: 4px !important;
+  border-radius: 14px;
+}
+
+/* On a phone the map is zoomed far out, and a selected card's own border and glow shrink with it
+   to under a pixel, so a tapped step looked no different (T06). This ring is divided by the zoom
+   (--jv-zoom, SemanticZoom), so it draws 3px on screen at any zoom. Keyboard focus keeps its own
+   ring. Specific enough to beat React Flow's outline: none on a focused step, which a tap leaves
+   the card with. From 768px up nothing changes. */
+@media (max-width: 767px) {
+  .react-flow .react-flow__node.selected:not(:focus-visible) {
+    outline: calc(3px / var(--jv-zoom, 1)) solid #C7D2FE;
+    outline-offset: calc(3px / var(--jv-zoom, 1));
+    border-radius: 14px;
+  }
+}
+
+/* React Flow ships its attribution link at 10px; nothing in the app renders under 11px (#19). */
+.react-flow__attribution {
+  font-size: 11px;
+}
+
+/* React Flow draws its attribution as #999 on a half-white strip, which over the dark map is 1.3 to
+   1 (#11's contrast rule). The dark strip and light link read at about 12 to 1. */
+.react-flow .react-flow__attribution {
+  background: #0F172A;
+}
+.react-flow .react-flow__attribution a {
+  color: #CBD5E1;
+}
+
+/* Text for screen readers only: kept in the page, drawn nowhere. Not generated into the two
+   .jv-utility drawers' stylesheet, so do not use it there. */
+.jv-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Node Glow Animation */
@@ -135,4 +461,171 @@ body {
 .node-selected {
   outline: 2px solid var(--color-primary) !important;
   box-shadow: 0 0 20px rgba(99, 102, 241, 0.3) !important;
+}
+
+/* Busy spinner (save status). Still under reduced motion: the words carry the state. */
+@keyframes jvSpin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: jvSpin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+
+  /* One switch for the whole app (#19): no animation, transition or smooth scroll anywhere. */
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Named as well, because React Flow's marching dash on an animated line is the most visible one. */
+  .react-flow__edge.animated path,
+  .react-flow__connection .animated {
+    animation: none !important;
+  }
+}
+
+/* Path focus (src/lib/pathFocus.ts). Selecting a step fades the lines that are not on its path.
+   Only the line and its arrowhead fade: cards and rate pills sit outside the edge group, so their
+   text keeps full contrast. */
+.react-flow__edge {
+  transition: opacity 0.15s ease;
+}
+
+.react-flow__edge.jv-path-muted {
+  opacity: 0.25;
+}
+
+.react-flow__edge.jv-path-muted:focus-visible {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__edge {
+    transition: none;
+  }
+}
+
+/* Connection rules (src/lib/connectionRules.ts). A line the rules refuse draws red and dashed while
+   it is dragged, and a handle it cannot join shows a red ring. */
+.react-flow__connection.invalid .react-flow__connection-path {
+  stroke: #F87171;
+  stroke-dasharray: 6 4;
+}
+
+.react-flow__handle.connectingto:not(.valid) {
+  box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.45);
+}
+
+/* ReplaceLineDialog. The reset above zeroes the margin a native modal centres itself with, and the
+   native backdrop is barely visible without a colour. */
+.jv-replace-dialog {
+  margin: auto;
+}
+
+.jv-replace-dialog::backdrop {
+  background: rgba(2, 6, 23, 0.65);
+}
+
+.jv-replace-dialog button:focus-visible {
+  outline: 2px solid #38BDF8;
+  outline-offset: 2px;
+}
+
+/* StepPicker (#12): the step chooser behind + Next, + Before, + Step and a line let go on empty
+   map, plus the + pills on a selected step or line. No animation. */
+.jv-step-picker::backdrop {
+  background: rgba(2, 6, 23, 0.6);
+}
+
+.jv-step-picker :is(button, input, select):focus-visible,
+.jv-add-next:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ModalDialog (src/components/modals/ModalDialog.tsx): centred, with a dimmed backdrop and a
+   visible focus ring. */
+.jv-dialog {
+  margin: auto;
+}
+
+.jv-dialog::backdrop {
+  background: rgba(2, 6, 23, 0.72);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.jv-dialog :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* The canvas and the docked step panel (#7). The panel sits beside the map from 768px up and
+   stacks under it below that. Layout lives in classes, not inline styles, so the media query can
+   change it. */
+.jv-canvas-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.jv-canvas-pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.jv-step-dock {
+  width: clamp(360px, 30vw, 420px);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-surface-1);
+  border-left: 1px solid var(--color-border);
+}
+
+/* The panel uses the one focus ring. Kept as its own rule because it is more specific than the
+   global :focus-visible, so a colour here would win over it. */
+.jv-step-dock :focus-visible {
+  outline: 2px solid var(--color-focus) !important;
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  .jv-canvas-layout {
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .jv-canvas-pane {
+    flex: none;
+    height: 62vh;
+    min-height: 360px;
+  }
+
+  .jv-step-dock {
+    width: 100%;
+    overflow: visible;
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
+}
+
+/* Draft with AI (#25): the dialog is inline-styled, so its focus ring lives here. */
+.jv-ai-builder :focus-visible {
+  outline: 2px solid #A5B4FC;
+  outline-offset: 2px;
 }

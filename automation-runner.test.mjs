@@ -85,48 +85,41 @@ test('mobile sticky bar defaults to enabled unless explicitly set false', () => 
   assert.equal(pageExplicitOff.mobileStickyBarEnabled !== false, false);
 });
 
-test('conversion benchmarks accurately assigns metric names and industry statuses', async () => {
-  const { getStepBenchmark } = await import('./src/lib/conversionBenchmarks.ts');
+test('conversion benchmarks name each line and grade only a measured rate over enough visits', async () => {
+  const { edgeMetricFor, edgeStatus, MIN_GRADE_SAMPLE } = await import('./src/lib/conversionBenchmarks.ts');
+  assert.equal(MIN_GRADE_SAMPLE, 100);
 
-  // Ad -> Page (CTR)
-  const adEmpty = getStepBenchmark('ad-source', 'landing-page', 0, 0, 0);
-  assert.equal(adEmpty.metricShort, 'CTR');
-  assert.equal(adEmpty.status, 'awaiting_traffic');
+  // Ad -> Page: impressions are never measured, so the line counts visits and is never graded.
+  const ad = edgeMetricFor('ad-source', 'landing-page');
+  assert.equal(ad.id, 'ad-visits');
+  assert.equal(ad.short, 'VISITS');
+  assert.equal(ad.bands, null);
+  assert.equal(edgeStatus(ad, { count: 1000, denominator: null, rate: null, basis: 'Measured' }).status, 'not_graded');
 
-  const adPoor = getStepBenchmark('ad-source', 'landing-page', 0.8, 1000, 8);
-  assert.equal(adPoor.metricShort, 'CTR');
-  assert.equal(adPoor.status, 'needs_work');
-  assert.equal(adPoor.dropOffCount, 992);
+  // Page -> Thank You (conversion rate)
+  const pageOrder = edgeMetricFor('landing-page', 'thank-you');
+  assert.equal(pageOrder.short, 'CR');
+  assert.equal(edgeStatus(pageOrder, { count: 32, denominator: 500, rate: 6.5, basis: 'Measured' }).status, 'healthy');
 
-  const adHealthy = getStepBenchmark('ad-source', 'landing-page', 2.2, 1000, 22);
-  assert.equal(adHealthy.status, 'healthy');
+  // Page -> Form (opt-in rate)
+  const pageForm = edgeMetricFor('landing-page', 'lead-form');
+  assert.equal(pageForm.short, 'OPT-IN');
+  assert.equal(edgeStatus(pageForm, { count: 100, denominator: 400, rate: 25, basis: 'Measured' }).status, 'healthy');
 
-  const adTop = getStepBenchmark('ad-source', 'landing-page', 4.1, 1000, 41);
-  assert.equal(adTop.status, 'top_performer');
-
-  // Page -> Thank You (CR)
-  const pageOrder = getStepBenchmark('landing-page', 'thank-you', 6.5, 500, 32);
-  assert.equal(pageOrder.metricShort, 'CR');
-  assert.equal(pageOrder.status, 'healthy');
-  assert.equal(pageOrder.dropOffCount, 468);
-
-  // Page -> Form (Opt-in)
-  const pageForm = getStepBenchmark('landing-page', 'lead-form', 25.0, 400, 100);
-  assert.equal(pageForm.metricShort, 'OPT-IN');
-  assert.equal(pageForm.status, 'healthy');
-
-  // Upsell -> Thank You (Take Rate)
-  const upsell = getStepBenchmark('upsell', 'thank-you', 30.0, 100, 30);
-  assert.equal(upsell.metricShort, 'TAKE RATE');
-  assert.equal(upsell.status, 'top_performer');
+  // Upsell -> Thank You (take rate)
+  const upsell = edgeMetricFor('upsell', 'thank-you', 'accepted');
+  assert.equal(upsell.short, 'TAKE');
+  const top = edgeStatus(upsell, { count: 30, denominator: 100, rate: 30, basis: 'Measured' });
+  assert.equal(top.status, 'top_performer');
+  assert.equal(top.label, 'Above typical range');
 });
 
 test('revenue leakage calculator models recovered conversions and dollar opportunities', async () => {
   const { calculateRevenueLeakage } = await import('./src/lib/conversionBenchmarks.ts');
 
-  // 1,000 dropped visitors at 2% current CR vs 5.5% healthy benchmark with $50 AOV
+  // 1,000 visitors at 2% current CR vs 5.5% healthy benchmark with a $50 average order
   const result = calculateRevenueLeakage(1000, 2.0, 5.5, 50.0);
-  assert.equal(result.droppedVisitors, 1000);
+  assert.equal(result.visitors, 1000);
   // Lift = 3.5% of 1000 = 35 recovered conversions
   assert.equal(result.potentialRecoveredConversions, 35);
   // Revenue gain = 35 * $50 = $1,750

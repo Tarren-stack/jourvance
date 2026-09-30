@@ -149,8 +149,13 @@ export const FAKE_STORE_DOMAINS = new Set([
   'glowbotanics.myshopify.com',
   'rosebotanics.myshopify.com'
 ]);
+// Blueprint placeholders plus every variant of the product picker's sample catalog: none belongs to
+// a merchant, so none may become a checkout link. Kept in step with DEMO_VARIANT_IDS in
+// src/lib/productPickerCatalog.ts by product-picker-catalog.test.mjs.
 export const FAKE_VARIANT_IDS = new Set([
-  '42109840192', '42109840193', '42109840194', '42109840195', '42109840196', '42109840999'
+  '42109840192', '42109840193', '42109840194', '42109840195', '42109840196', '42109840999',
+  '42109840101', '42109840102', '42109840201', '42109840202', '42109840301', '42109840302',
+  '42109840401', '42109840501', '42109840502'
 ]);
 export const FAKE_TRACKING_IDS = new Set(['123456789012345', 'C9ABCD123456', 'G-TEST999999']);
 
@@ -360,6 +365,19 @@ export function aiBudgetLeft(uid) {
   recent.push(Date.now());
   aiCopyCalls.set(uid, recent);
   return true;
+}
+
+/**
+ * The seconds until aiBudgetLeft(uid) says yes again, or 0 while it would now. It spends no slot.
+ * The window has room once the call at index length minus the limit has left it, because the
+ * window keeps a call while t > cutoff, so that call's hour is the exact wait (F2).
+ */
+export function aiBudgetRetryAfter(uid) {
+  const now = Date.now();
+  const recent = (aiCopyCalls.get(uid) || []).filter((t) => t > now - 3600_000);
+  if (recent.length < AI_COPY_PER_HOUR) return 0;
+  const sorted = [...recent].sort((a, b) => a - b);
+  return Math.max(1, Math.ceil((sorted[sorted.length - AI_COPY_PER_HOUR] + 3600_000 - now) / 1000));
 }
 
 // ── Express Route Registration ───────────────────────────────────────────────

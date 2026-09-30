@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X, ShoppingBag, Zap, Copy, Check, RefreshCw, CheckCircle2,
   DollarSign, ArrowRight, ShieldCheck, Activity, Users, Send,
@@ -6,6 +6,9 @@ import {
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
 import type { JourneyNode, Workspace, ShopifyDiscountRule, ShopifyAbandonedCheckout } from '../../types/journey';
+import { ModalDialog } from './ModalDialog';
+import { useFieldIds } from '../../lib/a11yHooks';
+import { loadedCountSuffix, type ListLoad } from '../../lib/loadedCount';
 
 function WebhookUrl({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
   return (
@@ -14,11 +17,13 @@ function WebhookUrl({ label, value, copied, onCopy }: { label: string; value: st
         Event: <span style={{ color: '#F8FAFC' }}>{label}</span>
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
+        {/* minWidth 0: an input keeps its intrinsic width in a flex row, which pushed Copy past a 320px dialog. */}
         <input
           type="text"
           readOnly
+          aria-label={`${label} webhook URL`}
           value={value}
-          style={{ flex: 1, padding: '7px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.4)', color: '#CBD5E1', fontSize: '11px', fontFamily: 'monospace' }}
+          style={{ flex: 1, minWidth: 0, padding: '7px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.4)', color: '#CBD5E1', fontSize: '11px', fontFamily: 'monospace' }}
         />
         <button
           type="button"
@@ -40,6 +45,9 @@ interface Props {
   nodes: JourneyNode[];
   onOrderSimulated?: (result: any) => void;
 }
+
+// Names the dialog: ModalDialog's aria-labelledby points at the visible heading.
+const TITLE_ID = 'jv-shopify-sync-title';
 
 export const ShopifySyncModal: React.FC<Props> = ({
   isOpen,
@@ -67,14 +75,21 @@ export const ShopifySyncModal: React.FC<Props> = ({
   const [discounts, setDiscounts] = useState<ShopifyDiscountRule[]>([]);
   const [discCode, setDiscCode] = useState('');
   const [discType, setDiscType] = useState<'percentage' | 'fixed_amount'>('percentage');
-  const [discValue, setDiscValue] = useState('20');
+  // Empty until the merchant types an amount: no code is ever made at a value nobody chose (R24).
+  const [discValue, setDiscValue] = useState('');
   const [discUnique, setDiscUnique] = useState(false);
+  const fid = useFieldIds();
   const [creatingDiscount, setCreatingDiscount] = useState(false);
   const [discountSuccess, setDiscountSuccess] = useState<string | null>(null);
+  const [discountError, setDiscountError] = useState<string | null>(null);
 
   // Abandoned checkouts state
   const [checkouts, setCheckouts] = useState<ShopifyAbandonedCheckout[]>([]);
-  const [loadingCheckouts, setLoadingCheckouts] = useState(false);
+  // The tab shows a count only once the list was read; a refresh keeps the last count it measured.
+  const [checkoutsLoad, setCheckoutsLoad] = useState<ListLoad>('loading');
+  const checkoutsRequest = useRef(0);
+  // Why the last read failed: 'signin' (401, retrying cannot help), 'retry' (network or server), 'other'.
+  const [checkoutsFailure, setCheckoutsFailure] = useState<'signin' | 'retry' | 'other'>('retry');
   const [simulatingCheckout, setSimulatingCheckout] = useState(false);
   const [simCheckoutSuccess, setSimCheckoutSuccess] = useState<string | null>(null);
 
@@ -89,6 +104,8 @@ export const ShopifySyncModal: React.FC<Props> = ({
   useEffect(() => {
     if (!isOpen) return;
     loadDiscounts();
+    // A fresh open, or another workspace, counts nothing until its own list answers.
+    setCheckoutsLoad('loading');
     loadAbandonedCheckouts();
   }, [isOpen, workspace?.id]);
 
@@ -107,19 +124,29 @@ export const ShopifySyncModal: React.FC<Props> = ({
   };
 
   const loadAbandonedCheckouts = async () => {
-    setLoadingCheckouts(true);
+    // Only the latest request may settle the list, so a slow answer for another workspace cannot land last.
+    const request = ++checkoutsRequest.current;
+    setCheckoutsLoad(load => (load === 'loaded' ? load : 'loading'));
+    let loaded: ShopifyAbandonedCheckout[] | null = null;
+    let failure: 'signin' | 'retry' | 'other' = 'retry';
     try {
       const headers = await authHeaders();
       const wsId = workspace?.id || 'default';
       const res = await fetch(`/api/workspace/${wsId}/shopify/abandoned-checkouts`, { headers });
       const data = await res.json().catch(() => ({}));
-      if (data?.success && Array.isArray(data.checkouts)) {
-        setCheckouts(data.checkouts);
-      }
+      if (data?.success && Array.isArray(data.checkouts)) loaded = data.checkouts;
+      else failure = res.status === 401 ? 'signin' : res.status >= 500 ? 'retry' : 'other';
     } catch (err) {
       console.error('Failed loading checkouts:', err);
-    } finally {
-      setLoadingCheckouts(false);
+    }
+    if (request !== checkoutsRequest.current) return;
+    if (loaded) {
+      setCheckouts(loaded);
+      setCheckoutsLoad('loaded');
+    } else {
+      setCheckouts([]);
+      setCheckoutsFailure(failure);
+      setCheckoutsLoad('failed');
     }
   };
 
@@ -188,9 +215,14 @@ export const ShopifySyncModal: React.FC<Props> = ({
 
   const handleCreateDiscount = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!discCode.trim()) return;
+    if (!discCode.trim()) {
+      setDiscountError('Enter the code you want at checkout.');
+      return;
+    }
     setCreatingDiscount(true);
     setDiscountSuccess(null);
+    setDiscountError(null);
+    const parsedValue = parseFloat(discValue);
     try {
       const headers = await authHeaders();
       const wsId = workspace?.id || 'default';
@@ -200,7 +232,8 @@ export const ShopifySyncModal: React.FC<Props> = ({
         body: JSON.stringify({
           code: discCode.trim().toUpperCase(),
           discountType: discType,
-          value: parseFloat(discValue) || 20,
+          // The amount as typed; the server refuses a missing or out-of-range one with a sentence.
+          value: Number.isFinite(parsedValue) ? parsedValue : null,
           isUniquePerLead: discUnique
         })
       });
@@ -211,9 +244,12 @@ export const ShopifySyncModal: React.FC<Props> = ({
           : `Code ${data.discount.code} is saved in Jourvance. Shopify was not updated because this workspace has no store token.`);
         loadDiscounts();
         setTimeout(() => setDiscountSuccess(null), 4000);
+      } else {
+        setDiscountError(data?.error || 'The code was not created.');
       }
     } catch (err) {
       console.error('Failed creating discount:', err);
+      setDiscountError('The code was not created because the request did not go through.');
     } finally {
       setCreatingDiscount(false);
     }
@@ -250,20 +286,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(5, 7, 13, 0.88)',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px'
-      }}
-    >
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={780} fallbackFocusSelectors={['[data-more-trigger]']}>
       <div
         style={{
           width: '100%',
@@ -287,7 +310,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(236, 72, 153, 0.12)', border: '1px solid rgba(236, 72, 153, 0.25)', color: '#F472B6', padding: '3px 10px', borderRadius: '9999px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
               <Activity size={13} /> Shopify Full Integration Engine
             </div>
-            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#FFFFFF' }}>
+            <h2 id={TITLE_ID} style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#FFFFFF' }}>
               Shopify Automation & Attribution Hub
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#94A3B8', lineHeight: 1.5 }}>
@@ -296,17 +319,20 @@ export const ShopifySyncModal: React.FC<Props> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             style={{ background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '4px', borderRadius: '8px' }}
           >
             <X size={20} />
           </button>
         </div>
 
-        {/* Tab Switcher */}
-        <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px' }}>
+        {/* Tab Switcher: wraps onto a second row on a phone, so no view is cut off in a sideways
+            scroller (T14). Plain buttons in Tab order; aria-pressed says which view is showing. */}
+        <div role="group" aria-label="Shopify views" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '8px' }}>
           <button
             type="button"
             onClick={() => setActiveTab('webhooks')}
+            aria-pressed={activeTab === 'webhooks'}
             style={{
               padding: '6px 14px',
               borderRadius: '8px',
@@ -327,6 +353,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setActiveTab('discounts')}
+            aria-pressed={activeTab === 'discounts'}
             style={{
               padding: '6px 14px',
               borderRadius: '8px',
@@ -347,6 +374,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setActiveTab('abandoned')}
+            aria-pressed={activeTab === 'abandoned'}
             style={{
               padding: '6px 14px',
               borderRadius: '8px',
@@ -361,7 +389,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
               gap: '6px'
             }}
           >
-            <ShoppingBag size={14} /> <span>Abandoned Checkouts ({checkouts.length})</span>
+            <ShoppingBag size={14} /> <span>Abandoned Checkouts{loadedCountSuffix(checkoutsLoad, checkouts.length)}</span>
           </button>
         </div>
 
@@ -421,8 +449,9 @@ export const ShopifySyncModal: React.FC<Props> = ({
                   <input
                     type="text"
                     readOnly
+                    aria-label="Order creation (orders/create) webhook URL"
                     value={ordersWebhookUrl}
-                    style={{ flex: 1, padding: '7px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#CBD5E1', fontSize: '11px', fontFamily: 'monospace' }}
+                    style={{ flex: 1, minWidth: 0, padding: '7px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#CBD5E1', fontSize: '11px', fontFamily: 'monospace' }}
                   />
                   <button
                     type="button"
@@ -448,8 +477,9 @@ export const ShopifySyncModal: React.FC<Props> = ({
                   <input
                     type="text"
                     readOnly
+                    aria-label="Checkout creation / update (checkouts/create) webhook URL"
                     value={checkoutsWebhookUrl}
-                    style={{ flex: 1, padding: '7px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#CBD5E1', fontSize: '11px', fontFamily: 'monospace' }}
+                    style={{ flex: 1, minWidth: 0, padding: '7px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#CBD5E1', fontSize: '11px', fontFamily: 'monospace' }}
                   />
                   <button
                     type="button"
@@ -504,13 +534,20 @@ export const ShopifySyncModal: React.FC<Props> = ({
                 </div>
               )}
 
+              {discountError && (
+                <div role="alert" style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.15)', color: '#FCA5A5', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertCircle size={14} aria-hidden="true" /> <span>{discountError}</span>
+                </div>
+              )}
+
               <form onSubmit={handleCreateDiscount} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: '10px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                    <label htmlFor={fid('disc-code')} style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
                       Discount Code
                     </label>
                     <input
+                      id={fid('disc-code')}
                       type="text"
                       placeholder="Code you want at checkout"
                       value={discCode}
@@ -520,10 +557,11 @@ export const ShopifySyncModal: React.FC<Props> = ({
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                    <label htmlFor={fid('disc-type')} style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
                       Type
                     </label>
                     <select
+                      id={fid('disc-type')}
                       value={discType}
                       onChange={e => setDiscType(e.target.value as any)}
                       style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
@@ -534,12 +572,15 @@ export const ShopifySyncModal: React.FC<Props> = ({
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
+                    <label htmlFor={fid('disc-value')} style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '3px' }}>
                       Value ({discType === 'percentage' ? '%' : '$'})
                     </label>
                     <input
+                      id={fid('disc-value')}
                       type="number"
                       step="1"
+                      min="0"
+                      placeholder={discType === 'percentage' ? 'e.g. 20' : 'e.g. 5'}
                       value={discValue}
                       onChange={e => setDiscValue(e.target.value)}
                       style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)', background: 'rgba(0, 0, 0, 0.4)', color: '#FFFFFF', fontSize: '12px', outline: 'none' }}
@@ -600,7 +641,9 @@ export const ShopifySyncModal: React.FC<Props> = ({
               <div style={{ fontSize: '12px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: '8px' }}>
                 Active Provisioned Discounts ({discounts.length})
               </div>
-              <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', overflow: 'hidden' }}>
+              {/* Scrolls sideways on its own on a phone rather than clipping columns; focusable so a
+                  keyboard can scroll it too. */}
+              <div role="region" aria-label="Active provisioned discounts" tabIndex={0} style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
                     <tr style={{ background: 'rgba(255, 255, 255, 0.03)', textAlign: 'left', color: '#94A3B8' }}>
@@ -646,78 +689,92 @@ export const ShopifySyncModal: React.FC<Props> = ({
             </div>
 
             {/* Checkouts Table */}
-            <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                <thead>
-                  <tr style={{ background: 'rgba(255, 255, 255, 0.03)', textAlign: 'left', color: '#94A3B8' }}>
-                    <th style={{ padding: '8px 12px' }}>Customer Email</th>
-                    <th style={{ padding: '8px 12px' }}>Cart Value</th>
-                    <th style={{ padding: '8px 12px' }}>Items</th>
-                    <th style={{ padding: '8px 12px' }}>Recovery Status</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {checkouts.map(c => (
-                    <tr key={c.id} style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                      <td style={{ padding: '8px 12px', color: '#F8FAFC', fontWeight: 600 }}>
-                        {c.customerEmail}
-                        <div style={{ fontSize: '10px', color: '#94A3B8' }}>{new Date(c.abandonedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                      </td>
-                      <td style={{ padding: '8px 12px', color: '#34D399', fontWeight: 700 }}>
-                        ${c.totalPrice.toFixed(2)}
-                      </td>
-                      <td style={{ padding: '8px 12px', color: '#CBD5E1', maxWidth: '180px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {c.lineItems.map(li => li.title).join(', ') || '1 Product'}
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>
-                        {c.recoveryStatus === 'recovered' ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399' }}>
-                            <CheckCircle2 size={11} /> Recovered (${c.totalPrice.toFixed(2)})
-                          </span>
-                        ) : c.recoveryStatus === 'email_sent' ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(59, 130, 246, 0.15)', color: '#60A5FA' }}>
-                            <Send size={11} /> Email Sent
-                          </span>
-                        ) : (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(234, 179, 8, 0.15)', color: '#FACC15' }}>
-                            <Clock size={11} /> Pending (45m Window)
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                        <a
-                          href={c.abandonedCheckoutUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: '6px',
-                            background: 'rgba(255, 255, 255, 0.08)',
-                            color: '#F8FAFC',
-                            fontSize: '11px',
-                            textDecoration: 'none',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          <span>Checkout</span>
-                          <ExternalLink size={10} />
-                        </a>
-                      </td>
+            {/* Scrolls sideways on its own on a phone, so the Action link is never clipped out of reach. */}
+            {checkouts.length > 0 ? (
+              <div role="region" aria-label="Abandoned checkouts" tabIndex={0} style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(255, 255, 255, 0.03)', textAlign: 'left', color: '#94A3B8' }}>
+                      <th style={{ padding: '8px 12px' }}>Customer Email</th>
+                      <th style={{ padding: '8px 12px' }}>Cart Value</th>
+                      <th style={{ padding: '8px 12px' }}>Items</th>
+                      <th style={{ padding: '8px 12px' }}>Recovery Status</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
                     </tr>
-                  ))}
-                  {checkouts.length === 0 && (
-                    <tr>
-                      <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#94A3B8' }}>
-                        No abandoned checkouts recorded yet.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {checkouts.map(c => (
+                      <tr key={c.id} style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <td style={{ padding: '8px 12px', color: '#F8FAFC', fontWeight: 600 }}>
+                          {c.customerEmail}
+                          <div style={{ fontSize: '11px', color: '#94A3B8' }}>{new Date(c.abandonedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                        </td>
+                        <td style={{ padding: '8px 12px', color: '#34D399', fontWeight: 700 }}>
+                          ${c.totalPrice.toFixed(2)}
+                        </td>
+                        <td style={{ padding: '8px 12px', color: '#CBD5E1', maxWidth: '180px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {c.lineItems.map(li => li.title).join(', ') || '1 Product'}
+                        </td>
+                        <td style={{ padding: '8px 12px' }}>
+                          {c.recoveryStatus === 'recovered' ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', color: '#34D399' }}>
+                              <CheckCircle2 size={11} /> Recovered (${c.totalPrice.toFixed(2)})
+                            </span>
+                          ) : c.recoveryStatus === 'email_sent' ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(59, 130, 246, 0.15)', color: '#60A5FA' }}>
+                              <Send size={11} /> Email Sent
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '11px', background: 'rgba(234, 179, 8, 0.15)', color: '#FACC15' }}>
+                              <Clock size={11} /> Pending (45m Window)
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                          <a
+                            href={c.abandonedCheckoutUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              background: 'rgba(255, 255, 255, 0.08)',
+                              color: '#F8FAFC',
+                              fontSize: '11px',
+                              textDecoration: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <span>Checkout</span>
+                            <ExternalLink size={10} />
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              // Outside the sideways table, so the message and Retry sit in view at phone width.
+              <div style={{ padding: '24px 16px', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', textAlign: 'center', color: '#94A3B8', fontSize: '12px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <span role="status">
+                  {checkoutsLoad === 'loaded' && 'No abandoned checkouts recorded yet.'}
+                  {checkoutsLoad === 'loading' && 'Loading checkouts...'}
+                  {checkoutsLoad === 'failed' && (checkoutsFailure === 'signin' ? 'Sign in to see abandoned checkouts.' : 'Checkouts could not be loaded.')}
+                </span>
+                {checkoutsLoad === 'failed' && checkoutsFailure === 'retry' && (
+                  <button
+                    type="button"
+                    onClick={() => loadAbandonedCheckouts()}
+                    style={{ padding: '4px 10px', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#F8FAFC', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -732,6 +789,6 @@ export const ShopifySyncModal: React.FC<Props> = ({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 };

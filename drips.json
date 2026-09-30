@@ -78,7 +78,7 @@
     {
       "id": "drip_seq_upsell_recovery",
       "name": "Post-Purchase Courtesy Offer",
-      "description": "Reaches out to clients who passed on their post-purchase upgrade, offering a gentle second chance with a private courtesy discount.",
+      "description": "Reaches out to clients who passed on their post-purchase upgrade with a gentle second chance at the offer.",
       "triggerType": "upsell_recovery",
       "smartExitOnPurchase": true,
       "steps": [
@@ -86,10 +86,10 @@
           "id": "upsell_rec_step_1",
           "stepNumber": 1,
           "delayHours": 18,
-          "subject": "A little courtesy for your recent order",
+          "subject": "About the offer on your recent order",
           "previewText": "In case you still wanted to complete your ritual",
-          "body": "Hey {{first_name}},\n\nThank you again for your order {{order_number}}. We are already preparing everything for you.\n\nWhen you checked out, you skipped the upgrade offer. In case you still wanted to add it to your routine, we saved a private 10% courtesy voucher for you:\n\nCode: {{discount_code}}\n\nYou can review the offer and claim your discount here:\n{{offer_url}}\n\nNo pressure at all—we simply wanted to make sure you had the option before your order ships.\n\nWarmly,\nThe Jourvance Team",
-          "discountVoucher": "SAVE10"
+          "body": "Hey {{first_name}},\n\nThank you again for your order {{order_number}}. We are already preparing everything for you.\n\nWhen you checked out, you skipped the upgrade offer. In case you still wanted to add it to your routine, you can review the offer here:\n{{offer_url}}\n\nNo pressure at all, we simply wanted to make sure you had the option before your order ships.\n\nWarmly,\nThe Jourvance Team",
+          "discountVoucher": ""
         }
       ],
       "activeEnrollments": 0,
@@ -531,7 +531,7 @@
       "sourceSlug": "test-upsell",
       "offerUrl": "http://localhost:3005/p/test-upsell",
       "offerType": "upsell",
-      "discountCode": "SAVE10",
+      "discountCode": "",
       "currentStepIndex": 0,
       "status": "converted_exit",
       "enrolledAt": "2026-09-27T05:38:29.213Z",

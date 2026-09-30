@@ -531,25 +531,25 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
               {/* 4-Card Key Metrics Grid */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
                 <div style={{ backgroundColor: '#1e293b', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Lifetime Spend</div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Lifetime Spend</div>
                   <div style={{ fontSize: '18px', fontWeight: 800, color: '#10b981', marginTop: '2px' }}>
                     ${(contact.totalSpent || 0).toFixed(2)}
                   </div>
-                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>Total revenue</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Total revenue</div>
                 </div>
 
                 <div style={{ backgroundColor: '#1e293b', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Orders</div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Orders</div>
                   <div style={{ fontSize: '18px', fontWeight: 800, color: '#ffffff', marginTop: '2px' }}>
                     {contact.ordersCount || 0}
                   </div>
-                  <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
                     ${aov.toFixed(2)} AOV
                   </div>
                 </div>
 
                 <div style={{ backgroundColor: '#1e293b', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Recency</div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Recency</div>
                   <div style={{
                     fontSize: '18px',
                     fontWeight: 800,
@@ -558,17 +558,17 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
                   }}>
                     {contact.recencyDays != null ? `${contact.recencyDays}d` : 'None'}
                   </div>
-                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                     {contact.recencyDays != null ? 'Since last order' : 'No purchases yet'}
                   </div>
                 </div>
 
                 <div style={{ backgroundColor: '#1e293b', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Marketing</div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Marketing</div>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: contact.status === 'active' ? '#10b981' : '#f59e0b', marginTop: '6px' }}>
                     {contact.status === 'active' ? 'Subscribed' : contact.status}
                   </div>
-                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>Email & SMS</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Email & SMS</div>
                 </div>
               </div>
 
@@ -802,7 +802,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
                               style={{
                                 padding: '2px 6px',
                                 borderRadius: '4px',
-                                fontSize: '10px',
+                                fontSize: '11px',
                                 fontWeight: 700,
                                 textTransform: 'uppercase',
                                 backgroundColor: order.financialStatus === 'paid' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
@@ -920,7 +920,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
                               style={{
                                 padding: '2px 8px',
                                 borderRadius: '4px',
-                                fontSize: '10px',
+                                fontSize: '11px',
                                 fontWeight: 700,
                                 textTransform: 'uppercase',
                                 backgroundColor: enr.status === 'active' ? 'rgba(16, 185, 129, 0.15)' :

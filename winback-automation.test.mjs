@@ -58,17 +58,15 @@ test('Option A Auto-Enrollment: strictly enrolls contacts newly reaching at-risk
   assert.equal(shouldEnroll3, false, 'Contact already past lapsed threshold should not enroll in at-risk winback');
 });
 
-test('Discount Safeguards: oncePerCustomer rule toggles correctly based on allowUnlimitedDiscountUse', () => {
-  const buildCoreDiscountRule = (code, value, allowUnlimited) => ({
-    code,
-    value,
-    discountType: 'percentage',
-    oncePerCustomer: !allowUnlimited
-  });
-
-  const singleUseDefault = buildCoreDiscountRule('WELCOMEBACK15', 15, false);
-  assert.equal(singleUseDefault.oncePerCustomer, true, 'Default should restrict coupon to 1 redemption per customer');
-
-  const unlimitedSetting = buildCoreDiscountRule('WELCOMEBACK15', 15, true);
-  assert.equal(unlimitedSetting.oncePerCustomer, false, 'Setting allowUnlimitedDiscountUse should allow repeat usage');
+test('Discount Safeguards: saving either setting creates no code in the store (R24)', async () => {
+  // This used to check a local copy of the rule that made WELCOMEBACK15 once per customer. The
+  // server no longer makes WELCOMEBACK15 or any code the merchant did not define, so the real
+  // function is asked instead, with either setting.
+  const { ensureShopifyCoreDiscounts } = await import('./server/routes/shopifyRoutes.mjs');
+  const saved = [];
+  const ctx = { realStoreDomain: () => '', adminToken: () => '', loadDiscounts: () => [], saveDiscounts: (d) => saved.push(d) };
+  for (const allowUnlimited of [false, true]) {
+    assert.deepEqual(await ensureShopifyCoreDiscounts({ id: 'ws', shopifyConfig: {} }, allowUnlimited, ctx), []);
+  }
+  assert.equal(saved.length, 0);
 });

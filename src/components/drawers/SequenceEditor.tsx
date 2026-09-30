@@ -1,11 +1,27 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Sparkles, RefreshCw, Plus, Trash2, Clock, Mail, MessageSquare,
   Copy, Check, Send, ShoppingBag, ExternalLink, CheckCircle2
 } from 'lucide-react';
 import type { SequenceNodeData, SequenceStep, Workspace } from '../../types/journey';
-import { requestAICopy } from '../../lib/hubClient';
+import { requestAICopyAnswer } from '../../lib/hubClient';
+import {
+  readEmailCopyAnswer,
+  planEmailCopyRows,
+  applyEmailCopyRows,
+  emailCopyGoal,
+  initialFocus,
+  joinLabels,
+  EMAIL_COPY_LABELS,
+  type CopyField,
+  type EmailCopyField,
+  type SuggestedCopy
+} from '../../lib/pageCopyProposal';
+import { CopyProposalCard } from './CopyProposalCard';
 import { authHeaders } from '../../lib/firebase';
+import { STUDIO_NOT_OPENED, emailStudioButtonLabel } from '../../lib/editorReturn';
+import { useFieldIds } from '../../lib/a11yHooks';
+import { sequencePreset, fillVoucherCode, type SequencePresetType } from '../../lib/sequencePresets';
 
 interface Props {
   data: SequenceNodeData;
@@ -15,6 +31,12 @@ interface Props {
   workspace?: Workspace | null;
   journeyId?: string;
   nodeId?: string;
+  /** Saves the journey, then opens Email Studio on this step's flow. Resolves false when the save did not land. */
+  onOpenEmailStudio?: () => Promise<boolean>;
+  /** True while that save is in flight. */
+  openingEmailStudio?: boolean;
+  /** True once, when the user came back from Email Studio to this step. */
+  focusStudioButton?: boolean;
 }
 
 type KlaviyoChoice = {
@@ -32,11 +54,16 @@ export const SequenceEditor: React.FC<Props> = ({
   businessType,
   workspace,
   journeyId,
-  nodeId
+  nodeId,
+  onOpenEmailStudio,
+  openingEmailStudio,
+  focusStudioButton
 }) => {
   const [activeStepIdx, setActiveStepIdx] = useState(0);
   const [loadingAI, setLoadingAI] = useState(false);
   const [editorTab, setEditorTab] = useState<'settings' | 'preview' | 'export'>('settings');
+  // Ties each label to its control (#19). Ids are unique per mounted editor.
+  const fid = useFieldIds();
 
   // Export & Test Send state
   const [copiedKlaviyo, setCopiedKlaviyo] = useState(false);
@@ -49,6 +76,19 @@ export const SequenceEditor: React.FC<Props> = ({
   const [klaviyoConnected, setKlaviyoConnected] = useState(false);
   const [klaviyoNotice, setKlaviyoNotice] = useState('');
   const [jourvanceFlows, setJourvanceFlows] = useState<{ id: string; name: string; enabled: boolean }[]>([]);
+  const studioButtonRef = useRef<HTMLButtonElement>(null);
+  const [studioNotice, setStudioNotice] = useState('');
+
+  // Coming back from Email Studio hands focus to the button that left, once.
+  useEffect(() => { if (focusStudioButton) studioButtonRef.current?.focus(); }, [focusStudioButton]);
+
+  // Email Studio opens only after the journey saved. When it did not, focus stays on the button
+  // and one sentence says why.
+  const openStudio = async () => {
+    if (!onOpenEmailStudio || openingEmailStudio) return;
+    setStudioNotice('');
+    if (!(await onOpenEmailStudio())) setStudioNotice(STUDIO_NOT_OPENED);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -94,20 +134,38 @@ export const SequenceEditor: React.FC<Props> = ({
   const steps = data.steps || [];
   const currentStep = steps[activeStepIdx] || steps[0];
 
+  // AI copy is a proposal until the person keeps it, as in the page editor. Anything that is not
+  // real hub-brain copy (template text, the hourly limit, no answer) is one sentence and changes
+  // nothing. `aiRequest` numbers each request so a reply landing after a letter switch or after
+  // the inspector closed is dropped.
+  const [proposal, setProposal] = useState<{ stepId: string; copy: SuggestedCopy<EmailCopyField> } | null>(null);
+  const [selectedFields, setSelectedFields] = useState<CopyField[]>([]);
+  const [aiNotice, setAiNotice] = useState('');
+  const aiRequest = useRef(0);
+  const polishButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    setProposal(null);
+    setAiNotice('');
+    setLoadingAI(false);
+    return () => { aiRequest.current++; };
+  }, [currentStep?.id]);
+
   const handleStepChange = (field: keyof SequenceStep, val: any) => {
     const updated = [...steps];
     updated[activeStepIdx] = { ...updated[activeStepIdx], [field]: val };
     onChange({ ...data, steps: updated });
   };
 
+  // A new letter starts empty, with the hints below saying what to write, and Check design asks for
+  // its words. It used to arrive with a subject about "your order" on journeys that sell nothing (T10).
   const addStep = () => {
     const newStep: SequenceStep = {
       id: `step-${Date.now()}`,
       channel: 'email',
       delay: '48 Hours',
-      subject: 'Follow-up regarding your order & routine',
-      previewText: 'Checking in with you...',
-      body: `Hi [First Name],\n\nWanted to quickly follow up to see if you had any questions regarding ${offerHeadline}.\n\nBest,\nThe Team`
+      subject: '',
+      previewText: '',
+      body: ''
     };
     const updated = [...steps, newStep];
     onChange({ ...data, steps: updated });
@@ -121,184 +179,72 @@ export const SequenceEditor: React.FC<Props> = ({
     setActiveStepIdx(Math.max(0, idx - 1));
   };
 
-  const loadEcommerceTemplate = (type: 'vip-welcome' | 'cart-recovery' | 'upsell-recovery' | 'winback' | 'review-request') => {
-    if (type === 'review-request') {
-      const reviewSteps: SequenceStep[] = [
-        {
-          id: `step-${Date.now()}-1`,
-          channel: 'email',
-          delay: '7 Days (168h)',
-          subject: 'How is your new ritual feeling? (A $10 treat inside)',
-          previewText: 'We would love your thoughts on your recent order',
-          body: `Hi [First Name],\n\nIt has been a week since your order arrived, and we hope your new ritual is already treating you wonderfully.\n\nCould you take 60 seconds to share your honest thoughts? As a thank you for helping fellow beauty lovers, we will instantly gift you $10 toward your next restock.\n\nLeave your review & claim your $10 treat:\n[Review Link]\n\nWith gratitude,\nCustomer Care`
-        },
-        {
-          id: `step-${Date.now()}-2`,
-          channel: 'email',
-          delay: '3 Days (72h)',
-          subject: 'Quick reminder: Your $10 beauty treat is waiting',
-          previewText: 'A fast 60 seconds to claim your courtesy voucher',
-          body: `Hi [First Name],\n\nJust a gentle reminder that your private $10 courtesy gift is still waiting for you.\n\nWhenever you have a quiet moment, let us know how your formulas are working for your skin:\n\nShare your review & get $10:\n[Review Link]\n\nWarmly,\nCustomer Care`
-        }
-      ];
-      onChange({
-        ...data,
-        sequenceTitle: 'Post-Purchase Review & Social Proof Engine',
-        sequenceType: 'fulfillment_review',
-        isRetentionBranch: true,
-        delayHours: 168,
-        voucherCode: data.voucherCode || 'REVIEW10',
-        smartExitOnPurchase: false,
-        steps: reviewSteps
-      });
-      setActiveStepIdx(0);
-    } else if (type === 'upsell-recovery') {
-      const rescueSteps: SequenceStep[] = [
-        {
-          id: `step-${Date.now()}-1`,
-          channel: 'email',
-          delay: '18 Hours',
-          subject: 'A private courtesy reservation for your recent order',
-          previewText: 'We held a private reservation on your companion formula',
-          body: `Hi [First Name],\n\nThank you again for your recent order! When preparing your allocation, our clinical team noticed you passed on the companion formula.\n\nBecause pairing the ritual together accelerates visible results, we held a private 24-hour courtesy reservation for your account with an extra 10% privilege.\n\nUse code [Voucher Code] at checkout:\n[Offer Link]\n\nWarmly,\nThe Concierge Team`
-        },
-        {
-          id: `step-${Date.now()}-2`,
-          channel: 'email',
-          delay: '36 Hours',
-          subject: 'Final reminder: Your courtesy reservation releases tonight',
-          previewText: 'Your reserved 10% privilege code is expiring',
-          body: `Hi [First Name],\n\nJust a gentle reminder that your private reservation and courtesy code [Voucher Code] expire tonight at midnight.\n\nIf you would like to complete your daily ritual with your reserved allocation, you can finalize it here:\n[Offer Link]\n\nWarmly,\nCustomer Concierge`
-        }
-      ];
-      onChange({
-        ...data,
-        sequenceTitle: '24h Courtesy Rescue (Upsell Decline)',
-        sequenceType: 'upsell_recovery',
-        isRetentionBranch: true,
-        delayHours: 18,
-        voucherCode: data.voucherCode || 'SAVE10',
-        smartExitOnPurchase: true,
-        steps: rescueSteps
-      });
-      setActiveStepIdx(0);
-    } else if (type === 'winback') {
-      const winbackSteps: SequenceStep[] = [
-        {
-          id: `step-${Date.now()}-1`,
-          channel: 'email',
-          delay: '72 Hours',
-          subject: 'We miss you — a special VIP invitation inside',
-          previewText: 'A personalized replenishment privilege for your routine',
-          body: `Hi [First Name],\n\nIt has been a little while since your last replenishment ritual, and we wanted to make sure your results are continuing smoothly.\n\nTo welcome you back, we added an exclusive 15% VIP credit to your account with code [Voucher Code].\n\nExplore your replenishment:\n[Offer Link]\n\nWarmly,\nThe Care Team`
-        }
-      ];
-      onChange({
-        ...data,
-        sequenceTitle: 'VIP Winback & Re-Engagement',
-        sequenceType: 'at_risk_winback',
-        isRetentionBranch: true,
-        delayHours: 72,
-        voucherCode: data.voucherCode || 'WELCOMEBACK15',
-        smartExitOnPurchase: true,
-        steps: winbackSteps
-      });
-      setActiveStepIdx(0);
-    } else if (type === 'vip-welcome') {
-      const vipSteps: SequenceStep[] = [
-        {
-          id: `step-${Date.now()}-1`,
-          channel: 'email',
-          delay: 'Instant (0m)',
-          subject: 'Welcome to our inner circle',
-          previewText: 'Your welcome privilege and ritual guide',
-          body: `Hi [First Name],\n\nWelcome to our community. We are delighted to have you with us.\n\nBest,\nThe Team`
-        },
-        {
-          id: `step-${Date.now()}-2`,
-          channel: 'email',
-          delay: '24 Hours',
-          subject: 'A guide to ' + offerHeadline,
-          previewText: 'How to maximize your everyday results',
-          body: `Hi [First Name],\n\nHere are the top three principles to keep in mind when starting your ritual with ${offerHeadline}.\n\nWarmly,\nThe Team`
-        },
-        {
-          id: `step-${Date.now()}-3`,
-          channel: 'email',
-          delay: '48 Hours',
-          subject: 'Still deciding on your selection?',
-          previewText: 'Our concierge is here to help with any questions',
-          body: `Hi [First Name],\n\nIf you have any questions about choosing the right formula or routine, reply directly to this email.\n\nWarmly,\nThe Team`
-        }
-      ];
-      onChange({
-        ...data,
-        sequenceTitle: 'VIP Welcome Sequence',
-        sequenceType: 'lead_nurture',
-        isRetentionBranch: false,
-        steps: vipSteps
-      });
-      setActiveStepIdx(0);
-    } else {
-      const abandonSteps: SequenceStep[] = [
-        {
-          id: `step-${Date.now()}-1`,
-          channel: 'email',
-          delay: '1 Hour',
-          subject: 'Your selections are waiting for you',
-          previewText: 'We held your cart so you do not lose your items',
-          body: `Hi [First Name],\n\nWe noticed you started your checkout but did not get to finish. Your items are temporarily held for you.\n\nYou can return directly to your cart here:\n[Checkout Link]\n\nWarmly,\nThe Team`
-        },
-        {
-          id: `step-${Date.now()}-2`,
-          channel: 'email',
-          delay: '24 Hours',
-          subject: 'A courtesy gift to complete your routine',
-          previewText: 'Enjoy a courtesy discount on your reserved cart',
-          body: `Hi [First Name],\n\nWe would love to help you get started. Enjoy courtesy code [Voucher Code] for extra savings on your order:\n\nReturn to checkout:\n[Checkout Link]\n\nBest,\nThe Team`
-        }
-      ];
-      onChange({
-        ...data,
-        sequenceTitle: 'Abandoned Checkout Recovery',
-        sequenceType: 'checkout_recovery',
-        isRetentionBranch: true,
-        delayHours: 1,
-        voucherCode: data.voucherCode || 'COMPLETE10',
-        smartExitOnPurchase: true,
-        steps: abandonSteps
-      });
-      setActiveStepIdx(0);
-    }
+  // Presets write "Replace this" drafts and leave the voucher code as the person set it (C46).
+  const loadEcommerceTemplate = (type: SequencePresetType) => {
+    onChange({ ...data, ...sequencePreset(type) });
+    setActiveStepIdx(0);
   };
 
   const generateStepCopy = async () => {
+    const step = currentStep;
+    if (!step) return;
+    const ticket = ++aiRequest.current;
+    setAiNotice('');
+    setProposal(null);
     setLoadingAI(true);
     try {
-      const copy = await requestAICopy({
+      const answer = await requestAICopyAnswer({
         nodeType: 'email',
         businessType: businessType || 'E-Commerce Store',
-        offerHeadline: currentStep?.subject || offerHeadline,
-        goal: `E-commerce customer journey email step for lead after ${currentStep?.delay || 'initial contact'}`
+        offerHeadline: step.subject || offerHeadline,
+        goal: emailCopyGoal(step.delay)
       });
-      if (copy) {
-        handleStepChange('subject', copy.subject || currentStep.subject);
-        handleStepChange('previewText', copy.preview || currentStep.previewText);
-        handleStepChange('body', copy.body || currentStep.body);
+      // The letter changed or the inspector closed while this was in flight.
+      if (ticket !== aiRequest.current) return;
+      const read = readEmailCopyAnswer(answer as { status: number; body: any } | null);
+      if (read.kind === 'unavailable') {
+        setAiNotice(read.message);
+        return;
       }
+      const rows = planEmailCopyRows(step, read.copy);
+      if (rows.length === 0) {
+        setAiNotice('The suggestion matches this letter. Nothing was changed.');
+        return;
+      }
+      setProposal({ stepId: step.id, copy: read.copy });
+      setSelectedFields(rows.map(r => r.field));
     } finally {
-      setLoadingAI(false);
+      if (ticket === aiRequest.current) setLoadingAI(false);
     }
   };
 
+  // Planned from the live letter on every render, so "Now" is what the field holds this moment.
+  const proposalStep = proposal ? steps.find(s => s.id === proposal.stepId) : undefined;
+  const proposalRows = proposal && proposalStep ? planEmailCopyRows(proposalStep, proposal.copy) : [];
+
+  // The kept fields land in ONE onChange built from the current steps. Three field-by-field writes
+  // each copied the same stale steps, so only the last one landed.
+  const applyProposal = () => {
+    if (!proposal) return;
+    const fields = selectedFields.filter(f => proposalRows.some(r => r.field === f));
+    if (fields.length > 0) onChange({ ...data, steps: applyEmailCopyRows(steps, proposal.stepId, proposal.copy, fields) });
+    setProposal(null);
+    setAiNotice(fields.length > 0 ? `Updated ${joinLabels(fields.map(f => EMAIL_COPY_LABELS[f as EmailCopyField]))}.` : '');
+    polishButtonRef.current?.focus();
+  };
+
+  const keepCopy = () => {
+    setProposal(null);
+    polishButtonRef.current?.focus();
+  };
+
   const copyForKlaviyo = () => {
-    const vCode = data.voucherCode || 'SAVE10';
+    const vCode = (text: string) => fillVoucherCode(text, data.voucherCode);
     const text = steps
       .map(
         (s, i) =>
-          `EMAIL #${i + 1} (${s.delay})\nSubject: ${s.subject.replace(/\[Voucher Code\]/g, vCode)}\nPreview: ${(s.previewText || '').replace(/\[Voucher Code\]/g, vCode)}\n\n${s.body
+          `EMAIL #${i + 1} (${s.delay})\nSubject: ${vCode(s.subject)}\nPreview: ${vCode(s.previewText || '')}\n\n${vCode(s.body)
             .replace(/\[First Name\]/g, "{{ first_name|default:'there' }}")
-            .replace(/\[Voucher Code\]/g, vCode)
             .replace(/\[Offer Link\]/g, '{{ event.extra.offer_url|default:shop.url }}')
             .replace(/\[Checkout Link\]/g, '{{ event.checkout_url }}')}\n-----------------------------------\n`
       )
@@ -309,15 +255,14 @@ export const SequenceEditor: React.FC<Props> = ({
   };
 
   const copyForShopify = () => {
-    const vCode = data.voucherCode || 'SAVE10';
+    const vCode = (text: string) => fillVoucherCode(text, data.voucherCode);
     const html = steps
       .map(
         (s, i) =>
-          `<!-- EMAIL #${i + 1} (${s.delay}) -->\n<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b;">\n  <h2>${s.subject.replace(/\[Voucher Code\]/g, vCode)}</h2>\n  <p>${s.body
+          `<!-- EMAIL #${i + 1} (${s.delay}) -->\n<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b;">\n  <h2>${vCode(s.subject)}</h2>\n  <p>${vCode(s.body)
             .replace(/\n/g, '<br/>')
             .replace(/\[First Name\]/g, '{{ customer.first_name }}')
-            .replace(/\[Voucher Code\]/g, vCode)
-            .replace(/\[Offer Link\]/g, '<a href="{{ offer_url }}">Claim Courtesy Reservation</a>')
+            .replace(/\[Offer Link\]/g, '<a href="{{ offer_url }}">View the offer</a>')
             .replace(/\[Checkout Link\]/g, '<a href="{{ checkout_url }}">Complete Checkout</a>')}</p>\n</div>\n\n`
       )
       .join('\n');
@@ -380,7 +325,29 @@ export const SequenceEditor: React.FC<Props> = ({
             ))}
           </select>
         </label>
-        {jourvanceFlows.length === 0 && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>Build a flow in Email Studio. This node waits until one is chosen.</p>}
+        {onOpenEmailStudio && (
+          <button
+            ref={studioButtonRef}
+            type="button"
+            onClick={openStudio}
+            aria-disabled={openingEmailStudio || undefined}
+            style={{
+              alignSelf: 'flex-start',
+              padding: '6px 10px',
+              borderRadius: 6,
+              background: 'rgba(245, 158, 11, 0.16)',
+              border: '1px solid rgba(245, 158, 11, 0.45)',
+              color: '#FDE68A',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: openingEmailStudio ? 'wait' : 'pointer'
+            }}
+          >
+            {openingEmailStudio ? 'Saving\u2026' : emailStudioButtonLabel(Boolean(data.jourvanceFlowId))}
+          </button>
+        )}
+        {onOpenEmailStudio && <p role="status" style={{ margin: 0, fontSize: '12px', color: '#FCA5A5' }}>{studioNotice}</p>}
+        {jourvanceFlows.length === 0 && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>This step waits until a flow is chosen.</p>}
       </div>
       <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.28)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <div style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6' }}>Hand this email to Klaviyo</div>
@@ -424,8 +391,10 @@ export const SequenceEditor: React.FC<Props> = ({
         {linked && <p style={{ margin: 0, fontSize: '12px', color: '#e5e7eb' }}>{linked.handoff}</p>}
         {klaviyoNotice && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>{klaviyoNotice}</p>}
       </div>
-      {/* Tab Switcher */}
+      {/* Tab Switcher: aria-pressed says which view is showing, as the header's view tabs do. */}
       <div
+        role="group"
+        aria-label="Editor view"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -437,6 +406,7 @@ export const SequenceEditor: React.FC<Props> = ({
       >
         <button
           type="button"
+          aria-pressed={editorTab === 'settings'}
           onClick={() => setEditorTab('settings')}
           style={{
             flex: 1,
@@ -455,6 +425,7 @@ export const SequenceEditor: React.FC<Props> = ({
         </button>
         <button
           type="button"
+          aria-pressed={editorTab === 'preview'}
           onClick={() => setEditorTab('preview')}
           style={{
             flex: 1,
@@ -473,6 +444,7 @@ export const SequenceEditor: React.FC<Props> = ({
         </button>
         <button
           type="button"
+          aria-pressed={editorTab === 'export'}
           onClick={() => setEditorTab('export')}
           style={{
             flex: 1,
@@ -590,6 +562,7 @@ export const SequenceEditor: React.FC<Props> = ({
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="email"
+                aria-label="Test email address"
                 placeholder="your.email@example.com"
                 value={testEmail}
                 onChange={e => setTestEmail(e.target.value)}
@@ -634,11 +607,12 @@ export const SequenceEditor: React.FC<Props> = ({
       {editorTab === 'preview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {/* Step Selector for Preview */}
-          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
+          <div role="group" aria-label="Letter to preview" style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
             {steps.map((step, idx) => (
               <button
                 key={step.id}
                 type="button"
+                aria-pressed={activeStepIdx === idx}
                 onClick={() => setActiveStepIdx(idx)}
                 style={{
                   padding: '5px 10px',
@@ -682,28 +656,31 @@ export const SequenceEditor: React.FC<Props> = ({
                   </div>
                 </div>
               </div>
-              <span style={{ fontSize: '10px', color: '#64748B', fontFamily: 'monospace' }}>
+              <span style={{ fontSize: '11px', color: '#64748B', fontFamily: 'monospace' }}>
                 {currentStep.delay}
               </span>
             </div>
 
             <div style={{ marginBottom: '12px' }}>
               <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF', marginBottom: '4px' }}>
-                {currentStep.subject.replace(/\[Voucher Code\]/g, data.voucherCode || 'SAVE10')}
+                {currentStep.subject
+                  ? fillVoucherCode(currentStep.subject, data.voucherCode)
+                  : <span style={{ color: '#94A3B8', fontStyle: 'italic', fontWeight: 400 }}>No subject line yet</span>}
               </div>
               {currentStep.previewText && (
                 <div style={{ fontSize: '12px', color: '#94A3B8', fontStyle: 'italic' }}>
-                  Preview: {currentStep.previewText.replace(/\[Voucher Code\]/g, data.voucherCode || 'SAVE10')}
+                  Preview: {fillVoucherCode(currentStep.previewText, data.voucherCode)}
                 </div>
               )}
             </div>
 
             <div style={{ whiteSpace: 'pre-wrap', fontSize: '13px', color: '#E2E8F0', lineHeight: 1.6, padding: '12px', backgroundColor: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-              {currentStep.body
-                .replace(/\[First Name\]/g, 'Sophia')
-                .replace(/\[Voucher Code\]/g, data.voucherCode || 'SAVE10')
-                .replace(/\[Offer Link\]/g, 'https://yourstore.com/p/courtesy-ritual')
-                .replace(/\[Checkout Link\]/g, 'https://yourstore.com/checkout/c8f2a1')}
+              {currentStep.body?.trim()
+                ? fillVoucherCode(currentStep.body, data.voucherCode)
+                  .replace(/\[First Name\]/g, 'Sophia')
+                  .replace(/\[Offer Link\]/g, 'https://yourstore.com/p/courtesy-ritual')
+                  .replace(/\[Checkout Link\]/g, 'https://yourstore.com/checkout/c8f2a1')
+                : <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>No message written yet</span>}
             </div>
           </div>
         </div>
@@ -714,10 +691,10 @@ export const SequenceEditor: React.FC<Props> = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {/* E-Commerce Flow Presets Grid */}
           <div>
-            <div style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8', marginBottom: '6px' }}>
+            <div id={fid('blueprints')} style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8', marginBottom: '6px' }}>
               Pre-built Sequence Blueprints
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <div role="group" aria-labelledby={fid('blueprints')} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <button
                 type="button"
                 onClick={() => loadEcommerceTemplate('upsell-recovery')}
@@ -802,7 +779,7 @@ export const SequenceEditor: React.FC<Props> = ({
                   gridColumn: 'span 2'
                 }}
               >
-                ✦ 7-Day Review & VIP Reward ($10 Gift)
+                ✦ 7-Day Review Request
               </button>
             </div>
           </div>
@@ -826,7 +803,7 @@ export const SequenceEditor: React.FC<Props> = ({
               </div>
               <span
                 style={{
-                  fontSize: '9px',
+                  fontSize: '11px',
                   fontWeight: 700,
                   padding: '2px 6px',
                   borderRadius: '9999px',
@@ -840,10 +817,11 @@ export const SequenceEditor: React.FC<Props> = ({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '10px', color: '#94A3B8', marginBottom: '3px' }}>
+                <label htmlFor={fid('role')} style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '3px' }}>
                   Sequence Branch Role
                 </label>
                 <select
+                  id={fid('role')}
                   value={data.sequenceType || 'lead_nurture'}
                   onChange={e => {
                     const nextType = e.target.value as SequenceNodeData['sequenceType'];
@@ -852,7 +830,7 @@ export const SequenceEditor: React.FC<Props> = ({
                       ...data,
                       sequenceType: nextType,
                       isRetentionBranch: isRet,
-                      delayHours: data.delayHours || (nextType === 'upsell_recovery' ? 18 : nextType === 'checkout_recovery' ? 1 : nextType === 'fulfillment_review' ? 168 : 24)
+                      delayHours: data.delayHours ?? (nextType === 'upsell_recovery' ? 18 : nextType === 'checkout_recovery' ? 1 : nextType === 'fulfillment_review' ? 168 : 24)
                     });
                   }}
                   style={{
@@ -870,21 +848,26 @@ export const SequenceEditor: React.FC<Props> = ({
                   <option value="upsell_recovery">24h Courtesy Rescue (Decline)</option>
                   <option value="checkout_recovery">Cart Abandon Recovery</option>
                   <option value="at_risk_winback">VIP Winback Series</option>
-                  <option value="fulfillment_review">7-Day Review & VIP Reward (Fulfillment)</option>
+                  <option value="fulfillment_review">7-Day Review Request (Fulfillment)</option>
                 </select>
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '10px', color: '#94A3B8', marginBottom: '3px' }}>
+                <label htmlFor={fid('delay-hours')} style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '3px' }}>
                   Trigger Delay Hours
                 </label>
                 <input
+                  id={fid('delay-hours')}
                   type="number"
                   min="0"
                   max="720"
-                  value={data.delayHours ?? 18}
-                  onChange={e => onChange({ ...data, delayHours: parseInt(e.target.value, 10) || 0 })}
-                  placeholder="e.g. 18"
+                  value={data.delayHours ?? ''}
+                  onChange={e => {
+                    // Blank is 'Wait not set' on the map, not a wait of 0 or 18 hours.
+                    const v = e.target.value;
+                    onChange({ ...data, delayHours: v === '' ? undefined : Math.max(0, parseInt(v, 10) || 0) });
+                  }}
+                  placeholder="Not set"
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
@@ -902,10 +885,11 @@ export const SequenceEditor: React.FC<Props> = ({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', alignItems: 'center' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '10px', color: '#94A3B8', marginBottom: '3px' }}>
+                <label htmlFor={fid('voucher')} style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '3px' }}>
                   Discount Voucher Code
                 </label>
                 <input
+                  id={fid('voucher')}
                   type="text"
                   value={data.voucherCode || ''}
                   onChange={e => onChange({ ...data, voucherCode: e.target.value.toUpperCase() })}
@@ -937,7 +921,7 @@ export const SequenceEditor: React.FC<Props> = ({
                 </label>
               </div>
             </div>
-            <p style={{ margin: 0, fontSize: '10px', color: '#94A3B8', lineHeight: 1.4 }}>
+            <p style={{ margin: 0, fontSize: '11px', color: '#94A3B8', lineHeight: 1.4 }}>
               Clients automatically exit this sequence the moment Shopify records an order.
             </p>
           </div>
@@ -966,7 +950,7 @@ export const SequenceEditor: React.FC<Props> = ({
             </button>
           </div>
 
-          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
+          <div role="group" aria-label="Letters in this sequence" style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
             {steps.map((step, idx) => (
               <div
                 key={step.id}
@@ -982,6 +966,8 @@ export const SequenceEditor: React.FC<Props> = ({
               >
                 <button
                   type="button"
+                  aria-label={`Letter ${idx + 1}`}
+                  aria-pressed={activeStepIdx === idx}
                   onClick={() => setActiveStepIdx(idx)}
                   style={{
                     background: 'transparent',
@@ -998,6 +984,7 @@ export const SequenceEditor: React.FC<Props> = ({
                 {steps.length > 1 && (
                   <button
                     type="button"
+                    aria-label={`Remove letter ${idx + 1}`}
                     onClick={() => removeStep(idx)}
                     style={{ background: 'transparent', border: 'none', color: '#64748B', cursor: 'pointer', padding: '0 2px' }}
                   >
@@ -1015,9 +1002,11 @@ export const SequenceEditor: React.FC<Props> = ({
                 Editing Email #{activeStepIdx + 1}
               </span>
               <button
+                ref={polishButtonRef}
                 type="button"
                 onClick={generateStepCopy}
                 disabled={loadingAI}
+                aria-busy={loadingAI}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1032,16 +1021,41 @@ export const SequenceEditor: React.FC<Props> = ({
                   cursor: loadingAI ? 'not-allowed' : 'pointer'
                 }}
               >
-                {loadingAI ? <RefreshCw size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                {loadingAI ? <RefreshCw size={11} className="animate-spin" aria-hidden="true" /> : <Sparkles size={11} aria-hidden="true" />}
                 <span>AI Polish</span>
               </button>
             </div>
+            <p
+              role="status"
+              style={{
+                margin: aiNotice ? '-4px 0 0' : '-12px 0 0',
+                fontSize: '12px',
+                lineHeight: 1.45,
+                color: aiNotice.endsWith('Nothing was changed.') ? '#FBBF24' : '#34D399',
+                overflowWrap: 'anywhere'
+              }}
+            >
+              {aiNotice}
+            </p>
+
+            {proposal && proposal.stepId === currentStep?.id && proposalRows.length > 0 && (
+              <CopyProposalCard
+                rows={proposalRows}
+                heading={`Suggested copy for email #${activeStepIdx + 1}`}
+                selected={selectedFields}
+                onToggle={field => setSelectedFields(cur => cur.includes(field) ? cur.filter(f => f !== field) : [...cur, field])}
+                onUse={applyProposal}
+                onKeep={keepCopy}
+                focusFirst={initialFocus(proposalRows)}
+              />
+            )}
 
             <div>
-              <label style={{ display: 'block', fontSize: '11px', color: '#9ca3af', marginBottom: '4px' }}>
+              <label htmlFor={fid('delay')} style={{ display: 'block', fontSize: '11px', color: '#9ca3af', marginBottom: '4px' }}>
                 Delivery Delay
               </label>
               <input
+                id={fid('delay')}
                 type="text"
                 value={currentStep.delay}
                 onChange={e => handleStepChange('delay', e.target.value)}
@@ -1061,13 +1075,15 @@ export const SequenceEditor: React.FC<Props> = ({
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '11px', color: '#9ca3af', marginBottom: '4px' }}>
+              <label htmlFor={fid('subject')} style={{ display: 'block', fontSize: '11px', color: '#9ca3af', marginBottom: '4px' }}>
                 Subject Line
               </label>
               <input
+                id={fid('subject')}
                 type="text"
-                value={currentStep.subject}
+                value={currentStep.subject || ''}
                 onChange={e => handleStepChange('subject', e.target.value)}
+                placeholder="What this email is about, in a few words"
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
@@ -1082,14 +1098,43 @@ export const SequenceEditor: React.FC<Props> = ({
               />
             </div>
 
+            {/* The inbox line under the subject. It had no field here, so the starter's draft could not be replaced (T10). */}
+            {currentStep.channel !== 'sms' && (
+              <div>
+                <label htmlFor={fid('preview-text')} style={{ display: 'block', fontSize: '11px', color: '#9ca3af', marginBottom: '4px' }}>
+                  Preview Text
+                </label>
+                <input
+                  id={fid('preview-text')}
+                  type="text"
+                  value={currentStep.previewText || ''}
+                  onChange={e => handleStepChange('previewText', e.target.value)}
+                  placeholder="The line an inbox shows after the subject"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: '#0a0a0f',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            )}
+
             <div>
-              <label style={{ display: 'block', fontSize: '11px', color: '#9ca3af', marginBottom: '4px' }}>
+              <label htmlFor={fid('body')} style={{ display: 'block', fontSize: '11px', color: '#9ca3af', marginBottom: '4px' }}>
                 Letter Body (Supports [First Name], [Checkout Link])
               </label>
               <textarea
+                id={fid('body')}
                 rows={6}
-                value={currentStep.body}
+                value={currentStep.body || ''}
                 onChange={e => handleStepChange('body', e.target.value)}
+                placeholder="Hi [First Name], then the one next step you want this person to take"
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
@@ -1105,8 +1150,8 @@ export const SequenceEditor: React.FC<Props> = ({
                 }}
               />
               {/* Merge Tag Helpers */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: '6px' }}>
-                <span style={{ fontSize: '10px', color: '#64748B' }}>Insert Tag:</span>
+              <div role="group" aria-labelledby={fid('tags')} style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: '6px' }}>
+                <span id={fid('tags')} style={{ fontSize: '11px', color: '#64748B' }}>Insert Tag:</span>
                 {[
                   ['First Name', '[First Name]'],
                   ['Voucher Code', '[Voucher Code]'],
@@ -1123,7 +1168,7 @@ export const SequenceEditor: React.FC<Props> = ({
                       backgroundColor: 'rgba(255, 255, 255, 0.06)',
                       border: '1px solid rgba(255, 255, 255, 0.1)',
                       color: '#E2E8F0',
-                      fontSize: '10px',
+                      fontSize: '11px',
                       fontWeight: 600,
                       cursor: 'pointer'
                     }}

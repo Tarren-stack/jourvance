@@ -9,16 +9,30 @@ import {
 } from './server/reviewEngine.mjs';
 
 describe('Live Verified UGC Social Proof Wall & Testimonial Injector (Phase 13 & 14)', () => {
-  it('1. Provides high-converting default curated reviews when storage is empty', () => {
+  it('1. An empty store answers no reviews, no rating and a zero count, never sample reviews (R24)', () => {
     const mockHub = {
       get: () => []
     };
     const result = getPublicVerifiedReviews({ hubStorage: mockHub });
-    assert.ok(result.summary);
-    assert.equal(result.summary.averageRating, 4.9);
-    assert.ok(result.reviews.length >= 3, 'Should provide at least 3 curated beauty reviews');
-    assert.equal(result.reviews[0].customerName, 'Elena V.');
-    assert.ok(result.reviews[0].verifiedBuyer, 'Curated reviews should be verified');
+    assert.deepEqual(result.reviews, []);
+    assert.deepEqual(result.summary, { averageRating: null, totalCount: 0, fiveStarPercentage: null });
+    assert.ok(DEFAULT_CURATED_REVIEWS.every(c => !result.reviews.some(r => r.id === c.id)));
+  });
+
+  it('1b. A merchant sees only reviews stored under their own userId, never usr_default or unowned ones (R24)', () => {
+    const mockHub = {
+      get: () => [
+        { id: 'mine', userId: 'u1', rating: 5 },
+        { id: 'def', userId: 'usr_default', rating: 5 },
+        { id: 'none', rating: 5 },
+        { id: 'other', userId: 'u2', rating: 5 },
+        { id: 'unrated', userId: 'u1' }
+      ]
+    };
+    const result = getPublicVerifiedReviews({ userId: 'u1', hubStorage: mockHub });
+    assert.deepEqual(result.reviews.map(r => r.id), ['mine']);
+    assert.equal(result.summary.totalCount, 1);
+    assert.equal(result.summary.fiveStarPercentage, 100);
   });
 
   it('2. Sanitizes customer names to First L. and completely hides email PII', () => {
@@ -120,7 +134,8 @@ describe('Live Verified UGC Social Proof Wall & Testimonial Injector (Phase 13 &
     assert.ok(html.includes('jv-ugc-wall'), 'Must include wall section');
     assert.ok(html.includes('Loved by Thousands of Radiant Routines'), 'Must include title');
     assert.ok(html.includes('4.9 / 5.0'), 'Must include average rating');
-    assert.ok(html.includes('180+ Verified Client Reviews'), 'Must include count');
+    assert.ok(html.includes('<span>180 reviews</span>'), 'Must include the exact count');
+    assert.ok(!html.includes('Verified Client Reviews') && !html.includes('verified community'), 'No invented count wording or subtitle');
     assert.ok(html.includes('jv-ugc-cards-wrap'), 'Must include horizontal cards container');
     assert.ok(html.includes('scroll-snap-type: x mandatory'), 'Must include mobile scroll snap CSS');
     assert.ok(html.includes('grid-template-columns: repeat(3, 1fr)'), 'Must include desktop 3-column grid CSS');
@@ -174,7 +189,8 @@ describe('Live Verified UGC Social Proof Wall & Testimonial Injector (Phase 13 &
     const result = submitCustomerReview({
       orderId: 'ORD_992',
       customerEmail: 'taylor@glow.com',
-      photos: [oversizedPhoto, nonImageScript, validPhoto],
+      rating: 5,
+      photos: [oversizedPhoto, nonImageScript, validPhoto, 'data:image/svg+xml,<svg onload=alert(1)>', "https://x.test/a.png');alert(1);('"],
       hubStorage: mockHub
     });
 
@@ -200,6 +216,9 @@ describe('Live Verified UGC Social Proof Wall & Testimonial Injector (Phase 13 &
     assert.ok(html.includes('jv-ugc-photos'), 'Must include thumbnail strip');
     assert.ok(html.includes('jv-ugc-photo-thumb'), 'Must include photo thumbnail card');
     assert.ok(html.includes('openJvLightbox'), 'Must include lightbox open handler');
+    assert.ok(html.includes('<button type="button" class="jv-ugc-photo-thumb" data-jv-photo="data:image/webp;base64,testphotodata" aria-label="Open customer photo">'), 'Each photo is a named button');
+    assert.ok(!/onclick="[^"]*openJvLightbox/.test(html), 'No photo URL inside an inline handler');
+    assert.ok(html.includes('role="dialog" aria-modal="true"'), 'The lightbox is a modal dialog');
     assert.ok(html.includes('jv-ugc-lightbox'), 'Must include lightbox modal container');
     assert.ok(html.includes('jv-lightbox-overlay'), 'Must include frosted glass lightbox overlay');
   });

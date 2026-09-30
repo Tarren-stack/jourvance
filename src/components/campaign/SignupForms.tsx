@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
+import { NEW_FORM_COPY, SIGNUP_PRESETS, type SignupPreset } from '../../lib/offerPresets';
 
 type FormType = 'popup' | 'bar' | 'embed' | 'flyout' | 'page';
 type Slice = { label: string; coupon: { name: string; discountType: string; value: number } };
@@ -68,47 +69,9 @@ const TYPES: { id: FormType; label: string }[] = [
   { id: 'page', label: 'Full Page' }
 ];
 
-const BEAUTY_PRESETS = [
-  {
-    name: '15% Welcome Ritual (Exit-Intent)',
-    type: 'popup' as FormType,
-    headline: 'Claim Your 15% Welcome Ritual',
-    body: 'Join our private botanical community to receive 15% off your first order, complimentary samples, and early access to limited seasonal formulations.',
-    buttonText: 'Unlock My 15% Gift',
-    successMessage: 'Your 15% courtesy code is unlocked below. Welcome to the ritual.',
-    teaser: '15% Off Your First Order',
-    teaserClosed: 'Unlock 15% Off',
-    coupon: { name: 'WELCOME15', discountType: 'percentage', value: 15 },
-    delaySeconds: 5,
-    rules: { exit: true, scrollPercent: 0, device: 'any' as const, hideSubmitted: true, showAgainDays: 7, urlContains: '', utmKey: '', utmValue: '' }
-  },
-  {
-    name: 'VIP Sanctuary Early Access',
-    type: 'flyout' as FormType,
-    headline: 'Private VIP Sanctuary Access',
-    body: 'Be the first to experience small-batch drops, private skincare masterclasses, and secret subscriber-only archival sales.',
-    buttonText: 'Enter The Sanctuary',
-    successMessage: 'Welcome to the Sanctuary. Your VIP member privileges are now active.',
-    teaser: 'VIP Private Access',
-    teaserClosed: 'VIP Access',
-    coupon: { name: 'SANCTUARY', discountType: 'percentage', value: 10 },
-    delaySeconds: 8,
-    rules: { exit: false, scrollPercent: 35, device: 'any' as const, hideSubmitted: true, showAgainDays: 14, urlContains: '', utmKey: '', utmValue: '' }
-  },
-  {
-    name: 'Free Shipping Floating Bar',
-    type: 'bar' as FormType,
-    headline: 'Complimentary Express Shipping on Orders $50+',
-    body: 'Subscribe today to unlock free priority delivery and a complimentary botanical travel bag with your first order.',
-    buttonText: 'Unlock Free Delivery',
-    successMessage: 'Free shipping voucher unlocked! Use code FREESHIP at checkout.',
-    teaser: 'Free Express Delivery Available',
-    teaserClosed: 'Free Shipping Voucher',
-    coupon: { name: 'FREESHIP', discountType: 'percentage', value: 10 },
-    delaySeconds: 2,
-    rules: { exit: false, scrollPercent: 0, device: 'any' as const, hideSubmitted: true, showAgainDays: 3, urlContains: '', utmKey: '', utmValue: '' }
-  }
-];
+// The starter forms (src/lib/offerPresets.ts) set the format and the trigger and carry no coupon:
+// the old ones saved WELCOME15, SANCTUARY and FREESHIP, minted for every visitor, with copy
+// promising gifts, samples and shipping offers the store never set (T13). A code is the merchant's.
 
 export const SignupForms: React.FC = () => {
   const [forms, setForms] = useState<SignupForm[]>([]);
@@ -140,13 +103,8 @@ export const SignupForms: React.FC = () => {
       body: JSON.stringify({
         name: `${typeLabel} Campaign`,
         type,
-        headline: 'Join Our Private Community',
-        body: 'Subscribe to receive exclusive beauty perks, seasonal formula previews, and surprise gifts.',
-        buttonText: 'Claim My Gift',
-        successMessage: 'Welcome to our community! Your coupon is unlocked below.',
-        teaser: 'Special Gift Inside',
-        teaserClosed: 'Unlock Offer',
-        coupon: { name: 'WELCOME10', discountType: 'percentage', value: 10 },
+        ...NEW_FORM_COPY,
+        coupon: null,
         rules: { exit: false, scrollPercent: 0, device: 'any', hideSubmitted: true, showAgainDays: 7, urlContains: '', utmKey: '', utmValue: '' }
       })
     });
@@ -155,14 +113,15 @@ export const SignupForms: React.FC = () => {
     await load();
   };
 
-  const createWithPreset = async (preset: typeof BEAUTY_PRESETS[0]) => {
+  const createWithPreset = async (preset: SignupPreset) => {
+    const { summary: _summary, ...form } = preset;
     const res = await fetch('/api/email/forms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-      body: JSON.stringify(preset)
+      body: JSON.stringify({ ...form, coupon: null })
     });
     const data = await readJson(res);
-    setNotice(data?.error || `Created "${preset.name}". Preview or edit below.`);
+    setNotice(data?.error || `Created "${preset.name}". Add your own discount code in its settings if you want one.`);
     await load();
   };
 
@@ -233,14 +192,14 @@ export const SignupForms: React.FC = () => {
         </div>
       </div>
 
-      {/* 1-Click Luxury Beauty Presets Bar */}
+      {/* Starter forms: a format and a trigger, no code */}
       <div style={{ backgroundColor: '#1e293b', padding: '14px 18px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: '#cbd5e1', marginBottom: '10px' }}>
           <Gift size={14} color="#ec4899" />
-          <span>1-Click High-Converting Beauty Presets</span>
+          <span>Starter forms</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' }}>
-          {BEAUTY_PRESETS.map((preset, idx) => (
+          {SIGNUP_PRESETS.map((preset, idx) => (
             <button
               key={idx}
               type="button"
@@ -260,12 +219,12 @@ export const SignupForms: React.FC = () => {
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '12px', fontWeight: 700, color: '#f3f4f6' }}>{preset.name}</span>
-                <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(236, 72, 153, 0.2)', color: '#f472b6', fontWeight: 700 }}>
-                  {preset.coupon.name}
+                <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(236, 72, 153, 0.2)', color: '#f472b6', fontWeight: 700 }}>
+                  {TYPES.find((row) => row.id === preset.type)?.label || preset.type}
                 </span>
               </div>
-              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {preset.headline}
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+                {preset.summary}
               </div>
             </button>
           ))}
@@ -295,7 +254,7 @@ export const SignupForms: React.FC = () => {
           <div style={{ textAlign: 'center', padding: '40px 0', backgroundColor: '#121217', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.06)', color: '#94a3b8' }}>
             <Layers size={32} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
             <div style={{ fontSize: '14px', fontWeight: 600, color: '#ffffff' }}>No signup forms active yet</div>
-            <div style={{ fontSize: '12px', marginTop: '4px' }}>Choose a preset above or click + Center Popup to build your first high-converting storefront form.</div>
+            <div style={{ fontSize: '12px', marginTop: '4px' }}>Choose a starter form above or click + Center Popup to build your first storefront form.</div>
           </div>
         )}
       </div>
@@ -320,7 +279,9 @@ const FormCard: React.FC<{
 }> = ({ form, onSave, onDelete, onPreview }) => {
   const [draft, setDraft] = useState(form);
   const [expanded, setExpanded] = useState(false);
-  useEffect(() => setDraft(form), [form]);
+  // The percentage typed before a code name is kept here, so no code exists until one is named.
+  const [couponValue, setCouponValue] = useState(form.coupon ? String(form.coupon.value) : '');
+  useEffect(() => { setDraft(form); setCouponValue(form.coupon ? String(form.coupon.value) : ''); }, [form]);
 
   const set = (patch: Partial<SignupForm>) => setDraft({ ...draft, ...patch });
   const rules = draft.rules || { urlContains: '', utmKey: '', utmValue: '', device: 'any' as const, hideSubmitted: true, scrollPercent: 0, exit: false, showAgainDays: 0 };
@@ -345,10 +306,10 @@ const FormCard: React.FC<{
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontWeight: 700, fontSize: '15px', color: '#f3f4f6' }}>{form.name}</span>
-              <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', backgroundColor: 'rgba(255, 255, 255, 0.08)', color: '#cbd5e1' }}>
+              <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', backgroundColor: 'rgba(255, 255, 255, 0.08)', color: '#cbd5e1' }}>
                 {form.type}
               </span>
-              <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, backgroundColor: form.enabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: form.enabled ? '#34d399' : '#f87171' }}>
+              <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 700, backgroundColor: form.enabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: form.enabled ? '#34d399' : '#f87171' }}>
                 {form.enabled ? 'Live on Store' : 'Draft / Paused'}
               </span>
             </div>
@@ -463,31 +424,44 @@ const FormCard: React.FC<{
             </div>
           </div>
 
-          {/* Coupon Section */}
+          {/* Coupon Section: empty unless the merchant names a code; only that code is ever minted (T13) */}
           <div style={{ backgroundColor: 'rgba(236, 72, 153, 0.05)', border: '1px solid rgba(236, 72, 153, 0.2)', padding: '12px 14px', borderRadius: '8px' }}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', marginBottom: '8px' }}>
-              Shopify Courtesy Coupon Reward
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', marginBottom: '4px' }}>
+              Discount code (optional)
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
+            <div id={`coupon-hint-${form.id}`} style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px', lineHeight: 1.4 }}>
+              Leave empty for no code. With a name and a percentage, each person who signs up gets their own code, created in your Shopify store.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
               <div>
-                <label style={{ fontSize: '11px', color: '#9ca3af' }}>Coupon Code Name</label>
+                <label htmlFor={`coupon-name-${form.id}`} style={{ fontSize: '11px', color: '#9ca3af' }}>Code name</label>
                 <input
+                  id={`coupon-name-${form.id}`}
+                  aria-describedby={`coupon-hint-${form.id}`}
                   style={field}
-                  placeholder="e.g. WELCOME15"
+                  placeholder="Your code name"
                   value={draft.coupon?.name || ''}
-                  onChange={(e) => set({ coupon: { name: e.target.value, discountType: 'percentage', value: draft.coupon?.value || 10 } })}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    set({ coupon: name.trim() ? { name, discountType: draft.coupon?.discountType || 'percentage', value: Number(couponValue) || 0 } : null });
+                  }}
                 />
               </div>
 
               <div>
-                <label style={{ fontSize: '11px', color: '#9ca3af' }}>Discount Percentage (%)</label>
+                <label htmlFor={`coupon-value-${form.id}`} style={{ fontSize: '11px', color: '#9ca3af' }}>Discount percentage (%)</label>
                 <input
+                  id={`coupon-value-${form.id}`}
                   style={field}
                   type="number"
                   min={1}
                   max={100}
-                  value={draft.coupon?.value || 10}
-                  onChange={(e) => set({ coupon: { name: draft.coupon?.name || 'WELCOME10', discountType: 'percentage', value: Number(e.target.value) } })}
+                  placeholder="Your percentage"
+                  value={couponValue}
+                  onChange={(e) => {
+                    setCouponValue(e.target.value);
+                    if (draft.coupon?.name) set({ coupon: { ...draft.coupon, value: Number(e.target.value) || 0 } });
+                  }}
                 />
               </div>
             </div>
@@ -569,6 +543,8 @@ const StorefrontPreviewModal: React.FC<{
   const [testPhone, setTestPhone] = useState('');
   const [testSubmitted, setTestSubmitted] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  // The preview shows a code, a voucher and an offer pill only when the form has the merchant's code.
+  const code = String(form.coupon?.name || '').trim();
 
   const handleTestSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -577,7 +553,7 @@ const StorefrontPreviewModal: React.FC<{
   };
 
   const handleCopyCode = () => {
-    const code = form.coupon?.name || 'WELCOME15';
+    if (!code) return;
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
@@ -618,7 +594,7 @@ const StorefrontPreviewModal: React.FC<{
           <span style={{ fontSize: '13px', fontWeight: 700, color: '#ffffff' }}>
             Storefront Simulator: {form.name}
           </span>
-          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: 700, backgroundColor: 'rgba(236, 72, 153, 0.2)', color: '#f472b6', textTransform: 'uppercase' }}>
+          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(236, 72, 153, 0.2)', color: '#f472b6', textTransform: 'uppercase' }}>
             {form.type}
           </span>
         </div>
@@ -703,17 +679,16 @@ const StorefrontPreviewModal: React.FC<{
         {/* Mock Storefront Background */}
         <div style={{ position: 'absolute', inset: 0, opacity: 0.18, filter: 'blur(2px)', pointerEvents: 'none', background: 'radial-gradient(circle at 50% 30%, #312e81 0%, #030712 100%)', display: 'flex', flexDirection: 'column', padding: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '12px' }}>
-            <div style={{ fontWeight: 800, fontSize: '18px', color: '#ffffff' }}>JOURVANCE BOTANICALS</div>
+            <div style={{ fontWeight: 800, fontSize: '18px', color: '#ffffff' }}>YOUR STORE</div>
             <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: '#94a3b8' }}>
-              <span>Skincare</span>
-              <span>Elixirs</span>
-              <span>Rituals</span>
-              <span>Our Story</span>
+              <span>Shop</span>
+              <span>About</span>
+              <span>Contact</span>
             </div>
           </div>
           <div style={{ marginTop: '60px', textAlign: 'center' }}>
-            <div style={{ fontSize: '32px', fontWeight: 900, color: '#ffffff' }}>Pure Botanical Formulations</div>
-            <div style={{ fontSize: '14px', color: '#94a3b8', marginTop: '8px' }}>Handcrafted organic skincare backed by dermatological efficacy.</div>
+            <div style={{ fontSize: '32px', fontWeight: 900, color: '#ffffff' }}>Your storefront</div>
+            <div style={{ fontSize: '14px', color: '#94a3b8', marginTop: '8px' }}>Your page appears behind the form.</div>
           </div>
         </div>
 
@@ -745,9 +720,11 @@ const StorefrontPreviewModal: React.FC<{
               </div>
             </div>
 
-            {testSubmitted ? (
+            {testSubmitted && !code ? (
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#34d399' }}>{form.successMessage || 'You are on the list.'}</span>
+            ) : testSubmitted ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: '#34d399' }}>Code: {form.coupon?.name || 'WELCOME15'}</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#34d399' }}>Code: {code}</span>
                 <button
                   type="button"
                   onClick={handleCopyCode}
@@ -831,13 +808,14 @@ const StorefrontPreviewModal: React.FC<{
                   <CheckCircle2 size={28} />
                 </div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#ffffff' }}>
-                  Welcome to the Ritual
+                  You are signed up
                 </h3>
                 <p style={{ margin: '6px 0 16px', fontSize: '13px', color: '#cbd5e1', lineHeight: 1.4 }}>
-                  {form.successMessage || 'Your discount voucher has been unlocked.'}
+                  {form.successMessage || 'You are on the list.'}
                 </p>
 
-                {/* Voucher Card */}
+                {/* Voucher Card: only for the merchant's own code */}
+                {code && (
                 <div
                   style={{
                     padding: '14px 18px',
@@ -848,17 +826,19 @@ const StorefrontPreviewModal: React.FC<{
                   }}
                 >
                   <div style={{ fontSize: '11px', color: '#f472b6', fontWeight: 700, textTransform: 'uppercase' }}>
-                    Courtesy Voucher Unlocked ({form.coupon?.value || 15}% Off)
+                    Your code{form.coupon?.discountType === 'percentage' && form.coupon.value ? ` (${form.coupon.value}% off)` : ''}
                   </div>
                   <div style={{ fontSize: '22px', fontWeight: 900, color: '#ffffff', letterSpacing: '0.05em', margin: '4px 0' }}>
-                    {form.coupon?.name || 'WELCOME15'}
+                    {code}
                   </div>
                   <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                    Pre-applied automatically at checkout
+                    Each person who signs up gets their own code starting with this name.
                   </div>
                 </div>
+                )}
 
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                  {code && (
                   <button
                     type="button"
                     onClick={handleCopyCode}
@@ -881,6 +861,7 @@ const StorefrontPreviewModal: React.FC<{
                     {copiedCode ? <Check size={14} /> : <Copy size={14} />}
                     <span>{copiedCode ? 'Code Copied!' : 'Copy Code & Shop'}</span>
                   </button>
+                  )}
 
                   <button
                     type="button"
@@ -903,10 +884,12 @@ const StorefrontPreviewModal: React.FC<{
             ) : (
               /* Entry State */
               <form onSubmit={handleTestSubmit}>
+                {code && (
                 <div style={{ display: 'inline-flex', padding: '6px 12px', borderRadius: '12px', backgroundColor: 'rgba(236, 72, 153, 0.15)', color: '#f472b6', fontSize: '11px', fontWeight: 700, marginBottom: '10px' }}>
                   <Sparkles size={11} style={{ marginRight: '4px' }} />
                   <span>Exclusive Offer</span>
                 </div>
+                )}
 
                 <h3 style={{ margin: 0, fontSize: device === 'mobile' ? '18px' : '22px', fontWeight: 900, color: '#ffffff', letterSpacing: '-0.02em' }}>
                   {form.headline}
@@ -957,7 +940,7 @@ const StorefrontPreviewModal: React.FC<{
                   {form.askSms && (
                     <label style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px', textAlign: 'left' }}>
                       <input type="checkbox" defaultChecked />
-                      <span>Send VIP text updates & early drops. Unsubscribe anytime.</span>
+                      <span>Send me text messages. Reply STOP to opt out.</span>
                     </label>
                   )}
                 </div>
@@ -977,7 +960,7 @@ const StorefrontPreviewModal: React.FC<{
                     boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)'
                   }}
                 >
-                  {form.buttonText || 'Unlock My Offer'}
+                  {form.buttonText || 'Sign up'}
                 </button>
 
                 <div style={{ marginTop: '10px', fontSize: '11px', color: '#64748b' }}>

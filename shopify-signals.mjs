@@ -29,8 +29,12 @@ export const BIND_TRIGGERS = new Set([
   'product_viewed', 'collection_viewed', 'search_submitted', 'added_to_cart'
 ]);
 
+// The blueprint placeholders, the product picker's sample catalog (FAKE_VARIANT_IDS in
+// server/routes/authWorkspaceRoutes.mjs) and a sample product id: none belongs to a merchant.
 const FAKE_IDS = new Set([
-  '42109840192', '42109840193', '42109840194', '42109840195', '42109840196', '42109840999', '84920194821'
+  '42109840192', '42109840193', '42109840194', '42109840195', '42109840196', '42109840999', '84920194821',
+  '42109840101', '42109840102', '42109840201', '42109840202', '42109840301', '42109840302',
+  '42109840401', '42109840501', '42109840502'
 ]);
 
 export function shopifyId(value) {

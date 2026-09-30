@@ -1,5 +1,6 @@
 import { authHeaders } from './firebase';
 import type { Workspace, ShopifyProduct } from '../types/journey';
+import { isDemoVariantId } from './productPickerCatalog';
 
 export async function fetchWorkspaces(): Promise<Workspace[]> {
   try {
@@ -224,7 +225,7 @@ export function buildCheckoutPermalink(opts: {
 }): string {
   const domain = (opts.storeDomain || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   const cleanVariantId = String(opts.variantId || '').replace(/^gid:\/\/shopify\/ProductVariant\//, '');
-  if (!domain || domain === 'demo.myshopify.com' || domain === 'your-store.myshopify.com' || !cleanVariantId || cleanVariantId === '42109840192') return '';
+  if (!domain || domain === 'demo.myshopify.com' || domain === 'your-store.myshopify.com' || !cleanVariantId || isDemoVariantId(cleanVariantId)) return '';
   const qty = opts.quantity && opts.quantity > 0 ? opts.quantity : 1;
 
   const params = new URLSearchParams();
@@ -260,7 +261,7 @@ export function buildMultiItemCheckoutPermalink(opts: {
   if (!domain || domain === 'demo.myshopify.com' || domain === 'your-store.myshopify.com') return '';
 
   const validItems = opts.items
-    .filter(i => !!i.variantId && i.variantId !== '42109840192' && i.variantId !== '42109840193' && i.variantId !== '42109840194')
+    .filter(i => !!i.variantId && !isDemoVariantId(i.variantId))
     .map(i => {
       const cleanId = String(i.variantId!).replace(/^gid:\/\/shopify\/ProductVariant\//, '');
       const qty = i.quantity && i.quantity > 0 ? i.quantity : 1;
@@ -310,11 +311,13 @@ export interface DomainVerifyResult {
 }
 
 /**
- * Checks CNAME DNS propagation & SSL certificate for custom brand subdomains (Wave 3)
+ * Checks CNAME DNS propagation & SSL certificate for custom brand subdomains (Wave 3). With the
+ * journey that asks, a verified domain is switched on only for that journey's published page.
  */
-export async function verifyCustomDomain(domain: string): Promise<DomainVerifyResult> {
+export async function verifyCustomDomain(domain: string, journeyId?: string): Promise<DomainVerifyResult> {
   try {
-    const res = await fetch(`/api/domain/verify?domain=${encodeURIComponent(domain)}`, {
+    const journeyParam = journeyId ? `&journeyId=${encodeURIComponent(journeyId)}` : '';
+    const res = await fetch(`/api/domain/verify?domain=${encodeURIComponent(domain)}${journeyParam}`, {
       headers: await authHeaders()
     });
     return await res.json();

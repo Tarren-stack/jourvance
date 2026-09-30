@@ -6,14 +6,17 @@
  * 2. Real-Time Webhook Engine: orders-create/paid, checkouts-create/update, fulfillments, orders-cancelled, refunds, product & inventory updates, customer profile updates.
  */
 
-import { generateReviewToken, generateAmbassadorReferralCode } from '../reviewEngine.mjs';
+import { generateAmbassadorReferralCode } from '../reviewEngine.mjs';
+import { reviewUrlFor } from '../reviewTokens.mjs';
+import { merchantReviewCode } from '../seededOffers.mjs';
 
 /**
  * Creates or updates a discount rule in Jourvance and provisions the price rule + discount code in Shopify via Admin API.
  */
-export async function provisionShopifyDiscount(ws, { code, discountType = 'percentage', value = 15, usageLimit = null, isUniquePerLead = false, oncePerCustomer = true }, ctx) {
+export async function provisionShopifyDiscount(ws, { code, discountType = 'percentage', value, usageLimit = null, isUniquePerLead = false, oncePerCustomer = true }, ctx) {
   const cleanCode = String(code || '').trim().toUpperCase();
-  if (!cleanCode) return null;
+  // The amount is the caller's; none means no code, never one at a value nobody set (R24).
+  if (!cleanCode || !(Number(value) > 0)) return null;
 
   const { realStoreDomain, adminToken, loadDiscounts, saveDiscounts } = ctx;
   const domain = ws ? realStoreDomain(ws.shopifyConfig) : '';
@@ -70,12 +73,15 @@ export async function provisionShopifyDiscount(ws, { code, discountType = 'perce
   }
 
   const discounts = loadDiscounts();
-  const existingIdx = discounts.findIndex(d => d.code === cleanCode);
+  // A rule records its store, so a public page offers a code only where it was defined (R24). A rule
+  // saved before rules recorded their store is still matched by code.
+  const existingIdx = discounts.findIndex(d => d.code === cleanCode && (!d.storeDomain || !domain || d.storeDomain === domain));
   const discountRule = {
     id: existingIdx >= 0 ? discounts[existingIdx].id : `disc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     code: cleanCode,
+    storeDomain: domain || (existingIdx >= 0 ? discounts[existingIdx].storeDomain : undefined) || null,
     discountType: discountType === 'fixed_amount' ? 'fixed_amount' : 'percentage',
-    value: Number(value) || 15,
+    value: Number(value),
     usageLimit: isUniquePerLead ? 1 : (usageLimit ? Number(usageLimit) : null),
     oncePerCustomer: Boolean(oncePerCustomer),
     shopifyPriceRuleId: shopifyPriceRuleId || (existingIdx >= 0 ? discounts[existingIdx].shopifyPriceRuleId : null),
@@ -93,21 +99,12 @@ export async function provisionShopifyDiscount(ws, { code, discountType = 'perce
   return discountRule;
 }
 
-export async function ensureShopifyCoreDiscounts(ws, allowUnlimited = false, ctx) {
-  const oncePerCustomer = !allowUnlimited;
-  const coreCodes = [
-    { code: 'WELCOMEBACK15', value: 15, discountType: 'percentage', oncePerCustomer },
-    { code: 'SAVE10', value: 10, discountType: 'percentage', oncePerCustomer },
-    { code: 'SANCTUARY', value: 10, discountType: 'percentage', oncePerCustomer },
-    { code: 'REVIEW10', value: 10, discountType: 'fixed_amount', oncePerCustomer },
-    { code: 'GIVE15', value: 15, discountType: 'fixed_amount', oncePerCustomer }
-  ];
-  const results = [];
-  for (const c of coreCodes) {
-    const res = await provisionShopifyDiscount(ws, c, ctx);
-    if (res) results.push(res);
-  }
-  return results;
+// This created WELCOMEBACK15, SAVE10, SANCTUARY, REVIEW10 and GIVE15 in the merchant's live store
+// at amounts nobody chose whenever the client settings were saved (R24). A code is made only when
+// the merchant defines one (create-discount), and a code already in a store is never touched, so
+// this creates nothing. Kept so its callers still answer with an empty list.
+export async function ensureShopifyCoreDiscounts(_ws, _allowUnlimited = false, _ctx) {
+  return [];
 }
 
 function trackingLineFrom(payload) {
@@ -632,7 +629,8 @@ export function setupShopifyRoutes(app, ctx) {
     res.json({
       success: true,
       discounts: results,
-      syncedToLiveShopify: Boolean(userWs && results.some(r => r.syncedToLiveShopify))
+      syncedToLiveShopify: false,
+      notice: 'No codes were created. Create a code with the amount you choose in Shopify Sync.'
     });
   });
 
@@ -640,9 +638,20 @@ export function setupShopifyRoutes(app, ctx) {
     const ws = await loadWorkspace(req.user.uid, req.params.wsId);
     if (!ws) return res.status(404).json({ success: false, error: 'Workspace not found.' });
 
-    const { code, discountType = 'percentage', value = 20, usageLimit = null, isUniquePerLead = false, oncePerCustomer = true } = req.body || {};
+    const { code, discountType = 'percentage', usageLimit = null, isUniquePerLead = false, oncePerCustomer = true } = req.body || {};
     if (!code || typeof code !== 'string' || !code.trim()) {
       return res.status(400).json({ success: false, error: 'A discount code string is required.' });
+    }
+    // The amount is the caller's to choose; there is no default, so no code is made at a value nobody set (C18).
+    if (discountType !== 'percentage' && discountType !== 'fixed_amount') {
+      return res.status(400).json({ success: false, error: 'The discount type must be percentage or fixed_amount.' });
+    }
+    const value = typeof req.body?.value === 'string' && req.body.value.trim() ? Number(req.body.value) : req.body?.value;
+    if (discountType === 'percentage' && !(typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 99)) {
+      return res.status(400).json({ success: false, error: 'Enter a percentage from 1 to 99.' });
+    }
+    if (discountType === 'fixed_amount' && !(typeof value === 'number' && Number.isFinite(value) && value > 0)) {
+      return res.status(400).json({ success: false, error: 'Enter an amount greater than 0.' });
     }
 
     const cleanCode = code.trim().toUpperCase();
@@ -1270,8 +1279,8 @@ export function setupShopifyRoutes(app, ctx) {
                  (e.status === 'active' || e.status === 'completed' || e.status === 'reviewed_exit')
           );
           if (!alreadyEnrolled) {
-            const token = generateReviewToken(orderId, email);
-            const reviewUrl = `/review?order=${encodeURIComponent(orderId)}&email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
+            // Signed with this server's own key, never the one written in reviewEngine.mjs (R24).
+            const reviewUrl = reviewUrlFor(orderId, email);
             const firstStepDelayHours = reviewSeq.steps?.[0]?.delayHours ?? 168;
             const dueAt = new Date(Date.now() + firstStepDelayHours * 3600000).toISOString();
             dripsData.enrollments.unshift({
@@ -1287,7 +1296,8 @@ export function setupShopifyRoutes(app, ctx) {
               status: 'active',
               enrolledAt: new Date().toISOString(),
               nextStepDueAt: dueAt,
-              discountCode: 'REVIEW10',
+              // The merchant's own code on the review sequence, or none (R24).
+              discountCode: merchantReviewCode(dripsData),
               history: []
             });
             reviewSeq.activeEnrollments = (reviewSeq.activeEnrollments || 0) + 1;
