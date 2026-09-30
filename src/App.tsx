@@ -17,7 +17,10 @@ import {
   type MetricsState,
   type RangeDays
 } from './lib/journeyMetrics';
+import { Compass } from 'lucide-react';
 import { CanvasHeader } from './components/toolbar/CanvasHeader';
+import { AppSidebar } from './components/navigation/AppSidebar';
+import { storeScoreFor } from './lib/funnelAuditor';
 import { PublicHeader } from './components/public/PublicHeader';
 import { PublicFooter } from './components/public/PublicFooter';
 import { HomePage } from './components/public/HomePage';
@@ -152,6 +155,7 @@ export const App: React.FC = () => {
   }, [selectedNodeId]);
   const [canvasViewMode, setCanvasViewMode] = useState<CanvasViewMode>('edit');
   const [showRetentionBranches, setShowRetentionBranches] = useState<boolean>(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Modals & Authentication
   const [user, setUser] = useState<User | null>(null);
@@ -808,7 +812,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+    <div className="jv-app-shell jv-app-shell--has-sidebar" style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
       {activePage === 'canvas' ? (
         <>
           {/* Top Canvas Header Toolbar */}
@@ -873,104 +877,165 @@ export const App: React.FC = () => {
             onDismissAccountNotice={() => setAccountNotice(null)}
           />
 
-          {activeView === 'email-studio' && funnelReturn && (
-            <FunnelReturnBanner
-              text={returnBannerText(project, funnelReturn)}
-              onBack={showCanvas}
-              onDismiss={() => setFunnelReturn(null)}
+          {/* Main Workspace Layout: Left Sidebar + Studio/Canvas Content */}
+          <div className="jv-workspace-body">
+            <AppSidebar
+              activeView={activeView}
+              onSelectView={view => (view === 'canvas' ? showCanvas() : setActiveView(view))}
+              workspaces={workspaces}
+              currentWorkspace={currentWorkspace}
+              onSelectWorkspace={ws => setCurrentWorkspace(ws)}
+              onOpenShopifyConnect={() => setShowShopifyModal(true)}
+              onCreateWorkspace={handleCreateWorkspace}
+              onOpenBilling={() => setShowBillingModal(true)}
+              onAddNode={handleAddNode}
+              onOpenAiBuilder={() => setShowAiBuilder(true)}
+              onOpenBlueprints={() => {
+                setBlueprintModalTab('turnkey');
+                setShowBlueprintModal(true);
+              }}
+              onOpenAudit={openAudit}
+              designCount={checkJourneyDesign(project).issues.length}
+              storeScore={currentWorkspace ? storeScoreFor(project, currentWorkspace)?.overallScore ?? null : null}
+              onOpenSimulator={() => setShowSimulatorDrawer(true)}
+              onOpenShopifySync={() => setShowShopifySyncModal(true)}
+              onExportAssets={() => setShowExportModal(true)}
+              user={user}
+              onOpenAuth={() => setShowAuthModal(true)}
+              onOpenAdmin={() => setShowOperatorDashboard(true)}
+              onSignOut={handleSignOut}
+              mobileOpen={mobileSidebarOpen}
+              onCloseMobile={() => setMobileSidebarOpen(false)}
             />
-          )}
 
-          {/* Main Area: Funnel Canvas, Email Studio, OR Attribution Reports */}
-          <Suspense fallback={<SuspenseLoader label="Loading studio view..." />}>
-            {activeView === 'email-studio' ? (
-              <HubEmailSuite
-                workspace={currentWorkspace}
-                onOpenShopifyConnect={() => setShowShopifyModal(true)}
-                // While the banner shows, its Back to funnel is the one way back.
-                onReturnToCanvas={funnelReturn ? undefined : showCanvas}
-                initialTab={funnelReturn ? 'map' : undefined}
-                openFlowId={funnelReturn?.flowId || undefined}
-              />
-            ) : activeView === 'attribution' ? (
-              <AttributionReports
-                workspace={currentWorkspace}
-                nodes={project.nodes}
-                forecast={project.forecast}
-                onOpenShopifySync={() => setShowShopifySyncModal(true)}
-                journeyId={project.id}
-                edges={project.edges}
-                onSelectStep={nodeId => {
-                  // Back to the map through the one step chooser (#7), which also pans to the step.
-                  if (!project.nodes.some(n => n.id === nodeId)) return;
-                  selectStep(nodeId);
-                  setActiveView('canvas');
-                }}
-              />
-            ) : (
-              <PublishStatusContext.Provider value={publishCtx}>
-              <main className="jv-canvas-layout">
-                <div className="jv-canvas-pane">
-                {/* One canvas per journey, so no step position carries across a switch (#18) and a
-                    new journey is fitted into view (#25). */}
-                <JourneyCanvas key={project.id}
-                  nodes={project.nodes}
-                  edges={project.edges}
-                  onNodesChange={handleNodesChange}
-                  onEdgesChange={handleEdgesChange}
-                  selectedNodeId={selectedNodeId}
-                  onSelectNode={selectNode}
-                  selectedEdgeId={selectedEdgeId}
-                  onSelectEdge={selectEdge}
-                  canvasViewMode={canvasViewMode}
-                  showRetentionBranches={showRetentionBranches}
-                  onToggleRetentionBranches={setShowRetentionBranches}
-                  onUndoMove={editing.undoMove}
-                  metrics={metrics}
-                  onChangeStatsDays={changeStatsDays}
-                  onOpenStep={openStep}
-                  onOpenEdge={openEdge}
-                  focusRequest={inspectorFocus}
-                  onOpenIssues={openIssues}
-                  onGraphChange={handleGraphChange}
-                  canvasViewRef={canvasView}
-                  pickerRequest={pickerRequest}
-                  onClearPickerRequest={() => setPickerRequest(null)}
+            <div className="jv-workspace-content">
+              {activeView === 'email-studio' && funnelReturn && (
+                <FunnelReturnBanner
+                  text={returnBannerText(project, funnelReturn)}
+                  onBack={showCanvas}
+                  onDismiss={() => setFunnelReturn(null)}
                 />
-                </div>
+              )}
 
-                {/* The docked step panel beside the map, or under it below 768px: the finder, then the opened step or line. */}
-                <StepDock
-                  key={project.id}
-                  nodes={project.nodes}
-                  edges={project.edges}
-                  node={selectedNode}
-                  edge={selectedEdge}
-                  edgeSourceNode={edgeSourceNode}
-                  edgeTargetNode={edgeTargetNode}
-                  showRetentionBranches={showRetentionBranches}
-                  focusRequest={inspectorFocus}
-                  onSelectStep={selectStep}
-                  onCloseEdge={() => setSelectedEdgeId(null)}
-                  onUpdateNode={handleUpdateNode}
-                  onDeleteNode={handleDeleteNode}
-                  onDeleteEdge={handleDeleteEdge}
-                  offerHeadline={project.offerHeadline}
-                  businessType={project.businessType}
-                  journeyId={project.id}
-                  workspace={currentWorkspace}
-                  onOpenShopifyConnect={() => setShowShopifyModal(true)}
-                  metrics={metrics}
-                  onOpenEmailStudio={handleOpenEmailStudio}
-                  openingEmailStudio={saving}
-                  returnFocusNodeId={returnFocusNodeId}
-                  onAddStepBefore={handleAddStepBefore}
-                  onAddStepAfter={handleAddStepAfter}
-                />
-              </main>
-              </PublishStatusContext.Provider>
-            )}
-          </Suspense>
+              {/* Main Area: Funnel Canvas, Email Studio, OR Attribution Reports */}
+              <Suspense fallback={<SuspenseLoader label="Loading studio view..." />}>
+                {activeView === 'email-studio' ? (
+                  <HubEmailSuite
+                    workspace={currentWorkspace}
+                    onOpenShopifyConnect={() => setShowShopifyModal(true)}
+                    // While the banner shows, its Back to funnel is the one way back.
+                    onReturnToCanvas={funnelReturn ? undefined : showCanvas}
+                    initialTab={funnelReturn ? 'map' : undefined}
+                    openFlowId={funnelReturn?.flowId || undefined}
+                  />
+                ) : activeView === 'attribution' ? (
+                  <AttributionReports
+                    workspace={currentWorkspace}
+                    nodes={project.nodes}
+                    forecast={project.forecast}
+                    onOpenShopifySync={() => setShowShopifySyncModal(true)}
+                    journeyId={project.id}
+                    edges={project.edges}
+                    onSelectStep={nodeId => {
+                      // Back to the map through the one step chooser (#7), which also pans to the step.
+                      if (!project.nodes.some(n => n.id === nodeId)) return;
+                      selectStep(nodeId);
+                      setActiveView('canvas');
+                    }}
+                  />
+                ) : (
+                  <PublishStatusContext.Provider value={publishCtx}>
+                  <main className="jv-canvas-layout">
+                    <div className="jv-canvas-pane">
+                    {/* One canvas per journey, so no step position carries across a switch (#18) and a
+                        new journey is fitted into view (#25). */}
+                    <JourneyCanvas key={project.id}
+                      nodes={project.nodes}
+                      edges={project.edges}
+                      onNodesChange={handleNodesChange}
+                      onEdgesChange={handleEdgesChange}
+                      selectedNodeId={selectedNodeId}
+                      onSelectNode={selectNode}
+                      selectedEdgeId={selectedEdgeId}
+                      onSelectEdge={selectEdge}
+                      canvasViewMode={canvasViewMode}
+                      showRetentionBranches={showRetentionBranches}
+                      onToggleRetentionBranches={setShowRetentionBranches}
+                      onUndoMove={editing.undoMove}
+                      metrics={metrics}
+                      onChangeStatsDays={changeStatsDays}
+                      onOpenStep={openStep}
+                      onOpenEdge={openEdge}
+                      focusRequest={inspectorFocus}
+                      onOpenIssues={openIssues}
+                      onGraphChange={handleGraphChange}
+                      canvasViewRef={canvasView}
+                      pickerRequest={pickerRequest}
+                      onClearPickerRequest={() => setPickerRequest(null)}
+                    />
+                    </div>
+
+                    {/* The docked step panel beside the map, or under it below 768px: the finder, then the opened step or line. */}
+                    <StepDock
+                      key={project.id}
+                      nodes={project.nodes}
+                      edges={project.edges}
+                      node={selectedNode}
+                      edge={selectedEdge}
+                      edgeSourceNode={edgeSourceNode}
+                      edgeTargetNode={edgeTargetNode}
+                      showRetentionBranches={showRetentionBranches}
+                      focusRequest={inspectorFocus}
+                      onSelectStep={selectStep}
+                      onCloseEdge={() => setSelectedEdgeId(null)}
+                      onUpdateNode={handleUpdateNode}
+                      onDeleteNode={handleDeleteNode}
+                      onDeleteEdge={handleDeleteEdge}
+                      offerHeadline={project.offerHeadline}
+                      businessType={project.businessType}
+                      journeyId={project.id}
+                      workspace={currentWorkspace}
+                      onOpenShopifyConnect={() => setShowShopifyModal(true)}
+                      metrics={metrics}
+                      onOpenEmailStudio={handleOpenEmailStudio}
+                      openingEmailStudio={saving}
+                      returnFocusNodeId={returnFocusNodeId}
+                      onAddStepBefore={handleAddStepBefore}
+                      onAddStepAfter={handleAddStepAfter}
+                    />
+                  </main>
+                  </PublishStatusContext.Provider>
+                )}
+              </Suspense>
+            </div>
+          </div>
+
+          {/* Floating Mobile Navigation Trigger Button */}
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label="Open navigation menu"
+            className="jv-mobile-nav-trigger"
+            style={{
+              position: 'fixed',
+              bottom: '20px',
+              left: '20px',
+              width: '46px',
+              height: '46px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #EC4899 0%, #8B5CF6 100%)',
+              border: 'none',
+              color: '#FFFFFF',
+              display: 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)',
+              cursor: 'pointer',
+              zIndex: 45
+            }}
+          >
+            <Compass size={20} />
+          </button>
         </>
       ) : (
         /* Public Marketing Web Pages */

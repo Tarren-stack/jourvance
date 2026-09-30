@@ -414,6 +414,7 @@ export const CanvasHeader: React.FC<Props> = ({
   return (
     <>
       <header
+        className="jv-global-header"
         style={{
           minHeight: '56px',
           padding: '8px 20px',
