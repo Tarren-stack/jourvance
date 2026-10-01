@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Suspense, lazy, useMemo, useCallback } from 'react';
-import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, NodeType, Workspace, CanvasViewMode, ActiveAppView } from './types/journey';
+import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, PageNodeData, NodeType, Workspace, CanvasViewMode, ActiveAppView } from './types/journey';
 import { loadInitialJourney, saveCurrentJourney, keepJourney, parkJourney, readParkedJourney } from './lib/journeyStorage';
 import { adoptChangesNothing, chooseOnLoad, forgetOtherAccounts, isSaveConflict, readSyncRecord, recordAfterConflict, writeSyncRecord, setAsideName, setAsideNotice, LOAD_FAILED, LOAD_PENDING, SAVE_CONFLICT, SET_ASIDE_FAILED, type SyncRecord } from './lib/accountSync';
 import { parseAppLocation, type AppPage } from './lib/journeyRoute';
@@ -66,6 +66,7 @@ const BlueprintModal = lazy(() => import('./components/modals/BlueprintModal').t
 const SaveBlueprintModal = lazy(() => import('./components/modals/SaveBlueprintModal').then(m => ({ default: m.SaveBlueprintModal })));
 const JourneyLibraryDialog = lazy(() => import('./components/modals/JourneyLibraryDialog').then(m => ({ default: m.JourneyLibraryDialog })));
 const AiJourneyBuilder = lazy(() => import('./components/modals/AiJourneyBuilder').then(m => ({ default: m.AiJourneyBuilder })));
+const LaunchPlaybookModal = lazy(() => import('./components/modals/LaunchPlaybookModal').then(m => ({ default: m.LaunchPlaybookModal })));
 
 const SuspenseLoader: React.FC<{ label?: string }> = ({ label = 'Loading studio...' }) => (
   <div style={{
@@ -174,6 +175,7 @@ export const App: React.FC = () => {
   const [blueprintImportCode, setBlueprintImportCode] = useState<string>('');
   const [showSimulatorDrawer, setShowSimulatorDrawer] = useState(false);
   const [showAuditDrawer, setShowAuditDrawer] = useState(false);
+  const [showLaunchPlaybook, setShowLaunchPlaybook] = useState(false);
   // Check design opened from a card's badge scrolls to that step's rows (#10).
   const [auditFocusNodeId, setAuditFocusNodeId] = useState<string | null>(null);
   const openIssues = useCallback((id: string) => { setAuditFocusNodeId(id); setShowAuditDrawer(true); }, []);
@@ -567,6 +569,20 @@ export const App: React.FC = () => {
   const pub = usePublication({ authReady, signedIn: !!user, journeyId: project.id, workspaceId: currentWorkspace?.id, nodes: project.nodes, edges: project.edges, save: editing.saveNow });
   const publishCtx = useMemo(() => ({ states: pub.states, read: pub.read, refresh: pub.refresh, preview: pub.preview }), [pub.states, pub.read, pub.refresh, pub.preview]);
 
+  // Launch Readiness Playbook milestones: computed deterministically from workspace, nodes, and audit
+  const designIssuesCount = useMemo(() => checkJourneyDesign(project).issues.length, [project]);
+  const currentStoreScore = useMemo(() => currentWorkspace ? storeScoreFor(project, currentWorkspace)?.overallScore ?? null : null, [project, currentWorkspace]);
+  const isStoreConnected = Boolean(currentWorkspace?.shopifyConfig?.status === 'connected');
+  const hasBlueprint = Boolean(project.nodes && project.nodes.length >= 2);
+  const hasOffer = Boolean(project.nodes && project.nodes.some(n => n.type === 'landing-page' && Boolean((n.data as PageNodeData)?.headline || (n.data as PageNodeData)?.productId)));
+  const isAuditPassed = designIssuesCount === 0 && (currentStoreScore === null || currentStoreScore >= 80);
+  const isPublished = Boolean(
+    (project.nodes && project.nodes.some(n => n.type === 'landing-page' && Boolean((n.data as PageNodeData)?.publishedUrl))) ||
+    publishedPages.length > 0
+  );
+  const publishedUrl = (project.nodes?.find(n => n.type === 'landing-page' && (n.data as PageNodeData)?.publishedUrl)?.data as PageNodeData)?.publishedUrl || publishedPages[0]?.url || null;
+  const launchCompleted = [isStoreConnected, hasBlueprint, hasOffer, isAuditPassed, isPublished].filter(Boolean).length;
+
   // The journey library and the address (#18): every switch, Back and Forward goes through here.
   // Leaving saves through #8's saveNow and keeps a browser copy; a step is chosen through selectStep.
   const [showJourneyLibrary, setShowJourneyLibrary] = useState(false);
@@ -894,9 +910,12 @@ export const App: React.FC = () => {
                 setBlueprintModalTab('turnkey');
                 setShowBlueprintModal(true);
               }}
+              onOpenLaunchPlaybook={() => setShowLaunchPlaybook(true)}
+              launchCompleted={launchCompleted}
+              launchTotal={5}
               onOpenAudit={openAudit}
-              designCount={checkJourneyDesign(project).issues.length}
-              storeScore={currentWorkspace ? storeScoreFor(project, currentWorkspace)?.overallScore ?? null : null}
+              designCount={designIssuesCount}
+              storeScore={currentStoreScore}
               onOpenSimulator={() => setShowSimulatorDrawer(true)}
               onOpenShopifySync={() => setShowShopifySyncModal(true)}
               onExportAssets={() => setShowExportModal(true)}
@@ -1241,6 +1260,49 @@ export const App: React.FC = () => {
             handlePublishFunnel();
           }}
           onSelectNode={openStep}
+        />
+
+        {/* Launch Readiness Playbook Modal */}
+        <LaunchPlaybookModal
+          isOpen={showLaunchPlaybook}
+          onClose={() => setShowLaunchPlaybook(false)}
+          isStoreConnected={isStoreConnected}
+          hasBlueprint={hasBlueprint}
+          hasOffer={hasOffer}
+          isAuditPassed={isAuditPassed}
+          isPublished={isPublished}
+          storeName={currentWorkspace?.shopifyConfig?.shopName || currentWorkspace?.shopifyConfig?.storeDomain || currentWorkspace?.name}
+          designCount={designIssuesCount}
+          storeScore={currentStoreScore}
+          publishedUrl={publishedUrl}
+          onOpenShopifyConnect={() => {
+            setShowLaunchPlaybook(false);
+            setShowShopifyModal(true);
+          }}
+          onOpenBlueprints={() => {
+            setShowLaunchPlaybook(false);
+            setBlueprintModalTab('turnkey');
+            setShowBlueprintModal(true);
+          }}
+          onConfigureOffer={() => {
+            setShowLaunchPlaybook(false);
+            const lp = project.nodes?.find(n => n.type === 'landing-page');
+            if (lp) {
+              openStep(lp.id);
+            }
+          }}
+          onOpenAudit={() => {
+            setShowLaunchPlaybook(false);
+            openAudit();
+          }}
+          onOpenPublish={() => {
+            setShowLaunchPlaybook(false);
+            if (isPublished && publishedUrl) {
+              window.open(publishedUrl, '_blank', 'noopener,noreferrer');
+            } else {
+              handlePublishFunnel();
+            }
+          }}
         />
       </Suspense>
     </div>

@@ -21,6 +21,7 @@ import {
   PinOff,
   Layers,
   ShoppingBag,
+  Rocket,
   X
 } from 'lucide-react';
 import type { ActiveAppView, NodeType, Workspace } from '../../types/journey';
@@ -43,6 +44,9 @@ interface Props {
   onOpenAudit: () => void;
   designCount?: number;
   storeScore?: number | null;
+  onOpenLaunchPlaybook?: () => void;
+  launchCompleted?: number;
+  launchTotal?: number;
   onOpenSimulator?: () => void;
   onOpenShopifySync?: () => void;
   onExportAssets?: () => void;
@@ -81,6 +85,9 @@ export const AppSidebar: React.FC<Props> = ({
   onOpenAudit,
   designCount = 0,
   storeScore = null,
+  onOpenLaunchPlaybook,
+  launchCompleted = 0,
+  launchTotal = 5,
   onOpenSimulator,
   onOpenShopifySync,
   onExportAssets,
@@ -687,6 +694,52 @@ export const AppSidebar: React.FC<Props> = ({
                 <span style={{ fontSize: '10px', fontWeight: 700, color: '#64748B', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   Diagnostics
                 </span>
+              )}
+
+              {/* Launch Playbook Button */}
+              {onOpenLaunchPlaybook && (
+                <button
+                  type="button"
+                  onClick={onOpenLaunchPlaybook}
+                  aria-label={`Launch Playbook: ${launchCompleted} of ${launchTotal} completed`}
+                  title={`Launch Playbook: ${launchCompleted} of ${launchTotal} completed`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    width: '100%',
+                    height: '40px',
+                    padding: isExpanded ? '0 10px' : '0 12px',
+                    justifyContent: isExpanded ? 'flex-start' : 'center',
+                    borderRadius: '8px',
+                    backgroundColor: launchCompleted === launchTotal ? 'rgba(16, 185, 129, 0.12)' : 'rgba(236, 72, 153, 0.12)',
+                    border: launchCompleted === launchTotal ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(236, 72, 153, 0.3)',
+                    color: launchCompleted === launchTotal ? '#34D399' : '#F472B6',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <Rocket size={16} color={launchCompleted === launchTotal ? '#34D399' : '#F472B6'} style={{ flexShrink: 0 }} />
+                  {isExpanded && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flex: 1 }}>
+                      <span>Playbook</span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: '9999px',
+                          backgroundColor: launchCompleted === launchTotal ? '#10B981' : '#EC4899',
+                          color: '#FFFFFF'
+                        }}
+                      >
+                        {launchCompleted === launchTotal ? 'Ready' : `${launchCompleted}/${launchTotal}`}
+                      </span>
+                    </div>
+                  )}
+                </button>
               )}
 
               {/* Check Design / Audit Button */}
