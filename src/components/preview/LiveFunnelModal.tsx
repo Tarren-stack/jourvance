@@ -1,5 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Mail, MessageSquare, CheckCircle2, ArrowLeft, RotateCcw } from 'lucide-react';
+import {
+  X,
+  Mail,
+  MessageSquare,
+  CheckCircle2,
+  ArrowLeft,
+  RotateCcw,
+  Smartphone,
+  Monitor,
+  Clock,
+  ShoppingBag,
+  Lock,
+  Check
+} from 'lucide-react';
 import type {
   JourneyProject,
   JourneyNode,
@@ -53,6 +66,8 @@ const PLATFORM_LINE: Record<AdNodeData['platform'], string> = {
 };
 
 const panel: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
   padding: '18px',
   borderRadius: '12px',
   background: '#1E293B',
@@ -166,6 +181,25 @@ const Checklist: React.FC<{ items: string[] }> = ({ items }) =>
 /** A choice button, edged in the colour and dash of the line it follows. */
 const ChoiceButton: React.FC<{ exit: WalkExit; disabled: boolean; onTake: () => void; type?: 'button' | 'submit' }> = ({ exit, disabled, onTake, type = 'button' }) => {
   const kind = EDGE_KINDS[exit.kind];
+  const isDecline = exit.kind === 'declined' || exit.action === 'declined';
+  const isAbandon = exit.action === 'abandon';
+  const isAccept = exit.kind === 'accepted' || exit.action === 'accepted';
+
+  let bg = 'rgba(255, 255, 255, 0.06)';
+  let borderLeft = `3px ${isDecline || isAbandon ? 'dashed' : 'solid'} ${kind ? kind.color : '#38BDF8'}`;
+  let textColor = disabled ? '#64748B' : '#F8FAFC';
+  let fontWeight = 700;
+
+  if (isAccept) {
+    bg = 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.35) 100%)';
+    borderLeft = '3px solid #10B981';
+    textColor = '#34D399';
+  } else if (isDecline || isAbandon) {
+    bg = 'rgba(255, 255, 255, 0.03)';
+    textColor = disabled ? '#64748B' : '#94A3B8';
+    fontWeight = 500;
+  }
+
   return (
     <button
       type={type}
@@ -173,20 +207,25 @@ const ChoiceButton: React.FC<{ exit: WalkExit; disabled: boolean; onTake: () => 
       onClick={type === 'button' ? onTake : undefined}
       style={{
         textAlign: 'left',
-        padding: '10px 14px',
+        padding: isAccept ? '12px 16px' : '10px 14px',
         borderRadius: '8px',
-        background: 'rgba(255, 255, 255, 0.06)',
+        background: bg,
         border: '1px solid rgba(255, 255, 255, 0.12)',
-        borderLeft: `2px ${exit.kind === 'declined' ? 'dashed' : 'solid'} ${kind.color}`,
-        color: disabled ? '#64748B' : '#F8FAFC',
+        borderLeft,
+        color: textColor,
         fontSize: '13px',
-        fontWeight: 700,
+        fontWeight,
         cursor: disabled ? 'not-allowed' : 'pointer',
         maxWidth: '100%',
-        overflowWrap: 'anywhere'
+        overflowWrap: 'anywhere',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '8px',
+        transition: 'all 0.15s ease'
       }}
     >
-      {exit.label}
+      {isAccept && <Check size={14} aria-hidden="true" />}
+      <span>{exit.label}</span>
     </button>
   );
 };
@@ -194,6 +233,8 @@ const ChoiceButton: React.FC<{ exit: WalkExit; disabled: boolean; onTake: () => 
 export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
   const [path, setPath] = useState(() => beginWalk(project));
   const [values, setValues] = useState<Record<string, string>>({});
+  const [viewMode, setViewMode] = useState<'mobile' | 'desktop'>('mobile');
+  const [bumpSelected, setBumpSelected] = useState<boolean>(false);
   const nodeById = useMemo(() => new Map<string, JourneyNode>(project.nodes.map(n => [n.id, n])), [project.nodes]);
   const entries = useMemo(() => walkEntries(project), [project]);
 
@@ -311,6 +352,7 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
   const restart = () => {
     setPath(beginWalk(project));
     setValues({});
+    setBumpSelected(false);
   };
 
   const renderChoices = (only?: WalkExit[]) => {
@@ -359,6 +401,12 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
         const slug = str(d.slug);
         const title = str(d.shopifyProductTitle);
         const price = str(d.shopifyProductPrice);
+        const hasBump = Boolean(d.orderBumpEnabled);
+        const bumpTitle = str(d.orderBumpTitle);
+        const bumpPrice = str(d.orderBumpPrice);
+        const bumpHeadline = str(d.orderBumpHeadline);
+        const bumpDesc = str(d.orderBumpDescription);
+
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {slug && (
@@ -374,12 +422,86 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
                 {ownCopy(d.subhead) || <Missing>No subhead yet</Missing>}
               </p>
               <Checklist items={list(ownCopyList(d.bullets))} />
+
+              {/* Core Product Summary */}
               {(title || price) && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.25)', fontSize: '13px' }}>
                   <span style={{ color: '#FFF', fontWeight: 700 }}>{title}</span>
                   <span style={{ color: '#34D399', fontWeight: 700 }}>{price}</span>
                 </div>
               )}
+
+              {/* Order Bump Add-on Section */}
+              {hasBump && (
+                <div
+                  style={{
+                    marginTop: '12px',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    background: bumpSelected ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.04)',
+                    border: `1px ${bumpSelected ? 'solid' : 'dashed'} rgba(245, 158, 11, 0.4)`,
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ display: 'inline-block', padding: '2px 6px', borderRadius: '4px', background: '#F59E0B', color: '#0F172A', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase' }}>
+                      One-Time Add-On
+                    </span>
+                    {bumpPrice && (
+                      <span style={{ color: '#FCD34D', fontSize: '12px', fontWeight: 700 }}>
+                        {bumpPrice}
+                      </span>
+                    )}
+                  </div>
+                  <label
+                    htmlFor="jv-walk-bump"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      color: '#F8FAFC',
+                      fontWeight: 700
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      id="jv-walk-bump"
+                      checked={bumpSelected}
+                      onChange={e => setBumpSelected(e.target.checked)}
+                      style={{ marginTop: '2px', accentColor: '#F59E0B', cursor: 'pointer' }}
+                    />
+                    <span>
+                      {bumpHeadline || (bumpTitle ? `Yes, add ${bumpTitle}` : 'Yes! Add order bump to my purchase')}
+                    </span>
+                  </label>
+                  {bumpDesc && (
+                    <div style={{ fontSize: '12px', color: '#CBD5E1', marginTop: '6px', paddingLeft: '24px', lineHeight: 1.5 }}>
+                      {bumpDesc}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Simulated Cart Breakdown if Bump is selected */}
+              {hasBump && bumpSelected && (title || price) && (
+                <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#34D399', fontWeight: 700, marginBottom: '6px' }}>
+                    <ShoppingBag size={13} aria-hidden="true" />
+                    <span>Simulated Cart: Core Product + Add-On Included</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94A3B8' }}>
+                    <span>1x {title || 'Core Product'}</span>
+                    <span>{price}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#FCD34D' }}>
+                    <span>1x {bumpTitle || 'Add-on Bump'}</span>
+                    <span>{bumpPrice}</span>
+                  </div>
+                </div>
+              )}
+
               {renderChoices()}
             </div>
             {d.abTestingEnabled && d.variantB && (
@@ -445,9 +567,17 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
         const title = str(d.productTitle);
         const price = str(d.productPrice);
         const regular = str(d.regularPrice);
+        const minutes = typeof d.urgencyMinutes === 'number' && d.urgencyMinutes > 0 ? d.urgencyMinutes : 0;
+
         return (
           <div style={{ ...panel, maxWidth: '560px', margin: '0 auto' }}>
             {str(d.badgeText) && <div style={badgeStyle}>{str(d.badgeText)}</div>}
+            {minutes > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#FCA5A5', fontSize: '12px', fontWeight: 700, marginBottom: '12px' }}>
+                <Clock size={13} color="#EF4444" aria-hidden="true" />
+                <span>Simulated offer reservation timer: {String(minutes).padStart(2, '0')}:00 active</span>
+              </div>
+            )}
             <StepImage src={str(d.productImage)} height={160} />
             <Headline text={str(d.headline)} />
             <p style={{ fontSize: '14px', color: '#CBD5E1', margin: '0 0 12px', lineHeight: 1.6 }}>
@@ -463,6 +593,9 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
                 </span>
               </div>
             )}
+            <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '10px', fontStyle: 'italic' }}>
+              Simulated 1-click post-purchase offer: billing information is carried over securely from checkout.
+            </div>
             {renderChoices()}
           </div>
         );
@@ -621,14 +754,73 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
               </div>
               <p style={{ fontSize: '12px', color: '#94A3B8', margin: '4px 0 0' }}>{WALK_INTRO}</p>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close test"
-              style={{ background: 'transparent', border: 'none', color: '#CBD5E1', cursor: 'pointer', padding: '6px', flexShrink: 0 }}
-            >
-              <X size={18} aria-hidden="true" />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              {/* Viewport Switcher */}
+              <div
+                role="group"
+                aria-label="Device viewport"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  background: 'rgba(15, 23, 42, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '8px',
+                  padding: '3px',
+                  gap: '2px'
+                }}
+              >
+                <button
+                  type="button"
+                  aria-pressed={viewMode === 'mobile'}
+                  onClick={() => setViewMode('mobile')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: viewMode === 'mobile' ? '#38BDF8' : 'transparent',
+                    color: viewMode === 'mobile' ? '#0F172A' : '#94A3B8',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Smartphone size={13} aria-hidden="true" />
+                  <span>Mobile 390px</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={viewMode === 'desktop'}
+                  onClick={() => setViewMode('desktop')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: viewMode === 'desktop' ? '#38BDF8' : 'transparent',
+                    color: viewMode === 'desktop' ? '#0F172A' : '#94A3B8',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Monitor size={13} aria-hidden="true" />
+                  <span>Desktop 680px</span>
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close test"
+                style={{ background: 'transparent', border: 'none', color: '#CBD5E1', cursor: 'pointer', padding: '6px' }}
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
           </div>
 
           {trail.length > 0 && (
@@ -666,7 +858,7 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
           )}
         </div>
 
-        {/* The current step */}
+        {/* The current step inside device frame */}
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
           <div ref={stepRef} tabIndex={-1} aria-label="Current step" style={{ outline: 'none' }}>
             <div role="status" aria-live="polite" style={{ fontSize: '12px', color: '#FBBF24', fontWeight: 600, minHeight: current.outcome ? undefined : 0, marginBottom: current.outcome ? '12px' : 0 }}>
@@ -685,7 +877,75 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
               <div style={{ ...panel, fontSize: '13px', color: '#CBD5E1' }}>This step is no longer on the map. Restart the test to walk the map as it is now.</div>
             )}
 
-            {currentNode && renderStep(currentNode)}
+            {currentNode && (
+              <div
+                data-device-frame={viewMode}
+                style={{
+                  width: '100%',
+                  maxWidth: viewMode === 'mobile' ? '390px' : '680px',
+                  margin: '0 auto',
+                  background: '#0B0F19',
+                  borderRadius: viewMode === 'mobile' ? '32px' : '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.7)',
+                  overflow: 'hidden',
+                  transition: 'max-width 0.2s ease'
+                }}
+              >
+                {/* Device Chrome Header */}
+                {viewMode === 'mobile' ? (
+                  <div style={{ padding: '10px 16px 8px', background: '#090D16', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    {/* Phone Speaker Notch */}
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                      <div style={{ width: '48px', height: '4px', borderRadius: '9999px', background: 'rgba(255, 255, 255, 0.2)' }} />
+                    </div>
+                    {/* Mobile Status Bar */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#94A3B8', fontWeight: 600 }}>
+                      <span>9:41</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ fontSize: '10px' }}>5G</span>
+                        <span style={{ fontSize: '10px' }}>100%</span>
+                      </div>
+                    </div>
+                    {/* Simulated Mobile Browser URL */}
+                    <div style={{ marginTop: '6px', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.06)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#94A3B8' }}>
+                      <Lock size={10} color="#34D399" aria-hidden="true" />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
+                        store.preview/{currentNode.type === 'landing-page' ? (str((currentNode.data as PageNodeData).slug) || 'offer') : currentNode.type}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: '8px 14px', background: '#090D16', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {/* Desktop Window Dots */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#EF4444' }} />
+                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#F59E0B' }} />
+                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#10B981' }} />
+                    </div>
+                    {/* Desktop Address Bar */}
+                    <div style={{ flex: 1, padding: '4px 10px', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.06)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#94A3B8' }}>
+                      <Lock size={10} color="#34D399" aria-hidden="true" />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
+                        https://store.preview.shop/{currentNode.type === 'landing-page' ? (str((currentNode.data as PageNodeData).slug) || 'offer') : currentNode.type}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Device Content Area */}
+                <div style={{ padding: viewMode === 'mobile' ? '14px' : '20px' }}>
+                  {renderStep(currentNode)}
+                </div>
+
+                {/* Mobile Home Bar */}
+                {viewMode === 'mobile' && (
+                  <div style={{ padding: '8px 0 10px', display: 'flex', justifyContent: 'center', background: '#090D16' }}>
+                    <div style={{ width: '110px', height: '4px', borderRadius: '9999px', background: 'rgba(255, 255, 255, 0.2)' }} />
+                  </div>
+                )}
+              </div>
+            )}
 
             {atLimit && current.nodeId !== null && (
               <div style={{ ...noteStyle, marginTop: '12px' }}>
