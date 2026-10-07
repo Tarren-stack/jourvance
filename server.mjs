@@ -967,6 +967,43 @@ function stripSeededVoucher(data) {
   return stripSeededOffers(data, INITIAL_DRIP_SEQUENCES);
 }
 
+const FIXTURE_MAIL_DOMAINS = new Set([
+  'example.com',
+  'botanicalglow.com',
+  'growthbrand.io',
+  'acmecommerce.com',
+  'scaletech.io',
+  'enterprise.org',
+  'scaleb2b.io',
+  'luxbrand.com',
+  'brand.io',
+  'beautyglow.com',
+  'auraglow.co',
+  'luxeaesthetics.com',
+  'beautybrand.com',
+  'vipbeauty.com',
+  'growthlab.io',
+  'venture.co'
+]);
+
+function isFixtureEnrollment(row) {
+  const email = String(row?.customerEmail || row?.email || '').toLowerCase();
+  const domain = email.split('@')[1] || '';
+  return FIXTURE_MAIL_DOMAINS.has(domain);
+}
+
+function holdFixtureEnrollments(rows) {
+  let held = false;
+  for (const row of rows) {
+    if (!row || row.status !== 'active' || !isFixtureEnrollment(row)) continue;
+    row.status = 'stopped';
+    row.stoppedAt = row.stoppedAt || new Date().toISOString();
+    row.stoppedReason = 'fixture';
+    held = true;
+  }
+  return held;
+}
+
 function loadDrips() {
   const data = hubStorage.get('store.drips', 'drips.json', null);
   if (data && Array.isArray(data.sequences)) {
@@ -978,9 +1015,11 @@ function loadDrips() {
       }
     }
     if (stripSeededVoucher(data)) modified = true;
+    const enrollments = (Array.isArray(data.enrollments) ? data.enrollments : []).filter(row => !isDemoRecord(row));
+    if (holdFixtureEnrollments(enrollments)) modified = true;
     const cleaned = recomputeDripCounters({
       sequences: data.sequences,
-      enrollments: (Array.isArray(data.enrollments) ? data.enrollments : []).filter(row => !isDemoRecord(row))
+      enrollments
     });
     if (modified) {
       saveDrips(cleaned);
@@ -1308,6 +1347,15 @@ function unsubscribeUrlFor(uid, email) {
 
 let noteSegmentChanges = async () => {};
 let processDueCampaigns = async () => ({ sent: 0 });
+
+function noteAttrMap(payload) {
+  const out = {};
+  const list = Array.isArray(payload?.note_attributes) ? payload.note_attributes : [];
+  for (const attr of list) {
+    if (attr && attr.name != null) out[String(attr.name)] = attr.value == null ? '' : String(attr.value);
+  }
+  return out;
+}
 
 // ── Modular Shopify Routes Controller (server/routes/shopifyRoutes.mjs) ────────
 const shopifyCtx = {
@@ -3026,6 +3074,14 @@ async function processUserAutomationsTick(uid) {
 
   for (const chk of checkouts) {
     if (chk.userId !== uid) continue;
+    if (isFixtureEnrollment(chk)) {
+      if (chk.recoveryStatus === 'pending' || chk.recoveryStatus === 'email_sent') {
+        chk.recoveryStatus = 'stopped';
+        chk.stoppedReason = 'fixture';
+        checkoutsModified = true;
+      }
+      continue;
+    }
     const abandonedTime = new Date(chk.abandonedAt).getTime();
 
     // Check if customer completed purchase
