@@ -161,17 +161,15 @@ export const AppSidebar: React.FC<Props> = ({
         />
       )}
 
-      {/* Outer rail container that floats over the workspace */}
+      {/* Docked rail: a flex sibling of the toolbar-and-studio column that spans the workspace
+          top to bottom and RESERVES its width (64px, or 240px while expanded or pinned), so the
+          studio is laid out beside it and nothing is covered. It used to be an absolutely
+          positioned card floating 10px inside the body over the content. Position, offsets and
+          the mobile drawer live in index.css (.jv-sidebar-container). */}
       <div
         className={`jv-sidebar-container ${mobileOpen ? 'jv-sidebar-mobile-open' : ''}`}
         style={{
-          width: isPinned ? '240px' : '64px',
-          position: 'absolute',
-          top: '10px',
-          left: '10px',
-          bottom: '110px',
-          zIndex: 40,
-          pointerEvents: 'none',
+          width: isExpanded ? '240px' : '64px',
           transition: 'width 0.22s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
       >
@@ -193,15 +191,12 @@ export const AppSidebar: React.FC<Props> = ({
             bottom: 0,
             width: isExpanded ? '240px' : '64px',
             pointerEvents: 'auto',
-            borderRadius: '12px',
             backgroundColor: 'rgba(11, 15, 25, 0.96)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRight: '1px solid rgba(255, 255, 255, 0.1)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: isExpanded && !isPinned ? '0 12px 32px rgba(0, 0, 0, 0.6)' : '0 4px 20px rgba(0, 0, 0, 0.3)',
-            transition: 'width 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s ease',
+            transition: 'width 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
             overflowX: 'hidden',
             overflowY: 'auto'
           }}

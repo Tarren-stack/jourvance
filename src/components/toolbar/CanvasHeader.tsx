@@ -434,7 +434,7 @@ export const CanvasHeader: React.FC<Props> = ({
       >
         {/* Left: Brand and Workspace */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="jv-header-brand" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div
               style={{
                 width: '32px',
@@ -458,7 +458,7 @@ export const CanvasHeader: React.FC<Props> = ({
             </div>
           </div>
 
-          <div style={{ width: '1px', height: '24px', background: 'rgba(255, 255, 255, 0.1)' }} />
+          <div className="jv-header-brand" style={{ width: '1px', height: '24px', background: 'rgba(255, 255, 255, 0.1)' }} />
 
           {/* Workspace & Shopify Selector */}
           {onSelectWorkspace && onOpenShopifyConnect && onCreateWorkspace && (

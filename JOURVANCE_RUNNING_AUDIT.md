@@ -2,7 +2,25 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-07, hub rules pass. The app was BOOTED sandboxed and loaded in Chrome this time. Read the newest section first.
+Checked: 2026-10-08, sidebar docked and blueprint preview. Both loaded in Chrome on /canvas from a sandboxed boot. Read the newest section first.
+
+## 2026-10-08 — The rail is docked, and a blueprint shows its map before it loads
+
+Two owner requests. The left rail floated 10px inside the workspace body as an absolutely positioned card over the studio, so its 64px (240px expanded) covered the left edge of whatever was open. It is a flex sibling now (`src/index.css` `.jv-workspace-row` / `.jv-workspace-main`): full height beside the toolbar and the studio, reserving its width at rest, hovered and pinned, so the column is laid out beside it and nothing is covered. The toolbar's own brand mark is hidden on desktop (`.jv-header-brand`) because the rail carries one; on a phone the rail is the same drawer it was. The Blueprints confirm prompt draws the funnel the blueprint builds (`src/lib/blueprintPreview.ts`, `src/components/modals/BlueprintPreviewMap.tsx`) above Replace and Create new. Steps are ranked left to right from the lines, so no two boxes overlap on any of the 74 shipped blueprints, and a loop back is a dashed return.
+
+The preview was finished by a Sonnet subagent on the owner's instruction to orchestrate; its typecheck, suite, red run and browser run were re-run or re-read here before this entry.
+
+### Evidence
+
+- `npx tsc --noEmit` exited 0. `npm test`: 1801 tests, 1798 passed, 0 failed, 3 skipped (re-run by the main session).
+- `blueprint-preview.test.mjs` (4 tests) was seen red with every rank forced to 0, then restored byte-identical (reported by the subagent, not re-planted here).
+- Chrome on a sandboxed boot of `/canvas` at 1440x900: the rail is 64x900 at 0,0 and the toolbar-and-studio column starts at x=64; hovered, 240 and 240; the toolbar brand is `display: none`; at 390px the rail is hidden and the column starts at 0. Measured by `getBoundingClientRect`, screenshots read. Then: hover the rail, click Blueprints, click "Direct-to-Consumer Product Drop": the preview SVG is visible with 4 step boxes (the blueprint has 4 nodes) and its bottom edge (461) sits above the Replace (477) and Create new (542) buttons.
+
+### Left on purpose, and found on the way
+
+- The blueprint cards are clickable `div`s, not buttons, so they are not reachable from the keyboard. Found by the browser check's selector failing; not fixed in this pass.
+- Only one blueprint was opened in the browser; the no-overlap rule is pinned by the test over all 74.
+- Replace and Create new were not clicked; their behaviour is unchanged.
 
 ## 2026-10-07 — Truth protocol and hub rules, applied to the app
 

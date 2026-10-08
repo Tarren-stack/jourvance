@@ -831,6 +831,42 @@ export const App: React.FC = () => {
     <div className="jv-app-shell jv-app-shell--has-sidebar" style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
       {activePage === 'canvas' ? (
         <>
+          {/* Docked workspace: the rail spans the full height on the left, the toolbar and the
+              studio sit in a column beside it, and the column reserves the rail's width at every
+              state so the rail never covers content. */}
+          <div className="jv-workspace-row">
+            <AppSidebar
+              activeView={activeView}
+              onSelectView={view => (view === 'canvas' ? showCanvas() : setActiveView(view))}
+              workspaces={workspaces}
+              currentWorkspace={currentWorkspace}
+              onSelectWorkspace={ws => setCurrentWorkspace(ws)}
+              onOpenShopifyConnect={() => setShowShopifyModal(true)}
+              onCreateWorkspace={handleCreateWorkspace}
+              onOpenBilling={() => setShowBillingModal(true)}
+              onAddNode={handleAddNode}
+              onOpenAiBuilder={() => setShowAiBuilder(true)}
+              onOpenBlueprints={() => {
+                setBlueprintModalTab('turnkey');
+                setShowBlueprintModal(true);
+              }}
+              onOpenLaunchPlaybook={() => setShowLaunchPlaybook(true)}
+              launchCompleted={launchCompleted}
+              launchTotal={5}
+              onOpenAudit={openAudit}
+              designCount={designIssuesCount}
+              storeScore={currentStoreScore}
+              onOpenSimulator={() => setShowSimulatorDrawer(true)}
+              onOpenShopifySync={() => setShowShopifySyncModal(true)}
+              onExportAssets={() => setShowExportModal(true)}
+              user={user}
+              onOpenAuth={() => setShowAuthModal(true)}
+              onOpenAdmin={() => setShowOperatorDashboard(true)}
+              onSignOut={handleSignOut}
+              mobileOpen={mobileSidebarOpen}
+              onCloseMobile={() => setMobileSidebarOpen(false)}
+            />
+          <div className="jv-workspace-main">
           {/* Top Canvas Header Toolbar */}
           <CanvasHeader
             project={project}
@@ -895,37 +931,6 @@ export const App: React.FC = () => {
 
           {/* Main Workspace Layout: Left Sidebar + Studio/Canvas Content */}
           <div className="jv-workspace-body">
-            <AppSidebar
-              activeView={activeView}
-              onSelectView={view => (view === 'canvas' ? showCanvas() : setActiveView(view))}
-              workspaces={workspaces}
-              currentWorkspace={currentWorkspace}
-              onSelectWorkspace={ws => setCurrentWorkspace(ws)}
-              onOpenShopifyConnect={() => setShowShopifyModal(true)}
-              onCreateWorkspace={handleCreateWorkspace}
-              onOpenBilling={() => setShowBillingModal(true)}
-              onAddNode={handleAddNode}
-              onOpenAiBuilder={() => setShowAiBuilder(true)}
-              onOpenBlueprints={() => {
-                setBlueprintModalTab('turnkey');
-                setShowBlueprintModal(true);
-              }}
-              onOpenLaunchPlaybook={() => setShowLaunchPlaybook(true)}
-              launchCompleted={launchCompleted}
-              launchTotal={5}
-              onOpenAudit={openAudit}
-              designCount={designIssuesCount}
-              storeScore={currentStoreScore}
-              onOpenSimulator={() => setShowSimulatorDrawer(true)}
-              onOpenShopifySync={() => setShowShopifySyncModal(true)}
-              onExportAssets={() => setShowExportModal(true)}
-              user={user}
-              onOpenAuth={() => setShowAuthModal(true)}
-              onOpenAdmin={() => setShowOperatorDashboard(true)}
-              onSignOut={handleSignOut}
-              mobileOpen={mobileSidebarOpen}
-              onCloseMobile={() => setMobileSidebarOpen(false)}
-            />
 
             <div className="jv-workspace-content">
               {activeView === 'email-studio' && funnelReturn && (
@@ -1028,6 +1033,8 @@ export const App: React.FC = () => {
               </Suspense>
             </div>
           </div>
+          </div>{/* jv-workspace-main */}
+          </div>{/* jv-workspace-row */}
 
           {/* Floating Mobile Navigation Trigger Button */}
           <button

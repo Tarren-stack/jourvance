@@ -33,6 +33,7 @@ import {
   importSharedBlueprint
 } from '../../lib/templateClient';
 import { ModalDialog } from './ModalDialog';
+import { BlueprintPreviewMap } from './BlueprintPreviewMap';
 
 type TabType = 'turnkey' | 'custom' | 'import';
 
@@ -1279,8 +1280,10 @@ export const BlueprintModal: React.FC<Props> = ({
           >
             <div
               style={{
-                maxWidth: '480px',
+                maxWidth: '640px',
                 width: '100%',
+                maxHeight: '100%',
+                overflowY: 'auto',
                 backgroundColor: '#1E293B',
                 borderRadius: '14px',
                 border: '1px solid rgba(255, 255, 255, 0.15)',
@@ -1295,9 +1298,14 @@ export const BlueprintModal: React.FC<Props> = ({
                 </h3>
               </div>
 
-              <p style={{ fontSize: '13px', color: '#94A3B8', lineHeight: 1.5, margin: '0 0 16px 0' }}>
-                How would you like to load this blueprint into your workspace?
+              <p style={{ fontSize: '13px', color: '#94A3B8', lineHeight: 1.5, margin: '0 0 12px 0' }}>
+                This is the funnel the blueprint builds, {selectedBlueprint.nodes.length} step{selectedBlueprint.nodes.length === 1 ? '' : 's'} left to right. Choose how to load it.
               </p>
+
+              {/* The map first, the choice below it (#33): see the funnel before picking. */}
+              <div style={{ marginBottom: '16px' }}>
+                <BlueprintPreviewMap nodes={selectedBlueprint.nodes} edges={selectedBlueprint.edges} />
+              </div>
 
               {products.length > 0 && (
                 <div
