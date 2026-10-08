@@ -1,4 +1,5 @@
 import type { Node, Edge } from '@xyflow/react';
+import type { BuilderDoc } from './pageBuilder';
 
 export type NodeType = 'ad-source' | 'landing-page' | 'lead-form' | 'follow-up-sequence' | 'thank-you' | 'upsell' | 'ab-split';
 
@@ -151,6 +152,8 @@ export interface PageNodeData extends Record<string, unknown> {
   socialProofMinRating?: number;
   socialProofHeadline?: string;
   socialProofPhotosEnabled?: boolean;
+  // Landing page builder (LANDING_BUILDER_PLAN.md). A page without it renders as the simple editor made it.
+  builder?: BuilderDoc;
   // Metrics & Financials (Wave 3 & Wave 6 Live Closed Loop)
   visitors: number;
   conversions: number;
