@@ -2,7 +2,7 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-08. DEPLOYED: jourvance.com serves c137590 (the lead-capture fix, the Sentinel, the page builder Waves 0 to 3). Read the newest section first.
+Checked: 2026-10-08. DEPLOYED: jourvance.com serves 4b1cf75 (the motion pass, the countdown dip removed, on top of the lead-capture fix, the Sentinel and the page builder Waves 0 to 3). Render reported it live and the two earlier deploys deactivated; the Sentinel, policy and lead probes answer as before. A bundle fingerprint for the motion code was inconclusive (no lazy chunk names found), not failed. Read the newest section first.
 
 ## 2026-10-08: The page builder motion pass, fix round 3 applied, green, NOT committed
 
