@@ -11,6 +11,10 @@ import {
 import {
   SMART_EMAIL_HOURS, SMART_SMS_HOURS, isIanaTimezone
 } from '../../email-flows.mjs';
+import { emailTouchFields } from '../../email-map.mjs';
+import {
+  mailSecretOk, normalizeProviderEvent, readProviderEvents, secretsMatch
+} from '../mail-events.mjs';
 
 function escapeHtml(str) {
   return String(str || '')
@@ -72,6 +76,7 @@ export function setupEmailRoutes(app, ctx) {
     SMART_SMS_HOURS,
     splitHoldout,
     recordEvent,
+    knownSend = () => null,
     smartSkipReason,
     composeForSend,
     deliverLetter,
@@ -266,46 +271,68 @@ app.get('/u/:token', unsubscribeResponse);
 app.post('/u/:token', unsubscribeResponse);
 
 app.post('/api/email/provider-event', (req, res) => {
-  const secret = process.env.MAIL_EVENT_SECRET || '';
-  if (!secret) return res.status(401).json({ success: false, error: 'Mail event secret is not configured, so bounces are not recorded.' });
-  const header = String(req.get('x-jourvance-mail-secret') || '');
-  const a = Buffer.from(header);
-  const b = Buffer.from(secret);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+  const secret = String(process.env.MAIL_EVENT_SECRET || '');
+  if (!mailSecretOk(secret)) {
+    return res.status(401).json({ success: false, error: 'Mail event secret is not configured, so bounces are not recorded.' });
+  }
+  if (!secretsMatch(req.get('x-jourvance-mail-secret'), secret)) {
     return res.status(401).json({ success: false, error: 'The mail event secret did not match, so this event was not recorded.' });
   }
-  const uid = String(req.body?.uid || '').slice(0, 128);
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  const aliases = {
-    open: 'email_opened', opened: 'email_opened', email_opened: 'email_opened',
-    click: 'email_clicked', clicked: 'email_clicked', email_clicked: 'email_clicked',
-    sms_click: 'sms_clicked', sms_clicked: 'sms_clicked',
-    delivered: 'email_delivered', email_delivered: 'email_delivered',
-    hard_bounce: 'hard_bounce', soft_bounce: 'soft_bounce', complaint: 'complaint', unsubscribe: 'unsubscribe'
-  };
-  const type = aliases[String(req.body?.type || '')];
-  if (!uid || !email.includes('@') || !type) {
+  const incoming = readProviderEvents(req.body);
+  if (!incoming.length) {
     return res.status(400).json({ success: false, error: 'uid, email, and an open, click, delivered, bounce, complaint, or unsubscribe type are required.' });
   }
-  const known = knownSend(uid, req.body?.messageId);
-  if (type === 'unsubscribe') applyUnsubscribe(uid, email);
-  else if (type === 'hard_bounce' || type === 'soft_bounce' || type === 'complaint') {
-    const bag = userProgramBag(uid);
-    bag.suppressions = noteSuppression(bag.suppressions, email, type);
-    writeUserPrograms(uid, bag);
+  const seen = new Set();
+  for (const row of loadEvents()) {
+    const id = String(row?.providerEventId || '');
+    if (id && row?.userId) seen.add(`${row.userId}\0${id}`);
   }
-  const event = {
-    type, userId: uid, email,
-    messageId: known?.messageId || '',
-    campaignId: known?.campaignId || '',
-    flowId: known?.flowId || '',
-    nodeId: known?.nodeId || '',
-    sequenceId: known?.sequenceId || '',
-    ...emailTouchFields(type)
-  };
-  if (req.body?.prefetch === true || req.body?.applePrivacy === true) event.prefetch = true;
-  recordEvent(event);
-  res.json({ success: true, recorded: type, attached: Boolean(known) });
+  let recorded = 0;
+  let duplicate = 0;
+  let skipped = 0;
+  let lastType = '';
+  let attached = false;
+  for (const raw of incoming) {
+    const event = normalizeProviderEvent(raw);
+    if (!event) { skipped += 1; continue; }
+    if (event.providerEventId) {
+      const key = `${event.uid}\0${event.providerEventId}`;
+      if (seen.has(key)) { duplicate += 1; continue; }
+      seen.add(key);
+    }
+    const known = knownSend(event.uid, event.messageId);
+    if (event.type === 'unsubscribe') applyUnsubscribe(event.uid, event.email);
+    else if (event.type === 'hard_bounce' || event.type === 'soft_bounce' || event.type === 'complaint') {
+      const bag = userProgramBag(event.uid);
+      bag.suppressions = noteSuppression(bag.suppressions, event.email, event.type);
+      writeUserPrograms(event.uid, bag);
+    }
+    recordEvent({
+      type: event.type,
+      userId: event.uid,
+      email: event.email,
+      messageId: known?.messageId || '',
+      campaignId: known?.campaignId || '',
+      flowId: known?.flowId || '',
+      nodeId: known?.nodeId || '',
+      sequenceId: known?.sequenceId || '',
+      ...(event.providerEventId ? { providerEventId: event.providerEventId } : {}),
+      ...(event.prefetch ? { prefetch: true } : {}),
+      ...(event.at ? { at: event.at } : {}),
+      ...(event.bounceType && event.bounceType !== event.type ? { bounceType: event.bounceType } : {}),
+      ...emailTouchFields(event.type)
+    });
+    recorded += 1;
+    lastType = event.type;
+    if (known) attached = true;
+  }
+  if (!recorded && !duplicate) {
+    return res.status(400).json({ success: false, error: 'uid, email, and an open, click, delivered, bounce, complaint, or unsubscribe type are required.' });
+  }
+  if (incoming.length === 1 && recorded === 1) {
+    return res.json({ success: true, recorded: lastType, attached });
+  }
+  res.json({ success: true, recorded, duplicate, skipped });
 });
 
 app.post('/api/email/programs/:id', requireUser, (req, res) => {

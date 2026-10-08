@@ -12,6 +12,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { workspaceCreateBlocked } from '../billing.mjs';
+import { batchGetAll } from '../../hub-storage.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -259,12 +261,18 @@ export async function listWorkspaces(uid) {
   if (hubReady && hub?.store?.docs) {
     try {
       const listed = await hub.store.docs.list();
-      const prefix = `workspace.${safe(uid)}.`;
-      const names = (listed?.documents || []).map((d) => d.name).filter((n) => n.startsWith(prefix)).slice(0, 20);
-      if (names.length) {
-        const got = await hub.store.docs.batchGet(names);
-        const docs = (got?.documents || []).filter((d) => d.found && d.document).map((d) => d.document);
-        if (docs.length) return docs.map(sanitizeWorkspace);
+      if (listed && !listed.error && Array.isArray(listed.documents)) {
+        const prefix = `workspace.${safe(uid)}.`;
+        const names = listed.documents.map((d) => d && d.name).filter((n) => typeof n === 'string' && n.startsWith(prefix));
+        const got = names.length ? await batchGetAll(hub.store.docs, names) : [];
+        const docs = got.filter((d) => d && d.found !== false && d.document && d.document.userId === uid).map((d) => sanitizeWorkspace(d.document));
+        const byId = new Map(docs.filter((ws) => ws?.id).map((ws) => [ws.id, ws]));
+        for (const ws of Object.values(workspaceCache)) {
+          if (ws?.userId !== uid || !ws.id) continue;
+          const hubWs = byId.get(ws.id);
+          if (!hubWs || String(ws.updatedAt || '') > String(hubWs.updatedAt || '')) byId.set(ws.id, sanitizeWorkspace(ws));
+        }
+        if (byId.size) return [...byId.values()];
       }
     } catch {}
   }
@@ -395,7 +403,8 @@ export function setupAuthWorkspaceRoutes(app, ctx) {
 
   app.post('/api/workspaces', requireUser, async (req, res) => {
     const existing = await listWorkspaces(req.user.uid);
-    if (existing.length >= 2 && !req.user.email?.includes('tarren')) {
+    const plan = ctx.accountPlan ? await ctx.accountPlan(req.user.uid) : 'starter';
+    if (workspaceCreateBlocked({ count: existing.length, plan, email: req.user.email })) {
       return res.status(402).json({
         success: false,
         error: 'Upgrade to Pro to connect additional Shopify stores and create more workspaces.'
@@ -405,7 +414,7 @@ export function setupAuthWorkspaceRoutes(app, ctx) {
     const ws = await saveWorkspace(req.user.uid, id, {
       name: req.body?.name || `Shopify Workspace ${existing.length + 1}`,
       shopifyConfig: { storeDomain: '', status: 'disconnected' },
-      planTier: 'starter'
+      planTier: plan === 'pro' ? 'pro' : 'starter'
     });
     res.json({ success: true, workspace: ws });
   });

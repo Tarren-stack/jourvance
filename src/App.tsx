@@ -1115,12 +1115,11 @@ export const App: React.FC = () => {
           onOpenBilling={() => setShowBillingModal(true)}
         />
 
-        {/* Shopify Live Attribution & Order Simulator Modal */}
+        {/* Shopify webhooks, discounts, and abandoned checkouts */}
         <ShopifySyncModal
           isOpen={showShopifySyncModal}
           onClose={() => setShowShopifySyncModal(false)}
           workspace={currentWorkspace}
-          nodes={project.nodes}
         />
 
         {/* User Auth Modal */}
@@ -1130,7 +1129,7 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* Subscription Billing Upgrade Modal */}
+        {/* Subscription billing */}
         {showBillingModal && (
           <BillingModal
             onClose={() => setShowBillingModal(false)}

@@ -11,8 +11,6 @@ All 32 backlog items and follow-ups F1 to F4 are built and verified. **None of i
 - `CHECK_CANVAS_PORT=5580 npm run check:canvas`: exit 0, 16 scenarios, 24 of 24 keyboard checks.
 - `A11Y_PORT=5581 npm run check:a11y`: exit 0.
 
-Durable copies of the finding files (every earlier item with evidence and acceptance criteria) and the item A diff are in `.autoclaw/orchestrator/comms/handoffs/journey-ui-backlog/`. The `/private/tmp` scratch paths named inside them may be gone.
-
 ## Step 1: already done
 
 The owner approved it, and all of this work was committed and pushed to `main` on 2026-09-30 as `924d837`. The untracked `shots/` folder (test screenshots) was left out on purpose. Commit the items below as follow-up commits, and only when the owner asks.
@@ -71,4 +69,3 @@ Set `REVIEW_SECRET` in the deployed environment. Review links sent before this c
 - No new npm dependency without owner sign-off. Commit only when the owner asks.
 - When an item ships:
   1. Set its row in the backlog doc to Done and add a change log row. The status dropdown enum is `a7de1590-f954`, index 2 = Done. Remove the item from the doc's "Still open" list.
-  2. Follow the AutoClaw protocol: write a claim file in `.autoclaw/orchestrator/comms/claims/`, a `task_complete` in `inboxes/shared/`, and a `review_request` to Antigravity. The previous session's handoff note is `.autoclaw/orchestrator/comms/handoffs/journey-ui-backlog-7e3d12f8.json`, and its claim has been released.

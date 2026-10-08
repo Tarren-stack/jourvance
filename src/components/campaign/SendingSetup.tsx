@@ -16,6 +16,7 @@ import {
 import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
 import { checkEmailDeliverabilityDns, type EmailDeliverabilityReport } from '../../lib/shopifyClient';
+import { OPENS_UNSTORED } from '../../lib/emailStats';
 
 type Sender = { id: string; fromEmail?: string; domain?: string; verified?: boolean; dns?: unknown };
 
@@ -53,6 +54,7 @@ export const SendingSetup: React.FC = () => {
   const [deadline, setDeadline] = useState('');
   const [notice, setNotice] = useState('');
   const [dnsNote, setDnsNote] = useState('');
+  const [opensStored, setOpensStored] = useState(false);
 
   // Live DNS Deliverability Audit State
   const [auditDomain, setAuditDomain] = useState('');
@@ -76,6 +78,8 @@ export const SendingSetup: React.FC = () => {
       setBlocks(Array.isArray(liveRes?.blocks) ? liveRes.blocks : []);
       if (senderRes?.success === false) setNotice(senderRes.error);
 
+      const analyticsRes = await readJson(await fetch('/api/email/analytics', { headers }));
+      setOpensStored(analyticsRes?.analytics?.opensStored === true);
       const suiteRes = await readJson(await fetch('/api/email/suite', { headers }));
       if (typeof suiteRes?.suite?.postalAddress === 'string') setAddress(suiteRes.suite.postalAddress);
 
@@ -139,6 +143,9 @@ export const SendingSetup: React.FC = () => {
         <p style={{ margin: '6px 0 0', fontSize: 13, color: '#9ca3af', lineHeight: 1.5 }}>
           Authenticate your sending domain with <strong>SPF</strong>, <strong>DKIM</strong>, <strong>DMARC</strong>, and <strong>MX</strong> records. Google and Yahoo strictly enforce these authentication protocols to prevent automated store emails from landing in customer Spam folders.
         </p>
+        {opensStored !== true && (
+          <p style={{ margin: '8px 0 0', fontSize: 13, color: '#9ca3af' }}>{OPENS_UNSTORED}</p>
+        )}
       </div>
 
       {/* 1. Live DNS Deliverability Audit Tool */}

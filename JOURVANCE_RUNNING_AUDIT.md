@@ -1,642 +1,331 @@
-# Jourvance Comprehensive Audit: Running Issues, Product Gaps & Improvement Architecture
-
-**Document Version:** 2.0.0  
-**Target Codebase:** `jourvance` (`/Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance`)  
-**Scope:** Complete Codebase (Engine, Server, Tenancy, Canvas UI, E-Commerce Integrations, Email Suite, Marketing Pages, Legal & Compliance)  
-**Status:** Living Engineering & Product Assessment  
-
----
-
-## Executive Summary
-
-Jourvance is designed as a visual customer journey and conversion flow builder connecting top-of-funnel traffic (Meta/TikTok ads), single-offer high-converting landing pages, 1-click Shopify checkout (with order bumps), and automated post-purchase email/SMS nurture into a unified canvas.
-
-While the conceptual vision and domain logic are robust (over 70 unit tests pass for graph validation and attribution rules), the current implementation contains **critical architectural bottlenecks, severe data loss risks, security loopholes, non-functioning "automated" workflows, missing legal compliance safeguards, and public-facing conversion flaws** that prevent it from functioning reliably as a multi-tenant commercial SaaS product.
-
-This document inventories every identified issue, categorized by severity, along with concrete root causes and recommended architectural improvements.
-
----
-
-## Table of Contents
-1. [Critical Architectural & Data Durability Hazards](#1-critical-architectural--data-durability-hazards)
-2. [Automation, Execution & Background Processing](#2-automation-execution--background-processing)
-3. [Multi-Tenancy, Security & Isolation Loopholes](#3-multi-tenancy-security--isolation-loopholes)
-4. [Compliance, Legal & Deliverability Vulnerabilities](#4-compliance-legal--deliverability-vulnerabilities)
-5. [E-Commerce & Funnel Execution Breakdowns](#5-e-commerce--funnel-execution-breakdowns)
-6. [UI, UX, Conversion & Buyer Trust Red Flags](#6-ui-ux-conversion--buyer-trust-red-flags)
-7. [Canvas Engine & State Synchronization Glitches](#7-canvas-engine--state-synchronization-glitches)
-8. [Routing, SEO & Frontend Architecture](#8-routing-seo--frontend-architecture)
-9. [Prioritized Remediation Roadmap](#9-prioritized-remediation-roadmap)
-
----
-
-## 1. Critical Architectural & Data Durability Hazards
-
-### 1.1 Ephemeral Flat JSON Storage Wipes 14 Core Datasets on Container Deploy
-- **File / Lines:** `server.mjs:198-428`, `server.mjs:1013-1400`, `server.mjs:2570`, `server.mjs:5468`, `server.mjs:5971`
-- **Issue:** 
-  The top of `server.mjs` explicitly acknowledges:
-  > *"Render's disk is wiped on every deploy, so a spoke that only wrote journeys.json lost every customer's work each time it shipped."*
-  
-  While `journeys`, `workspaces`, and `pubpages` write to the Hub app store (`hub.store.docs`), **14 business-critical datasets are stored exclusively as local flat JSON files on disk**:
-  1. `contacts.json` (CRM leads, marketing consent, customer directory)
-  2. `orders.json` (Shopify customer orders & closed-loop attribution revenue)
-  3. `checkouts.json` (Abandoned carts & checkout sessions)
-  4. `campaigns.json` (Broadcast history & engagement analytics)
-  5. `drips.json` (Active lead nurture sequences & in-flight customer enrollments)
-  6. `discounts.json` (Shopify price rules & provisioned voucher codes)
-  7. `events.json` (Tracking events, page views, click beacons)
-  8. `redirects.json` (Shortlink click-tracking codes for email & SMS)
-  9. `email_programs.json` (Custom flow automations & transactional templates)
-  10. `signup_forms.json` (Popup, bar, flyout configurations)
-  11. `behavior.json` (Storefront visitor behavioral tracking)
-  12. `predictions.json` (Store gap curves & predictive CLV models)
-  13. `catalog_memory.json` (Cached Shopify product & variant metadata)
-  14. `klaviyo.json` (Klaviyo credentials and sync state)
-- **Impact:** 
-  Any container restart, redeploy on Render, Fly.io, Cloud Run, or Docker container swap **permanently destroys all merchant orders, customer leads, active email sequences, analytics history, and shortlinks**. Furthermore, every previously sent email/SMS with a `/r/:code` tracking link immediately returns a 404 error after deployment.
-- **Recommended Improvement:**
-  Transition all persistent collections to the Hub app store (`hub.store.docs`), Firestore (`@firebase/firestore`), or a lightweight PostgreSQL / SQLite database via Cloud SQL / Supabase / Turso. At minimum, implement a bi-directional Hub Store sync worker that persists these collections on mutation and rehydrates them at startup.
-
----
-
-### 1.2 `saveJourney` Silently Strips Forecasts, Workspace Associations, and Metadata
-- **File / Lines:** `server.mjs:234-250`, `src/App.tsx:95-104`
-- **Issue:** 
-  In `server.mjs:237-249`:
-  ```javascript
-  const PROJECT_TEXT_FIELDS = ['name', 'businessType', 'offerHeadline', 'goal'];
-  async function saveJourney(uid, id, body) {
-    const journey = {
-      id,
-      userId: uid,
-      ...Object.fromEntries(PROJECT_TEXT_FIELDS.map((f) => [f, text(body[f])])),
-      nodes: Array.isArray(body.nodes) ? body.nodes : [],
-      edges: Array.isArray(body.edges) ? body.edges : [],
-      metadata: body.metadata && typeof body.metadata === 'object' ? body.metadata : {},
-      updatedAt: new Date().toISOString()
-    };
-    ...
-  ```
-  `saveJourney` strictly cherry-picks only `name`, `businessType`, `offerHeadline`, and `goal`. It silently ignores and drops:
-  - `project.forecast` (The entire Wave 10 Financial Simulator configuration and results)
-  - `project.workspaceId` (The multi-tenant workspace association)
-  - `project.shopifyStoreDomain`
-- **Impact:** 
-  When a merchant uses the Financial Simulator drawer to model their funnel economics and clicks "Save Forecast", the forecast is saved only to the current browser's local storage. The moment they log in from another browser or rehydrate from the server, the forecast is completely lost. Similarly, journeys lose their workspace tenancy binding upon server save.
-- **Recommended Improvement:**
-  Expand `saveJourney` and `cleanJourneyProject` to preserve `forecast`, `workspaceId`, and `shopifyStoreDomain`:
-  ```javascript
-  if (body.forecast && typeof body.forecast === 'object') journey.forecast = body.forecast;
-  if (body.workspaceId) journey.workspaceId = String(body.workspaceId);
-  if (body.shopifyStoreDomain) journey.shopifyStoreDomain = String(body.shopifyStoreDomain);
-  ```
-
----
-
-### 1.3 Event-Loop Starvation & Disk Thrashing on Shopify Pixel (`/api/public/shopify-pixel`)
-- **File / Lines:** `server.mjs:469-485`, `server.mjs:9426-9454`
-- **Issue:** 
-  Every visitor browsing a merchant's Shopify storefront triggers the pixel endpoint (`/api/public/shopify-pixel`). On **every single request**:
-  1. `loadBehaviorBag(uid)` calls `readJsonObject(behaviorPath)`, reading the multi-megabyte `behavior.json` file from disk.
-  2. `JSON.parse` parses up to 50,000 events across all tenants.
-  3. The new event is appended.
-  4. `JSON.stringify(all)` serializes the entire database.
-  5. `fs.writeFileSync(behaviorPath, ...)` writes the entire file synchronously back to disk.
-- **Impact:** 
-  Under modest storefront traffic (e.g., 20 simultaneous visitors browsing products), Node's single thread blocks completely on synchronous disk I/O and JSON parsing. Requests queue up, response latencies spike into multi-seconds, and the server crashes from event loop starvation. Concurrent writes also race and truncate/corrupt `behavior.json`.
-- **Recommended Improvement:**
-  Buffer incoming pixel beacons in an in-memory queue and flush to storage in batches (e.g., every 5–10 seconds), or ingest events into an append-only log or Redis stream.
-
----
-
-### 1.4 Post-Restart Shopify Webhook Ingestion Failure (`workspaceByShopDomain`)
-- **File / Lines:** `server.mjs:403-410`, `server.mjs:711-720`
-- **Issue:** 
-  When Shopify delivers a webhook (orders, checkouts, refunds), `acceptShopifyWebhook` looks up the workspace via `workspaceByShopDomain(shopDomain)`. This function iterates exclusively over `workspaceCache` (loaded from the local `workspaces.json`).
-  If the spoke redeploys and `workspaces.json` is fresh or empty, `workspaceCache` has no records. Although `loadWorkspace` can fetch individual workspaces from `hub.store.docs.get`, it never rehydrates `workspaceCache` on boot or on webhook lookup.
-- **Impact:** 
-  All incoming Shopify webhooks immediately fail with HTTP 401: *"This store has no app API secret saved, so the webhook was refused."*
-- **Recommended Improvement:**
-  On server startup, fetch the tenant workspace list from `hub.store.docs.list()` and seed `workspaceCache`. Additionally, if a domain lookup misses in cache, query the Hub store before rejecting the webhook.
-
----
-
-### 1.5 Unindexed $O(N \times M)$ Startup Loop Blocks Server Boot (`purgeSeededFiles`)
-- **File / Lines:** `server.mjs:9676-9724`
-- **Issue:** 
-  At server startup, `purgeSeededFiles()` executes synchronously before `app.listen()`. Lines 9693–9703 iterate over every contact and perform a nested `.filter()` across the entire orders array:
-  ```javascript
-  for (const contact of contacts) {
-    const mine = orders.filter(o => String(o.customerEmail).toLowerCase() === String(contact.email).toLowerCase());
-    ...
-  }
-  ```
-- **Impact:** 
-  For 10,000 contacts and 20,000 orders, this executes 200,000,000 comparisons synchronously on boot, causing massive startup delays or process timeouts in cloud orchestrators (Render/Kubernetes liveness probe failures).
-- **Recommended Improvement:**
-  Pre-index orders by `customerEmail` into a `Map<string, Order[]>` before looping over contacts (reducing time complexity from $O(N \times M)$ to $O(N + M)$).
-
----
-
-## 2. Automation, Execution & Background Processing
-
-### 2.1 Automated Lead Nurture Drips & Flows Do Not Run in the Background
-- **File / Lines:** `server.mjs:3791-3884`, `server.mjs:5009-5060`, `src/components/campaign/HubEmailSuite.tsx:233-248`
-- **Issue:** 
-  The "automated" email nurture system has **no background timer, cron runner, or job scheduler**.
-  `processAccountAutomations(uid)` and `processCustomFlows(uid)` are strictly invoked from a single HTTP POST handler: `app.post('/api/drips/process-tick', requireUser, ...)`.
-  The only place this handler is invoked in the entire codebase is a manual button click in the `HubEmailSuite` frontend tab:
-  ```typescript
-  const handleRunDripTick = async () => {
-    const res = await fetch('/api/drips/process-tick', { method: 'POST', ... });
-  };
-  ```
-- **Impact:** 
-  Scheduled follow-up sequences, abandoned checkout recovery emails, winback flows, and buyer re-engagements **never send automatically**. If a prospect opts in, they will not receive Step 2 (e.g., 24-hour delay) unless the merchant happens to open the admin panel and manually click "Run Drip Tick". If the merchant is offline for a week, zero follow-ups are sent.
-- **Recommended Improvement:**
-  Add a recurring server-side job (e.g., Node `setInterval` running every 60 seconds across active accounts, or a lightweight cron worker triggering an internal `/api/internal/cron/drips` authenticated with a secret key) to process due steps continuously.
-
----
-
-### 2.2 SMS Dispatch Consent Verification via Hub Audience (TCPA / CTIA Compliance Boundary)
-- **File / Lines:** `server.mjs:2940-2958`, `hub-sdk.js:1035-1050`
-- **Architectural & Security Rationale:** 
-  Calling `hub.email.sms.audience()` from the Hub is an essential **TCPA/CTIA legal compliance and security boundary**. 
-  Under federal regulations (TCPA), commercial text messages may only be delivered to recipients with verifiable, un-revoked opt-in consent; statutory damages range from $500 to $1,500 per unauthorized message.
-  The Zelus Labs Hub acts as the centralized authority for carrier webhooks and opt-outs (e.g., when a recipient replies `"STOP"`, the Hub instantly suppresses their number).
-- **Execution Safeguard:** 
-  Querying the Hub directly prior to dispatch ensures that opt-outs received via carrier networks are honored in real time across all spokes without stale local cache risks. To prevent network thrashing during high-volume ticks while preserving live consent guarantees, consent is verified directly against the Hub's authoritative consent registry.
-
----
-
-### 2.3 Redirect Shortlink Lookup Rewrites File Multiple Times Per Render
-- **File / Lines:** `server.mjs:1457-1488`
-- **Issue:** 
-  `rewritePlainMailLinks` iterates through all links in an email template. For each link found, it called `rememberRedirect()`. Inside `rememberRedirect`, it called `loadRedirects()`, pushed, and called `saveRedirects()`.
-- **Impact:** 
-  If a newsletter contained 6 links, `redirects.json` was read and rewritten 6 times synchronously. Across a broadcast of 500 recipients, this triggered thousands of redundant disk writes and sliced a 20,000-item array thousands of times.
-- **Resolution:** **RESOLVED**
-  - Updated `rememberRedirect(uid, url, meta, batchCollector)` to support in-memory batch accumulation without touching disk when a collector array is provided.
-  - Introduced `rememberRedirectsBatch(newRows)` for single atomic bulk commits.
-  - Updated `rewritePlainMailLinks(html, meta, batchCollector)` to batch all links locally for single sends (1 write instead of N), and pass through `batchCollector` for multi-recipient broadcasts and drip ticks (1 bulk commit for the entire campaign).
-  - Verified with comprehensive test suite in `redirect-batch.test.mjs`.
-
----
-
-## 3. Multi-Tenancy, Security & Isolation Loopholes
-
-### 3.1 Public Page Hijacking via Flat Slug Namespace
-- **File / Lines:** `server.mjs:8052-8195`, `server.mjs:10288-10515`
-- **Issue:** 
-  Public pages are stored in a flat dictionary: `publicPageCache[cleanSlug] = data`.
-  When a user published a page via `/api/journey/:id/publish`, the server generated a clean slug (e.g., `offer-1`, `summer-glow`, `vip-deal`). The route did **not** check whether `cleanSlug` was already owned by another `userId`. Furthermore, `customDomain` pointers (`domain:${customDomain}`) could be overwritten by any caller, and reserved system routes were unreserved.
-- **Impact:** 
-  Tenant B could intentionally or accidentally publish a page with the same slug as Tenant A, overwriting Tenant A's live landing page, stealing their traffic, capturing their customer leads, or hijacking custom domains.
-- **Resolution (RESOLVED):**
-  1. **Strict Multi-Tenant Slug Isolation (`validateSlugAvailability`)**:
-     - Enforced caller ownership validation across all publishable node types (`landing-page`, `upsell`, and `ab-split`).
-     - Cross-node route collision protection: because both `landing-page` and `upsell` serve from `/p/:slug`, an upsell slug registered by Tenant A blocks Tenant B from claiming it as either a landing page or an upsell.
-     - Split router isolation: `ab-split` nodes check `split:${cleanSlug}` to prevent cross-tenant split route collisions.
-  2. **Reserved System Slugs Blacklist**:
-     - Enforced `RESERVED_PUBLIC_SLUGS` Set (`api`, `admin`, `r`, `o`, `u`, `p`, `split`, `assets`, `favicon.ico`, `health`, `webhooks`, `login`, `signup`, `dashboard`, `preview`, `checkout`, `cart`), immediately rejecting attempts to claim core routing keywords.
-  3. **Custom Domain Hijacking Prevention**:
-     - When publishing or validating a page with `customDomain`, the server checks whether `domain:${cleanDomain}` is already bound to another tenant's page, blocking unauthorized domain takeovers with descriptive 409 errors.
-  4. **Auto-Resolution vs Explicit Custom Slug Conflict Policy**:
-     - If a user explicitly specifies a custom slug that is owned by another store, the server returns an explicit `409 Conflict` error.
-     - If a user leaves the slug as default system-generated (`node.id`), the server automatically appends a random hex suffix (`${cleanSlug}-${hex}`) to ensure smooth publishing without friction.
-  5. **Secure Unpublishing & Cleanup (`removePublicPage`)**:
-     - `POST /api/journey/:id/unpublish` iterates through `landing-page`, `upsell`, and `ab-split` nodes.
-     - `removePublicPage` verifies `requestingUserId === page.userId` before deletion, cleanly removing the slug document and clearing any registered `domain:${customDomain}` pointer.
-  6. **Real-Time Pre-Flight Check Endpoint**:
-     - Added `GET /api/journey/check-slug` with `requireUser` authentication so page and journey settings UI can validate slug availability in real time before publishing.
-  7. **Automated Verification**:
-     - Implemented unit test suite in `slug-protection.test.mjs` (8 passing tests covering reserved slugs, cross-tenant isolation, cross-node protection, custom domain protection, auto-resolution, and unpublish cleanup).
-
----
-
-### 3.2 Custom Domain Takeover Without Verification
-- **File / Lines:** `server.mjs:8049-8225`, `server.mjs:10505-10560`, `server.mjs:11235-11285`
-- **Issue:** 
-  When publishing a page with `customDomain`, the server previously assigned `publicPageCache['domain:' + customDomain] = cleanSlug` immediately, without requiring DNS CNAME or TXT verification.
-  Furthermore, `loadPublicPage` contained an unverified deep-search fallback that routed traffic to any page matching `pageDomain === host`, allowing arbitrary users to route traffic from domains they did not own.
-- **Impact:** 
-  Any user could enter a third-party domain (e.g. `offers.competitor.com` or a lapsed brand domain). If that domain pointed to Jourvance's ingress, the unauthorized user's funnel would be served to real customers.
-- **Resolution (RESOLVED):**
-  1. **Persistent Domain Ownership Registry (`domains.json` & `domainRegistryCache`)**:
-     - Tracks verified custom domains, owning `userId`, verification method (`cname` vs `txt_challenge`), timestamp, and SSL status.
-  2. **Deterministic Tenant Verification Token (`getDomainVerificationToken`)**:
-     - Generates a cryptographically derived, tenant-isolated token (`jrv_${hash(userId:domain:secret)}`) for proving real DNS ownership.
-  3. **Option 1 Hybrid Verification Engine (`verifyDomainOwnership`)**:
-     - **Uncontested Domains**: Automatically verified when a CNAME points directly to `cname.jourvance.com`. The first merchant to verify becomes the registered owner with zero extra friction.
-     - **Contested Domains**: If another tenant attempts to claim an already-verified domain, CNAME alone is rejected (`contested: true`, 409). The claimant must create a TXT record `_jourvance.${domain} = jrv_${token}` to prove real DNS control.
-     - **Cryptographic Reclaiming**: Creating the TXT challenge record confirms genuine domain ownership and cleanly transfers registration to the legitimate brand owner.
-  4. **Verified-Only Live Routing Protection**:
-     - `POST /api/journey/:id/publish` and `savePublicPage` only bind `publicPageCache['domain:' + customDomain]` if the domain is verified by the publishing user.
-     - Pages with unverified domains remain immediately live and testable via their default URL (`/p/:slug`), while the custom domain displays as "Pending DNS Verification" without exposing unverified routes to the public.
-     - Removed the unsafe unverified fallback in `loadPublicPage`. Host header routing strictly validates that the domain in registry is verified and belongs to the page's owner.
-  5. **Endpoints & UI Integration**:
-     - Hardened `GET /api/domain/verify` to execute hybrid verification and activate host routing in real time when verified.
-     - Added `GET /api/domain/token` for instant pre-flight token retrieval.
-     - Updated `PageEditor.tsx` and `PublishModal.tsx` to display live HTTPS certificates, pending DNS guidance, and copyable TXT challenge tokens when contested.
-  6. **Automated Verification**:
-     - Implemented unit test suite in `custom-domain-verification.test.mjs` (8 passing tests covering token determinism, uncontested CNAME verification, contested domain defense, TXT challenge reclaiming, unverified host route suppression, verified host routing activation, and tamper protection).
-
----
-
-### 3.3 Unauthenticated Lead Ingestion Route Vulnerable to Spam Flood
-- **File / Lines:** `server.mjs:8801-8898`
-- **Issue:** 
-  `POST /api/public/lead` has zero rate-limiting, no CAPTCHA or Cloudflare Turnstile integration, no honeypot field, and no origin check. Each submission triggers synchronous disk writes and flow enrollments.
-- **Impact:** 
-  A malicious actor or web crawler can submit millions of fake leads, polluting CRM databases, filling disk storage, triggering unauthorized outbound email/SMS costs, and blacklisting sender reputations.
-- **Recommended Improvement:**
-  Implement IP-based rate limiting (e.g., max 5 submissions per minute per IP), add a hidden honeypot field (`website_url_hp`), and integrate Cloudflare Turnstile or reCAPTCHA v3.
-
----
-
-### 3.4 Blended Attribution Metrics Across Workspaces & Timeframes
-- **File / Lines:** `server.mjs:5164-5256`, `src/components/analytics/AttributionReports.tsx:27-36`
-- **Issue:** 
-  1. `AttributionReports.tsx` never passes `workspaceId` in its fetch query (`/api/reports/attribution?model=...`). On the backend, `server.mjs:5168` aggregates all orders and events solely by `req.user.uid`.
-  2. Ad spend calculation in lines 5248–5256 loops over **every journey owned by the user** and sums `node.data.spend` unconditionally, ignoring both the selected workspace and the `7d` / `30d` date filter.
-- **Impact:** 
-  If a merchant manages two separate Shopify stores under one account, their revenue, ROAS, click-through rates, and CAC metrics are completely mixed together. Furthermore, ad spend is counted statically from all past journeys, distorting short-term ROAS metrics.
-- **Recommended Improvement:**
-  Pass `workspaceId` as a query parameter, filter events and orders by workspace, and calculate ad spend within the selected time window.
-
----
-
-### 3.5 Hardcoded Operator PII in Client Bundle
-- **File / Lines:** `src/lib/firebase.ts:27`, `server.mjs:77`
-- **Issue:** 
-  The operator's personal email (`tlm@tarrenmunoz.com`) is hardcoded directly into the client TypeScript bundle (`src/lib/firebase.ts:27`).
-- **Impact:** 
-  Exposes the administrator's email address to anyone inspecting the public client bundle and makes deploying Jourvance for other operators difficult without source code edits.
-- **Recommended Improvement:**
-  Supply operator emails exclusively via environment variables (`process.env.OPERATOR_EMAIL`) and verify permissions on backend APIs.
-
----
-
-## 4. Compliance, Legal & Deliverability Vulnerabilities
-
-### 4.1 Missing Unsubscribe Mechanism Under Default Configuration (CAN-SPAM / GDPR)
-- **File / Lines:** `server.mjs:1386-1388`, `server.mjs:1559-1562`, `email-doc.mjs:1171-1178`
-- **Issue:** 
-  In `server.mjs:1386`:
-  ```javascript
-  function mailLinkSecret() {
-    return process.env.MAIL_LINK_SECRET || process.env.HUB_API_KEY || '';
-  }
-  ```
-  If neither `MAIL_LINK_SECRET` nor `HUB_API_KEY` is configured in the environment:
-  `signUnsubscribe(secret, uid, email)` returns `""`.
-  Then `unsubscribeUrlFor` returns `""`.
-  When `renderLetter` renders the email footer, it produces no unsubscribe link, rendering only:
-  > *"An unsubscribe link is added for each person when this sends."*
-- **Impact:** 
-  Emails are dispatched to recipient inboxes **with no functional unsubscribe link**. This is an immediate violation of the US CAN-SPAM Act, EU GDPR, and Google/Yahoo bulk sender requirements, leading to domain blacklisting and legal liability.
-- **Recommended Improvement:**
-  Generate a persistent fallback secret on initial server setup if none is supplied in `.env`, and block outgoing marketing emails with a validation error if no unsubscribe token can be signed.
-
----
-
-### 4.2 Key Rotation Invalidates All Past Unsubscribe Links
-- **File / Lines:** `email-doc.mjs:1180-1195`, `server.mjs:1386`
-- **Issue:** 
-  Unsubscribe tokens are HMAC-SHA256 signatures generated from `mailLinkSecret()`. If `HUB_API_KEY` is rotated (or `MAIL_LINK_SECRET` updated), `readUnsubscribe` fails HMAC verification on all links in previously delivered emails.
-- **Impact:** 
-  Recipients clicking "Unsubscribe" from older newsletters receive an invalid token error and cannot unsubscribe, leading to spam complaints.
-- **Recommended Improvement:**
-  Support key rotation with an array of previous verification secrets (`[CURRENT_SECRET, OLD_SECRET]`).
-
----
-
-### 4.3 Missing Cookie Consent & Privacy Disclosures for Pixel Beacons
-- **File / Lines:** `server.mjs:9426-9520`, `audience.mjs:613-640`
-- **Issue:** 
-  The Jourvance tracking script and storefront pixel set tracking cookies and beacons (`visitorId`, `sessionId`, page browsing behavior) without checking for user consent or integrating with Shopify's Customer Privacy API.
-- **Impact:** 
-  European (GDPR) and Californian (CCPA) storefront visitors are tracked without explicit consent, creating compliance risks for merchants.
-- **Recommended Improvement:**
-  Integrate with Shopify's `window.Shopify.customerPrivacy` API to honor consent preferences before activating behavioral beacons.
-
----
-
-## 5. E-Commerce & Funnel Execution Breakdowns
-
-### 5.1 Turnkey Blueprints Hardcode Rejected Variant IDs
-- **File / Lines:** `src/data/ecomBlueprints.ts:63-64`, `src/lib/shopifyClient.ts:167-204`, `server.mjs:316-331`
-- **Issue:** 
-  The turnkey e-commerce blueprints hardcode dummy Shopify IDs (e.g., variant `42109840192`, product `gid://shopify/Product/84920194821`).
-  However, both `shopifyClient.ts` and `server.mjs` contain:
-  ```javascript
-  const FAKE_VARIANT_IDS = new Set(['42109840192', '42109840193', '42109840194']);
-  ```
-  `buildCheckoutPermalink` strips these IDs and returns an empty string `""`.
-- **Impact:** 
-  When a merchant loads a blueprint and publishes their page, the generated checkout link is empty or points to `https://mystore.myshopify.com/cart/`. Clicking checkout results in an empty cart or error. There is no alert warning the merchant to select a real product from their store.
-- **Recommended Improvement:**
-  In `PageEditor.tsx` and `PublishModal.tsx`, display a prominent warning banner if `shopifyVariantId` is empty or a placeholder, disabling publishing until a real product is selected.
-
----
-
-### 5.2 Silent Page Reload on Empty Checkout Links
-- **File / Lines:** `src/components/drawers/PageEditor.tsx:779`, `src/components/drawers/PageEditor.tsx:1187`, `server.mjs:7793`
-- **Issue:** 
-  When `currentCheckoutUrl` is empty (due to disconnected store or missing variant), `PageEditor.tsx` renders `<a href="">`.
-  On public SSR landing pages, `server.mjs:7793` contains:
-  ```javascript
-  if (!storeDomain) return;
-  ```
-- **Impact:** 
-  Clicking the primary call-to-action button does nothing, or simply refreshes the page, confusing visitors and merchants during testing.
-- **Recommended Improvement:**
-  Render an informative disabled state or modal prompt explaining that the store must be connected.
-
----
-
-### 5.3 Exported Funnel HTML Contains Dummy Non-Functional Form
-- **File / Lines:** `src/components/export/ExportAssetsModal.tsx:167`
-- **Issue:** 
-  The "Export Assets" modal allows merchants to export production HTML for their landing pages. Line 167 renders the form as:
-  ```html
-  <form onsubmit="event.preventDefault(); alert('Form submitted successfully!');">
-  ```
-- **Impact:** 
-  If a merchant exports this code and embeds it into WordPress, Webflow, or Shopify, the form does not capture leads, does not write to the Jourvance CRM, does not send webhooks, and does not enroll contacts into email flows. 100% of leads are lost.
-- **Recommended Improvement:**
-  Render a real form action that submits via `fetch()` to `https://jourvance.com/api/public/lead` with proper slug, journey ID, and visitor attribution tokens.
-
----
-
-### 5.4 AI Copy Generator Fails Silently on Markdown Fences
-- **File / Lines:** `server.mjs:6718-6729`
-- **Issue:** 
-  When requesting AI copy via `hub.brain.chat(prompt, { json: true })`, LLMs frequently wrap their JSON response in markdown code blocks:
-  ````markdown
-  ```json
-  { "headline": "Radiant Skin in 7 Days", "subhead": "..." }
-  ```
-  ````
-  Line 6720 performs a strict `JSON.parse(answer.text)`. When code fences are present, `JSON.parse` throws a syntax error, caught by the generic catch block, and the route silently falls back to static hardcoded templates (`templateCopy`).
-- **Impact:** 
-  The merchant receives generic placeholder text instead of real AI-generated copy, despite spending hub AI credits.
-- **Recommended Improvement:**
-  Strip markdown fences before parsing:
-  ```javascript
-  const cleanJson = answer.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  const parsed = JSON.parse(cleanJson);
-  ```
-
----
-
-### 5.5 Silent Overwrite of User Copy via `clearTemplateMetrics`
-- **File / Lines:** `src/lib/journeyStorage.ts:13`, `src/lib/liveStats.ts:17-64`
-- **Issue:** 
-  Every time `loadCurrentJourney()` runs (on page reload or app mount), it passes the saved project through `clearTemplateMetrics(parsed)`.
-  Any node with an ID matching `TEMPLATE_NODE = /^(node-(ad|page|form|seq)-1|bp[1-4]-)/` is passed through `zeroMeasured()`.
-  In `zeroMeasured()`, any string matching `INVENTED_PROOF` or `SEEDED_PROMISE` is wiped:
-  ```typescript
-  const INVENTED_PROOF = /4\.9\/5|verified (beauty lovers|customers|buyers|clients)|\d[\d,]*\+\s*(verified |members|clients|buyers|beauty)|100% satisfaction|zero risk, zero obligation|guaranteed quality|5-star results|money-back|clinically proven/i;
-  ```
-- **Impact:** 
-  If a merchant loads a blueprint and writes legitimate, verified marketing claims (e.g., *"Backed by our 100% satisfaction money-back guarantee"* or *"Rated 5-star results by our clients"*), saving and refreshing the browser **silently overwrites their headline back to generic text**: `"Your offer headline"`.
-- **Recommended Improvement:**
-  Only scrub seeded metrics once when a blueprint is first cloned, rather than sanitizing node copy on every subsequent load of saved projects.
-
----
-
-## 6. UI, UX, Conversion & Buyer Trust Red Flags
-
-### 6.1 Developer Disclaimers Exposed on Public Marketing Home Page
-- **File / Lines:** `src/components/public/HomePage.tsx:49-51`, `src/components/public/HomePage.tsx:1248`, `src/components/public/HomePage.tsx:1334-1344`
-- **Issue:** 
-  The public marketing homepage contains internal developer notes visible to all visitors:
-  - In the Pricing Section:
-    - Subtitle: *"Billing is not connected in this app yet."*
-    - Badge: *"Not a paid plan"*
-    - Tier Description: *"The same studio. Billing is not connected, so this button does not start a subscription."*
-    - Price: *"No charge"*
-  - In the Public FAQ:
-    - *"Does Jourvance charge per-lead or transaction fees? Billing is not connected in this app, so it does not charge per lead and it does not sell a Pro plan from this page."*
-- **Impact:** 
-  Destroys software credibility. Any prospective buyer immediately perceives the product as an incomplete prototype rather than a premium SaaS tool.
-- **Recommended Improvement:**
-  Present polished, commercial SaaS copy with clear plan tiers (e.g. Free Sandbox vs. Pro $49/mo), and handle subscription routing gracefully (e.g. "Join Waitlist" or direct Stripe checkout).
-
----
-
-### 6.2 Dead-End Billing & Missing Upgrade Pathway
-- **File / Lines:** `src/components/billing/BillingModal.tsx:16-18`
-- **Issue:** 
-  When a user exceeds the workspace limit (HTTP 402) and is shown the Billing modal, clicking "Upgrade to Jourvance Growth Pro" triggers:
-  ```typescript
-  const handleUpgrade = () => {
-    setNotice('Billing is not connected. Nothing was charged, and the plan did not change.');
-  };
-  ```
-  Additionally, the monthly vs. annual billing toggle state is declared on line 13 but never rendered in the UI.
-- **Impact:** 
-  Users who want to pay and upgrade are completely blocked with a dead-end notice.
-- **Recommended Improvement:**
-  Integrate Stripe Checkout, LemonSqueezy, or Hub Billing webhooks to allow automated self-serve plan upgrades.
-
----
-
-### 6.3 Contact Page Relies on External Third-Party Webhook
-- **File / Lines:** `src/components/public/ContactPage.tsx:28-56`
-- **Issue:** 
-  In `ContactPage.tsx`, contact submissions save to local browser storage (`localStorage.getItem('jourvance_inquiries')`) and attempt an outbound `fetch()` to `https://zeluslabs.dev/api/crm/webhook/jourvance`.
-- **Impact:** 
-  If `zeluslabs.dev` is offline, experiencing CORS restrictions, or blocked by privacy extensions, inquiries are lost to the operator. There is no internal Jourvance backend endpoint storing customer inquiries.
-- **Recommended Improvement:**
-  Route contact inquiries through an internal authenticated endpoint: `POST /api/public/inquiry`.
-
----
-
-## 7. Canvas Engine & State Synchronization Glitches
-
-### 7.1 Canvas Keyboard Deletions Not Persisted to State
-- **File / Lines:** `src/components/canvas/JourneyCanvas.tsx:119-124`
-- **Issue:** 
-  When a user selects a node or edge on the canvas and presses `Backspace` or `Delete`, ReactFlow fires `onNodesChange` with `{ type: 'remove' }`. The canvas handles this in local ReactFlow state (`onNodesChangeHandler`), but **never calls `onNodesChange(rfNodes)` or `onEdgesChange(rfEdges)` on the parent `App` component**.
-- **Impact:** 
-  The node disappears from the canvas visually, but remains in `project.nodes`. When the 20-second stats polling interval fires, the deleted node suddenly reappears on the canvas.
-- **Recommended Improvement:**
-  In `JourneyCanvas.tsx`, detect removal changes and forward the updated node list to the parent component.
-
----
-
-### 7.2 Node Position Snapping During User Interaction
-- **File / Lines:** `src/App.tsx:149`, `src/components/canvas/JourneyCanvas.tsx:62-71`
-- **Issue:** 
-  `App.tsx` polls `/api/funnel/stats` every 20 seconds. Applying stats updates `project.nodes`. This triggers the `useEffect` in `JourneyCanvas` which overwrites `rfNodes`.
-- **Impact:** 
-  If a user is actively dragging or arranging nodes, the node snaps back to its previous coordinates when the poll completes.
-- **Recommended Improvement:**
-  Only update node data metrics (`node.data = { ...node.data, ...stats }`) without resetting node coordinates (`node.position`).
-
----
-
-### 7.3 Missing UI Error Handling in Email Programs
-- **File / Lines:** `src/components/campaign/EmailPrograms.tsx:139-141`
-- **Issue:** 
-  If the API call to `/api/email/suite` fails (e.g. 500 error or network timeout), `suite` remains `null`. The component renders:
-  ```tsx
-  if (!suite) {
-    return <p style={{ color: '#9ca3af', fontSize: 13 }}>Loading the email suite…</p>;
-  }
-  ```
-- **Impact:** 
-  The user is stuck on a permanent "Loading the email suite…" screen with no error feedback or retry option.
-- **Recommended Improvement:**
-  Add explicit error state and a "Retry" button.
-
----
-
-### 7.4 NodeInspector Missing Title for 'upsell' Node
-- **File / Lines:** `src/components/drawers/NodeInspector.tsx:38-47`
-- **Issue:** 
-  `getTitle()` contains cases for `ad-source`, `landing-page`, `lead-form`, `follow-up-sequence`, and `thank-you`, but omits `upsell`.
-- **Impact:** 
-  When editing post-purchase upsell/downsell nodes, the drawer displays generic `"Node Configuration"` rather than `"Upsell & Downsell Offer Editor"`.
-
----
-
-## 8. Routing, SEO & Frontend Architecture
-
-### 8.1 Zero Browser URL Routing (State-Only Navigation)
-- **File / Lines:** `src/App.tsx:33`, `src/main.tsx:1-11`, `server.mjs:9360-9366`
-- **Issue:** 
-  Navigation across the public site is driven entirely by internal state:
-  `const [activePage, setActivePage] = useState<'home' | 'about' | 'blog' | 'contact' | 'canvas'>('home');`
-  There is no client-side router (e.g., React Router, Wouter, or HTML5 History pushState).
-- **Impact:** 
-  - Visitors cannot bookmark or directly share links to `/about`, `/blog`, or `/contact`.
-  - Refreshing the browser on the Blog or Contact page immediately resets the app back to the Home page.
-  - Search engines (Google, Bing) cannot crawl or index subpages because unique URLs do not exist.
-- **Recommended Improvement:**
-  Implement simple HTML5 history routing (`window.history.pushState` or lightweight router) that synchronizes the browser address bar with `activePage`.
-
----
-
-### 8.2 Giant Monolithic Client Bundle (1.17 MB Uncompressed)
-- **File / Lines:** `src/App.tsx:1-30`, `vite.config.ts`
-- **Issue:** 
-  All top-level screens and heavy dependencies (`@xyflow/react`, `HubEmailSuite`, `AttributionReports`, `OperatorDashboard`, `FinancialSimulatorDrawer`, modals) are imported statically at the top of `App.tsx`.
-- **Impact:** 
-  When a prospective buyer visits `jourvance.com` just to read the homepage or blog, their browser is forced to download 1.17 MB of JavaScript before the page can hydrate, harming Core Web Vitals (LCP, INP) and mobile bounce rates.
-- **Recommended Improvement:**
-  Split bundles using `React.lazy()` for all sub-dashboards, drawers, and admin views.
-
----
-
-### 8.3 Route Modularization of `server.mjs`
-- **File / Lines:** `server.mjs`, `server/routes/domainRoutes.mjs`, `server/routes/journeyRoutes.mjs`, `server/routes/shopifyRoutes.mjs`, `server/routes/emailRoutes.mjs`, `server/routes/analyticsRoutes.mjs`, `server/routes/publicRoutes.mjs`, `server/routes/authWorkspaceRoutes.mjs`
-- **Status:** **PHASE 1, PHASE 2, & PHASE 3 COMPLETE**
-- **Completed:** 
-  - **Phase 1**:
-    - Extracted Custom Domain Verification, Challenge Tokens, Live TLS SNI Handshakes, and Email DNS Health Check into dedicated controller [server/routes/domainRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/domainRoutes.mjs).
-    - Extracted Slug Namespace Validation, Multi-Tenant Page Publishing, and Unpublishing into dedicated controller [server/routes/journeyRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/journeyRoutes.mjs).
-  - **Phase 2**:
-    - Extracted Shopify Admin & Real-Time Webhooks into dedicated controller [server/routes/shopifyRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/shopifyRoutes.mjs) (`/connect`, `/disconnect`, `/signals`, `/webhooks`, `/products`, `/sync-customers`, `/sync-orders`, `/discounts`, `/create-discount`, `/abandoned-checkouts`, plus 11 real-time webhook endpoints).
-    - Extracted Hub Email Suite, CRM 360, RFM settings, audience segments, campaigns & drips into dedicated controller [server/routes/emailRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/emailRoutes.mjs) (38 route endpoints including CRM 360 profile, tags, RFM config, audience segments, campaign sends, AB winner lock, drip enrollments, and predictions).
-  - **Phase 3**:
-    - Extracted Analytics & Attribution into dedicated controller [server/routes/analyticsRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/analyticsRoutes.mjs) (Multi-touch attribution models, funnel edge/node live telemetry, CSV export, message delivery stats, operator analytics).
-    - Extracted Public Funnel SSR & Ingestion into dedicated controller [server/routes/publicRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/publicRoutes.mjs) (Landing page HTML, Thank-You portal HTML, Post-Purchase Upsell/Downsell HTML, A/B split router, Subdomain Host-Header middleware, lead capture CORS, rate-limiting, exit-intent rescue, Shopify web pixel beacon, back-in-stock notifications, waitlist, inquiries).
-    - Extracted Auth & Workspace Multi-Tenancy into dedicated controller [server/routes/authWorkspaceRoutes.mjs](file:///Users/tarrenmunoz/antigravity/Local-AI-App-Builder/generated-projects/jourvance/server/routes/authWorkspaceRoutes.mjs) (Google RS256 token verification, `requireUser`, `requireOperator`, workspace CRUD, admin journey overview, AI copywriter rate-limiting & template fallback).
-    - All 181 automated tests across 24 test suites pass with 100% precision. `server.mjs` reduced from ~11,950 lines to 4,694 lines (>7,250 lines modularized). Production bundle builds cleanly in 1.36s.
-
----
-
-## 9. Prioritized Remediation Roadmap
-
-| Priority | Category | Problem / Gap | Impact | Status |
-|:---:|:---|:---|:---|:---:|
-| **P0** | **Durability** | Ephemeral JSON files wipe orders & CRM on deploy | Complete data loss on container restarts | **RESOLVED** (Hub Firestore Adapter `hub-storage.mjs`) |
-| **P0** | **Stability** | Synchronous multi-megabyte `behavior.json` write on pixel | Event loop lockup under store traffic | **RESOLVED** (In-memory buffer with 5s batch flush) |
-| **P0** | **Durability** | `saveJourney` strips `forecast`, `workspaceId`, `shopifyStoreDomain` | Saved forecasts & workspace links disappear on reload | **RESOLVED** (Preserved in `server.mjs` & `App.tsx`) |
-| **P0** | **Durability** | Shopify webhook 401 failure on container restart | In-memory cache empty after deploy | **RESOLVED** (Auto-rehydration of workspaces on boot) |
-| **P0** | **Performance**| Unindexed O(N*M) startup loop in `purgeSeededFiles` | Startup hangs on boot | **RESOLVED** (Pre-indexed Map O(N+M)) |
-| **P0** | **Automation** | Drips and automations never execute in background | Zero emails/SMS sent unless merchant clicks button | **RESOLVED** (In-process 60s runner with concurrency guard) |
-| **P1** | **Legal / Compliance** | Unsubscribe links empty when secret missing; breaks CAN-SPAM | Domain blacklisting & compliance violation | **RESOLVED** (Guaranteed HMAC secret fallback) |
-| **P1** | **Trust / UX** | "Billing not connected" disclaimers on public homepage | Kills buyer trust and SaaS credibility | **RESOLVED** (Starter Studio vs Growth Pro + VIP Waitlist) |
-| **P1** | **Data Integrity** | `clearTemplateMetrics` wipes user headlines containing guarantee copy | Silent user data erasure on reload | **RESOLVED** (Preserved user-saved copy) |
-| **P1** | **Security** | Flat slug namespace permits page & domain hijacking | Tenant traffic & lead theft | **RESOLVED** (Enforced slug ownership in publish route) |
-| **P1** | **Security** | Unauthenticated `/api/public/lead` and `/api/domain/verify` | Spam flooding & DNS probing | **RESOLVED** (Honeypot + IP rate limiter on lead, requireUser on verify) |
-| **P1** | **Analytics** | Attribution reports blend metrics across all workspaces & journeys | Distorted ROAS and revenue tracking | **RESOLVED** (Scoped events, orders & journey ad spend to workspaceId) |
-| **P2** | **Functionality** | Exported HTML form has dummy `alert()` onsubmit | Lost leads for exported funnels | **RESOLVED** (Real API lead submission script with honeypot) |
-| **P2** | **UX / Canvas** | Canvas keyboard node deletion not synced to parent | Deleted nodes reappear after 20s | **RESOLVED** (Propagated deletions to parent state) |
-| **P2** | **Commerce** | Blueprints contain rejected placeholder variant IDs | Broken checkout links on new funnels | **RESOLVED** (Warning banner in PageEditor) |
-| **P2** | **AI Logic** | Markdown code fences break AI copy JSON parsing | Merchant gets fallback static templates | **RESOLVED** (Markdown fence strip before JSON.parse) |
-| **P2** | **Routing / SEO** | No browser URL routing (state-only navigation) | Subpages unindexable, refresh resets to Home | **RESOLVED** (HTML5 History API routing in App.tsx) |
-| **P2** | **UX / Canvas** | NodeInspector generic title on upsell nodes | Confusing drawer context | **RESOLVED** (Added Upsell & Downsell Offer Editor title) |
-| **P2** | **UX / Canvas** | Node position snapping during 20s live stats poll | Jittery canvas dragging experience | **RESOLVED** (Preserved in-flight coordinates in `setRfNodes` via positionMap) |
-| **P2** | **Lead Capture**| Contact page relied exclusively on external webhook | Dropped customer inquiries on third-party failure | **RESOLVED** (Internal `POST /api/public/inquiry` persisted to Firestore with async webhook relay) |
-| **P2** | **UX / Email**  | Email programs stuck on permanent loading screen | No retry on network or auth hiccups | **RESOLVED** (Explicit load error state with "Retry Loading" button) |
-| **P2** | **Commerce**    | Silent refresh when clicking checkout on unconfigured store | Confusing click behavior for buyers/merchants | **RESOLVED** (Friendly launch alert on public page and PageEditor) |
-| **P2** | **Security**    | Hardcoded operator email in client bundle | Configuration inflexibility and PII exposure | **RESOLVED** (Configurable via `VITE_OPERATOR_EMAIL`) |
-| **P2** | **UX / Onboarding** | First-time merchants lack clear path from canvas to launch | Decision paralysis and lower funnel completion | **RESOLVED - PHASE 17** (The Launch Readiness Checklist was cleanly redesigned as `LaunchPlaybookModal.tsx` triggered from `AppSidebar.tsx`, with 5 interactive milestones and 1-click action routing.) |
-| **P3** | **Performance** | 1.17 MB monolithic bundle with no code-splitting | Slow mobile load times | **RESOLVED** (Code-split with React.lazy; entry chunk reduced to 184 kB) |
-| **P3** | **Architecture** | Monolithic `server.mjs` | Maintenance and regression risk | **RESOLVED - PHASE 1, 2 & 3** (Extracted `domainRoutes.mjs`, `journeyRoutes.mjs`, `shopifyRoutes.mjs`, `emailRoutes.mjs`, `analyticsRoutes.mjs`, `publicRoutes.mjs`, `authWorkspaceRoutes.mjs`; >7,250 lines modularized with 100% test pass rate) |
-| **P1** | **Conversion / Positioning** | Narrow "beauty-only" copy locked out all other business verticals | Restricts market to beauty only | **RESOLVED** (Universal turnkey blueprints: D2C, High-Ticket Consulting, Digital SaaS, VIP Magnet, OTO Upsell) |
-| **P1** | **Conversion / Mobile** | Mobile visitors scroll past hero CTA with no persistent action bar | Mobile bounce & lost conversions | **RESOLVED** (Mobile Sticky Action Bar with per-page toggle switch in `PageEditor.tsx` & auto-scroll trigger) |
-| **P1** | **Automation / Commerce** | Single-touch abandoned checkout recovery with no items summary or courtesy discount | Low cart recovery conversion | **RESOLVED** (2-Stage Recovery Engine: 45m items reminder + 24h `SAVE10` 10% courtesy discount) |
-| **P1** | **Compliance / Security** | Rotating HMAC mail secret invalidated historical unsubscribe links | CAN-SPAM / GDPR compliance hazard | **RESOLVED** (`MAIL_LINK_OLD_SECRETS` multi-secret rotation array in `server.mjs`) |
-| **P1** | **Privacy / Compliance** | Tracking snippet fired before European/Californian visitor consent | GDPR / CCPA privacy violation | **RESOLVED** (Shopify Customer Privacy API check + `visitorConsentCollected` event queue) |
-| **P1** | **Analytics / Drop-Off** | Generic static edge labels with zero drop-off analysis or leak diagnostics | Merchants unable to spot where funnel is leaking revenue | **RESOLVED** (Step-aware empirical conversion benchmarks, interactive `EdgeInspector` drawer, animated SVG flow, and revenue leakage calculator) |
-| **P1** | **Workspaces / Blueprints** | Inability to save custom journey blueprints at user account level or share between users | Duplicate manual funnel rebuilding across workspaces & friction onboarding clients | **RESOLVED** (Account-level custom blueprint library, tenant isolation, share codes, deep-link import, and always-accessible header toolbar action) |
-| **P1** | **Deliverability / Domains** | Custom domain SSL unverified and missing email DNS verification (SPF, DKIM, DMARC, MX) | Funnel SSL trust warnings and high risk of emails landing in Spam (Google/Yahoo non-compliance) | **RESOLVED** (Custom domain TLS SNI probe, dedicated Email Deliverability & DNS Suite with real-time SPF, DKIM, DMARC, MX checks and 1-click copy setup table) |
-| **P1** | **Conversion / Optimization** | Visual canvas lacked A/B split-testing routing node; split testing was buried inside page modal | Inability to visually branch traffic, test distinct pages or offers, or track edge conversion lift | **RESOLVED** (Dedicated `AbSplitNode` with dual output handles, preset & custom slider distribution, live statistical confidence meter, 1-click winner lock, edge throughput integration, and sticky cookie HTTP 302 router) |
-| **P1** | **Self-Hosting / Export** | Asset export lacked multi-page support, split routing, thank-you portal, and only exported single page | Merchants self-hosting on Webflow, WordPress, Shopify, or custom CDNs could not run A/B splits or multi-page funnels | **RESOLVED** (Complete Funnel Export Engine: client-side deterministic sticky router `split-router.html`, static Variant A/B files, in-DOM dynamic switcher, standalone VIP Thank-You Portal, editable CDN destination URLs, and batch download) |
-| **P1** | **Self-Hosting / Ingestion** | Exported HTML lead submissions failed across origins due to missing server CORS and hardcoded relative URL | 100% of leads lost on self-hosted Webflow, WordPress, and custom CDN landing pages | **RESOLVED** (Hybrid Dual-Sync lead ingestion: CORS enabled on `POST /api/public/lead` with `OPTIONS` preflight, tenant & journey ID binding, and simultaneous outbound relay to custom external webhooks) |
-| **P1** | **Self-Hosting / OTO** | Asset exporter ignored post-purchase upsell & downsell nodes; merchants had no way to export multi-step OTO funnels | Merchants self-hosting could not deploy 1-click post-purchase upsells or downsells, losing high-margin AOV expansion | **RESOLVED** (Standalone 1-Click Upsell & Downsell HTML Export: `generateUpsellHtml` with sessionStorage-persisted urgency timer, strikethrough pricing, direct Shopify `/cart/{variantId}:1` linking, polite decline fallback routing to downsell or thank-you portal, and editable modal URL mapping) |
-| **P1** | **Forecasting / Economics** | Financial simulator modeled only single-item purchases, omitting multi-step post-purchase upsell and downsell take rates | Merchants under-projected funnel AOV and ROAS, unable to calculate multi-offer backend economics before launching ad spend | **RESOLVED** (Multi-Step OTO Funnel Economics: automatic canvas price extraction for bump, upsell, and downsell nodes, decline-pool downsell conversion modeling, AOV lift calculations, and Waterfall unit economics in `FinancialSimulatorDrawer.tsx`) |
-| **P2** | **UX / Canvas Telemetry** | Canvas node cards displayed generic throughput without instant conversion rate or revenue visibility | Merchants had to open inspection drawers to see node CVR %, take rates, or revenue generated | **RESOLVED** (In-Card Live Telemetry Badges: dynamic CVR % and dollar revenue pills on `PageNode.tsx`, live take rate % and +revenue attribution pills on `UpsellNode.tsx`, and real-time order bump attach indicators) |
-| **P1** | **Attribution / AOV** | Attribution reports only showed single aggregated revenue number without multi-offer stream breakdown or AOV expansion lift | Merchants could not see how much revenue each offer tier (core, bump, upsell, downsell) contributed or quantify AOV lift per customer | **RESOLVED** (Multi-Offer Revenue Breakdown & AOV Expansion in `AttributionReports.tsx`: 4-tier waterfall cards, base vs effective blended AOV lift pill, revenue share distribution bar, OrderBump in CSV export, and `aovExpansion` backend telemetry) |
-| **P1** | **Attribution / Channel AOV** | Channel breakdown table treated all channels equally with generic metrics, omitting per-channel AOV and bump/upsell attach rates | Merchants could not identify which marketing channel generated high-LTV backend buyers vs low-AOV churn traffic | **RESOLVED** (Channel-Specific AOV & Offer Attach Breakdown in `AttributionReports.tsx`: multi-mode toggle for "Offer & AOV Lift", "Acquisition ROI", and "All Metrics", per-channel Base AOV vs Blended AOV, bump attach %, upsell attach %, and "Top AOV Lift" indicator) |
-| **P1** | **Automation / Retention** | Post-purchase upsell/downsell decline left revenue on the table with zero automated follow-up | Buyers who passed on post-purchase upgrades were permanently lost to the backend with 0% recovery | **RESOLVED** (Automated Second-Chance Post-Purchase Courtesy Flow: auto-enrollment into `drip_seq_upsell_recovery` on decline with 18h delay, `Upsell-Declined` / `Downsell-Declined` CRM tagging, `SAVE10` courtesy voucher, personalized token interpolation for `offer_url`, `discount_code`, and `order_number`, and dual live + runner smart exit on upsell accept or subsequent purchase) |
-| **P1** | **Attribution / Recovery** | Attribution reports aggregated post-purchase recovery into general email channel revenue, obscuring reclaimed upsell revenue | Merchants could not see how much revenue the automated second-chance courtesy sequence recovered from initial offer declines | **RESOLVED** (Post-Purchase Courtesy Recovery Intelligence: tracked `recoveredUpsellRevenue`, `recoveredUpsellOrders`, and `recoveryRate` across declined buyers, with recovery badge on Upsell Waterfall card and courtesy flow highlight in Incremental Add-On Value card in `AttributionReports.tsx`) |
-| **P1** | **Conversion / Retention** | Recovery email links sent buyers back to standard full-price upsell page with no pre-applied voucher or customer email preservation | High mobile friction and manual coupon entry caused drop-off on courtesy recovery clicks | **RESOLVED** (1-Click "Second Chance" Offer Page Variant with Pre-Applied Voucher: detects `?coupon=SAVE10&email=...&ref=recovery` in `renderPublicUpsellHtml`, renders warm "Private Courtesy Offer" banner, dynamically applies 10% strikethrough discount, updates CTA to `(10% Courtesy Off Applied)`, pre-applies `?discount=SAVE10` directly to Shopify cart URL, preserves `emailFromQuery` with `keepalive: true` telemetry, and formats automation `offerUrl` parameters in `server.mjs`) |
-| **P1** | **UX / Visual Canvas Telemetry** | Upsell and downsell canvas nodes only showed initial session take rates and revenue, hiding courtesy recovery performance | Merchants had no visual feedback on the canvas to see if their automated second-chance sequence was working without switching to reports | **RESOLVED** (Option C1 Progressive Courtesy Recovery Micro-Pill: added `totalDeclines`, `recoveredTakes`, `recoveredRevenue`, and `recoveryRate` to `UpsellNodeData`, `MEASURED_KEYS` in `liveStats.ts`, and `/api/funnel/stats` in `server.mjs`. Rendered a progressive emerald pill on `UpsellNode.tsx` showing `+{recoveryRate}% Courtesy Recovered (+{recoveredTakes} orders • +${recoveredRevenue})` when recoveries exist, a subtle follow-up state when declines are pending, and clean empty state with zero visual clutter) |
-| **P1** | **Conversion / Urgency & Fallback** | Courtesy recovery links lacked dynamic expiration enforcement and graceful expired handling | Buyers either delayed purchase indefinitely without urgency or encountered confusing checkout pricing if vouchers lapsed, eroding trust and conversion | **RESOLVED** (Option 1 Dynamic 24-Hour Expiration Clock & Informative Fallback: embedded `&exp=${timestamp}` into generated `offerUrl` in `processUserAutomationsTick` and `/api/public/upsell-action`. In `renderPublicUpsellHtml`, parsed `exp` parameter and validated against current server time and client-side `sessionStorage` fallback. When unexpired, renders reassuring courtesy banner with live countdown clock (`#jv-recovery-timer`) and 10% discount badge. When expired (either on SSR load or dynamically when countdown hits 00:00:00 in the browser), replaces buy card with an Informative Expired Message Card explaining the courtesy window has concluded and primary order is safe, suppresses discount, removes buy button, and renders `Continue to My Order Confirmation` linking to `nextDeclineUrl` with null-safe event listeners) |
-| **P1** | **Conversion / Visual Checkout Recovery** | Abandoned checkout recovery emails used plain-text bullet lists with zero item visuals, robotic copy, and broken or un-discounted links | Shoppers dropped off from lack of visual product recognition and mobile coupon friction, resulting in low checkout recovery rates | **RESOLVED** (Option A Dynamic Visual Line-Item Cards & 1-Click Cart Permalinks: created `checkout-recovery.mjs` with responsive table-based line item cards, thumbnail rendering with catalog image fallback and neutral beauty placeholder, 3-item visual cap with clean overflow badge (`+ X more items in your bag`), subtotal and 10% courtesy discount calculation (`SAVE10`), direct Shopify 1-click cart permalinks (`/cart/{variantId}:{qty}`), pre-applied discount wrapping (`/discount/SAVE10?redirect=...`), and elevated feminine beauty copy in `INITIAL_DRIP_SEQUENCES` and 60s background runner) |
-| **P1** | **CRM / Customer Lifecycle** | Static contact lists lacked automatic RFM segmentation, Whale detection, and churn inactivity tracking | Merchants could not identify their top-spending VIP whales ($500+) or automate retention flows for customers at risk of churn after 90 days | **RESOLVED** (Option B Automated RFM Customer Lifecycle Segmentation & VIP Whales in CRM: created pure deterministic engine `rfm-engine.mjs` with 6 lifecycle tiers (`VIP Platinum Whale`, `VIP Gold`, `VIP Silver`, `At-Risk`, `Lapsed`, `Lead`), custom user-defined inactivity thresholds (`atRiskDays`, `lapsedDays`, and spend tiers via `POST /api/email/rfm-config`), dynamic CRM tag auto-synchronization preserving custom merchant tags, order webhook & Shopify import hooks, 60s periodic recency decay sync, 5-card luxury audience stats ribbon with crown and warning badges, 1-click filter pills, and interactive glassmorphism RFM settings drawer in `HubEmailSuite.tsx`) |
-| **P1** | **CRM / Broadcast Actionability** | RFM segment cards lacked direct 1-click campaign drafting; merchants had to manually configure segments and write winback/VIP copy | High friction creating VIP rewards and at-risk churn prevention campaigns, leading to neglected high-LTV whales and unrecovered customers | **RESOLVED** (Option 1 1-Click VIP Whale & At-Risk Broadcasts: added `whales`, `gold`, `silver`, `at_risk`, and `lapsed` to `BUILT_INS` and `inBuiltIn` in `audience.mjs`. Wired 1-click "Draft Whale Perk" and "Draft Winback" quick-action buttons directly into Audience Stats Ribbon cards in `HubEmailSuite.tsx`, pre-populating luxury feminine copy and pre-selecting target segments. Added 1-Click Beauty Campaign Presets bar (`VIP Whale Perk`, `At-Risk 15% Winback`, `Lapsed Reconnect`) in Broadcast Composer modal for instant 1-click template switching with `WELCOMEBACK15` courtesy reward code and safe segment fallback) |
-| **P1** | **CRM / Automated Winback & Coupons** | Inactive at-risk customers bled into permanent churn without automated follow-up; coupon codes risked failing at checkout | Lost customer lifetime value from unrecovered churn, and trust damage if winback coupons are unredeemable | **RESOLVED** (Option A Auto-Winback Sequence & Shopify Discount Safeguards: created `drip_seq_at_risk_winback` native sequence triggered by at-risk inactivity with `smartExitOnPurchase`. In `processUserAutomationsTick`, implemented Option A deliverability guard strictly auto-enrolling clients crossing 90 days after `autoWinbackEnabledAt` with 180-day cooldown. Built automatic Shopify price rule provisioning (`provisionShopifyDiscount` and `ensureShopifyCoreDiscounts`) for `WELCOMEBACK15`, `SAVE10`, and `SANCTUARY`, enforcing 1 redemption per customer by default while providing `allowUnlimitedDiscountUse` toggle. Added toggles and verified status badges in RFM Drawer and Broadcast Modal) |
-| **P1** | **SMS / Carrier Verification & Roadmap** | Unregistered 10DLC A2P SMS sending causes immediate mobile carrier rejection (Twilio Error 30034) while approval is pending | Broken merchant experience and failed message delivery if premature live sending buttons are exposed | **RESOLVED** (Option 2 Elevated Coming Soon & Interactive Telecom Roadmap: transformed `SmsPanel.tsx` into a luxury preview suite with "Carrier Verification in Progress" status badge, 3-step Telecom Gateway Roadmap card, interactive Campaign Sandbox with 3 beauty presets (`At-Risk 15% Winback`, `VIP Whale Drop`, `Cart Recovery`), real-time GSM-7 character meter, iPhone mockup rendering speech bubble with dynamic shortlinks, and CRM phone number readiness counter. Added subtle `Soon` badge to Texts tab in `HubEmailSuite.tsx`. Backend SMS endpoints (`/api/sms/preview`, `/api/sms/consent`, `/api/sms/send`, `/r/:code`) remain fully wired for zero-refactoring activation once approval clears) |
-| **P1** | **Email / Inbox Polish & Visual Builder** | Email preview text bled into body/legal footer; visual builder lacked luxury product showcase cards | Low mobile open rates from cluttered inbox previews and inability to display featured products without synced Shopify store | **RESOLVED** (Option A Bulletproof Preheader Snippet & Luxury Product Showcase Card: implemented bulletproof preview text buffer with 40-repeat zero-width non-joiner & non-breaking space sequence (`&#847; &zwnj; &nbsp; `) in `email-doc.mjs` to block inbox snippet bleed in Gmail/Apple Mail/Outlook; added dynamic token interpolation (`{{first_name}}`, `{{store_name}}`, `{{discount_code}}`, `{{email}}`) in broadcast campaigns and drip runners with 1-click token insertion bar; elevated visual builder with Luxury Product Card block container (`EmailBlocks.tsx`) featuring 1-click beauty presets (*Rosewater Hydration Elixir*, *Silk Peptide Restorative Serum*, *Velvet Botanical Night Balm*), custom manual product creator, badge pills, strikethrough compare-at pricing, and responsive thumbnail cards; added live Gmail & iPhone Inbox Snippet Simulation card to Broadcast Composer modal in `HubEmailSuite.tsx`) |
-| **P1** | **CRM / Customer 360 Deep-Dive** | CRM customer table rows were static dead-ends with no way to inspect past orders, active drips, or timeline events | Inability to diagnose at-risk VIP whales or take targeted 1-click personal retention actions | **RESOLVED** (Option 1 Customer 360 Profile Slide-Over Drawer: built `CustomerProfileDrawer.tsx` with dedicated backend APIs `GET /api/email/contact-details`, `POST /api/email/contact-tags`, and `POST /api/drips/enrollment-toggle`. Features 4-metric customer ribbon (LTV, Orders, AOV, Recency), RFM intelligence hero card with strategic retention callouts, past Shopify orders breakdown with line items and fulfillment status, abandoned checkouts alert, active drip sequence manager with 1-click pause/resume/unenroll and manual sequence enrollment, live tag manager, chronological event timeline, and 1-click personalized VIP broadcast drafting in `HubEmailSuite.tsx`) |
-| **P1** | **Performance / I/O** | Shortlink generation performed synchronous disk reads & writes per URL inside loop (`Audit 2.3`) | Thousands of redundant disk writes & CPU array slicing during broadcasts | **RESOLVED** (In-Memory Batch Accumulation: `rememberRedirect` accepts `batchCollector`, `rememberRedirectsBatch` bulk-commits once, `rewritePlainMailLinks` batches single-email links in 1 write, and broadcast/drip send loops collect all links across recipients for 1 atomic flush) |
-| **P1** | **Commerce / Ingestion** | Order webhooks lacked `orders/paid` route alias, tenant-isolated idempotency, and over-aggressively exited all active drips | Dropped `orders/paid` hooks, possible cross-tenant checkout recovery collision, and premature cancellation of post-purchase onboarding drips | **RESOLVED** (Shopify Order Webhook Live Auto-Sync Hardening: added `POST /api/webhooks/shopify/orders-paid`, tenant-scoped duplicate detection updating `financialStatus` idempotently, selective drip exit targeting pre-purchase recovery sequences while protecting post-purchase welcome drips, tenant-scoped abandoned checkout recovery emitting `checkout_recovered` event, and automated CRM RFM tier & bump tag synchronization) |
-| **P1** | **Security / Multi-Tenancy** | Flat slug namespace permits page & domain hijacking (`Audit 3.1`) | Tenant traffic & lead theft, custom domain takeovers, and reserved route collision | **RESOLVED** (Multi-tenant slug isolation across `landing-page`, `upsell`, and `ab-split`, reserved keywords blacklist, custom domain ownership guards on `domain:${customDomain}`, auto-resolution for default slugs, tenant-verified unpublishing, and preflight check endpoint `GET /api/journey/check-slug`) |
-| **P1** | **Security / Domains** | Custom domain takeover without verification (`Audit 3.2`) | Competitor domain takeover, unverified host routing, and traffic interception | **RESOLVED** (Option 1 Hybrid CNAME & TXT challenge verification, persistent domain registry `domains.json`, deterministic tenant tokens `jrv_${hash}`, verified-only live host header routing, unverified deep search removal, and pre-flight token endpoint `GET /api/domain/token`) |
-| **P1** | **UX / Commerce Setup** | Merchants had to manually copy-paste obscure Shopify numeric variant IDs for landing pages, bumps, upsells, and downsells | Severe setup friction, broken checkouts from typos, and lack of visual product feedback | **RESOLVED** (Visual Shopify Product & Variant Auto-Picker Modal in `ShopifyProductPickerModal.tsx`: dynamic catalog browser with live store sync and luxury beauty demo catalog, variant chips with live inventory and pricing, search & filter, automatic single-click mapping into `PageEditor.tsx` for primary product & order bump, and `UpsellEditor.tsx` for 1-tap post-purchase upsells/downsells) |
-| **P2** | **Architecture / Maintainability** | Monolithic `server.mjs` (8,418 lines) coupled public SSR, lead ingestion, and auth into a single fragile file | High maintenance overhead, git merge conflicts, and regression hazard | **RESOLVED - PHASE 1 MODULARIZATION** (Extracted `publicRoutes.mjs` (3,523 lines) and `authWorkspaceRoutes.mjs` (477 lines), shrinking `server.mjs` down to 4,694 lines; zero regressions across 24 test suites) |
-| **P1** | **Conversion / Global Commerce** | Funnels only displayed USD and generated plain Shopify links, forcing foreign buyers into messy exchange rates and USD checkout | International buyer cart abandonment, foreign exchange friction, and lost overseas revenue | **RESOLVED - PHASE 2 MULTI-CURRENCY GEO-PRICING** (Zero-Cost Multi-Currency Geo-Pricing Engine & Localized Shopify Permalinks: built `src/lib/geoCurrency.ts` supporting USD, EUR, GBP, CAD, AUD with zero third-party API fees; Option A psychological charm pricing rounding converted prices to clean endings `.00`, `.95`, `.99`; edge header + timezone auto-detection with sticky cookie memory; sleek glassmorphic currency switcher pill in funnel header; automatic injection of `?currency=CODE` into checkout CTAs, bump orders, lead capture redirects, and 1-click upsell/downsell permalinks; interactive multi-currency preview & breakdown panel in `PageEditor.tsx`; 25/25 test suites passing) |
-| **P1** | **UX / Visual Retention Flow Canvas** | Retention flows (upsell courtesy rescue, cart recovery, winback) were buried in background tabs without visual canvas handles or direct flow editing | Merchants could not visualize customer rescue paths, see retention branches connected to decline/abandon handles, or configure delay hours/vouchers directly on the canvas | **RESOLVED - PHASE 3 VISUAL RETENTION FLOW CANVAS** (Visual Retention Branches & Focused Drawer Editor: Option 1 visual canvas integration in `JourneyCanvas.tsx` with dedicated handles (`rescue` on `UpsellNode`, `abandon` on `PageNode`, `retention-in` on `SequenceNode`), amber-glowing retention connection lines with live `Rescue` / `18h Delay` status badges in `ConversionEdge.tsx`, floating glassmorphic canvas toolbar toggle (`✦ Retention Flows: Visible / Hidden`) with automatic node and edge filtering, top header filter toggle in `CanvasHeader.tsx`, enhanced `SequenceNode.tsx` with contextual badges (`24h Courtesy Rescue`, `Cart Abandon Recovery`, `VIP Winback`) displaying delay pills, voucher badges, and smart-exit indicators, and focused slide-over drawer editor in `SequenceEditor.tsx` with 4 turnkey blueprints, delay hours, discount voucher code, smart exit criteria toggle, and instant merge tag chips; 26/26 test suites passing) |
-| **P1** | **UX / Turnkey Blueprints** | Blueprints presented linear-only funnels with zero retention branches | Merchants had to manually reconstruct cart recovery and 24h courtesy rescue flows from scratch | **RESOLVED - PHASE 4 TURNKEY RETENTION BLUEPRINT** (Flagship Turnkey Retention Blueprint: added 6th dedicated flagship blueprint `turnkey-retention-ecosystem` ("The Complete Acquisition & Courtesy Retention Engine") in `src/data/ecomBlueprints.ts` with 6 pre-configured nodes and 6 pre-wired connectors (Meta Ad → Hero Landing Page with Order Bump → 1-Click OTO Upsell → VIP Confirmation, plus Cart Abandonment Recovery and 24h Courtesy Rescue safety nets cleanly aligned on the retention branch axis $Y=440$); added `'retention'` category and amber badge pill in `BlueprintModal.tsx` displaying `✦ Includes 24h Rescue & Cart Recovery` with step preview color-coding; zero-metric preparation preserved retention attributes with zero data leaks; 26/26 test suites passing with 195/195 tests green) |
-| **P1** | **Forecasting / Retention Economics** | Financial Simulator modeled only Day-0 front-end conversions, omitting automated retention safety nets | Merchants under-projected funnel economics and true ROAS, unable to quantify the zero-ad-cost profit lift of cart recovery and 24h courtesy rescue flows | **RESOLVED - PHASE 5 RETENTION FORECASTING & ROAS ENGINE** (Automated Retention Economics & ROAS Lift Engine in `FinancialSimulatorDrawer.tsx` & `funnelForecaster.ts`: automatic canvas node detection checking for `checkout_recovery` and `upsell_recovery` flows to default toggles ON only when configured; adjustable courtesy discount percentage inputs (0–30%); empirical e-commerce cart abandonment and decliner-pool rescue formulas; zero additional ad spend modeling where 100% of non-COGS revenue drops directly to net profit; luxury "✦ Jourvance Retention Advantage" net profit lift banner; side-by-side Day-0 Direct ROAS vs Effective Retention-Boosted ROAS scorecards; waterfall unit economics rows with unit counts and courtesy pricing; automated sensitivity insights and CSV export; 199/199 tests passing with 100% green rate) |
-| **P1** | **Attribution / Retention Telemetry** | Attribution reports lacked closed-loop retention telemetry, obscuring recovered cart & courtesy upsell revenue against simulator forecasts | Merchants had no feedback loop to see actual realized zero-ad-cost reclaimed dollars vs modeled projections, losing sight of true retention ROI | **RESOLVED - PHASE 6 CLOSED-LOOP RETENTION ATTRIBUTION** (Closed-Loop Retention Telemetry & Forecast Benchmark Pacing in `AttributionReports.tsx`, `analyticsRoutes.mjs`, and `server.mjs`: added `retentionTelemetry` to `/api/reports/attribution` integrating `loadCheckouts()` recovery data and `upsell_decline` courtesy conversions; rendered luxury showcase card "✦ Retention Safety Nets & Courtesy Lift" with zero-extra-ad-cost profit pill, forecast pacing progress bar comparing realized vs modeled targets, dual in-depth channel sub-cards for Cart Abandonment and 24h Upsell Rescue with actual vs benchmark recovery rates; reassuring active zero-state; updated `/api/reports/attribution/export-csv` with `RetentionRescue` classification column; 202/202 tests green across all 26 test suites) |
-| **P1** | **UX / Simulator-to-Canvas Sync** | Merchants viewing the Financial Simulator had no direct way to manifest unconfigured retention safety nets onto their visual canvas | Disconnect between simulated retention profits and actual visual funnel architecture, requiring manual multi-node building and wire-up | **RESOLVED - PHASE 7 ONE-CLICK RETENTION SYNC TO CANVAS** (One-Click Retention Sync & Auto-Wiring Engine in `FinancialSimulatorDrawer.tsx`, `App.tsx`, and `funnelForecaster.ts`: Option A live simulator integration displaying a prominent amber action banner when retention flows are missing on canvas alongside granular card-level "✦ Add to Canvas" buttons; deterministic pure graph injector `injectRetentionFlows` that auto-calculates collision-free coordinates beneath parent landing and upsell nodes, generates pre-configured `SequenceNodeData` with custom courtesy voucher codes and discount percentages inherited from simulator sliders, and auto-wires golden rescue edges (`abandon` -> `retention-in` and `rescue` -> `retention-in` plus thank-you exit); non-destructive Option A drawer feedback keeping simulator open with live `Active on Canvas` badge transition and temporary toast notification with optional "View on Canvas" link; 205/205 tests green across all 26 test suites) |
-| **P1** | **Conversion / Pre-Flight Audit** | Funnels launched to paid ad traffic with hidden conversion leaks (missing mobile sticky, unconfigured bump, missing upsell, zero retention safety nets) | Founders waste ad spend on un-optimized funnels with low ROAS and undetected revenue leaks | **RESOLVED - PHASE 8 PRE-FLIGHT FUNNEL AUDIT & CONVERSION READINESS SCORE** (Interactive Pre-Flight Funnel Audit & Conversion Readiness Score Suite in `src/lib/funnelAuditor.ts`, `PreFlightAuditDrawer.tsx`, `CanvasHeader.tsx`, and `App.tsx`: pure deterministic 100-point scoring engine auditing 4 conversion pillars: Acquisition & Mobile (30 pts), Day-0 AOV Expansion (30 pts), Automated Retention Safety Nets (25 pts), and Trust & Technical Clearance (15 pts); dynamic calculation of Estimated Margin at Risk (~$4,500/mo on $3,000 ad spend); 1-click remediation actions for all fixable items (`enable_mobile_sticky`, `enable_order_bump`, `add_trust_badge`, `sync_cart_recovery`, `sync_upsell_rescue`, `add_upsell_node`, `sync_all_retention`); Option A luxury slide-over drawer with circular SVG radial score gauge, letter grades (`A+` to `D`), revenue protection summary, and "✦ Apply All Quick Wins" button; Option A top-bar readiness pill in `CanvasHeader.tsx` displaying live score (`✦ Ready: 92/100` or `✦ Audit: 68/100`); non-blocking pre-flight clearance confirmation prompt in `App.tsx` when publishing a funnel scoring `< 80`; 100% automated test pass rate with 214/214 tests green across 27 test suites) |
-| **P1** | **Privacy / Legal Compliance** | Funnels hosted on custom domains or standalone pages tracked visitors without opt-in consent; bulky third-party cookie banners killed mobile conversion | Regulatory compliance fines (GDPR/CCPA) and high mobile bounce rates from intrusive popups | **RESOLVED - PHASE 9 LIVE STOREFRONT COOKIE CONSENT & GDPR/CCPA COMPLIANCE SUITE** (Zero-Cost Privacy & Consent Architecture in `publicRoutes.mjs`, `geoCurrency.ts`, `PageEditor.tsx`, and `journey.ts`: Option A Smart Geo-Targeting detecting EU/EEA/UK visitors via edge headers with timezone fallback, protecting European legal compliance while maximizing unrestricted US/global conversion; Option A Floating Frosted Glass Pill widget (`.jv-cookie-consent`) with luxury beauty styling, dual Accept/Decline actions, and optional Privacy Policy link; smart mobile docking dynamically shifting banner above the mobile sticky action bar (`bottom: 78px`) on scroll to prevent collision; client-side event buffering holding `page_view` beacons in `__jvPendingEvents` until consent is collected; strict opt-out compliance on decline purging pending events and suppressing `jv_vid` cookie dropping; dedicated configuration card in `PageEditor.tsx` with toggle and targeting buttons; 220/220 tests green across all 28 test suites) |
-| **P1** | **Conversion / Multi-Currency QA** | Funnels and upsells lacked interactive preview mode for merchants to test overseas currencies; upsell pages had no currency switcher or dynamic cart permalink updates | Merchants had no way to verify how European, British, Canadian, or Australian buyers experience their funnels before running ads, and upsell nodes lacked live currency switching | **RESOLVED - PHASE 10 INTERACTIVE MULTI-CURRENCY GEO-PRICING PREVIEW & UPSELL SWITCHER** (Zero-Cost Interactive Geo-Pricing Preview Suite in `publicRoutes.mjs`, `PageEditor.tsx`, and `geo-preview.test.mjs`: Option A QA Simulator Toolbar (`#jv-geo-simulator-toolbar`) activating exclusively when `?preview=true` or `?jv_qa=1` is present to safeguard live ad traffic with zero visual clutter; instant country preset quick-switches (🇺🇸 USD, 🇪🇺 EUR, 🇬🇧 GBP, 🇨🇦 CAD, 🇦🇺 AUD) with live exchange rate telemetry, active button highlighting, and dynamic link rewriting; Option A Full Reactive Currency Switcher on Post-Purchase Upsell & Downsell pages (`renderPublicUpsellHtml`) featuring sleek header currency selector, `data-base-price` attributes on special and regular prices with Option A psychological charm pricing (`.00`, `.95`, `.99`), automatic courtesy discount recalculation, and dynamic Shopify cart permalink (`/cart/{variantId}:1?currency=CODE`) updates; 1-click simulator launch links in Studio `PageEditor.tsx` across Canvas Header, Multi-Currency Breakdown, and Live URL box; 226/226 tests passing with 100% green rate across 29 test suites) |
-| **P1** | **Operations / Observability** | Terminal-bound webhook logs and silent 401 rejections left merchants blind when webhooks failed or secrets were rotated | Undetected order and checkout sync failures, merchant anxiety, and inability to test webhook pipeline without live credit card orders | **RESOLVED - PHASE 11 REAL-TIME WEBHOOK HEALTH & LIVE DELIVERY DIAGNOSTIC LOG** (Zero-Cost Operational Observability Suite in `server/webhookHealth.mjs`, `server.mjs`, `shopifyRoutes.mjs`, `ShopifyConnectModal.tsx`, `OperatorDashboard.tsx`, and `webhook-health.test.mjs`: Option A bounded in-memory FIFO rolling ring buffer (capped at 50 events per store in RAM) with zero third-party logging costs; PII-sanitized payload summarizer (`maskEmail`, order/checkout totals, items); real-time health grading engine (`Healthy 🟢`, `Degraded 🟡`, `Failing 🔴`, `Idle ⚪`); dedicated endpoints `GET /api/workspace/:wsId/shopify/webhook-health` and `POST /api/workspace/:wsId/shopify/webhook-test-ping`; Option A Studio Tabbed Navigation in `ShopifyConnectModal.tsx` (**[Store Connection]** & **[Live Webhook Health & Logs]**) with live status badge, 4-stat metric ribbon, 1-click pre-flight simulated test ping (<50ms execution without polluting CRM contacts or sending live emails), and live delivery log table; system diagnostics integration in `OperatorDashboard.tsx`; 233/233 tests passing with 100% green rate across 30 test suites) |
-| **P1** | **Social Proof / Reviews** | E-commerce stores lacked automated post-purchase review collection; expensive third-party apps ($50–$300/mo Okendo/Yotpo) burdened bootstrap budgets | Lack of authentic verified social proof, lost landing page conversion, and missed replenishment repurchases | **RESOLVED - PHASE 12 AUTOMATED POST-PURCHASE REVIEW & SOCIAL PROOF UGC ENGINE** (Self-Hosted Zero-Cost Review Engine in `server/reviewEngine.mjs`, `server.mjs`, `shopifyRoutes.mjs`, `publicRoutes.mjs`, `SequenceNode.tsx`, `SequenceEditor.tsx`, and `review-engine.test.mjs`: Option A High-Converting Built-in Jourvance Review Portal (`/review?token=...`) with HMAC SHA-256 order-bound verification tokens preventing review spoofing; interactive 5 golden stars rating, highlight attribute tags, and mobile-first luxury styling; Option A instant $10 courtesy gift reveal with voucher code `REVIEW10` ($10 fixed amount discount rule provisioned via `ensureShopifyCoreDiscounts` in Shopify Admin API); automatic buyer enrollment into `drip_seq_review_request` (7-day / 168h delay) upon fulfillment webhook (`fulfillments/create`); smart-exit suppression on review submission (`reviewed_exit`) preventing nagging follow-up emails; automatic CRM tagging with `Verified-Reviewer` and `5-Star-Advocate`; visual canvas support in `SequenceNode.tsx` with luxury violet/gold badge pill `✦ 7-Day Review & VIP Reward` and turnkey blueprint preset in `SequenceEditor.tsx`; 240/240 tests passing with 100% green rate across 31 test suites) |
-| **P1** | **Social Proof / Landing Page UGC** | Landing pages relied on static manual quotes without live verified buyer reviews or ratings breakdown | Lower conversion from skepticism, lack of dynamic social proof, and manual testimonial upkeep | **RESOLVED - PHASE 13 LIVE VERIFIED UGC SOCIAL PROOF WALL & TESTIMONIAL INJECTOR** (Dynamic Storefront Social Proof Architecture in `server/reviewEngine.mjs`, `server/routes/publicRoutes.mjs`, `PageEditor.tsx`, `journey.ts`, and `social-proof.test.mjs`: Option 1A auto-publishing of 4-star and 5-star verified buyer reviews with manual hide toggle (`POST /api/reviews/:id/visibility`); Option 2A luxury horizontal swipeable card carousel on mobile (`scroll-snap-type: x mandatory`) and 3-column responsive grid on desktop with star rating summary counter (*4.9 ★★★★★ from 140+ Verified Client Reviews*); customer PII privacy sanitization masking full names to "First L." and stripping email addresses; zero-cost fallback curated luxury beauty reviews for instant out-of-the-box social proof; dedicated Social Proof Wall settings card in `PageEditor.tsx` with live toggle, 4+/5-star filters, and customizable section headline; public JSON API `GET /api/public/reviews/:slug`; 246/246 tests passing with 100% green rate across 32 test suites) |
-| **P1** | **Social Proof / UGC Media & Visual Trust** | Reviews lacked authentic customer photos (unboxing & skin textures); raw uploads risked server memory crashes and slow load times | Lower conversion lift (up to 28% lost), visual trust ceiling, and high bandwidth costs from uncompressed phone camera images | **RESOLVED - PHASE 14 VISUAL UGC PHOTO UPLOAD ENGINE & LUXURY LIGHTBOX SHOWCASE** (Zero-Cost Client-Side WebP Compression & Interactive Lightbox in `server/reviewEngine.mjs`, `server/routes/publicRoutes.mjs`, `PageEditor.tsx`, `journey.ts`, and `social-proof.test.mjs`: Option 1A client-side offscreen `HTMLCanvasElement` WebP compression in `/review?token=...` auto-downscaling images (max dimension 1200px, 0.82 quality) to ~60–90 KB before upload with zero server transcoding overhead; interactive photo dropzone (`+ Add Before & After or Ritual Photo`) supporting up to 2 photos (Option 1) with instant thumbnail preview and `×` removal; strict server-side validation enforcing 2-photo maximum, base64 MIME validation, and 250 KB size guards; high-converting aesthetic SVG texture assets in `DEFAULT_CURATED_REVIEWS` (`CURATED_UGC_PHOTO_1` & `CURATED_UGC_PHOTO_2`); storefront Social Proof Wall thumbnail row with zoom indicators; zero-dependency frosted-glass `#jv-ugc-lightbox` modal with smooth scale animations, backdrop click-to-close, and keyboard `Esc` listener; dedicated `Show Customer Photos (UGC Media)` toggle (`socialProofPhotosEnabled`) in Studio `PageEditor.tsx`; 250/250 tests green with 100% pass rate across 32 test suites) |
-| **P1** | **Viral Growth / Referrals** | E-commerce stores lacked word-of-mouth referral mechanics; paid apps ($49–$299/mo ReferralCandy/Smile.io) add high overhead | Zero viral customer acquisition, missed advocate retention, and high CAC on cold ads | **RESOLVED - PHASE 15 DUAL-SIDED VIP REFERRAL & BRAND AMBASSADOR ENGINE ("GIVE $15, GET $15")** (Built-in Zero-App Referral Architecture in `server/reviewEngine.mjs`, `server/routes/shopifyRoutes.mjs`, `server/routes/publicRoutes.mjs`, and `referral-engine.test.mjs`: Option 1 Dual-Sided $15 / $15 Vouchers; deterministic personalized ambassador code generator `generateAmbassadorReferralCode(email)` producing `GIVE15-{NAME}-{HASH}`; post-review VIP Ambassador Card on `/review` portal with 1-tap clipboard copy and native iOS/Android SMS (`sms:?&body=...`) and WhatsApp share buttons; automated Shopify Admin API price rule provisioning of `GIVE15` with single-use margin protection in `ensureShopifyCoreDiscounts`; storefront VIP Friend Welcome Banner on landing pages (`renderPublicFunnelHtml`) pre-applying `?discount=GIVE15` and `attributes[jv_ref]`; real-time webhook order attribution tagging ambassadors with `VIP-Ambassador` & `Referral-Advocate`, incrementing `referralsCount` & `referralRevenue`, tagging referred buyers with `Referred-By-VIP`, and emitting telemetry event `referral_converted`; self-referral prevention guard; 256/256 tests green across 33 test suites) |
-| **P1** | **Conversion / Exit Rescue** | Exit popups were desktop-only with 25s delays and centered modals that annoyed mobile shoppers; invisible on visual canvas | Abandoning mobile visitors (70–80% of traffic) bounced with 0% recovery, lowering ROAS | **RESOLVED - PHASE 16 VISUAL EXIT-INTENT VIP LEAD MAGNET & GIFT DRAWER** (Mobile-First Slide-Up Drawer Architecture in `src/components/canvas/nodes/PageNode.tsx`, `src/components/drawers/PageEditor.tsx`, `server/routes/publicRoutes.mjs`, and `exit-intent.test.mjs`: Option A Mobile-First Bottom Slide-Up Drawer with frosted dark glass (`#jv-exit-drawer`), grab handle, and 1-tap thumb dismiss; Option 1 Rapid Up-Scroll (<120ms upward flick after >20% depth) + 14-second Inactivity Fallback (after scrolling past hero); visual canvas status badge on `PageNode.tsx` displaying `Exit Gift: {code} (Drawer)`; studio drawer configuration in `PageEditor.tsx` with customized rescue badge, headline, subhead, discount code, and action button text; instant VIP courtesy code reveal and 1-tap redirect to Shopify checkout with pre-applied voucher; 260/260 tests green across 34 test suites) |
-| **P2** | **UX / Onboarding** | First-time merchants lack clear path from canvas to launch | Decision paralysis and lower funnel completion | **RESOLVED - PHASE 17 FIRST-TIME MERCHANT LAUNCH READINESS PLAYBOOK** (Zero-Compute Client-Side Launch Readiness Architecture in `src/components/modals/LaunchPlaybookModal.tsx`, `src/components/navigation/AppSidebar.tsx`, and `src/App.tsx`: Option A Centered Glassmorphic Modal with real-time radial/linear progress gauge (`{completed} of 5 Milestones Complete`); 5 deterministic milestones evaluated with zero server compute: 1) Connect Shopify Store (`isStoreConnected`), 2) Choose Funnel Blueprint (`hasBlueprint`), 3) Configure Core Offer (`hasOffer`), 4) Pre-Flight Conversion Audit (`isAuditPassed`), 5) Publish Live Funnel (`isPublished`); 1-click direct action routing (`Manage Store`, `Browse Blueprints`, `Configure Offer`, `Review Issues`, `Publish Live`); persistent sidebar entry point in `AppSidebar.tsx` Diagnostics group with real-time status chip; code-split 2.7 kB bundle; 100% test pass rate across 1,747 node tests and 22 a11y suites) |
-| **P1** | **UX / Funnel Preview** | Customer preview was a simple text node walker lacking device frames, interactive order bump testing, or cart breakdown | Merchants could not experience the mobile customer checkout journey or preview AOV order bump and 1-click upsell flows before launch | **RESOLVED - PHASE 18 END-TO-END CUSTOMER JOURNEY WALKTHROUGH & DEVICE SIMULATOR** (Upgraded `LiveFunnelModal.tsx` into a contiguous, high-converting customer journey walkthrough with dual Mobile 390px / Desktop 680px device frames, interactive Order Bump toggle with live simulated cart breakdown, 1-click post-purchase offer urgency countdown display, and high-conversion choice button hierarchy with zero outside dependencies, passing all 1,752 unit tests, canvas browser checks, and 22 a11y browser test suites) |
-
----
+# Jourvance running audit
 
+Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
+Checked: 2026-10-07, after the support entry below (the two entries come from different clocks). Letters now name the account so a verified merchant domain is used. Read the newest section first. The local API was not started.
 
+## 2026-10-07 — Letters send as the merchant
 
+Custom sending domains were half wired. A merchant could register a domain (`POST /api/email/senders` relays to the hub with the merchant uid as `accountId`), get the DNS records back, verify them, or have `domain-connect` write them into Namecheap. None of it was used: `deliverLetter` in `server.mjs` called `hub.email.send` with no `accountId` and no `senderId`, and the hub's `resolveSenderIdentity` only picks an account's sender when the send names the account. Every letter left as `noreply@zeluslabs.dev` however many domains the merchant verified.
 
+### What changed
 
+`deliverLetter` now sends `accountId: userId` beside `jourvanceUid`. The hub uses the account's VERIFIED sender when one exists and the app default otherwise, so a pending domain changes nothing. A verified domain sender is still behind the hub's DMARC gate: a domain with no DMARC record is refused with the record named, unless the operator turns on the override in hub Setup. The hub's scope check was read before this change: with no `contactScope` on the call and `eventsOnlyAccounts: false` on the live app, `accountId` is read only as the sender selector and the send stays on the ordinary path.
 
+`mail-events.test.mjs` pins `accountId: userId` inside `deliverLetter`. The pin was seen red: with that line removed the file was 3 passed, 1 failed; restored, 4 passed, and the restored region is byte-identical to the pre-plant copy.
+
+`reports/Klaviyo email suite gaps.md` carries a dated retirement banner. The body is unchanged. The banner names what was checked against the code: fifteen block kinds in `email-doc.mjs`, the graph compiler in `email-flows.mjs`, feeds in `email-feeds.mjs`, the 50 orders, 20 repeat customers and 90 days floor in `email-predict.mjs`.
+
+### Evidence
+
+`npx tsc --noEmit` exited 0. `npm test` was 1786 tests, 1783 passed, 0 failed, 3 skipped (the skips need `JOURVANCE_LIVE_TEST_URL`). Live hub status for `jourvance`, read with the app key: `mode: live`, `replyTo: ""`, `overrideGuard: false`, `eventsOnlyAccounts: false`, `deliveryGuard` 1 send, 1 bounce, health `bounce: danger`.
+
+### Still blocked, and on whom
+
+- **Hub sending for jourvance is still paused** by the bounce guard. Resuming needs the operator in the hub cockpit: `POST /api/email/deliverability/resume` is `requireHubAdmin` and wants a recovery test to the configured From mailbox with a signed delivery receipt from the last 30 minutes, or the "override deliverability guard" switch in Setup. `ADMIN_TOKEN` is empty in the parent `.env`, so no script here can do it.
+- **Hub `replyTo` is still empty.** Setting it to `support@jourvance.com` is `POST /api/email/connect`, also operator-only. Same cockpit screen.
+- `saas-growth-funnel` is still served. `boot-safety.test.mjs` keeps it on purpose as the dev funnel page. Left alone.
+- No merchant has a verified sender on the live hub yet, so the new field has changed no real letter.
+
+## 2026-10-08 — support@jourvance.com receives mail
+
+The contact page and footer already linked `mailto:support@jourvance.com`. The domain had Namecheap email forwarding turned on and no aliases, so that address had nowhere to go. `support` now forwards to `tlm@tarrenmunoz.com`, the same address Namecheap has as the registrant contact and the app uses as the operator. The website records are unchanged: apex A `216.24.57.1`, `www` CNAME `jourvance.onrender.com.`, email type `FWD`.
+
+The first destination tried was `Tarren@zelusmarketing.com`, because that is where `support@zeluslabs.dev` forwards. Google returned 550 5.1.1 for that mailbox. The bounce suppression SendGrid stored for `support@jourvance.com` was deleted. The forward was then pointed at `tlm@tarrenmunoz.com`. A second check from `noreply@zeluslabs.dev`, subject "Jourvance support address is on", message id `Zx6FO4PBQwCJ0q9IxqKElg`, is `delivered` in SendGrid activity. Bounce, block, and invalid lists for `support@jourvance.com` are empty. The Gmail inbox was not opened.
+
+This address receives mail. It does not send as `support@jourvance.com`. A reply from the operator inbox still shows `tlm@tarrenmunoz.com`. Hub `replyTo` is still empty. `support@zeluslabs.dev` still forwards to `Tarren@zelusmarketing.com`.
+
+Hub sending for the jourvance app is paused. Deliverability is one sent broadcast, one recipient, one bounce, bounce rate 1, health `bounce: danger`. That bounce is the earlier letter to `tarren@zelusmedia.com`. The guard was not overridden. A hub test send to `support@jourvance.com` (`bc_muyswg1i8of1`) failed for that pause and did not leave the hub.
+
+## 2026-10-07 — Mail can send
+
+The hub app `jourvance` is `mode: live`, `live: true`, From `noreply@zeluslabs.dev`, From name Jourvance, `senderVerified: true`. `zeluslabs.dev` is an authenticated SendGrid domain. SendGrid accepted one message (`bc_muyqj0ghch8g`, sandbox false). Gmail answered 550 5.1.1 for `tarren@zelusmedia.com`: that mailbox does not exist. The bounce suppression for that address was removed. Delivered stayed 0 because of that recipient, not because the send stayed in sandbox.
+
+`https://jourvance.com` is deploy `a650b87` and is live. `POST /api/email/provider-event` with no secret now says the secret did not match, so the running process loaded `MAIL_EVENT_SECRET`. The same deploy restores `noteAttrMap`, which had been crashing boot, and stops fixture enrolments and fixture carts before the runner can send them. Render env for this service is `APP_ID`, `HUB_URL`, `HUB_API_KEY`, `PUBLIC_BASE_URL`, and `MAIL_EVENT_SECRET`.
+
+The hub deploy `0025d0e` is live. Webhook status is configured, signed, and `callback: true`. The callback URL is `https://jourvance.com/api/email/provider-event`. SendGrid still posts to `https://zeluslabs.dev/api/email/webhook/sendgrid/jourvance`.
+
+## 2026-10-07 — Secret and public URL are set; the running site has not loaded them
+
+The hub does handle the mail. SendGrid for the `jourvance` app was not pointed at it. `POST /api/email/webhook/setup` on the live hub now answers success. Status is `configured: true`, `signed: true`, and the webhook URL is `https://zeluslabs.dev/api/email/webhook/sendgrid/jourvance`. The hub email status at the same time was `connected: true`, `mode: sandbox`, `live: false`.
+
+`MAIL_EVENT_SECRET` (43 characters, no line break) and `PUBLIC_BASE_URL=https://jourvance.com` are in this folder's `.env` and on the Render service `jourvance` (`srv-daodtqp42hec739fkt1g`). `https://jourvance.com` is the live Express app (`www` points at `jourvance.onrender.com`). The value of the secret is not written here.
+
+The process answering `https://jourvance.com/api/email/provider-event` still returns "Mail event secret is not configured, so bounces are not recorded." Render applies env changes on the next successful deploy. The last deploys, from 2026-09-28 through 2026-10-02, are `update_failed`. The 2026-10-02 build succeeded, then `node server.mjs` exited with `ReferenceError: noteAttrMap is not defined` at `server.mjs`. That name is still only a reference in the route context, in this tree and on `main`. This pass did not deploy.
+
+The running hub does not have `POST /api/email/webhook/callback`. That route answers 404, and webhook status has no `callback` field. The forward code is in the parent `server-email.ts` on disk. SendGrid can reach the hub. The hub cannot be told to forward to Jourvance until that process is the one SendGrid posts to.
+
+## 2026-10-07 — Mail events are wired and still off
+
+Item 5 in the improvement list is this pass. The hub can now forward a signed open, click, bounce, or complaint to Jourvance, and Jourvance can store it on the account that sent the letter. Nothing is being stored yet. `MAIL_EVENT_SECRET` and `PUBLIC_BASE_URL` are still unset in `.env`, so the report still says opens stay blank, and boot does not call the hub.
+
+### What changed
+
+**A signed SendGrid batch can be forwarded.** After the hub has already decided to answer 200, it posts `{ events: [...] }` to the spoke callback with the header `x-jourvance-mail-secret`. An unsigned post is not forwarded. A save that answers 503 is not forwarded, so SendGrid can deliver that post again. The forward does not change the status SendGrid sees. Dropped, deferred, and processed events are left out. A blocked bounce is a soft bounce. A spam report is a complaint. A row with no account id or no email is left out. The request does not follow a redirect, and it gives up after 4 seconds.
+
+**The callback is a separate route.** `POST /api/email/webhook/callback` registers or clears it. The address has to be https, with no password in it, and the path has to be `/api/email/provider-event`. Localhost, `.local`, and a numeric address are refused. An empty `url` clears the address and the secret. Webhook setup is unchanged: it still points SendGrid at the hub.
+
+**The callback secret is sealed.** `eventCallbackSecret` is on `CONFIG_SECRET_PATHS` with the SendGrid key and the inbound token. `redactConfig` does not return the address or the secret. Webhook status adds `callback: true` or `callback: false`.
+
+**A letter can name itself.** `deliverLetter` sends `jourvanceUid` and `jourvanceMessageId` when the account id is set. The hub writes `jourvance_uid` on that letter. It writes `jourvance_message_id` only when the send has one recipient. A value with a line break is not written.
+
+**The spoke route stores the batch.** `POST /api/email/provider-event` takes one event or `{ events: [...] }` up to 1000. The same `providerEventId` for the same account is stored once, including a retry of a bounce or an unsubscribe. A hard bounce, a blocked bounce, a complaint, and an unsubscribe still update that account's suppressions. An open attaches the campaign, flow, and message id when this account already has that send. `knownSend` and `emailTouchFields` are in scope on that route. A matching secret used to throw before any row was stored.
+
+**Opens stay blank until both settings are real.** `opensStored` is true only when `MAIL_EVENT_SECRET` is 16 to 200 characters with no line break and `PUBLIC_BASE_URL` is a public https origin. The campaign report and the sending screen say "Opens stay blank until MAIL_EVENT_SECRET and a public https PUBLIC_BASE_URL are set." No Jourvance open pixel was added. On listen, the spoke registers the callback only when both of those are already set and the hub key is set. Otherwise it logs that mail events stay off. The log does not include the secret. `.env` was not edited.
+
+### Evidence
+
+`npx tsc --noEmit` exited 0. `npm test` (`node --test`) was 1785 tests, 1782 passed, 0 failed, 3 skipped. The skips run only when `JOURVANCE_LIVE_TEST_URL` is set. It was not set. `mail-events.test.mjs` covers the origin check, the batch, dedupe, the attached send, and the suppression update. It uses a temporary app. It does not import `server.mjs`, and it does not call SendGrid or the live hub.
+
+The parent hub file `server-email.ts` was checked with `node --import tsx --test test/email-delivery-routes.test.ts`: 27 tests, 27 passed, 0 failed. That run extracts the send and the SendGrid webhook without booting the hub. A signed delivered event is forwarded. An unsigned event, a bad signature, and a save that answers 503 are not.
+
+### Left on purpose
+
+- `MAIL_EVENT_SECRET` and `PUBLIC_BASE_URL` are still unset. Opens stay blank. Boot does not register a callback.
+- The hub change is in the parent repo on disk. The process SendGrid posts to does not forward until it is running this code. This pass did not start that process.
+- `hub-sdk.js` in this folder has `webhook.setCallback`. A later copy of an older SDK would drop that method.
+- `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are still unset. Checkout returns 503 and charges nothing.
+- No live store was connected. The Klaviyo gap report was not rewritten. It still says six block kinds. The builder has fifteen.
+- Sample page copies on the hub were not deleted. `saas-growth-funnel` is still served.
+- Nothing was committed. The homepage, the billing dialog, and the email studio were not opened.
+
+## 2026-10-07 — One document per account
+
+Item 4 in the improvement list below is this pass. The process still keeps one combined value in memory and one combined local file, which is what the loaders already read. The hub copy is one document per account. A second account's save no longer replaces the first account's hub document. The API was not started, so the live hub was not migrated. The next boot that has a hub key is what splits the documents that are there now.
+
+### What changed
+
+**Sixteen collections split by account.** `hub-storage.mjs` covers contacts, orders, checkouts, campaigns, discounts, events, redirects, reviews, templates, email programs, signup forms, predictions, behavior, catalog memory, Klaviyo, and drips. An account slice is `{ _jourvanceAccount, value }` at `store.<collection>.u.<account>`. Rows with no owner stay on `store.<collection>.none` and are not given an owner. A uid that is not a safe path segment is hashed in the name. The account id in the document is what round-trips.
+
+**Drip sequences stay one shared document.** `store.drips.sequences` holds the sequence definitions. Enrollments split per `userId`. Editing a sequence still changes it for every account. Drips are not gated on the plan.
+
+**Boot loads every workspace and every published page.** Names are read in batches of 20. There is no first-50 cut on those two lists. A local workspace or page whose `updatedAt` is newer than the hub copy is kept and written back. The operator journey list is still the newest 50 and still returns the total. The signed-in journey list was already paging every journey for that user.
+
+**A newer local file is written back.** Freshness is the whole collection, for this one process. If the local file has rows and is strictly newer than the newest hub document for that collection, and it is not the mirror just written (`storage-sync.json`, gitignored), the local file is put back as per-account documents. If the hub is newer or equal, the hub wins and the local file is rewritten. An empty local file does not wipe a hub that has data. A failed put does not advance the mirror stamp. The old "1 MB cap" in the honest pass is the wrong limit: a hub document can be up to 6.4 MB. The split is still required because one write was every account, and `drips.json` was already about 515 KB.
+
+**The same email can belong to two accounts.** A lead matches email only inside the same owner, and it does not adopt an unowned row. Waitlist and inquiry update an unowned contact only. Klaviyo profile upsert and Klaviyo list tags find this account's row only. Shopify customer sync finds email and `contactOwnerId` together, stamps `userId`, and reports `customerCount`, `totalCustomers`, and `totalInCrm` as this account's contacts. A new synced id is `cust_<uid>_<shopifyId>`. `GET /api/workspace/:wsId/shopify/discounts` returns rows whose `userId` is the signed-in user. Saving a discount skips a rule owned by a different user. Events and redirects keep the last 20,000 per owner only when the combined list is longer than 20,000.
+
+**Billing stays mounted.** Checkout is unchanged. Its registration now sits just after the AI journey route so the existing source check, which wants that route directly after auth, still passes.
+
+### Evidence
+
+`npx tsc --noEmit` exited 0. `npm test` (`node --test`) was 1781 tests, 1778 passed, 0 failed, 3 skipped. The skips run only when `JOURVANCE_LIVE_TEST_URL` is set. It was not set. `tenant-store.test.mjs` covers the split, the shared sequences, local-versus-hub freshness, batches past 50 names, a legacy document becoming account documents, 60 workspaces and 55 pages on boot, 25 workspaces on `listWorkspaces`, and a lead for one account leaving the other account's same email unchanged. Those tests use a temporary directory and a fake hub. They do not call the live hub, and they do not import `server.mjs`.
+
+### Left on purpose
+
+- Sequence definitions are still global. One edit is every account.
+- `GET /api/discounts/core-status` still finds a code across every account.
+- Shopify order sync still writes `ordersCount` from the length of the combined orders file. Customer counts are this account's. Order rows written by that sync do carry `userId`.
+- A public discount lookup by store domain is unchanged.
+- The operator journey list is still the newest 50.
+- `MAIL_EVENT_SECRET` and `PUBLIC_BASE_URL` are still unset. Opens stay blank.
+- `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are still unset. Checkout returns 503 and charges nothing.
+- No live store was connected. The Klaviyo gap report was not rewritten. It still says six block kinds. The builder has fifteen.
+- Sample page copies on the hub were not deleted. `saas-growth-funnel` is still served.
+- Nothing was committed. The homepage and the billing dialog were not clicked.
+
+## 2026-10-07 — Billing is the backend
+
+The homepage rewrite in the honesty section was reverted. `HomePage.tsx`, `PublicHeader.tsx`, and `PublicFooter.tsx` are back to the committed pricing copy, including Growth Pro at $49 a month and $39 a month billed annually. The nav says Pricing and Subscription Plan again.
+
+Growth Pro checkout is `POST /api/billing/checkout`. It is a Stripe subscription: 4900 cents monthly, or 46800 cents for the year. The signed-in user id is on the session. A paid `checkout.session.completed` sets that account to `pro` and sets `planTier` on their workspaces. `customer.subscription.deleted` sets the account back to starter. A second workspace is still refused for a starter account. A pro account is not refused. With no `STRIPE_SECRET_KEY`, checkout returns 503 and does not charge. With no `STRIPE_WEBHOOK_SECRET`, the webhook returns 503 and does not change a plan. Neither variable was set. Stripe was not called.
+
+The billing dialog still shows the same plan names, prices, and feature list. The button is Continue to checkout and posts to `/api/billing/checkout`. It no longer says there is no credit card, and it no longer says an onboarding team will verify the store. The old waitlist route still records a `growth_pro_waitlist` tag. That tag is not a paid plan.
+
+`node --test billing.test.mjs honesty-copy.test.mjs` passed, 12 tests. `tsc --noEmit` exited 0. The full suite was not re-run after this revert. The API was not started.
+
+Drips are not gated on the plan. Every current account is starter, and stopping their mail was not part of this pass.
+
+## 2026-10-07 — Honesty copy
+
+This pass did the five items the boot section left open. The billing section above puts the homepage prices back and replaces the "billing is not connected" copy with a Stripe checkout. The API was not started. Nothing was committed. The page was not opened in a browser. Evidence for this pass was `npx tsc --noEmit` (exit 0) and `npm test` (`node --test`): 1765 tests, 1762 passed, 0 failed, 3 skipped. The skips are live checks that run only when `JOURVANCE_LIVE_TEST_URL` is set. It was not set. That suite ran before the billing section reverted the homepage.
+
+### What changed
+
+**The public site no longer sells a plan.** `HomePage.tsx` and `BillingModal.tsx` say billing is not connected, the product is in use, and there is no paid plan and no price. The Starter column and its unenforced limits are gone. The onboarding-team line is gone. The savings sentence that claimed over $2,400 a year and a 10x smoother experience is gone. Header, account menu, and footer doors that said Pricing or Subscription Plan now say Waitlist. The waitlist form posts only `email`, `storeDomain`, and `source: billing_waitlist`. The server tags the contact `waitlist` and answers "You are on the waitlist." It does not store a plan or a billing cycle.
+
+**Operator checks use one function.** `AppSidebar.tsx` and `CanvasHeader.tsx` call `isOperator(user)`. The operator dashboard sentence uses `OPERATOR_EMAIL` from `src/lib/firebase.ts`. The address is not written a second time in those three files.
+
+**The unused Shopify simulate handlers are gone.** `ShopifySyncModal.tsx` no longer posts to the simulate routes, and it no longer carries the Elena Rostova or Marcus Shopper handlers. The buttons were already absent. `POST` simulate-order and simulate-abandoned-checkout still return HTTP 410. `rfm-engine.test.mjs` still uses the name Elena Rostova as fixture data.
+
+**Opens say why they are blank.** `GET /api/email/analytics` returns `opensStored`, true only when `MAIL_EVENT_SECRET` is a non-empty string. The campaign report and the sending screen show "Opens stay blank until MAIL_EVENT_SECRET is set." when that flag is not true. Numeric cells stay blank. The secret was not set, and the hub was not pointed at it.
+
+**`npm test` runs the suite.** `package.json` script `test` is `node --test`. The suite above is that command.
+
+**A page named `demo.myshopify.com` is a page again.** The boot pass refused every page whose store domain was in `FAKE_STORE_DOMAINS`. That hid the lead and review checks, which use `demo.myshopify.com` as a stand-in store, so checkout came back null and the public reviews list came back empty. `isSamplePublicPage` now refuses the other four domains (`scaletech`, `luxeglow`, `glowbotanics`, `rosebotanics` on `.myshopify.com`), the three sample hosts, and the six sample slugs. `realStoreDomain` still blanks a checkout link to `demo.myshopify.com` when the server's own function is used. The tests pass their own function, which is how they check the discount query.
+
+### Left on purpose
+
+- Competitor prices stay on the homepage: Unbounce $99/mo, Instapage $149/mo, ActiveCampaign $49/mo, ConvertKit $29/mo, Typeform $35/mo, Jotform $39/mo, Zapier $29/mo, a landing-page and email line at $49, a form plugin at $19, the column "The Fragmented Stack ($250+/mo)", and a form mock that reads "$5,000 - $15,000 / mo". Those are other products' prices. This page does not quote a Jourvance price or a savings amount.
+- `saas-growth-funnel` is still served, with discount code `GROWTH20`.
+- A third workspace still returns 402 after two exist. The error text now says another workspace is not available and billing is not connected. The cap and the email bypass are unchanged.
+- `MAIL_EVENT_SECRET` is still unset.
+- Contacts, events, drips, and behavior are still one hub document per collection. Boot still loads the first 50 workspace docs and the first 50 published pages.
+- No live store was connected.
+- The Klaviyo gap report was not rewritten. It still says six block kinds. The code has fifteen.
+- The six customer JSON files stay gitignored and staged for removal from the index. Working copies remain. Nothing was committed.
+- The homepage, the billing modal, and the email report were not clicked. Source tests and the typecheck are what cover that copy.
+
+## 2026-10-07 — Boot is held
+
+This pass did the three changes that had to land before `node server.mjs` is safe to start against the live hub. The API was still not started. Evidence is `node --check` on `server.mjs` and `server/routes/publicRoutes.mjs`, plus `node --test boot-safety.test.mjs upsell-recovery.test.mjs` (21 passed, 0 failed).
+
+### What changed
+
+**Fixture mail is stopped.** `drips.json` has 61 enrollments. 52 are `stopped` with `stoppedReason` `fixture`. 9 are `converted_exit`. None are `active`. `loadDrips` in `server.mjs` runs `holdFixtureEnrollments` and, when that changes a row, calls `saveDrips`. An active enrollment whose address is on the fixture-domain list becomes `stopped` before the 60-second runner. The in-process runner still starts 10 seconds after listen. It sends only `status === 'active'`.
+
+**The cron route has no password in source.** `POST /api/internal/cron/drips` is mounted only when `INTERNAL_CRON_SECRET` is a non-empty string. `.env.example` says the route does not exist until that variable is set, and it ships no value. `.env` was not edited. The variable is still unset, so a boot today does not mount the route.
+
+**Sample pages are not served.** Hosts `glowbotanics.com`, `wave5luxury.com`, and `wave9brand.com` answer 404 with `This address is not a published page.` Slugs `glow-elixir`, `wave5-elixir`, `wave9-radiance`, `vip-glow-kit`, `duo-glow-bundle`, and `wave4-elixir` are refused on read. This pass also refused a page whose store domain was any of `FAKE_STORE_DOMAINS`. The honesty section above narrows that: `demo.myshopify.com` no longer hides the page. `scaletech`, `luxeglow`, `glowbotanics`, and `rosebotanics` on `.myshopify.com` still do. `reportSamplePages()` runs after hub rehydration and before listen, deletes the matching cache keys, and writes `public_pages.json`. The local file now has one key, `saas-growth-funnel`. Hub copies of the refused pages are not deleted. A read that finds one returns no page.
+
+**Six customer JSON files are gitignored.** `events.json`, `drips.json`, `checkouts.json`, `discounts.json`, `email_programs.json`, and `signup_forms.json` match the ignore already used for `contacts.json` and `orders.json`. They are staged for removal from the git index. The working copies are still on disk. Nothing has been committed. The next commit will drop those six files from the repository if that staged removal stays in the index.
+
+### Still on disk, and still served
+
+`saas-growth-funnel` remains. It belongs to `dev-test-user-id`, has discount code `GROWTH20`, an order bump priced at 29, and no store domain. It is not on the sample-host or sample-slug list, so `/p/saas-growth-funnel` still renders it.
+
+### What this pass did not do
+
+The honesty section above did these five. They were open when this section was written.
+
+- The public site and the billing modal still show Growth Pro at $49 a month and $39 annually. Nothing charges for it.
+- `AppSidebar.tsx` and `CanvasHeader.tsx` still compare against a written-in address. They do not call `isOperator`.
+- The Shopify sync modal still contains the unused simulate handlers.
+- The email report still leaves opens blank. It does not yet say that `MAIL_EVENT_SECRET` is unset. That variable is still unset.
+- `package.json` still has no `test` script. The other test files were not run.
+- Contacts, events, drips, and behavior are still one hub document per collection for every account. Boot still loads the first 50 workspace docs and the first 50 published pages.
+- No live store was connected. No lead, send, click, or order was recorded on purpose.
+- The Klaviyo gap report was not rewritten.
+
+## 2026-10-07 — Honest pass
+
+### Short answer
+
+The boot-safety section above supersedes three claims in this pass: the cron password in source, the 52 active enrollments, and the sample pages for glowbotanics, wave5luxury, wave9brand, vip-glow-kit, duo-glow-bundle, and wave4-elixir. The price, the single hub document, the split operator check, and the rest of this pass are unchanged.
+
+The app is wired. Canvas, email, attribution, Shopify, publish, and the public pages each call a route that exists. Mail, flows, and reports are built to stay blank until this store has real events. That part is in good shape.
+
+It is not ready to treat as a finished product. The public site sells a $49 Growth Pro plan that nothing charges for, and it says the free plan cannot do things the server already does for every account. A fallback cron secret is hardcoded. Opens, clicks, and last-touch revenue stay empty until `MAIL_EVENT_SECRET` is set, and it is not set. All of one account’s contacts, events, and drips still sit in a single document. Local fixture mail is due right now, so starting the API against the live hub would try to send it.
+
+The previous version of this file is not a reliable status list. It marks invented coupons, curated reviews, a beauty demo catalog, and a paid plan as finished product. Later honesty work removed a lot of that. Where this section and the old roadmap disagree, trust this section.
+
+### What I actually checked
+
+- Every `fetch('/api/...')` in `src/` matches a route in `server.mjs` or `server/routes/`. Publish, unpublish, preview, publication, and journey save go through `requestAnswer` and those routes exist too.
+- `saveJourney` keeps `forecast`, `workspaceId`, and `shopifyStoreDomain` (`server.mjs`).
+- A 60-second in-process runner calls `processUserAutomationsTick`. `POST /api/internal/cron/drips` is a second door to the same runner.
+- Order and checkout simulation return HTTP 410. The sync modal still contains the old handlers (`Elena Rostova`, `Marcus Shopper`). They are not rendered.
+- Shopify webhooks, pixel, lead, review, unsubscribe (`/u/:token`), and click redirect (`/r/:code`) are mounted.
+- Email block kinds in `email-doc.mjs` are heading, text, button, divider, image, html, split, columns, table, spacer, social, header, video, product, and coupon.
+- Flow starters in `email_programs.json` for the dev account (viewed product, added to cart, price drop, back in stock, sunset) are saved off.
+- `.env` sets `APP_ID`, `HUB_URL`, `HUB_API_KEY`, and `PORT=3005`. It does not set `MAIL_EVENT_SECRET`, `MAIL_LINK_SECRET`, `PUBLIC_BASE_URL`, or `INTERNAL_CRON_SECRET`.
+- Nothing was listening on port 3005 or 5173.
+- `package.json` has no `test` script. There are 155 `*.test.mjs` files.
+
+### What is wired
+
+| Surface | Talks to | Notes |
+| --- | --- | --- |
+| Map | `POST /api/journey/:id`, `GET /api/journey/:id`, `POST /api/funnel/stats` | Stats poll overlays recorded counts. Missing rates stay empty or 0% from real zeros, not from a demo. |
+| Publish | `POST /api/journey/:id/publish` and `unpublish`, `GET /api/journey/:id/publication` | Slug ownership is checked. Pages render from `server/routes/publicRoutes.mjs`. |
+| Email studio | suite, flows, campaigns, audience, lists, segments, forms, inbox, SMS, Klaviyo, sending | Tabs in `HubEmailSuite.tsx` call those routes. Empty hub answers stay empty. |
+| Attribution | `GET /api/reports/attribution` and the CSV route | Scoped to the signed-in account. |
+| Shopify | connect, products, discounts, order import, webhook register, webhook health | A domain alone does not connect. Simulation is off. |
+| Public site | `/`, `/p/:slug`, `POST /api/public/lead`, waitlist, inquiry | Vite on 5173 proxies `/api` and `/p` to port 3005. |
+| Operator | `GET /api/admin/journeys`, `GET /api/admin/summary` | Server allows one verified operator email. |
+
+Journeys go to the hub app store when `HUB_API_KEY` is set, with a local cache. Contacts, orders, events, drips, campaigns, checkouts, discounts, redirects, programs, forms, predictions, behavior, catalog memory, and Klaviyo state go through `hub-storage.mjs` the same way. On boot, if the hub has a document, that document replaces the local file.
+
+### What will mislead someone
+
+**The $49 plan is copy, not a product.** `HomePage.tsx` and `BillingModal.tsx` show Starter at $0 and Growth Pro at $49 a month or $39 billed annually. The upgrade button posts to `/api/public/waitlist` and stores a `growth_pro_waitlist` tag. There is no charge, no plan field on the account, and no check that limits journeys, drips, Shopify, or AI. The free column says automated drips and multi-store sync are excluded. The runner and the Shopify routes do not look at a plan. The success line says an onboarding team will verify the store. Nothing in the server does that.
+
+This conflicts with the product rule already written down: do not sell a Pro plan, and do not write one.
+
+**Opens and revenue stay blank on purpose, and the switch that would fill them is off.** `POST /api/email/provider-event` returns 401 when `MAIL_EVENT_SECRET` is empty. The secret is empty. Campaign tables therefore keep opened, clicked, delivered, and last-touch revenue blank even after the hub sends mail. That is honest. It is also easy to read as a broken report. The hub has to be pointed at that route with the same secret before any of those cells can fill.
+
+**One document holds every tenant.** `store.contacts`, `store.events`, `store.drips`, and the rest are each a single hub document for the whole app. `drips.json` is already about 515 KB. A document store with a 1 MB cap fails on the next real account, and one bad write is every account. Restart loads at most 50 workspace docs and 50 published pages from the hub list (`hub-storage.mjs`). A 51st store or page is absent after a fresh boot until something else writes it.
+
+Hub copy wins over the disk on startup even when the disk is newer. A put that had not flushed yet is gone.
+
+**The cron door uses a password that is in the source.** `INTERNAL_CRON_SECRET` falls back to a string in `server.mjs` when the env var is missing. Anyone who can read the repo and reach the server can POST `/api/internal/cron/drips` and run the sender for every account that has due mail.
+
+**Operator checks do not share one email.** `src/lib/firebase.ts` reads `VITE_OPERATOR_EMAIL`. `PublicHeader.tsx` uses that helper. `AppSidebar.tsx` and `CanvasHeader.tsx` compare against the address written in the file. Change the env var and the public header and the studio chrome disagree about who is the operator. The server has its own default of the same address.
+
+**Vite does not proxy `/u`, `/r`, or `/review`.** Those routes exist on the API. Generated links use `PUBLIC_BASE_URL` or `http://localhost:3005`, so mail links hit Express. Opening the same path on port 5173 does not.
+
+**Dead simulate code is still in the sync modal.** The buttons are gone. The functions still POST to the 410 routes and still name fake shoppers. Wiring a button back would look like success and then do nothing, because a non-success response sets no error.
+
+**Two status documents are stale.**
+
+- `reports/Klaviyo email suite gaps.md` still says the builder has six block kinds, one order split, and no product or coupon block. The code has the fifteen kinds above, a real graph runner, feeds, and a prediction that stays off until this store qualifies.
+- The old roadmap at the bottom of the previous audit claimed curated reviews, `SAVE10`, `GIVE15`, and a luxury demo catalog as shipped. Current tests forbid those stand-ins unless the merchant saved the code. Do not use that roadmap to decide what to build.
+
+### What is on disk right now
+
+These counts are the local files, not a live customer.
+
+| File | What is in it | Tracked in git |
+| --- | --- | --- |
+| `contacts.json` | 40 people. Domains include example.com and invented store names (`scaletech.io`, `acmecommerce.com`, `botanicalglow.com`, and others). | No |
+| `orders.json` | 0 | No |
+| `events.json` | 58 events: 50 leads, 6 page views, 1 upsell accept, 1 decline. 52 of the emails are `@example.com`. | Yes |
+| `drips.json` | 4 shared sequences, 61 enrollments. 52 are still `active` and every `nextStepDueAt` is already past. | Yes |
+| `campaigns.json` | 0 | No |
+| `checkouts.json` | 5 | Yes |
+| `email_programs.json` | Bags for `dev-test-user-id`, `usr_wave4_operator`, `usr_default`. Flow starters are off. | Yes |
+| `signup_forms.json` | One dev-test bag | Yes |
+| `public_pages.json` | 10 entries, including `vip-glow-kit`, `glow-elixir` on `offer.glowbotanics.com`, `wave5-elixir` on `offer.wave5luxury.com`, `wave9-radiance` on `offer.wave9brand.com`. | No |
+| `workspaces.json` | Two dev-test workspaces | No |
+| `behavior.json` | One key, `user_test_1` | No |
+
+`events.json`, `drips.json`, `checkouts.json`, `discounts.json`, `email_programs.json`, and `signup_forms.json` are committed. `contacts.json` and `orders.json` are gitignored. That split is accidental. The committed drip file is the dangerous one: 49 welcome enrollments and 3 cart enrollments are active and due. The runner sends when the hub is ready and the address is present. It does not check that the address is a fixture. Starting `node server.mjs` with the current `.env` will try to send those.
+
+Sample domains the honesty rules name (`glowbotanics`, and the wave luxury hosts) are still published in the local page file. They are not in git. They would still be served.
+
+### How to improve it
+
+In the order that changes whether the app tells the truth.
+
+1. **Take the price off the public site and the billing modal.** Say the product is in use and that billing is not connected. Delete the Starter limits that the server does not enforce. Delete the line about an onboarding team. A waitlist can stay if it says it is a waitlist.
+2. **Pause or delete the 52 due fixture enrollments before the next API boot**, or run with no hub key. Otherwise the 60-second runner treats them as customers.
+3. **Require `INTERNAL_CRON_SECRET`.** If it is unset, do not mount the cron route. Do not ship a fallback.
+4. **Stop storing every tenant in one document.** One doc per account for contacts, events, drips, and behavior. On boot, if the local file is newer than the hub doc, keep the local file and write it back. Load every workspace and page, not the first 50.
+5. **Turn on mail events deliberately.** Set `MAIL_EVENT_SECRET`, set `PUBLIC_BASE_URL` to the public https origin, and point the hub’s open, click, bounce, and complaint posts at `/api/email/provider-event`. Until that is done, the email report should keep saying that opens are not being stored. It already leaves the cell blank. The sending screen should say the same thing in one sentence.
+6. **Use `isOperator` everywhere.** Sidebar and canvas header should call the helper in `firebase.ts`. The dashboard sentence should use that same address, not a second copy.
+7. **Quarantine fixture data.** Gitignore the same JSON files the other customer files use, and stop serving `glowbotanics` and the wave sample hosts. Add a boot note when a published page’s domain is on the sample list.
+8. **Retire or rewrite the Klaviyo gap report** so it matches `email-doc.mjs`, `email-flows.mjs`, `email-feeds.mjs`, `email-predict.mjs`, and `email-map.mjs`. Building more Klaviyo-shaped features before one real store has a recorded send, click, and order will make the suite larger and the empty states harder to trust.
+9. **Add `npm test` and run it.** A claim that 200 or 1,700 tests passed is not evidence unless the command is in `package.json` and someone ran it. This pass did not.
+10. **Prove one real path before adding a phase.** Connect one store with its own token. Publish one page. Record one lead with a `jv_vid`. Accept one send at the hub. Store one click. Attribute one order. If that path is boring and the numbers match the JSON, the app is working. The canvas, the forecaster, and the email graph are already ahead of that path.
+
+### What is in good shape and should stay
+
+- Flows, letters, forms, and holdout stay off until someone turns them on.
+- Predicted value is not written until this account has 50 orders, 20 repeat customers, and 90 days. The report does not say “optimal.”
+- A coupon preview shows the word Code and does not mint. A code is minted on a real send.
+- Hard bounces, complaints, unsubscribes, and repeated soft bounces suppress marketing. Order letters stay separate.
+- Klaviyo is an optional key and an optional sender. Import does not subscribe people. Rebuilt flows stay off.
+- Discount codes are not used as a channel guess. Orders that never hit a Jourvance page stay off the funnel.
+- The map, the email screen, and attribution agree to show a blank instead of a made-up rate.
+
+### File size, because it is how bugs hide
+
+| File | Lines |
+| --- | --- |
+| `server/routes/publicRoutes.mjs` | 5222 |
+| `server.mjs` | 4879 |
+| `src/components/drawers/PageEditor.tsx` | 3517 |
+| `src/components/campaign/HubEmailSuite.tsx` | 3220 |
+| `server/routes/emailRoutes.mjs` | 1543 |
+| `server/routes/shopifyRoutes.mjs` | 1455 |
+| `src/App.tsx` | 1312 |
+| `server/routes/analyticsRoutes.mjs` | 1053 |
+
+Route files exist, and the public page renderer is now the largest file. A change to a landing page, an upsell, a review portal, and a lead form still lands in one module.
+
+## Update log
+
+- **2026-10-07, billing checkout.** Restored the homepage Growth Pro prices. `POST /api/billing/checkout` starts a Stripe subscription at $49 a month or $468 a year. A paid webhook sets the account to pro. No Stripe key is set, so checkout returns 503 and charges nothing. `billing.test.mjs` and `honesty-copy.test.mjs` passed (12). `tsc --noEmit` exited 0. The API was not started.
+- **2026-10-07, honesty copy.** Took Growth Pro and the Starter limits off the homepage and the billing modal. Waitlist stays, and it records no plan. Sidebar and canvas header call `isOperator`. The operator line uses `OPERATOR_EMAIL`. Unused Shopify simulate handlers are deleted. The email report and the sending screen say opens stay blank until `MAIL_EVENT_SECRET` is set. `npm test` is `node --test`: 1762 passed, 0 failed, 3 skipped. A page on `demo.myshopify.com` loads again. The other sample hosts, slugs, and four sample store domains stay refused. `tsc --noEmit` exited 0. The API was not started. Nothing was committed.
+- **2026-10-07, boot hold.** Stopped the 52 active fixture enrollments (`stoppedReason` `fixture`, 0 active left). The cron route mounts only when `INTERNAL_CRON_SECRET` is set. Sample hosts and the three leftover sample storefronts (`vip-glow-kit`, `duo-glow-bundle`, `wave4-elixir`) are refused on read and removed from the local page file. `saas-growth-funnel` remains. Six customer JSON files are gitignored and staged for removal from the index, not committed. `node --check` passed. `boot-safety.test.mjs` and `upsell-recovery.test.mjs` passed (21 tests). The API was not started.
+- **2026-10-07.** Replaced the previous roadmap. It had marked durability, the drip runner, slug ownership, and code-splitting as fixed, and those code checks hold. It had also marked a $49 plan, invented coupons, curated reviews, and a demo catalog as product, and those do not match the current honesty rules or the current tests. This pass did not click the UI and did not run the 155 test files.

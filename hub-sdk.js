@@ -1020,10 +1020,13 @@ export function createHubClient(config = {}) {
       // Engagement tracking (SendGrid Event Webhook): delivered/opens/clicks/bounces
       // attributed back to each send, scoped per accountId. (free)
       webhook: {
-        // Status. → { configured, signed, url, events, publicBase }
+        // Status. → { configured, signed, url, events, publicBase, callback }
         status: () => get("/api/email/webhook/status?appId=" + encodeURIComponent(appId)),
         // Point SendGrid's Event Webhook at this hub and enable signing. → { id, url, events, signed }
         setup: (opts = {}) => post("/api/email/webhook/setup", { appId: appId, ...opts }),
+        // Tell the hub where to forward a signed open, click, bounce, or complaint.
+        // { url, secret } registers. { url: "" } clears. The answer is { callback }, never the secret.
+        setCallback: (opts = {}) => post("/api/email/webhook/callback", { appId: appId, ...opts }),
       },
       /** HANDS-FREE domain connect: authenticate a sending domain with SendGrid AND
        *  write every DNS record (DKIM/SPF CNAMEs + a starter DMARC) into Namecheap for

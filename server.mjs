@@ -85,6 +85,7 @@ import {
   simulateTestPing
 } from './server/webhookHealth.mjs';
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
+import { mailCallbackPlan } from './server/mail-events.mjs';
 
 import { setupJourneyRoutes } from './server/routes/journeyRoutes.mjs';
 import { setupJourneySaveRoutes } from './server/routes/journeySaveRoutes.mjs';
@@ -92,6 +93,7 @@ import { setupJourneyListRoutes } from './server/routes/journeyListRoutes.mjs';
 import { listJourneyDocs, summarizeJourney } from './server/journeyList.mjs';
 import { setupAnalyticsRoutes } from './server/routes/analyticsRoutes.mjs';
 import { setupAiJourneyRoutes } from './server/routes/aiJourneyRoutes.mjs';
+import { setupBillingRoutes, billingAccounts, planName } from './server/billing.mjs';
 import {
   setupAuthWorkspaceRoutes,
   requireUser,
@@ -120,6 +122,7 @@ import {
 } from './server/routes/authWorkspaceRoutes.mjs';
 import {
   setupPublicRoutes,
+  reportSamplePages,
   loadPublicPage,
   readPublicPage,
   savePublicPage,
@@ -160,7 +163,8 @@ app.use(compression());
 app.use(express.json({
   limit: '1mb',
   verify: (req, _res, buf) => {
-    if (String(req.originalUrl || '').startsWith('/api/webhooks/shopify')) req.rawBody = buf;
+    const url = String(req.originalUrl || '');
+    if (url.startsWith('/api/webhooks/shopify') || url.startsWith('/api/billing/webhook')) req.rawBody = buf;
   }
 }));
 
@@ -341,12 +345,19 @@ setupAuthWorkspaceRoutes(app, {
   FIREBASE_PROJECT_ID,
   OPERATOR_EMAIL,
   journeyCache,
-  summarize
+  summarize,
+  accountPlan: (uid) => planName(billingAccounts().get(uid))
 });
 
 // POST /api/ai/journey-plan (#25): one AI draft of a journey's copy. Signed-in only, and it
 // draws on the same per-user hourly budget as /api/ai/copy above. No template fallback.
 setupAiJourneyRoutes(app, { requireUser, hub, hubReady, aiBudgetLeft, aiBudgetRetryAfter });
+setupBillingRoutes(app, {
+  requireUser,
+  listWorkspaces,
+  saveWorkspace,
+  store: billingAccounts()
+});
 
 // ── Workspace & Shopify Tenancy ──────────────────────────────────────────────
 function acceptShopifyWebhook(req, res) {
@@ -680,6 +691,46 @@ function isDemoRecord(row) {
   return false;
 }
 
+// Stand-in addresses that shipped in the local store. A real merchant domain is not in this set.
+// example.com is reserved and is never a customer. The rest are the fixture stores on this disk.
+const FIXTURE_MAIL_DOMAINS = new Set([
+  'example.com',
+  'botanicalglow.com',
+  'growthbrand.io',
+  'acmecommerce.com',
+  'scaletech.io',
+  'enterprise.org',
+  'scaleb2b.io',
+  'luxbrand.com',
+  'brand.io',
+  'beautyglow.com',
+  'auraglow.co',
+  'luxeaesthetics.com',
+  'beautybrand.com',
+  'vipbeauty.com',
+  'growthlab.io',
+  'venture.co'
+]);
+
+function isFixtureEnrollment(row) {
+  const email = String(row?.customerEmail || row?.email || '').toLowerCase();
+  const domain = email.split('@')[1] || '';
+  return FIXTURE_MAIL_DOMAINS.has(domain);
+}
+
+// Active fixture enrolments are due on this disk. Stop them before the runner can send.
+function holdFixtureEnrollments(rows) {
+  let held = false;
+  for (const row of rows) {
+    if (!row || row.status !== 'active' || !isFixtureEnrollment(row)) continue;
+    row.status = 'stopped';
+    row.stoppedAt = row.stoppedAt || new Date().toISOString();
+    row.stoppedReason = 'fixture';
+    held = true;
+  }
+  return held;
+}
+
 function readJsonArray(file) {
   if (!fs.existsSync(file)) return [];
   try {
@@ -978,9 +1029,11 @@ function loadDrips() {
       }
     }
     if (stripSeededVoucher(data)) modified = true;
+    const enrollments = (Array.isArray(data.enrollments) ? data.enrollments : []).filter(row => !isDemoRecord(row));
+    if (holdFixtureEnrollments(enrollments)) modified = true;
     const cleaned = recomputeDripCounters({
       sequences: data.sequences,
-      enrollments: (Array.isArray(data.enrollments) ? data.enrollments : []).filter(row => !isDemoRecord(row))
+      enrollments
     });
     if (modified) {
       saveDrips(cleaned);
@@ -1062,6 +1115,21 @@ function loadEvents() {
   return raw;
 }
 
+function trimLastPerOwner(rows, field, cap) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length <= cap) return list;
+  const seen = new Map();
+  const kept = [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const id = String(list[i]?.[field] || '').trim();
+    const n = seen.get(id) || 0;
+    if (n >= cap) continue;
+    seen.set(id, n + 1);
+    kept.push(list[i]);
+  }
+  return kept.reverse();
+}
+
 function recordEvent(evt) {
   const events = loadEvents();
   events.push({
@@ -1069,8 +1137,7 @@ function recordEvent(evt) {
     at: new Date().toISOString(),
     ...evt
   });
-  const trimmed = events.length > 20000 ? events.slice(-20000) : events;
-  hubStorage.set('store.events', 'events.json', trimmed);
+  hubStorage.set('store.events', 'events.json', trimLastPerOwner(events, 'userId', 20000));
 }
 
 function mailLinkSecrets() {
@@ -1111,8 +1178,7 @@ function loadRedirects() {
 }
 
 function saveRedirects(rows) {
-  const trimmed = (rows || []).slice(-20000);
-  hubStorage.set('store.redirects', 'redirects.json', trimmed);
+  hubStorage.set('store.redirects', 'redirects.json', trimLastPerOwner(rows, 'uid', 20000));
 }
 
 function loadTemplates() {
@@ -1308,6 +1374,15 @@ function unsubscribeUrlFor(uid, email) {
 
 let noteSegmentChanges = async () => {};
 let processDueCampaigns = async () => ({ sent: 0 });
+
+function noteAttrMap(payload) {
+  const out = {};
+  const list = Array.isArray(payload?.note_attributes) ? payload.note_attributes : [];
+  for (const attr of list) {
+    if (attr && attr.name != null) out[String(attr.name)] = attr.value == null ? '' : String(attr.value);
+  }
+  return out;
+}
 
 // ── Modular Shopify Routes Controller (server/routes/shopifyRoutes.mjs) ────────
 const shopifyCtx = {
@@ -2533,7 +2608,12 @@ async function deliverLetter({ to, name, subject, text, html, userId, visitorId,
     text,
     html: outbound,
     ...(previewText ? { previewText: String(previewText).slice(0, 140) } : {}),
-    recipients: [{ email: to, name: name || '' }]
+    recipients: [{ email: to, name: name || '' }],
+    // Name the account so the hub sends from this merchant's own VERIFIED sender when one
+    // exists, and from the app default otherwise (resolveSenderIdentity in the hub). Without
+    // it every letter left as noreply@zeluslabs.dev however many domains the merchant verified.
+    ...(userId ? { accountId: userId } : {}),
+    ...(userId ? { jourvanceUid: userId, jourvanceMessageId: messageId } : {})
   });
   if (!sent || sent.error || sent.success === false) {
     return { ok: false, status: 'failed', error: sent?.error || 'The email service rejected the send.' };
@@ -2788,6 +2868,7 @@ const emailCtx = {
   SMART_SMS_HOURS,
   splitHoldout,
   recordEvent,
+  knownSend,
   smartSkipReason,
   composeForSend,
   deliverLetter,
@@ -3026,6 +3107,14 @@ async function processUserAutomationsTick(uid) {
 
   for (const chk of checkouts) {
     if (chk.userId !== uid) continue;
+    if (isFixtureEnrollment(chk)) {
+      if (chk.recoveryStatus === 'pending' || chk.recoveryStatus === 'email_sent') {
+        chk.recoveryStatus = 'stopped';
+        chk.stoppedReason = 'fixture';
+        checkoutsModified = true;
+      }
+      continue;
+    }
     const abandonedTime = new Date(chk.abandonedAt).getTime();
 
     // Check if customer completed purchase
@@ -3203,15 +3292,20 @@ function startAutomationRunner() {
   console.log('[Jourvance Automations] Background automation runner initialized (60s tick interval).');
 }
 
-const INTERNAL_CRON_SECRET = process.env.INTERNAL_CRON_SECRET || 'jourvance_internal_cron_secret_7291';
-app.post('/api/internal/cron/drips', async (req, res) => {
-  const auth = req.headers.authorization || '';
-  if (auth !== `Bearer ${INTERNAL_CRON_SECRET}`) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized cron token' });
-  }
-  await runBackgroundAutomations();
-  res.json({ ok: true, timestamp: new Date().toISOString() });
-});
+// No fallback. A secret in source would let anyone who can read the repo run the sender.
+const INTERNAL_CRON_SECRET = String(process.env.INTERNAL_CRON_SECRET || '').trim();
+if (INTERNAL_CRON_SECRET) {
+  app.post('/api/internal/cron/drips', async (req, res) => {
+    const auth = req.headers.authorization || '';
+    if (auth !== `Bearer ${INTERNAL_CRON_SECRET}`) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized cron token' });
+    }
+    await runBackgroundAutomations();
+    res.json({ ok: true, timestamp: new Date().toISOString() });
+  });
+} else {
+  console.log('[Jourvance Automations] Cron route is off until INTERNAL_CRON_SECRET is set.');
+}
 
 app.post('/api/drips/process-tick', requireUser, async (req, res) => {
   const summary = await processUserAutomationsTick(req.user.uid);
@@ -3800,10 +3894,8 @@ function addContactTag(contact, tag) {
 
 function upsertKlaviyoContact(contacts, uid, incoming, listTag) {
   const email = incoming.email;
-  let contact = contacts.find((row) => String(row.email || '').toLowerCase() === email);
+  let contact = contacts.find((row) => String(row.email || '').toLowerCase() === email && contactOwnerId(row) === uid);
   if (contact) {
-    const owner = contactOwnerId(contact);
-    if (owner && owner !== uid) return 'other-account';
     if (incoming.name) contact.name = incoming.name;
     if (incoming.phone) contact.phone = incoming.phone;
     contact.userId = uid;
@@ -4209,9 +4301,8 @@ async function syncKlaviyo(uid) {
       const tag = `Klaviyo: ${list.name}`.slice(0, 80);
       const emails = await pullListEmails(row.apiKey, list.id);
       for (const email of emails) {
-        const contact = contacts.find((item) => String(item.email || '').toLowerCase() === email && (!contactOwnerId(item) || contactOwnerId(item) === uid));
-        if (!contact || (contactOwnerId(contact) && contactOwnerId(contact) !== uid)) continue;
-        if (!contact.userId) contact.userId = uid;
+        const contact = contacts.find((item) => String(item.email || '').toLowerCase() === email && contactOwnerId(item) === uid);
+        if (!contact) continue;
         const before = (contact.tags || []).length;
         addContactTag(contact, 'Klaviyo');
         addContactTag(contact, tag);
@@ -4858,21 +4949,42 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Jourvance] Unhandled rejection (server kept running):', reason);
 });
 
+function registerMailEventCallback() {
+  const plan = mailCallbackPlan(process.env.MAIL_EVENT_SECRET, process.env.PUBLIC_BASE_URL);
+  if (!plan) {
+    console.log('[Jourvance] Mail events stay off until MAIL_EVENT_SECRET and a public https PUBLIC_BASE_URL are set.');
+    return;
+  }
+  if (!hubReady) {
+    console.log('[Jourvance] Mail events stay off until the hub is connected.');
+    return;
+  }
+  hub.email.webhook.setCallback({ url: plan.url, secret: plan.secret }).then((out) => {
+    if (!out || out.error || out.success === false) console.warn('[Jourvance] Mail event callback was not registered.');
+  }).catch(() => {
+    console.warn('[Jourvance] Mail event callback was not registered.');
+  });
+}
+
 (async () => {
   try {
     await hubStorage.rehydrateAll({
       workspaceCache,
       publicPageCache,
-      sanitizeWorkspace
+      sanitizeWorkspace,
+      persistWorkspaces,
+      persistPublicPages
     });
   } catch (err) {
     console.warn('[Jourvance] Startup rehydration notice:', err.message);
   }
+  reportSamplePages();
   purgeSeededFiles();
 
   app.listen(PORT, () => {
     console.log(`[Jourvance] Customer Journey Spoke running at http://localhost:${PORT}`);
     startAutomationRunner();
+    registerMailEventCallback();
   });
 })();
 

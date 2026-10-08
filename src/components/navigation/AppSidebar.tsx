@@ -25,6 +25,7 @@ import {
   X
 } from 'lucide-react';
 import type { ActiveAppView, NodeType, Workspace } from '../../types/journey';
+import { isOperator } from '../../lib/firebase';
 
 interface Props {
   activeView: ActiveAppView;
@@ -105,7 +106,7 @@ export const AppSidebar: React.FC<Props> = ({
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
 
   const isExpanded = isPinned || isHovered;
-  const isOp = user?.email?.toLowerCase() === 'tlm@tarrenmunoz.com';
+  const isOp = isOperator(user);
   const hasStore = currentWorkspace?.shopifyConfig?.status === 'connected';
 
   const addFlyoutRef = useRef<HTMLDivElement>(null);

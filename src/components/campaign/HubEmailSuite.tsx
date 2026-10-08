@@ -16,7 +16,7 @@ import { SmsPanel } from './SmsPanel';
 import { SendingSetup } from './SendingSetup';
 import { KlaviyoSync } from './KlaviyoSync';
 import { CustomerProfileDrawer } from './CustomerProfileDrawer';
-import { moneyText, STAT_UNAVAILABLE, statText, withNote } from '../../lib/emailStats';
+import { moneyText, OPENS_UNSTORED, STAT_UNAVAILABLE, statText, withNote } from '../../lib/emailStats';
 import type { Workspace, AudienceSegment, DripSequence, DripEnrollment, ShopifyAbandonedCheckout } from '../../types/journey';
 
 interface FlowStep {
@@ -126,6 +126,7 @@ interface Analytics {
   activeSubscribers: number;
   windows?: { emailClickDays: number; emailOpenDays: number; smsClickDays: number };
   windowNote?: string;
+  opensStored?: boolean;
 }
 
 interface Props {
@@ -1258,6 +1259,9 @@ ${unsub}`;
                 <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
                   Targeted product announcements, flash discounts, and replenishment emails with direct delivery or 1-click Shopify Email sync.
                 </p>
+                {analytics?.opensStored !== true && (
+                  <p style={{ margin: '8px 0 0', fontSize: '13px', color: '#9ca3af' }}>{OPENS_UNSTORED}</p>
+                )}
               </div>
 
               <button
@@ -2244,7 +2248,9 @@ ${unsub}`;
                 Deliverability & Conversion Metrics
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                Opens, clicks, and delivery show up only after a sent campaign reports them.
+                {analytics.opensStored === true
+                  ? 'Opens, clicks, and delivery show up only after a sent campaign reports them.'
+                  : OPENS_UNSTORED}
               </p>
             </div>
 

@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   X, ShoppingBag, Zap, Copy, Check, RefreshCw, CheckCircle2,
-  DollarSign, ArrowRight, ShieldCheck, Activity, Users, Send,
-  Tag, AlertCircle, ExternalLink, Clock, Plus
+  ShieldCheck, Activity, Send,
+  Tag, AlertCircle, ExternalLink, Clock
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
-import type { JourneyNode, Workspace, ShopifyDiscountRule, ShopifyAbandonedCheckout } from '../../types/journey';
+import type { Workspace, ShopifyDiscountRule, ShopifyAbandonedCheckout } from '../../types/journey';
 import { ModalDialog } from './ModalDialog';
 import { useFieldIds } from '../../lib/a11yHooks';
 import { loadedCountSuffix, type ListLoad } from '../../lib/loadedCount';
@@ -42,8 +42,6 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   workspace: Workspace | null;
-  nodes: JourneyNode[];
-  onOrderSimulated?: (result: any) => void;
 }
 
 // Names the dialog: ModalDialog's aria-labelledby points at the visible heading.
@@ -52,24 +50,12 @@ const TITLE_ID = 'jv-shopify-sync-title';
 export const ShopifySyncModal: React.FC<Props> = ({
   isOpen,
   onClose,
-  workspace,
-  nodes,
-  onOrderSimulated
+  workspace
 }) => {
   const [activeTab, setActiveTab] = useState<'webhooks' | 'discounts' | 'abandoned'>('webhooks');
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [syncingOrders, setSyncingOrders] = useState(false);
   const [ordersSyncResult, setOrdersSyncResult] = useState<string | null>(null);
-
-  // Simulator state
-  const landingPages = nodes.filter(n => n.type === 'landing-page');
-  const [selectedNodeId, setSelectedNodeId] = useState<string>(landingPages[0]?.id || '');
-  const [simName, setSimName] = useState('Elena Rostova');
-  const [simEmail, setSimEmail] = useState('elena.rostova@example.com');
-  const [simAmount, setSimAmount] = useState('62.00');
-  const [simBump, setSimBump] = useState(true);
-  const [simulating, setSimulating] = useState(false);
-  const [simSuccess, setSimSuccess] = useState<any | null>(null);
 
   // Discounts state
   const [discounts, setDiscounts] = useState<ShopifyDiscountRule[]>([]);
@@ -90,9 +76,6 @@ export const ShopifySyncModal: React.FC<Props> = ({
   const checkoutsRequest = useRef(0);
   // Why the last read failed: 'signin' (401, retrying cannot help), 'retry' (network or server), 'other'.
   const [checkoutsFailure, setCheckoutsFailure] = useState<'signin' | 'retry' | 'other'>('retry');
-  const [simulatingCheckout, setSimulatingCheckout] = useState(false);
-  const [simCheckoutSuccess, setSimCheckoutSuccess] = useState<string | null>(null);
-
   const currentHost = typeof window !== 'undefined' ? window.location.origin : 'https://jourvance.com';
   const ordersWebhookUrl = `${currentHost}/api/webhooks/shopify/orders-create`;
   const checkoutsWebhookUrl = `${currentHost}/api/webhooks/shopify/checkouts-create`;
@@ -178,41 +161,6 @@ export const ShopifySyncModal: React.FC<Props> = ({
     }
   };
 
-  const handleSimulateOrder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSimulating(true);
-    setSimSuccess(null);
-    try {
-      const headers = await authHeaders();
-      const wsId = workspace?.id || 'default';
-      const selectedNode = landingPages.find(n => n.id === selectedNodeId);
-      const slug = (selectedNode?.data as any)?.slug || 'demo-offer';
-
-      const res = await fetch(`/api/workspace/${wsId}/shopify/simulate-order`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({
-          nodeId: selectedNodeId,
-          slug,
-          customerName: simName,
-          customerEmail: simEmail,
-          amount: parseFloat(simAmount) || 62.00,
-          bumpIncluded: simBump
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data?.success) {
-        setSimSuccess(data);
-        if (onOrderSimulated) onOrderSimulated(data);
-        loadAbandonedCheckouts();
-      }
-    } catch (err) {
-      console.error('Order simulation failed:', err);
-    } finally {
-      setSimulating(false);
-    }
-  };
-
   const handleCreateDiscount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!discCode.trim()) {
@@ -252,34 +200,6 @@ export const ShopifySyncModal: React.FC<Props> = ({
       setDiscountError('The code was not created because the request did not go through.');
     } finally {
       setCreatingDiscount(false);
-    }
-  };
-
-  const handleSimulateAbandonedCheckout = async () => {
-    setSimulatingCheckout(true);
-    setSimCheckoutSuccess(null);
-    try {
-      const headers = await authHeaders();
-      const wsId = workspace?.id || 'default';
-      const res = await fetch(`/api/workspace/${wsId}/shopify/simulate-abandoned-checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({
-          customerEmail: `shopper_${Date.now().toString().slice(-4)}@venture.io`,
-          customerName: 'Marcus Shopper',
-          amount: 87.00
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data?.success) {
-        setSimCheckoutSuccess(`Simulated checkout created for ${data.checkout.customerEmail}. Recovery drip enqueued.`);
-        loadAbandonedCheckouts();
-        setTimeout(() => setSimCheckoutSuccess(null), 4000);
-      }
-    } catch (err) {
-      console.error('Failed simulating checkout:', err);
-    } finally {
-      setSimulatingCheckout(false);
     }
   };
 

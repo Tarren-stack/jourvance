@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { hubStorage } from './hub-storage.mjs';
 
 test('hubStorage gets and sets in-memory cache without disk errors', () => {
@@ -19,11 +22,15 @@ test('hubStorage buffers behavior events and tracks dirty UIDs', () => {
 });
 
 test('hubStorage rehydration migrates local data when Hub doc missing', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jv-hub-'));
+  fs.writeFileSync(path.join(dir, 'contacts.json'), JSON.stringify([{ email: 'a@a.test', userId: 'acct_a' }]));
+  const puts = [];
   const fakeHub = {
     store: {
       docs: {
-        get: async (key) => null, // simulate missing on hub
-        put: async (key, doc) => ({ success: true, name: key }),
+        get: async () => null,
+        put: async (key, doc) => { puts.push(key); return { success: true, name: key, document: doc }; },
+        remove: async (key) => ({ name: key, deleted: true }),
         list: async () => ({ documents: [] }),
         batchGet: async () => ({ documents: [] })
       }
@@ -31,14 +38,13 @@ test('hubStorage rehydration migrates local data when Hub doc missing', async ()
   };
 
   const manager = new (hubStorage.constructor)();
-  manager.init({ hub: fakeHub, hubReady: true });
-  
-  const workspaceCache = {};
-  const publicPageCache = {};
-  const result = await manager.rehydrateAll({ workspaceCache, publicPageCache });
-  
+  manager.init({ hub: fakeHub, hubReady: true, dataDir: dir });
+  const result = await manager.rehydrateAll({ workspaceCache: {}, publicPageCache: {} });
   assert.equal(result.success, true);
-  assert.equal(typeof result.migratedCount, 'number');
+  assert.equal(result.migratedCount > 0, true);
+  assert.ok(puts.includes('store.contacts.u.acct_a'));
+  assert.equal(puts.includes('store.contacts'), false);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('lead honeypot identifies bot submissions with hidden website_url_hp field', () => {

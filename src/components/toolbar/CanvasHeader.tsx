@@ -8,6 +8,7 @@ import type { SaveStatus, Refusal } from '../../lib/saveOutcome';
 import { countText, journeyTotals, metricsStatusNote, moneyText, percentText, type MetricsView } from '../../lib/journeyMetrics';
 import { menuSide } from '../../lib/menuPlacement';
 import { MENU_GUTTER_PX } from '../../lib/menuPlacement';
+import { isOperator } from '../../lib/firebase';
 
 /**
  * Below this width the lead stats and Test Lead Flow step aside (Test moves into More) so the
@@ -242,7 +243,7 @@ export const CanvasHeader: React.FC<Props> = ({
     return Math.max(MENU_GUTTER_PX - start, Math.min(0, window.innerWidth - MENU_GUTTER_PX - (start + width)));
   };
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1440 : window.innerWidth));
-  const isOp = user?.email?.toLowerCase() === 'tlm@tarrenmunoz.com';
+  const isOp = isOperator(user);
 
   // The header used to be one 2,704px row: on a 1440px laptop Save and Publish sat past the
   // right edge, where the page's overflow:hidden made them unreachable.

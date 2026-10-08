@@ -12,6 +12,7 @@ import path from 'path';
 import crypto from 'crypto';
 import dns from 'dns';
 import { fileURLToPath } from 'url';
+import { FAKE_STORE_DOMAINS } from './authWorkspaceRoutes.mjs';
 
 import {
   shopifyId,
@@ -667,6 +668,53 @@ async function loadPublicPage(identifier) {
   return (await readPublicPage(identifier)).page;
 }
 
+// Sample hosts and slugs from the local store. A page on one of these is not a merchant's page.
+const SAMPLE_PAGE_HOSTS = ['glowbotanics.com', 'wave5luxury.com', 'wave9brand.com'];
+const SAMPLE_PAGE_SLUGS = new Set([
+  'glow-elixir', 'wave5-elixir', 'wave9-radiance',
+  'vip-glow-kit', 'duo-glow-bundle', 'wave4-elixir'
+]);
+// Leftover sample stores. demo.myshopify.com stays a page: the lead and review
+// checks use it as a stand-in, and realStoreDomain already blanks a checkout to it.
+const SAMPLE_STORE_DOMAINS = new Set([...FAKE_STORE_DOMAINS].filter((domain) => domain !== 'demo.myshopify.com'));
+
+function isSampleHost(host) {
+  const h = String(host || '').toLowerCase().replace(/\.$/, '');
+  return SAMPLE_PAGE_HOSTS.some((root) => h === root || h.endsWith(`.${root}`));
+}
+
+function storeDomainOf(page) {
+  if (!page || typeof page !== 'object') return '';
+  return String(
+    page.shopifyConfig?.storeDomain || page.data?.shopifyConfig?.storeDomain || page.data?.storeDomain || page.storeDomain || ''
+  ).trim().toLowerCase();
+}
+
+function isSamplePublicPage(page, key) {
+  const slug = String(page?.slug || '').toLowerCase();
+  const keyName = String(key || '').toLowerCase();
+  if (SAMPLE_PAGE_SLUGS.has(slug) || SAMPLE_PAGE_SLUGS.has(keyName)) return true;
+  if (isSampleHost(pageDomainOf(page))) return true;
+  if (keyName.startsWith('domain:') && isSampleHost(keyName.slice('domain:'.length))) return true;
+  if (SAMPLE_STORE_DOMAINS.has(storeDomainOf(page))) return true;
+  return false;
+}
+
+// Drop sample pages after hub rehydration and say so once. A later read refuses them too.
+export function reportSamplePages() {
+  const held = [];
+  for (const key of Object.keys(publicPageCache)) {
+    const page = publicPageCache[key];
+    const record = page && typeof page === 'object' ? page : null;
+    if (!isSamplePublicPage(record, key)) continue;
+    held.push(key);
+    delete publicPageCache[key];
+  }
+  if (!held.length) return;
+  console.warn(`[Jourvance] Sample pages are not served: ${held.join(', ')}`);
+  persistPublicPages();
+}
+
 // loadPublicPage with the hub's answer kept. ok is false only when the hub was asked, did not
 // answer with a document or a 404, and the local cache holds nothing either: then nobody knows
 // whether a record is there or who owns it. A caller that deletes, or that reports a step as not
@@ -679,7 +727,10 @@ async function readPublicPage(identifier) {
   if (hubReady) {
     try {
       const r = await hub.store.docs.get(pubDocName(cleanId));
-      if (r?.document) return { ok: true, page: r.document };
+      if (r?.document) {
+        if (isSamplePublicPage(r.document, cleanId)) return { ok: true, page: null };
+        return { ok: true, page: r.document };
+      }
       if (!(r && r.status === 404)) hubFailed = true;
     } catch {
       hubFailed = true;
@@ -699,8 +750,11 @@ function cachedPublicPage(cleanId) {
   // Direct slug match
   if (publicPageCache[cleanId]) {
     if (typeof publicPageCache[cleanId] === 'string') {
-      return publicPageCache[publicPageCache[cleanId]] || null;
+      const target = publicPageCache[publicPageCache[cleanId]] || null;
+      if (isSamplePublicPage(target, publicPageCache[cleanId])) return null;
+      return target;
     }
+    if (isSamplePublicPage(publicPageCache[cleanId], cleanId)) return null;
     return publicPageCache[cleanId];
   }
 
@@ -713,7 +767,7 @@ function cachedPublicPage(cleanId) {
     if (targetPage && pageDomainOf(targetPage) === cleanId) {
       reloadDomainRegistry();
       const reg = domainRegistryCache[cleanId];
-      if (reg && reg.verified && reg.userId === targetPage.userId) {
+      if (reg && reg.verified && reg.userId === targetPage.userId && !isSamplePublicPage(targetPage, targetSlug)) {
         return targetPage;
       }
     }
@@ -727,7 +781,7 @@ function cachedPublicPage(cleanId) {
   if (reg && reg.verified) {
     const matches = Object.values(publicPageCache).filter(page =>
       page && typeof page === 'object' && page.userId === reg.userId && pageDomainOf(page) === cleanId);
-    if (matches.length && new Set(matches.map(p => String(p.journeyId || ''))).size === 1) return matches[0];
+    if (matches.length && new Set(matches.map(p => String(p.journeyId || ''))).size === 1 && !isSamplePublicPage(matches[0], cleanId)) return matches[0];
   }
 
   return null;
@@ -4038,6 +4092,9 @@ app.use(async (req, res, next) => {
   if (!host || host === 'localhost' || host === '127.0.0.1' || host === 'jourvance.com' || host === 'www.jourvance.com') {
     return next();
   }
+  if (isSampleHost(host)) {
+    return res.status(404).type('text/plain').send('This address is not a published page.');
+  }
 
   // Check if incoming host is mapped to a published page
   const page = await loadPublicPage(host);
@@ -4076,7 +4133,7 @@ app.post('/api/public/waitlist', async (req, res) => {
     }
 
     const contacts = loadContacts();
-    const existing = contacts.find(c => String(c.email || '').toLowerCase() === cleanEmail);
+    const existing = contacts.find(c => String(c.email || '').toLowerCase() === cleanEmail && !contactOwnerId(c));
     const now = new Date().toISOString();
 
     if (existing) {
@@ -4126,7 +4183,7 @@ app.post('/api/public/inquiry', async (req, res) => {
     }
 
     const contacts = loadContacts();
-    const existing = contacts.find(c => String(c.email || '').toLowerCase() === cleanEmail);
+    const existing = contacts.find(c => String(c.email || '').toLowerCase() === cleanEmail && !contactOwnerId(c));
     const now = new Date().toISOString();
     const cleanName = String(name || '').trim();
 
@@ -4285,17 +4342,19 @@ app.post('/api/public/lead', async (req, res) => {
     subscribedAt: new Date().toISOString()
   };
 
-  // Local CRM Contact Persistence (ensures 100% data durability and local dev availability)
+  // The same address at two accounts is two contacts. An unowned row is not adopted.
   try {
-    const contactsFilePath = path.join(__dirname, 'contacts.json');
-    let localContacts = [];
-    if (fs.existsSync(contactsFilePath)) {
-      try { localContacts = JSON.parse(fs.readFileSync(contactsFilePath, 'utf8')); } catch {}
-    }
-    const existingIndex = localContacts.findIndex(c => c.email === contact.email);
+    const contacts = loadContacts();
+    const owner = contactOwnerId(contact);
+    const existingIndex = contacts.findIndex((row) => {
+      if (String(row?.email || '').toLowerCase() !== contact.email) return false;
+      const rowOwner = contactOwnerId(row);
+      if (owner && rowOwner) return rowOwner === owner;
+      return !owner && !rowOwner;
+    });
     if (existingIndex >= 0) {
-      const prev = localContacts[existingIndex];
-      localContacts[existingIndex] = {
+      const prev = contacts[existingIndex];
+      contacts[existingIndex] = {
         ...prev,
         ...contact,
         acceptsMarketing: doubleOpt ? prev.acceptsMarketing === true : true,
@@ -4310,14 +4369,15 @@ app.post('/api/public/lead', async (req, res) => {
         firstSeenAt: prev.firstSeenAt || prev.subscribedAt || contact.subscribedAt,
         userId: prev.userId || contact.userId
       };
-      contact.acceptsMarketing = localContacts[existingIndex].acceptsMarketing;
+      contact.acceptsMarketing = contacts[existingIndex].acceptsMarketing;
     } else {
       contact.firstSeenAt = contact.subscribedAt;
-      localContacts.push(contact);
+      if (!contact.id) contact.id = `lead_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      contacts.push(contact);
     }
-    fs.writeFileSync(contactsFilePath, JSON.stringify(localContacts, null, 2), 'utf8');
+    saveContacts(contacts);
   } catch (err) {
-    console.warn('[Jourvance] Failed to persist lead to contacts.json:', err.message);
+    console.warn('[Jourvance] Failed to persist lead:', err.message);
   }
 
   // Auto-Enroll Lead in Drip Nurture Sequence

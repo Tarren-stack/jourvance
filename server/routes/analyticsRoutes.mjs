@@ -10,6 +10,7 @@ import {
   channelOf
 } from '../../email-map.mjs';
 import { cleanAttributionWindows } from '../../email-feeds.mjs';
+import { mailEventsReady } from '../mail-events.mjs';
 
 function round1(n) {
   return Math.round(n * 10) / 10;
@@ -728,6 +729,7 @@ export function setupAnalyticsRoutes(app, ctx) {
         deliveryRate: rate(stats.delivered),
         activeSubscribers: contactsForUser(uid).length,
         windows: cleanAttributionWindows(userProgramBag(uid).attributionWindows),
+        opensStored: mailEventsReady(process.env),
         windowNote: 'Last-touch revenue uses a click within 5 days, or an open within 5 days when there is no click. A text click uses 5 days. These are the defaults. Changing them does not change an order already attributed.'
       }
     });

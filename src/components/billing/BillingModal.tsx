@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, CheckCircle2, Sparkles, ArrowRight, ShieldCheck, Store, Mail } from 'lucide-react';
+import { X, CheckCircle2, Sparkles, ArrowRight, Store, Mail } from 'lucide-react';
 import { ModalDialog } from '../modals/ModalDialog';
 import { useFieldIds } from '../../lib/a11yHooks';
+import { authHeaders } from '../../lib/firebase';
 
 interface BillingModalProps {
   onClose: () => void;
@@ -20,7 +21,6 @@ export const BillingModal: React.FC<BillingModalProps> = ({
   const [email, setEmail] = useState<string>(userEmail || '');
   const [storeDomain, setStoreDomain] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
-  const [submitted, setSubmitted] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fid = useFieldIds();
 
@@ -36,24 +36,22 @@ export const BillingModal: React.FC<BillingModalProps> = ({
     setErrorMsg(null);
 
     try {
-      const res = await fetch('/api/public/waitlist', {
+      const res = await fetch('/api/billing/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         body: JSON.stringify({
           email: cleanEmail,
           storeDomain: storeDomain.trim(),
-          plan: 'growth_pro',
-          billingCycle,
-          source: 'billing_upgrade_modal'
+          billingCycle
         })
       });
 
       const data = await res.json();
-      if (res.ok && data.success) {
-        setSubmitted(true);
-      } else {
-        setErrorMsg(data.error || 'Could not record request. Please try again.');
+      if (res.ok && data.url) {
+        window.location.assign(data.url);
+        return;
       }
+      setErrorMsg(data.error || 'Checkout did not start. Try again.');
     } catch {
       setErrorMsg('Network error. Please try again.');
     } finally {
@@ -262,43 +260,6 @@ export const BillingModal: React.FC<BillingModalProps> = ({
           </div>
         </div>
 
-        {/* Lead Capture or Success State */}
-        {submitted ? (
-          <div
-            style={{
-              backgroundColor: 'rgba(16, 185, 129, 0.12)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
-              borderRadius: '14px',
-              padding: '1.75rem',
-              textAlign: 'center'
-            }}
-          >
-            <div style={{ display: 'inline-flex', padding: '0.6rem', borderRadius: '9999px', backgroundColor: 'rgba(16, 185, 129, 0.2)', marginBottom: '0.75rem' }}>
-              <ShieldCheck size={28} color="#10B981" />
-            </div>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#FFFFFF', margin: '0 0 0.4rem' }}>
-              You're on the VIP Priority List!
-            </h3>
-            <p style={{ fontSize: '0.875rem', color: '#CBD5E1', maxWidth: '480px', margin: '0 auto 1.25rem' }}>
-              We have reserved your Growth Pro spot. Our onboarding team will verify your store and reach out to <strong>{email}</strong> with early-access activation details.
-            </p>
-            <button
-              onClick={onClose}
-              style={{
-                padding: '0.65rem 1.5rem',
-                borderRadius: '8px',
-                backgroundColor: '#10B981',
-                border: 'none',
-                color: '#FFFFFF',
-                fontWeight: 700,
-                fontSize: '0.875rem',
-                cursor: 'pointer'
-              }}
-            >
-              Continue with Starter Studio
-            </button>
-          </div>
-        ) : (
           <form
             onSubmit={handleRequestAccess}
             style={{
@@ -310,10 +271,10 @@ export const BillingModal: React.FC<BillingModalProps> = ({
           >
             <div style={{ marginBottom: '1rem' }}>
               <h4 style={{ margin: '0 0 0.25rem', fontSize: '1rem', fontWeight: 700, color: '#FFFFFF' }}>
-                Join the Growth Pro VIP Priority List
+                Checkout for Growth Pro
               </h4>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#94A3B8' }}>
-                We are onboarding high-growth brands in weekly cohorts. Lock in early founder pricing today.
+                Monthly is $49. Annual is $39 a month, billed once a year.
               </p>
             </div>
 
@@ -374,7 +335,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({
             </div>
 
             {errorMsg && (
-              <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: '#EF4444' }}>
+              <p role="alert" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: '#EF4444' }}>
                 {errorMsg}
               </p>
             )}
@@ -400,15 +361,14 @@ export const BillingModal: React.FC<BillingModalProps> = ({
                 opacity: submitting ? 0.7 : 1
               }}
             >
-              <span>{submitting ? 'Submitting Request…' : 'Request VIP Pro Access'}</span>
+              <span>{submitting ? 'Opening checkout…' : 'Continue to checkout'}</span>
               <ArrowRight size={16} />
             </button>
 
             <p style={{ margin: '0.6rem 0 0', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
-              No credit card required today • Priority cohort onboarding
+              Payment is confirmed on the next page.
             </p>
           </form>
-        )}
       </div>
     </ModalDialog>
   );

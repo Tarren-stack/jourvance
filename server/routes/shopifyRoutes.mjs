@@ -75,10 +75,15 @@ export async function provisionShopifyDiscount(ws, { code, discountType = 'perce
   const discounts = loadDiscounts();
   // A rule records its store, so a public page offers a code only where it was defined (R24). A rule
   // saved before rules recorded their store is still matched by code.
-  const existingIdx = discounts.findIndex(d => d.code === cleanCode && (!d.storeDomain || !domain || d.storeDomain === domain));
+  const existingIdx = discounts.findIndex((d) => {
+    if (d.code !== cleanCode) return false;
+    if (ws?.userId && d.userId && d.userId !== ws.userId) return false;
+    return !d.storeDomain || !domain || d.storeDomain === domain;
+  });
   const discountRule = {
     id: existingIdx >= 0 ? discounts[existingIdx].id : `disc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     code: cleanCode,
+    userId: ws?.userId || (existingIdx >= 0 ? discounts[existingIdx].userId : '') || '',
     storeDomain: domain || (existingIdx >= 0 ? discounts[existingIdx].storeDomain : undefined) || null,
     discountType: discountType === 'fixed_amount' ? 'fixed_amount' : 'percentage',
     value: Number(value),
@@ -470,7 +475,7 @@ export function setupShopifyRoutes(app, ctx) {
             for (const c of data.customers) {
               const email = (c.email || '').toLowerCase().trim();
               if (!email) continue;
-              const existing = contacts.find(existingContact => existingContact.email === email);
+              const existing = contacts.find((row) => row.email === email && contactOwnerId(row) === req.user.uid);
               const totalSpent = Number(c.total_spent || 0);
               const ordersCount = Number(c.orders_count || 0);
               const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || email.split('@')[0];
@@ -480,12 +485,14 @@ export function setupShopifyRoutes(app, ctx) {
                 existing.ordersCount = ordersCount;
                 existing.name = name || existing.name;
                 existing.shopifyCustomerId = String(c.id);
+                existing.userId = req.user.uid;
                 if (!existing.tags) existing.tags = [];
                 if (!existing.tags.includes('Shopify Buyer') && ordersCount > 0) existing.tags.push('Shopify Buyer');
                 syncContactRfmTags(existing, userProgramBag(req.user.uid)?.rfmConfig || DEFAULT_RFM_CONFIG);
               } else {
                 const newContact = {
-                  id: `cust_${c.id}`,
+                  id: `cust_${req.user.uid}_${c.id}`,
+                  userId: req.user.uid,
                   shopifyCustomerId: String(c.id),
                   email,
                   name,
@@ -510,12 +517,13 @@ export function setupShopifyRoutes(app, ctx) {
       }
     }
 
+    const mine = contacts.filter((row) => contactOwnerId(row) === req.user.uid).length;
     if (storeReached) {
       saveContacts(contacts);
       await saveWorkspace(req.user.uid, req.params.wsId, {
         shopifyConfig: {
           ...(ws.shopifyConfig || {}),
-          customerCount: contacts.length,
+          customerCount: mine,
           lastSyncedAt: new Date().toISOString()
         }
       });
@@ -526,8 +534,8 @@ export function setupShopifyRoutes(app, ctx) {
       storeReached,
       importedCount,
       syncedCount: importedCount,
-      totalCustomers: contacts.length,
-      totalInCrm: contacts.length,
+      totalCustomers: mine,
+      totalInCrm: mine,
       notice: storeReached
         ? `Imported ${importedCount} customers from Shopify.`
         : 'Shopify was not reached. No customers were imported.'
@@ -606,7 +614,7 @@ export function setupShopifyRoutes(app, ctx) {
 
   // ── 8. Discounts Management ───────────────────────────────────────────────
   app.get('/api/workspace/:wsId/shopify/discounts', requireUser, async (req, res) => {
-    const discounts = loadDiscounts();
+    const discounts = loadDiscounts().filter((row) => row.userId === req.user.uid);
     res.json({ success: true, discounts });
   });
 

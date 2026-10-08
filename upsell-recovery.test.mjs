@@ -7,26 +7,26 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-test('drip_seq_upsell_recovery is configured in drips.json and INITIAL_DRIP_SEQUENCES', () => {
-  const dripsRaw = fs.readFileSync(path.join(__dirname, 'drips.json'), 'utf8');
-  const dripsData = JSON.parse(dripsRaw);
-  const recoverySeq = dripsData.sequences.find(s => s.id === 'drip_seq_upsell_recovery');
+test('drip_seq_upsell_recovery is configured in the server seed', () => {
+  // The sequence lives in server.mjs. drips.json is local store data and is not in git.
+  const src = fs.readFileSync(path.join(__dirname, 'server.mjs'), 'utf8');
+  const start = src.indexOf("id: 'drip_seq_upsell_recovery'");
+  assert.ok(start > 0, 'the upsell recovery seed is in the server');
+  const slice = src.slice(start, start + 1400);
+  assert.match(slice, /triggerType: 'upsell_recovery'/);
+  assert.match(slice, /smartExitOnPurchase: true/);
+  assert.match(slice, /delayHours: 18/);
+  assert.match(slice, /\{\{offer_url\}\}/);
+  assert.match(slice, /\{\{order_number\}\}/);
+  assert.match(slice, /\{\{first_name\}\}/);
+  assert.doesNotMatch(slice, /\{\{discount_code\}\}/);
 
-  assert.ok(recoverySeq, 'drip_seq_upsell_recovery sequence must exist in drips store');
-  assert.equal(recoverySeq.triggerType, 'upsell_recovery');
-  assert.equal(recoverySeq.smartExitOnPurchase, true);
-  assert.ok(recoverySeq.steps.length >= 1);
-
-  const step1 = recoverySeq.steps[0];
-  assert.equal(step1.delayHours, 18, 'Initial recovery offer delay must be 18 hours');
-  // No code is pinned: a voucher is the merchant's own, and a decline enrols with the step's
-  // code or none (C18). A letter with no code must not print an empty {{discount_code}}.
-  if (!String(step1.discountVoucher || '').trim()) {
-    assert.ok(!step1.body.includes('{{discount_code}}'), 'a letter with no code names no code');
-  }
-  assert.ok(step1.body.includes('{{offer_url}}'));
-  assert.ok(step1.body.includes('{{order_number}}'));
-  assert.ok(step1.body.includes('{{first_name}}'));
+  const file = path.join(__dirname, 'drips.json');
+  if (!fs.existsSync(file)) return;
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const recoverySeq = stored.sequences.find(s => s.id === 'drip_seq_upsell_recovery');
+  assert.ok(recoverySeq, 'a local drip store that exists still has the recovery sequence');
+  assert.equal(recoverySeq.steps[0].delayHours, 18);
 });
 
 test('upsell decline auto-enrolls customer and tags contact correctly', () => {

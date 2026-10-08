@@ -4,6 +4,9 @@
 
 export const STAT_UNAVAILABLE = 'Unavailable';
 
+/** Shown while opens cannot be stored. Hidden once the secret and a public https origin are both set. */
+export const OPENS_UNSTORED = 'Opens stay blank until MAIL_EVENT_SECRET and a public https PUBLIC_BASE_URL are set.';
+
 /** A measured number as text, or 'Unavailable' when it is null, missing or not a finite number. */
 export function statText(value: number | null | undefined, format: (n: number) => string = String): string {
   return typeof value === 'number' && Number.isFinite(value) ? format(value) : STAT_UNAVAILABLE;

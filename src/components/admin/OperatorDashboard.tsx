@@ -15,7 +15,7 @@ import {
   Lock
 } from 'lucide-react';
 import type { JourneyProject } from '../../types/journey';
-import { authHeaders } from '../../lib/firebase';
+import { authHeaders, OPERATOR_EMAIL } from '../../lib/firebase';
 
 interface OperatorDashboardProps {
   currentProject: JourneyProject;
@@ -130,7 +130,7 @@ export const OperatorDashboard: React.FC<OperatorDashboardProps> = ({
               </span>
             </div>
             <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>
-              Restricted to tlm@tarrenmunoz.com • Connected to Zelus Hub
+              Restricted to {OPERATOR_EMAIL}. Connected to Zelus Hub
             </span>
           </div>
         </div>
