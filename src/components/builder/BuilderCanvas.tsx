@@ -12,7 +12,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, GripVertical, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, BookmarkPlus, ClipboardCopy, ClipboardPaste, Copy, GripVertical, Scissors, Trash2 } from 'lucide-react';
 import { render } from '../../lib/pageBuilder/render.mjs';
 import { findNode, resolveStyle, walk } from '../../lib/pageBuilder/model.mjs';
 import type { BuilderDevice, BuilderDoc, BuilderNode, BuilderWidget } from '../../types/pageBuilder';
@@ -41,7 +41,10 @@ export const DEVICE_WIDTHS = DESIGN_WIDTHS;
 /** The frame's padding on each side, in CSS pixels. */
 const FRAME_PAD = 24;
 
-export type ToolbarAction = 'up' | 'down' | 'duplicate' | 'remove';
+/** Below this frame width the selection toolbar drops its visible label to stay one row. */
+const TOOLBAR_LABEL_MIN_FRAME = 480;
+
+export type ToolbarAction = 'up' | 'down' | 'duplicate' | 'remove' | 'copy' | 'cut' | 'paste' | 'save';
 
 export interface BuilderCanvasProps {
   doc: BuilderDoc;
@@ -57,6 +60,8 @@ export interface BuilderCanvasProps {
   onSelect: (id: string | null) => void;
   onHover: (id: string | null) => void;
   onToolbar: (action: ToolbarAction, id: string) => void;
+  /** Something is on the builder's clipboard, so Paste can act. */
+  canPaste?: boolean;
   onInlineCommit: (id: string, patch: Record<string, unknown>, target: string) => void;
   /** Bumped by the shell (Enter on a selected widget) to start editing its first in-place prop. */
   inlineRequest: { id: string; seq: number } | null;
@@ -96,7 +101,7 @@ function contains(r: DOMRect, x: number, y: number): boolean {
 }
 
 /** Writes the rendered page into the shadow root, cleaned, with a hint where an empty widget drew nothing. */
-function writeShadow(root: ShadowRoot, html: string, css: string, doc: BuilderDoc, device: BuilderDevice): void {
+export function writeShadow(root: ShadowRoot, html: string, css: string, doc: BuilderDoc, device: BuilderDevice): void {
   const style = document.createElement('style');
   style.textContent = `${EDITOR_CSS}\n${css}`;
   const template = document.createElement('template');
@@ -244,6 +249,7 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
   onSelect,
   onHover,
   onToolbar,
+  canPaste = false,
   onInlineCommit,
   inlineRequest,
   onEditingChange,
@@ -648,9 +654,13 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                         whiteSpace: 'nowrap'
                       }}
                     >
-                      <span style={{ fontSize: '12px', fontWeight: 700, color: '#E0E7FF', padding: '0 6px', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {selectedLabel}
-                      </span>
+                      {/* The toolbar's own name carries the block's label; on a narrow frame the visible label
+                          gives its room to the buttons, so the one row still fits inside the frame. */}
+                      {frameWidth >= TOOLBAR_LABEL_MIN_FRAME && (
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#E0E7FF', padding: '0 6px', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {selectedLabel}
+                        </span>
+                      )}
                       <DragHandle id={selectedId} label={selectedLabel} />
                       <button type="button" aria-label={across ? 'Move left' : 'Move up'} title={across ? 'Move left' : 'Move up'} onClick={() => onToolbar('up', selectedId)} style={toolButton}>
                         {across ? <ArrowLeft size={14} aria-hidden="true" /> : <ArrowUp size={14} aria-hidden="true" />}
@@ -664,6 +674,27 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                       <button type="button" aria-label="Delete" title="Delete" onClick={() => onToolbar('remove', selectedId)} style={{ ...toolButton, color: '#FECACA' }}>
                         <Trash2 size={14} aria-hidden="true" />
                       </button>
+                      <button type="button" aria-label="Copy" title="Copy (Command or Control C)" onClick={() => onToolbar('copy', selectedId)} style={toolButton}>
+                        <ClipboardCopy size={14} aria-hidden="true" />
+                      </button>
+                      <button type="button" aria-label="Cut" title="Cut (Command or Control X)" onClick={() => onToolbar('cut', selectedId)} style={toolButton}>
+                        <Scissors size={14} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Paste"
+                        title={canPaste ? 'Paste (Command or Control V)' : 'Paste: copy or cut a block first'}
+                        aria-disabled={!canPaste}
+                        onClick={() => onToolbar('paste', selectedId)}
+                        style={{ ...toolButton, opacity: canPaste ? 1 : 0.45 }}
+                      >
+                        <ClipboardPaste size={14} aria-hidden="true" />
+                      </button>
+                      {selectedNode?.kind === 'section' && (
+                        <button type="button" aria-label="Save section" title="Save section to your library" onClick={() => onToolbar('save', selectedId)} style={toolButton}>
+                          <BookmarkPlus size={14} aria-hidden="true" />
+                        </button>
+                      )}
                     </div>
                 </>
               )}

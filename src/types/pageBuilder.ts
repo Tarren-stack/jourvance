@@ -118,6 +118,27 @@ export interface BuilderTheme {
   buttonStyle: 'solid' | 'outline' | 'pill';
   /** Widest the boxed content runs, in pixels. */
   containerWidth: number;
+  /** Multiplies every heading size. 1 is the built-in scale. */
+  headingScale?: number;
+  /** Heading font weight, 100 to 900 in steps of 100. */
+  headingWeight?: number;
+  /** Heading line height as a multiple of its size. */
+  headingLineHeight?: number;
+  /** Body text size in pixels. */
+  bodySize?: number;
+  /** Body font weight, 100 to 900 in steps of 100. */
+  bodyWeight?: number;
+  /** Body line height as a multiple of its size. */
+  bodyLineHeight?: number;
+  /** The colour of links inside text: a hex colour or `theme.<slot>`. */
+  linkColor?: BuilderColor;
+  /** Button corner radius in pixels; null follows the theme radius (and the pill style). */
+  buttonRadius?: number | null;
+  buttonShadow?: 'none' | 'soft' | 'medium' | 'strong';
+  /** Top and bottom padding every section starts with, in pixels. A section's own padding wins. */
+  sectionPaddingY?: number;
+  /** The space between stacked sections, in pixels. */
+  sectionGap?: number;
 }
 
 // ---- Layout props ----

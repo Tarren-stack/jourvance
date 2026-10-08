@@ -60,8 +60,38 @@ export const DEFAULT_THEME = deepFreeze(/** @satisfies {import('../../types/page
   radius: 16,
   spacingScale: 8,
   buttonStyle: 'solid',
-  containerWidth: 840
+  containerWidth: 840,
+  headingScale: 1,
+  headingWeight: 700,
+  headingLineHeight: 1.2,
+  bodySize: 16,
+  bodyWeight: 400,
+  bodyLineHeight: 1.5,
+  linkColor: 'theme.primary',
+  buttonRadius: null,
+  buttonShadow: 'none',
+  sectionPaddingY: 0,
+  sectionGap: 0
 }));
+
+/** The button shadow presets a theme may name. */
+export const THEME_BUTTON_SHADOWS = Object.freeze(['none', 'soft', 'medium', 'strong']);
+
+/**
+ * The numeric theme settings added after the first release, each with its range. A document that
+ * leaves one out gets DEFAULT_THEME's value, which reproduces the page as it rendered before.
+ */
+export const THEME_NUMBER_RANGES = Object.freeze({
+  headingScale: Object.freeze({ min: 0.5, max: 2, unit: 'x' }),
+  headingWeight: Object.freeze({ min: 100, max: 900, unit: '', integer: true, step: 100 }),
+  headingLineHeight: Object.freeze({ min: 0.8, max: 2.5, unit: '' }),
+  bodySize: Object.freeze({ min: 10, max: 28, unit: 'px' }),
+  bodyWeight: Object.freeze({ min: 100, max: 900, unit: '', integer: true, step: 100 }),
+  bodyLineHeight: Object.freeze({ min: 1, max: 2.5, unit: '' }),
+  buttonRadius: Object.freeze({ min: 0, max: 64, unit: 'px' }),
+  sectionPaddingY: Object.freeze({ min: 0, max: 240, unit: 'px' }),
+  sectionGap: Object.freeze({ min: 0, max: 160, unit: 'px' })
+});
 
 /**
  * The only hosts a video widget may play from. The page's Content Security Policy keeps
@@ -748,7 +778,10 @@ function checkTheme(theme, state) {
     report(state, path, 'theme is an object');
     return;
   }
-  const known = ['colors', 'fonts', 'radius', 'spacingScale', 'buttonStyle', 'containerWidth'];
+  const known = [
+    'colors', 'fonts', 'radius', 'spacingScale', 'buttonStyle', 'containerWidth',
+    ...Object.keys(THEME_NUMBER_RANGES), 'linkColor', 'buttonShadow'
+  ];
   for (const key of Object.keys(theme)) {
     if (!known.includes(key)) report(state, `${path}.${key}`, `${quote(key)} is not a theme setting`);
   }
@@ -783,6 +816,22 @@ function checkTheme(theme, state) {
   }
   if ('buttonStyle' in theme && !['solid', 'outline', 'pill'].includes(theme.buttonStyle)) {
     report(state, `${path}.buttonStyle`, `${quote(theme.buttonStyle)} is not one of solid, outline, pill`);
+  }
+  for (const [key, spec] of Object.entries(THEME_NUMBER_RANGES)) {
+    if (!(key in theme)) continue;
+    const v = theme[key];
+    // buttonRadius null means "follow the theme radius", so it is a valid, explicit way to say so.
+    if (key === 'buttonRadius' && v === null) continue;
+    let problem = numberProblem(v, spec);
+    if (!problem && spec.step && v % spec.step !== 0) problem = `${v} is not a multiple of ${spec.step}`;
+    if (problem) report(state, `${path}.${key}`, problem);
+  }
+  if ('linkColor' in theme) {
+    const problem = colorProblem(theme.linkColor);
+    if (problem) report(state, `${path}.linkColor`, problem);
+  }
+  if ('buttonShadow' in theme && !THEME_BUTTON_SHADOWS.includes(theme.buttonShadow)) {
+    report(state, `${path}.buttonShadow`, `${quote(theme.buttonShadow)} is not one of ${THEME_BUTTON_SHADOWS.join(', ')}`);
   }
 }
 

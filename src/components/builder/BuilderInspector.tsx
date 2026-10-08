@@ -31,6 +31,7 @@ import {
   smallButton
 } from './BuilderFields';
 import { BuilderThemePanel, FONT_CHOICES } from './BuilderThemePanel';
+import { REWRITABLE, RewriteControl } from './BuilderRewrite';
 
 export const DEVICE_NAMES: Readonly<Record<BuilderDevice, string>> = Object.freeze({ desktop: 'Desktop', tablet: 'Tablet', mobile: 'Mobile' });
 const DEVICE_ORDER: BuilderDevice[] = ['desktop', 'tablet', 'mobile'];
@@ -110,6 +111,8 @@ export interface BuilderInspectorProps {
   dispatch: (action: BuilderAction) => void;
   onDevice: (device: BuilderDevice) => void;
   labelOf: (id: string) => string;
+  /** Says a sentence in the builder's polite live region (an AI rewrite's outcome). */
+  onSay?: (text: string) => void;
 }
 
 type Tab = 'content' | 'style' | 'advanced';
@@ -321,7 +324,31 @@ function ListField({
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-function ContentTab({ node, dispatch, notice, isInner }: { node: BuilderNode; dispatch: (a: BuilderAction) => void; notice: BuilderNotice | null; isInner: boolean }) {
+/** "Rewrite with AI" under a text field the route can rewrite, applied as one undoable setProps. */
+function RewriteFor({ node, propKey, value, label, dispatch, onSay }: {
+  node: BuilderWidget;
+  propKey: string;
+  value: unknown;
+  label: string;
+  dispatch: (a: BuilderAction) => void;
+  onSay: (text: string) => void;
+}) {
+  const kind = REWRITABLE[node.type]?.[propKey];
+  if (!kind) return null;
+  const items = Array.isArray(value) ? (value as Array<Record<string, unknown>>) : [];
+  const text = kind === 'list'
+    ? items.map(i => (typeof i?.text === 'string' ? i.text : '')).filter(Boolean).join('\n')
+    : typeof value === 'string' ? value : '';
+  const apply = (next: string | string[]) => {
+    const props = kind === 'list'
+      ? { [propKey]: (Array.isArray(next) ? next : String(next).split('\n')).map((t, i) => ({ ...(items[i] ?? {}), text: t })) }
+      : { [propKey]: Array.isArray(next) ? next.join('\n') : next };
+    dispatch({ type: 'setProps', id: node.id, props, target: `props.${propKey}` });
+  };
+  return <RewriteControl kind={kind} text={text} name={label} onApply={apply} onSay={onSay} />;
+}
+
+function ContentTab({ node, dispatch, notice, isInner, onSay }: { node: BuilderNode; dispatch: (a: BuilderAction) => void; notice: BuilderNotice | null; isInner: boolean; onSay: (text: string) => void }) {
   if (node.kind === 'column') {
     return <p style={hintStyle}>A column has no content settings of its own. Set its width and spacing in Style, and add blocks to it from Add blocks.</p>;
   }
@@ -346,7 +373,10 @@ function ContentTab({ node, dispatch, notice, isInner }: { node: BuilderNode; di
       <p style={{ ...hintStyle, marginTop: 0, marginBottom: '10px' }}>{def.description}</p>
       {entries.length === 0 && <p style={hintStyle}>Nothing to fill in. Set its size in Style.</p>}
       {entries.map(([key, spec]) => (
-        <PropField key={key} node={widget} propKey={key} spec={spec} value={props[key]} fallback={def.fallbacks[key]} dispatch={dispatch} notice={notice} />
+        <React.Fragment key={key}>
+          <PropField node={widget} propKey={key} spec={spec} value={props[key]} fallback={def.fallbacks[key]} dispatch={dispatch} notice={notice} />
+          <RewriteFor node={widget} propKey={key} value={props[key]} label={`${def.label} ${spec.label.toLowerCase()}`} dispatch={dispatch} onSay={onSay} />
+        </React.Fragment>
       ))}
     </>
   );
@@ -498,7 +528,9 @@ function AdvancedTab({ node, dispatch, notice }: { node: BuilderNode; dispatch: 
 
 // ---- The inspector ----
 
-export const BuilderInspector: React.FC<BuilderInspectorProps> = ({ doc, device, selectedId, notice, dispatch, onDevice, labelOf }) => {
+const quiet = () => {};
+
+export const BuilderInspector: React.FC<BuilderInspectorProps> = ({ doc, device, selectedId, notice, dispatch, onDevice, labelOf, onSay = quiet }) => {
   const [tab, setTab] = useState<Tab>('content');
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const baseId = useId().replace(/[^A-Za-z0-9_-]/g, '');
@@ -568,7 +600,7 @@ export const BuilderInspector: React.FC<BuilderInspectorProps> = ({ doc, device,
         ))}
       </div>
       <div role="tabpanel" id={`${baseId}-panel`} aria-labelledby={`${baseId}-tab-${tab}`}>
-        {tab === 'content' && <ContentTab key={node.id} node={node} dispatch={dispatch} notice={notice} isInner={isInner} />}
+        {tab === 'content' && <ContentTab key={node.id} node={node} dispatch={dispatch} notice={notice} isInner={isInner} onSay={onSay} />}
         {tab === 'style' && <StyleTab key={`${node.id}:${device}`} node={node} device={device} onDevice={onDevice} dispatch={dispatch} notice={notice} />}
         {tab === 'advanced' && <AdvancedTab key={node.id} node={node} dispatch={dispatch} notice={notice} />}
       </div>

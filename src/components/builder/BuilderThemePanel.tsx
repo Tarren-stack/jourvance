@@ -3,9 +3,13 @@
 // widest the content runs, the spacing step and the button style. Every value goes through the
 // reducer's setTheme, which runs the model's check, so a colour or a font the page could not
 // draw is refused with the model's reason.
+//
+// Global styles (Wave 3): heading and body type, the link colour, the button's corners and shadow,
+// and the padding and gap every section starts with. A key the document leaves out reads as
+// DEFAULT_THEME's value, which is how the page drew before these settings existed.
 
 import React from 'react';
-import { THEME_COLOR_KEYS } from '../../lib/pageBuilder/model.mjs';
+import { DEFAULT_THEME, THEME_BUTTON_SHADOWS, THEME_COLOR_KEYS, THEME_NUMBER_RANGES } from '../../lib/pageBuilder/model.mjs';
 import type { BuilderTheme, ThemeColorKey } from '../../types/pageBuilder';
 import type { BuilderAction, BuilderNotice } from './builderState';
 import { ColorField, NumberField, SelectField, hintStyle } from './BuilderFields';
@@ -37,6 +41,24 @@ const COLOR_LABELS: Record<ThemeColorKey, string> = {
   text: 'Text',
   muted: 'Quiet text'
 };
+
+const WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900].map(w => ({ value: String(w), label: String(w) }));
+
+const SHADOW_WORDS: Record<string, string> = { none: 'None', soft: 'Soft', medium: 'Medium', strong: 'Strong' };
+
+type NumberKey = 'headingScale' | 'headingLineHeight' | 'bodySize' | 'bodyLineHeight' | 'sectionPaddingY' | 'sectionGap';
+
+/** The label, step and hint of each numeric global style; the range is the model's own. */
+const NUMBER_FIELDS: Array<{ key: NumberKey; label: string; step: number; hint: (min: number, max: number) => string }> = [
+  { key: 'headingScale', label: 'Heading size', step: 0.05, hint: (a, b) => `1 is the built-in size. From ${a} to ${b} times.` },
+  { key: 'headingLineHeight', label: 'Heading line height', step: 0.05, hint: (a, b) => `As a multiple of the heading size, from ${a} to ${b}.` },
+  { key: 'bodySize', label: 'Body text size', step: 1, hint: (a, b) => `From ${a} to ${b}.` },
+  { key: 'bodyLineHeight', label: 'Body line height', step: 0.05, hint: (a, b) => `As a multiple of the text size, from ${a} to ${b}.` },
+  { key: 'sectionPaddingY', label: 'Section padding, top and bottom', step: 4, hint: (a, b) => `Every section starts with this; a section's own padding wins. From ${a} to ${b}.` },
+  { key: 'sectionGap', label: 'Space between sections', step: 4, hint: (a, b) => `From ${a} to ${b}.` }
+];
+
+const RANGES = THEME_NUMBER_RANGES as Record<string, { min: number; max: number; unit: string }>;
 
 export interface BuilderThemePanelProps {
   theme: BuilderTheme;
@@ -128,6 +150,67 @@ export const BuilderThemePanel: React.FC<BuilderThemePanelProps> = ({ theme, dis
         onChange={v => set({ buttonStyle: v as BuilderTheme['buttonStyle'] }, 'theme.buttonStyle')}
       />
       <p style={hintStyle}>Fonts load from Google Fonts on the published page.</p>
+
+      <p id="jvb-global-styles" style={{ margin: '14px 0 6px', fontSize: '12px', fontWeight: 700, color: '#E2E8F0' }}>Global styles</p>
+      <p style={{ ...hintStyle, margin: '0 0 8px' }}>These apply to every block that has no setting of its own.</p>
+      {NUMBER_FIELDS.map(f => {
+        const range = RANGES[f.key];
+        const unit = range.unit === 'x' ? 'times' : range.unit || undefined;
+        return (
+          <NumberField
+            key={f.key}
+            label={f.label}
+            unit={unit}
+            value={theme[f.key] ?? (DEFAULT_THEME[f.key] as number)}
+            min={range.min}
+            max={range.max}
+            step={f.step}
+            hint={f.hint(range.min, range.max)}
+            error={errorFor(`theme.${f.key}`)}
+            onChange={v => { if (v !== undefined) set({ [f.key]: v }, `theme.${f.key}`); }}
+          />
+        );
+      })}
+      <SelectField
+        label="Heading weight"
+        value={String(theme.headingWeight ?? DEFAULT_THEME.headingWeight)}
+        options={WEIGHTS}
+        error={errorFor('theme.headingWeight')}
+        onChange={v => set({ headingWeight: Number(v) }, 'theme.headingWeight')}
+      />
+      <SelectField
+        label="Body weight"
+        value={String(theme.bodyWeight ?? DEFAULT_THEME.bodyWeight)}
+        options={WEIGHTS}
+        error={errorFor('theme.bodyWeight')}
+        onChange={v => set({ bodyWeight: Number(v) }, 'theme.bodyWeight')}
+      />
+      <ColorField
+        label="Link colour"
+        value={theme.linkColor ?? DEFAULT_THEME.linkColor}
+        hint="Links inside text. Not set goes back to the main colour."
+        error={errorFor('theme.linkColor')}
+        onChange={v => set({ linkColor: (v ?? 'theme.primary') as BuilderTheme['linkColor'] }, 'theme.linkColor')}
+      />
+      <NumberField
+        label="Button corner radius"
+        unit="px"
+        value={theme.buttonRadius ?? undefined}
+        min={RANGES.buttonRadius.min}
+        max={RANGES.buttonRadius.max}
+        step={1}
+        placeholder="Follows the page"
+        hint="Left empty, buttons follow the corner radius and the button style."
+        error={errorFor('theme.buttonRadius')}
+        onChange={v => set({ buttonRadius: v === undefined ? null : v }, 'theme.buttonRadius')}
+      />
+      <SelectField
+        label="Button shadow"
+        value={theme.buttonShadow ?? DEFAULT_THEME.buttonShadow ?? 'none'}
+        options={(THEME_BUTTON_SHADOWS as ReadonlyArray<string>).map(v => ({ value: v, label: SHADOW_WORDS[v] ?? v }))}
+        error={errorFor('theme.buttonShadow')}
+        onChange={v => set({ buttonShadow: v as NonNullable<BuilderTheme['buttonShadow']> }, 'theme.buttonShadow')}
+      />
     </div>
   );
 };

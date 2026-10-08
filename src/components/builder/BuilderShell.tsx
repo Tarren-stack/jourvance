@@ -13,6 +13,11 @@
 // Ctrl+Shift+Z redoes. Escape cancels a drag, else leaves inline editing (the canvas handles that),
 // else clears the selection, else closes the builder. Nothing here takes Tab: the dialog's focus
 // trap (useDialogFocus) is the only thing that touches it.
+//
+// Wave 3: Cmd or Ctrl+C copies the selected block, Cmd or Ctrl+X cuts it and Cmd or Ctrl+V pastes
+// (never while typing in a field, where those keys are the field's own). The left panel has three
+// views: Blocks (the palette, with the saved sections first, and the outline), Templates and History.
+// A template or a restored version replaces the page as ONE undo step (builderState's loadDoc).
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
@@ -35,11 +40,14 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Eye, Redo2, Undo2, X } from 'lucide-react';
 import type { PageNodeData } from '../../types/journey';
-import type { BuilderDoc } from '../../types/pageBuilder';
+import type { BuilderDoc, BuilderNode } from '../../types/pageBuilder';
 import { findNode } from '../../lib/pageBuilder/model.mjs';
+import { parseAppLocation } from '../../lib/journeyRoute';
+import { deleteLibraryItem, listLibrary, readLibraryDelete, readLibraryList, readLibrarySave, saveLibraryItem, type LibraryItem } from '../../lib/builderLibraryClient';
 import { useDialogFocus } from '../../lib/a11yHooks';
 import {
   builderReducer,
+  canPaste,
   canRedo,
   canUndo,
   createBuilderState,
@@ -58,7 +66,9 @@ import {
   type DropZone
 } from './dropZones';
 import { BuilderCanvas, type ToolbarAction } from './BuilderCanvas';
-import { BuilderPalette } from './BuilderPalette';
+import { BuilderPalette, type SavedState } from './BuilderPalette';
+import { BuilderTemplates } from './BuilderTemplates';
+import { BuilderHistory } from './BuilderHistory';
 import { BuilderOutline, OUTLINE_PREFIX } from './BuilderOutline';
 import { BuilderInspector, DeviceSwitch } from './BuilderInspector';
 
@@ -102,6 +112,15 @@ export interface BuilderShellProps {
   /** PageEditor's own onChange: the one way the builder writes the step. */
   onChange: (updated: PageNodeData) => void;
   onClose: () => void;
+  /** The journey and the step this page is, for History. Read from the app's address when left out. */
+  journeyId?: string | null;
+  nodeId?: string | null;
+}
+
+/** A section's name for the Save section prompt: its own name, else nothing. */
+function sectionName(node: BuilderNode | undefined): string {
+  const name = (node && node.kind === 'section' ? (node.props as { name?: unknown } | undefined)?.name : '') ?? '';
+  return typeof name === 'string' ? name.trim().slice(0, 80) : '';
 }
 
 /** The item a palette button or a canvas drag handle carries, read from its data attributes. */
@@ -117,7 +136,7 @@ function placeItemOf(el: EventTarget | null, doc: BuilderDoc): { item: DragItem;
   return null;
 }
 
-export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onClose }) => {
+export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onClose, journeyId: journeyIdProp, nodeId: nodeIdProp }) => {
   const [state, dispatch] = useReducer(builderReducer, data.builder as BuilderDoc, (doc: BuilderDoc) => createBuilderState(doc));
   const [preview, setPreview] = useState(false);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -127,6 +146,15 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
   const [inlineRequest, setInlineRequest] = useState<{ id: string; seq: number } | null>(null);
   const [spoken, setSpoken] = useState<{ text: string; n: number }>({ text: '', n: 0 });
   const [view, setView] = useState<'blocks' | 'canvas' | 'settings'>('canvas');
+  const [leftView, setLeftView] = useState<'blocks' | 'templates' | 'history'>('blocks');
+  const [saved, setSaved] = useState<SavedState>({ state: 'loading' });
+  const [saving, setSaving] = useState<{ id: string; name: string; busy: boolean; error: string | null } | null>(null);
+  // `error` marks a refusal, which is shown as an alert in red rather than as a green note.
+  const [savedNote, setSavedNote] = useState<{ text: string; error?: boolean } | null>(null);
+  // The address names the journey and the step while a page step is open on the canvas.
+  const here = useMemo(() => parseAppLocation(window.location.pathname, window.location.search), []);
+  const journeyId = journeyIdProp ?? here.journeyId;
+  const nodeId = nodeIdProp ?? here.step;
   const [dialogEl, setDialogEl] = useState<HTMLDialogElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const lastEscape = useRef(0);
@@ -147,6 +175,101 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
   useEffect(() => {
     if (state.announcement) say(state.announcement.text);
   }, [state.announcement, say]);
+
+  // ---- The saved sections library ----
+
+  const loadSaved = useCallback(async () => {
+    setSaved({ state: 'loading' });
+    const r = readLibraryList(await listLibrary());
+    // A part list keeps the server's reason for the console only; the palette says it in the merchant's words.
+    if (r.ok && !r.value.complete && r.value.reason) console.warn('[Jourvance] Saved sections listed in part:', r.value.reason);
+    setSaved(r.ok ? { state: 'ready', items: r.value.items, ...(r.value.complete ? {} : { partial: true }) } : { state: 'error', error: r.error });
+  }, []);
+  useEffect(() => {
+    void loadSaved();
+  }, [loadSaved]);
+
+  const startSave = useCallback((id: string) => {
+    const found = findNode(stateRef.current.doc, id);
+    if (!found || found.node.kind !== 'section') {
+      dispatch({ type: 'notify', text: 'Only a section can be saved. Select a section first.' });
+      return;
+    }
+    setSavedNote(null);
+    setSaving({ id, name: sectionName(found.node) || nodeLabel(stateRef.current.doc, id), busy: false, error: null });
+  }, []);
+
+  const cancelSave = useCallback(() => {
+    setSaving(null);
+    say('Save section cancelled. Nothing was saved.');
+    requestAnimationFrame(() => dialogEl?.querySelector<HTMLElement>('[data-jvb-canvas-host]')?.focus());
+  }, [dialogEl, say]);
+
+  const confirmSave = useCallback(async () => {
+    if (!saving || saving.busy) return;
+    const name = saving.name.trim();
+    if (!name) {
+      setSaving({ ...saving, error: 'Give the section a name.' });
+      say('Give the section a name.');
+      return;
+    }
+    const found = findNode(stateRef.current.doc, saving.id);
+    if (!found) {
+      setSaving({ ...saving, error: 'That section is no longer on the page.' });
+      say('That section is no longer on the page.');
+      return;
+    }
+    setSaving({ ...saving, busy: true, error: null });
+    const r = readLibrarySave(await saveLibraryItem(name, found.node));
+    if (!r.ok) {
+      setSaving({ ...saving, name, busy: false, error: r.error });
+      say(r.error);
+      return;
+    }
+    setSaved(prev => (prev.state === 'ready' ? { ...prev, items: [r.value, ...prev.items.filter(i => i.id !== r.value.id)] } : { state: 'ready', items: [r.value] }));
+    setSaving(null);
+    // durable:false is the route's honest answer: the account store did not take it. The reason
+    // is for whoever runs the app, so it goes to the console, not to the merchant.
+    if (!r.durable && r.reason) console.warn('[Jourvance] Saved section not stored to the account:', r.reason);
+    const note = r.durable
+      ? `Saved ${r.value.name} to your library. It is in Saved at the top of Add blocks.`
+      : `Saved ${r.value.name} for now, but not to your account yet, so it may disappear later. It is in Saved at the top of Add blocks.`;
+    setSavedNote({ text: note });
+    say(note);
+    // The form that held focus is gone; put the keyboard back on the page, as Cancel does.
+    requestAnimationFrame(() => dialogEl?.querySelector<HTMLElement>('[data-jvb-canvas-host]')?.focus());
+  }, [saving, say, dialogEl]);
+
+  // Deleting from the library is not undoable, so the palette asks first. Focus then goes to the
+  // Saved heading, because the row that held it is gone.
+  const deleteSaved = useCallback(async (item: LibraryItem): Promise<boolean> => {
+    const r = readLibraryDelete(await deleteLibraryItem(item.id));
+    if (!r.ok) {
+      setSavedNote({ text: r.error, error: true });
+      say(r.error);
+      return false;
+    }
+    setSaved(prev => (prev.state === 'ready' ? { ...prev, items: prev.items.filter(i => i.id !== item.id) } : prev));
+    // durable:false means only this server held it (no account store here), as on save.
+    if (!r.durable && r.reason) console.warn('[Jourvance] Saved section delete not stored to the account:', r.reason);
+    const note = r.durable
+      ? `Deleted ${item.name} from your library.`
+      : `Deleted ${item.name} from your library on this server. It was never stored in your account, so nothing else changes.`;
+    setSavedNote({ text: note });
+    say(note);
+    requestAnimationFrame(() => dialogEl?.querySelector<HTMLElement>('#jvb-palette-saved')?.focus());
+    return true;
+  }, [say, dialogEl]);
+
+  const addSaved = useCallback((item: LibraryItem) => {
+    dispatch({ type: 'insertSaved', node: item.section, name: item.name });
+  }, []);
+
+  // ---- Templates and History: a whole new page, as one undo step ----
+
+  const loadDoc = useCallback((doc: BuilderDoc, sentence: string) => {
+    dispatch({ type: 'loadDoc', doc, sentence });
+  }, []);
 
   // ---- Saving: the step's own onChange, 1.5 s after the last change and on close ----
 
@@ -241,11 +364,15 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
     const doc = stateRef.current.doc;
     if (kind === 'duplicate') dispatch({ type: 'duplicate', id });
     else if (kind === 'remove') dispatch({ type: 'remove', id });
+    else if (kind === 'copy') dispatch({ type: 'copyNode', id });
+    else if (kind === 'cut') dispatch({ type: 'cutNode', id });
+    else if (kind === 'paste') dispatch({ type: 'pasteNode' });
+    else if (kind === 'save') startSave(id);
     else {
       const r = siblingMove(doc, id, kind === 'up' ? -1 : 1);
       dispatch('action' in r ? r.action : { type: 'notify', text: r.refused });
     }
-  }, []);
+  }, [startSave]);
 
   const addFromPalette = useCallback((item: DragItem) => {
     if (performance.now() < suppressClickUntil.current) return;
@@ -364,7 +491,17 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
       }
       return;
     }
+    if (mod && !e.altKey && !e.shiftKey && key === 'v') {
+      handled();
+      dispatch({ type: 'pasteNode' });
+      return;
+    }
     if (!s.selectedId) return;
+    if (mod && !e.altKey && !e.shiftKey && (key === 'c' || key === 'x')) {
+      handled();
+      dispatch({ type: key === 'c' ? 'copyNode' : 'cutNode', id: s.selectedId });
+      return;
+    }
     if (mod && !e.altKey && key === 'd') {
       handled();
       dispatch({ type: 'duplicate', id: s.selectedId });
@@ -609,8 +746,36 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
       >
         <div className="jv-builder-body">
           <div className="jv-builder-panel" data-view="blocks" {...(view === 'blocks' ? { 'data-view-active': '' } : {})} style={{ borderRight: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <BuilderPalette onAdd={addFromPalette} />
-            <BuilderOutline
+            <div role="group" aria-label="Left panel" style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              {([['blocks', 'Blocks'], ['templates', 'Templates'], ['history', 'History']] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  data-left-view={id}
+                  aria-pressed={leftView === id}
+                  onClick={() => setLeftView(id)}
+                  style={{ ...topButton, backgroundColor: leftView === id ? '#4338CA' : 'transparent' }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {leftView === 'templates' && (
+              <BuilderTemplates
+                hasContent={state.doc.sections.length > 0}
+                onUse={(doc, name) => loadDoc(doc, `Page replaced with the ${name} template. Undo brings your page back.`)}
+              />
+            )}
+            {leftView === 'history' && (
+              <BuilderHistory
+                journeyId={journeyId}
+                nodeId={nodeId}
+                onRestore={(doc, label) => loadDoc(doc, `Restored ${label}. Undo brings back the page you had. Nothing is published until you publish.`)}
+                onProblem={say}
+              />
+            )}
+            {leftView === 'blocks' && <BuilderPalette onAdd={addFromPalette} saved={saved} onAddSaved={addSaved} onDeleteSaved={deleteSaved} onRetrySaved={() => void loadSaved()} />}
+            {leftView === 'blocks' && <BuilderOutline
               doc={state.doc}
               device={state.device}
               selectedId={state.selectedId}
@@ -619,7 +784,7 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
               activeId={dragOutlineNodeId}
               overId={dragOutlineNodeId ? overId : null}
               dragging={!!drag}
-            />
+            />}
           </div>
 
           <div data-view="canvas" {...(view === 'canvas' ? { 'data-view-active': '' } : {})} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
@@ -627,6 +792,53 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
               <div role="note" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', margin: '8px 12px 0', padding: '8px 10px', borderRadius: '8px', backgroundColor: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.4)', color: '#FDE68A', fontSize: '12px' }}>
                 <span>{state.notice.text}</span>
                 <button type="button" onClick={() => dispatch({ type: 'clearNotice' })} style={{ ...topButton, padding: '3px 8px' }}>Dismiss</button>
+              </div>
+            )}
+            {saving && (
+              <form
+                data-save-section=""
+                aria-label="Save section to your library"
+                onSubmit={e => {
+                  e.preventDefault();
+                  void confirmSave();
+                }}
+                style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', flexWrap: 'wrap', margin: '8px 12px 0', padding: '8px 10px', borderRadius: '8px', backgroundColor: 'rgba(67, 56, 202, 0.18)', border: '1px solid rgba(129, 140, 248, 0.45)' }}
+              >
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', fontWeight: 600, color: '#E0E7FF', flex: '1 1 180px', minWidth: 0 }}>
+                  Name this saved section
+                  <input
+                    type="text"
+                    autoFocus
+                    value={saving.name}
+                    maxLength={80}
+                    aria-invalid={saving.error ? true : undefined}
+                    onChange={e => setSaving({ ...saving, name: e.target.value, error: null })}
+                    onKeyDown={e => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        lastEscape.current = performance.now();
+                        cancelSave();
+                      }
+                    }}
+                    style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.2)', backgroundColor: '#0B0F19', color: '#F8FAFC', fontSize: '13px', minWidth: 0 }}
+                  />
+                </label>
+                <button type="submit" aria-disabled={saving.busy} style={{ ...topButton, backgroundColor: '#4338CA', borderColor: '#4338CA' }}>{saving.busy ? 'Saving' : 'Save'}</button>
+                <button type="button" onClick={cancelSave} style={topButton}>Cancel</button>
+                {saving.error && <p role="alert" style={{ flexBasis: '100%', margin: 0, fontSize: '12px', color: '#FCA5A5' }}>{saving.error}</p>}
+              </form>
+            )}
+            {savedNote && (
+              <div
+                role={savedNote.error ? 'alert' : 'note'}
+                data-saved-note={savedNote.error ? 'error' : 'ok'}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', margin: '8px 12px 0', padding: '8px 10px', borderRadius: '8px', fontSize: '12px', ...(savedNote.error
+                  ? { backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.45)', color: '#FCA5A5' }
+                  : { backgroundColor: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#A7F3D0' }) }}
+              >
+                <span>{savedNote.text}</span>
+                <button type="button" onClick={() => setSavedNote(null)} style={{ ...topButton, padding: '3px 8px' }}>Close note</button>
               </div>
             )}
             {placing && (
@@ -649,6 +861,7 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
               }}
               onHover={id => dispatch({ type: 'hover', id })}
               onToolbar={toolbar}
+              canPaste={canPaste(state)}
               onInlineCommit={(id, patch, target) => dispatch({ type: 'setProps', id, props: patch, target })}
               inlineRequest={inlineRequest}
               onEditingChange={setInlineEditing}
@@ -667,6 +880,7 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
               dispatch={act}
               onDevice={d => dispatch({ type: 'setDevice', device: d })}
               labelOf={labelOf}
+              onSay={say}
             />
           </div>
         </div>

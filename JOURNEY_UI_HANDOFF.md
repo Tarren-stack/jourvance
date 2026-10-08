@@ -50,6 +50,37 @@ The owner approved it, and all of this work was committed and pushed to `main` o
 - **Hub copy of the domain registry.** `verifyDomainOwnership` in `server.mjs` mirrors the record to the hub store before the route adds `journeyId`, so only `domains.json` carries the journey tie.
 - **Dead client code.** `shopifyClient.ts` `verifyCustomDomain` has no callers.
 
+## Page builder
+
+What it is: a full-screen visual editor for a landing page step, opened from "Open page builder" in the step panel. It edits a document (sections, columns, widgets, a page theme) and the server publishes the SAME HTML the editor draws. Design: `LANDING_BUILDER_DESIGN.md`. Plan and status: `LANDING_BUILDER_PLAN.md`.
+
+### Files
+
+- `src/lib/pageBuilder/model.mjs` (+ `.d.mts`): the document model, validator, theme defaults, `THEME_BUTTON_SHADOWS`, `THEME_NUMBER_RANGES`. `render.mjs`: the renderer. `templates.mjs` (+ `.d.mts`): eight page templates in four groups (Sell, Capture, Proof, Launch). Types in `src/types/pageBuilder.ts`.
+- `src/components/builder/`: `BuilderShell` (frame, left panel switch Blocks / Templates / History, autosave), `BuilderCanvas`, `BuilderPalette` (Saved group first), `BuilderInspector`, `BuilderThemePanel` (Global styles), `BuilderTemplates`, `BuilderHistory`, `BuilderRewrite`, and `builderState.ts` (the reducer).
+- Server: `server/routes/builderLibraryRoutes.mjs` (saved sections), `server/builderRevisions.mjs` and the hook in `server/routes/journeyRoutes.mjs` (revisions), the `POST /api/ai/builder-rewrite` route in `server/routes/aiJourneyRoutes.mjs`.
+- Clients: `src/lib/builderLibraryClient.ts`, `builderRevisionsClient.ts`, `builderRewriteClient.ts`.
+
+### Keyboard rules
+
+- Every key the builder acts on stops inside it. Delete in the builder must never reach the journey map's own Delete handler (it once deleted the landing page step). Keep that guard when adding a key.
+- Ctrl/Cmd+C, X and V copy, cut and paste the selected block. They are ignored while typing in a field. Paste works with nothing selected (end of the page) and is dimmed and refused with the model's reason when the nest is illegal. Each paste or cut is one undo step; copy touches neither the page nor the history.
+- Escape in an inline edit keeps the text; Control Z takes it back. Escape in the Save section form cancels it.
+- The toolbar label hides under 480px so the toolbar stays on one row at 390px; its aria-label still names the block.
+
+### Saved sections, revisions, rewrite
+
+- Saved sections: one hub doc per entry (`builderlib.<safe uid>.<id>`), listed through `listJourneyDocs`, with a local cache in `builder_library.json` (gitignored). Cap 100 entries, 200 KB each. A save the hub refused answers success with `durable:false` and the reason; the shell says so. Section saves use an inline named form, not `window.prompt`.
+- Revisions: the last 20 publishes per page, kept in the publish log store under the id `<journeyId>#builder-revisions` (a separate document, because publish and unpublish rebuild the main log and would drop the field). `rev` is the publish number. Restore loads the old document as ONE undo step (`loadDoc`), so it can be undone. The shell reads `journeyId` and `nodeId` from the address (`parseAppLocation`) unless `PageEditor` passes them.
+- Rewrite with AI: heading, text, button label and icon list items. The answer goes through `cleanModelStrings` and is applied as one undoable edit. With no hub key the route answers 503 and the control says AI copy is off; there is no template fallback.
+- Global styles: eleven optional theme keys. A rule is written only when the value differs from `DEFAULT_THEME`, so a page that sets none renders byte for byte as before.
+
+### Tests and the browser check
+
+- Wave 3 suites at the repo root: `page-builder-templates`, `-theme`, `-clipboard`, `-revisions`, `-load-and-saved`, plus `builder-library-route`, `builder-rewrite-route` and the `builder-wave3-*` fix suites. Run with `node --test <file>`.
+- `node scripts/builder-browser-check.mjs`: 28 steps in Chrome, including templates, saved section, clipboard, history, global style and AI rewrite. It answers the library, revisions and rewrite routes with recorded JSON in the routes' own shapes, so it does not prove the real server routes.
+- The unit tests send saves one at a time; they do not cover concurrent saves or a refused publish-log write (see the audit, 2026-10-08 Wave 3).
+
 ## Operator step for the owner
 
 Set `REVIEW_SECRET` in the deployed environment. Review links sent before this change stop working.

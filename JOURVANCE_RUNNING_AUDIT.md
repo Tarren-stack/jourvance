@@ -2,7 +2,47 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-08. The page builder editor (Wave 2 core) is committed and was driven in Chrome; the polish pass is committed too. The lead-capture fix (4008608) is still NOT deployed. Read the newest section first.
+Checked: 2026-10-08. Wave 3 of the page builder is committed after two review-and-fix rounds; the main session re-ran every check. The lead-capture fix (4008608) is still NOT deployed. Read the newest section first.
+
+## 2026-10-08: The page builder, Wave 3: templates, saved sections, clipboard, history, global styles, rewrite
+
+Wave 3 is built, but two reviewers refuted it: review found defects that are NOT fixed in this section.
+
+**Defects found by review, open (reproduced by the adversarial reviewer on a scratchpad copy of the real `server.mjs` with a mock hub, not re-run by me):**
+
+- Medium: the saved-section cap of 100 can be beaten by concurrent saves. The route lists, checks `own.length >= 100`, then writes. 95 seeded plus 20 concurrent POSTs gave 115; 95 plus 40 with 400 ms list latency gave 135. Sequential saves stop at 100. The route test only sends saves one at a time. `server/routes/builderLibraryRoutes.mjs` near line 100.
+- Medium: a publish answers success when the hub refused the publish-log write (`savePublishLog` results are ignored at `server/routes/journeyRoutes.mjs` lines 647 and 720; the ignore predates Wave 3). After a fresh disk the revision number repeats and `addRevisions` replaces that version in history: VERSION-TWO was silently lost to VERSION-THREE.
+- Medium (UI review, read from code, not driven): a failed library delete shows as a green success note (`BuilderShell.tsx` near line 245); the partial-library notice shows the server's raw reason with "journey store" and "cache" wording (`BuilderPalette.tsx` near line 134).
+- Low: delete ignores `durable:false`; History says "with a B version" unexplained and the Restore busy state is not announced; the rewrite budget map clears for everyone past 5000 uids; `dev-test-token` signs in when `NODE_ENV` is not production (whether the live service sets it is UNKNOWN); a body over 1 MB gets Express's HTML 413; `cleanModelStrings` can leave a trailing comma after a final em dash.
+- Held: auth and tenancy on all new routes (401 without a token, cross-merchant reads and deletes 404), the model text cleaning, the 30 an hour rewrite budget, `__proto__` node ids.
+
+**What changed:** eight page templates; saved sections (hub doc per entry, local cache); copy, cut and paste; eleven global style theme keys with a panel; the last 20 publishes as revisions with an undoable Restore; Rewrite with AI on four text kinds. Files and storage are in `JOURNEY_UI_HANDOFF.md`, "Page builder".
+
+### Evidence
+
+- Reported by the integration agent, not re-run by me: `npx tsc --noEmit` exit 0; focused suites 502 of 502; `npm test` 2309 tests, 2306 passed, 0 failed, 3 skipped; `npx vite build` exit 0; browser check 28 of 28, exit 0. Two planted faults went red and were restored `cmp` identical: `if (false && problems.length)` in `loadDoc` (unit, 4 pass 1 fail) and `rev.rev + 1` in `BuilderHistory.tsx` (browser, 25 of 28).
+- Reported by the runtime verifier, not re-run by me: `tsc` exit 0; `npm test` 2327 tests, 2324 passed, 0 failed, 3 skipped (the count differs from the integration agent's 2309 and the 2198 before; nobody explained the difference); `vite build` exit 0; browser check 28 of 28; route-context gate 3 of 3; no em dash in the builder files; sandboxed boot clean with one 401 console error, not traced.
+- Reported by the adversarial reviewer: the three scratch attacks above, plus 23 of 23 existing route tests green while missing both medium defects.
+- Reported by the design reviewer: findings read from code only; Chrome was not driven.
+- Parallel Opus and Sonnet subagents were requested; the integration agent had no agent tool and worked alone. I (the docs writer) ran nothing; these notes were written from the reports.
+
+### What the review rounds fixed, and what is left
+
+The workflow ran two adversarial review rounds (tenancy and money, runtime, accessibility and copy), each followed by an Opus fix round. The docs agent wrote the section above before the second fix round, so its defect list is the list that was found, not the list that remains. Fix round 1 took the first round's findings (the jargon in the AI-off sentence, the missing delete control for saved sections, focus lost on save, on template replace and on retry, the prototype-key crash in the revisions routes, a delete that answered success after a failed hub remove, a publish that hid a failed revisions write, the revisions log id that a crafted journey id could collide with). Fix round 2 took eight of the second round's eleven (a failed delete shown as success, raw server reasons in the palette notice, the delete confirm ignoring `durable`, the "with a B version" wording and the unannounced Restore busy state, the library cap beatable by concurrent saves, a publish answering success when the publish-log write was refused). Left alone, each named by the reviewer and judged pre-existing and outside the Wave 3 files: the hourly AI budget map is cleared for every user once it holds 5,000 ids (`server/routes/authWorkspaceRoutes.mjs`); `dev-test-token` signs a request in whenever `NODE_ENV` is not production (same file). The main session probed the live site with that token on 2026-10-08: `/api/workspaces` and `/api/journeys` both answered 401, so it is not open on jourvance.com. The third leftover (Express's default 413 page) was judged not a defect.
+
+### Evidence, main session, after the last fix round
+
+- `npx tsc --noEmit` exit 0. `npm test` 2336 tests, 2333 passed, 0 failed, 3 skipped (2198 before Wave 3). `npx vite build` built. `route-context-gate.test.mjs` 3 passed. No em dash in the builder, page-builder, library or revisions files or the new tests.
+- `node scripts/builder-browser-check.mjs`: 28 of 28 steps, 57 outside requests blocked, nothing reached a server. Driven: apply the Product drop template with its confirm and undo; save a section (with the honest "not to your account yet" note on the local fallback) and insert it from the palette with fresh ids; copy, paste, cut and toolbar paste; a global style changing the canvas gap; History restoring version 7 and undo bringing the page back; the AI-off sentence when the rewrite route answers 503.
+- Screenshots `templates.png` (Templates view with thumbnails in Sell, Capture, Proof, Launch groups) and `history.png` (History view with a restorable version and the global styles panel) read.
+
+### Left open
+
+- Not reviewed for contrast or focus after fix round 2: the Templates and History views and the save form; the toolbar with a section selected at 390px was not measured.
+- The 57 blocked outside requests in the browser check are not itemised.
+- The saved-section store was not exercised against a real hub; its hub paths are covered through the stubbed context and the route gate only.
+- The two pre-existing findings above are not fixed. The budget-map clear is a fairness bug under load; the development token is closed on the live site by `NODE_ENV`, which is not pinned anywhere in this repo.
+- Not deployed. The lead-capture fix (4008608) is still not deployed either.
 
 ## 2026-10-08: The page builder editor, polish pass
 

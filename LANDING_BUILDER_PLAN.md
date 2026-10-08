@@ -135,6 +135,13 @@ builder page at `/p/<slug>` and Chrome shows the widgets with no CSP violation.
 | 1a | done 2026-10-08 | 152 renderer tests; four planted reds |
 | 1b | done 2026-10-08 | legacy snapshot 13; publish 8; serve 21; Chrome 29 checks |
 | 2 | done 2026-10-08 | 138 editor tests; Chrome 22 steps |
-| 3 | running (Sonnet) | |
-| 2 | queued | |
-| 3 | queued | |
+| 3 | done 2026-10-08 after two review-and-fix rounds | audit entry (Wave 3); browser check 28 of 28, re-run by the main session |
+
+## Wave 3 decisions (2026-10-08)
+
+- Saved sections are one hub doc per entry, not one account document (100 x 200 KB cannot fit one). Open: the 100 cap can be passed by concurrent saves (see the audit).
+- Revisions live in a second publish log id, `<journeyId>#builder-revisions`, because publish and unpublish rebuild the main log and drop unknown fields.
+- Templates and History Restore replace the page through a new undoable `loadDoc` action; `replaceDoc` is kept for loading because it clears history.
+- Rewrite has no template fallback: no hub key means the control says AI copy is off.
+- The History panel gets `journeyId` and `nodeId` from the address unless `PageEditor` passes them. Open for the owner of `PageEditor`: pass them explicitly.
+- Open question for the owner: should a failed publish-log write make a publish report a warning? Today it does not.

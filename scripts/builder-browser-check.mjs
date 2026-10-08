@@ -37,6 +37,23 @@
 //   outline-keyboard    Space, ArrowDown, Space on an outline row moves a block, announced
 //   palette-between-sections  a palette widget dropped between two sections gets a section of its own
 //   inline-escape       Escape in an inline edit keeps the text; Control Z takes it back
+//   Wave 3, on the document the steps above leave:
+//   templates           the Templates view draws every template's thumbnail (a shadow root holding
+//                       #jvb-root); Use this template asks first (the page has content), then the
+//                       canvas and the stored document hold the template's sections; Undo brings the
+//                       page back
+//   saved-section       Save section on a section's toolbar, a name, Save: the honest durable:false
+//                       note is shown and said; the Saved group lists it; adding it puts a copy with
+//                       fresh ids right after the section holding the selection
+//   clipboard           Copy on the toolbar then Control V pastes a heading with fresh ids into the
+//                       same column; Control X cuts it; Paste on the toolbar brings it back with
+//                       another fresh id; the canvas follows each step
+//   global-style        Space between sections 40: the canvas page root's computed row gap is 40px
+//                       and the stored theme holds it
+//   history             a seeded revision is listed; Restore puts its sections on the canvas and in
+//                       the stored document; Undo brings the previous page back
+//   ai-rewrite-off      Rewrite with AI on a heading, when the route answers 503: the route's own
+//                       sentence is shown verbatim and said, and the heading is unchanged
 //   runtime   no uncaught page error
 //
 // Usage: node scripts/builder-browser-check.mjs [--shots <dir>]
@@ -48,6 +65,13 @@
 // preview forwards nothing, aborts every request that is not the preview origin plus /api/ and /p/
 // on it, builds into a temp dir it removes afterwards, and writes nothing inside the repo.
 //
+// Wave 3 routes are answered AT THE ROUTE GUARD with recorded JSON, in the exact shapes the real
+// routes send (server/routes/builderLibraryRoutes.mjs, the builder-revisions routes in
+// server/routes/journeyRoutes.mjs, POST /api/ai/builder-rewrite in server/routes/aiJourneyRoutes.mjs):
+// nothing reaches a server. The library keeps what this run saves in memory and answers a save with
+// durable:false and the reason the real route gives when HUB_API_KEY is not set; the revisions list
+// holds one seeded revision; the rewrite answers the route's 503 "AI copy is off" body.
+//
 // Env: PLAYWRIGHT_MODULE (path to playwright's index.mjs), CHROME_PATH, CHECK_BUILDER_PORT.
 
 import fs from 'node:fs';
@@ -58,12 +82,59 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build, preview } from 'vite';
 import { routeVerdict } from '../src/lib/canvasCheckRules.ts';
 import { DEFAULT_LEAD_CAPTURE_PROJECT } from '../src/lib/defaultBlueprint.ts';
+import { TEMPLATES, buildTemplate } from '../src/lib/pageBuilder/templates.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STORAGE_KEY = 'jourvance_active_project';
 const PAGE_NODE = 'node-page-1';
 const DEFAULT_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const HEADING_TEXT = 'Builder check heading';
+/** Longer than the builder's 1.5 s autosave, so a change it would have written has been. */
+const AUTOSAVE_WAIT = 1800;
+
+// ---- Recorded answers for the Wave 3 routes (see the header) ----
+
+/** The sentence the real library route carries when the hub key is not set (server.mjs putLibraryItem). */
+const LIBRARY_NOT_DURABLE = 'HUB_API_KEY is not set on this server.';
+/** The rewrite route's 503 body when AI copy is off (aiJourneyRoutes.mjs REWRITE_OFF). */
+const REWRITE_OFF_BODY = { success: false, error: 'AI copy is off until the hub key is set.', reason: 'ai-unavailable', retryable: false };
+/** What the control shows for that answer instead (builderRewriteClient.ts REWRITE_UNAVAILABLE). */
+const REWRITE_UNAVAILABLE = 'Writing with AI is not available right now. Your text is unchanged, and you can still edit it yourself.';
+const TEMPLATE_ID = 'product-drop';
+const SEEDED_REV = 7;
+const SEEDED_DOC = buildTemplate('review-wall');
+const SEEDED_SUMMARY = { rev: SEEDED_REV, nodeId: PAGE_NODE, publishedAt: '2026-10-01T12:00:00.000Z', fingerprint: 'check-fingerprint', userId: 'check-user', hasB: false };
+
+/** Answers a Wave 3 route with recorded JSON, or returns false for anything else. */
+function wave3Answer(req, u, library, seen) {
+  const json = (status, body) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  const p = u.pathname;
+  if (p === '/api/builder/library' && req.method() === 'GET') {
+    seen.push('GET library');
+    return json(200, { success: true, items: library, complete: true });
+  }
+  if (p === '/api/builder/library' && req.method() === 'POST') {
+    const body = JSON.parse(req.postData() || '{}');
+    const item = { id: `sec_check${library.length + 1}`, userId: 'check-user', name: String(body.name || '').trim(), section: body.section, createdAt: new Date().toISOString() };
+    library.unshift(item);
+    seen.push(`POST library ${item.name}`);
+    return json(200, { success: true, item, durable: false, reason: LIBRARY_NOT_DURABLE });
+  }
+  const list = /^\/api\/journey\/[^/]+\/builder-revisions$/.test(p);
+  const one = /^\/api\/journey\/[^/]+\/builder-revisions\/(\d+)$/.exec(p);
+  if ((list || one) && req.method() === 'GET') {
+    seen.push(`GET ${p}?${u.searchParams.toString()}`);
+    if (u.searchParams.get('nodeId') !== PAGE_NODE) return json(400, { success: false, error: 'nodeId is required.' });
+    if (list) return json(200, { success: true, revisions: [SEEDED_SUMMARY] });
+    if (Number(one[1]) !== SEEDED_REV) return json(404, { success: false, error: 'That revision was not found.' });
+    return json(200, { success: true, revision: { ...SEEDED_SUMMARY, hasB: undefined, document: SEEDED_DOC } });
+  }
+  if (p === '/api/ai/builder-rewrite' && req.method() === 'POST') {
+    seen.push(`POST rewrite ${req.postData()}`);
+    return json(503, REWRITE_OFF_BODY);
+  }
+  return false;
+}
 
 const say = line => console.log(line);
 
@@ -312,6 +383,8 @@ async function pointerDrag(page, from, toBox, { settle = 120 } = {}) {
 
 async function runChecks(browser, origin, shots, blocked) {
   const results = [];
+  const library = [];
+  const answered = [];
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await context.route('**/*', route => {
     const req = route.request();
@@ -320,6 +393,10 @@ async function runChecks(browser, origin, shots, blocked) {
       const u = new URL(req.url());
       if (req.method() === 'GET' && u.origin === origin && /^\/api\/journey\/[^/]+$/.test(u.pathname)) {
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, journey: null }) });
+      }
+      if (u.origin === origin) {
+        const answer = wave3Answer(req, u, library, answered);
+        if (answer) return route.fulfill(answer);
       }
     } catch {}
     blocked.push(`${req.method()} ${req.url().slice(0, 80)}`);
@@ -983,6 +1060,171 @@ async function runChecks(browser, origin, shots, blocked) {
     }, 3000);
     expect(back, 'Control Z did not take the kept edit back');
     return 'double-click, typed, Escape kept it on the canvas and in the stored document, the builder stayed open; Control Z took it back';
+  });
+
+  // ---- Wave 3 ----
+
+  const sectionIds = async () => (await canvasFacts(page, 'none', 'none'))?.sections ?? null;
+  const toolbarButton = name => page.locator('dialog[open] [role="toolbar"]').getByRole('button', { name, exact: true });
+  const leftView = id => page.locator(`dialog[open] [data-left-view="${id}"]`);
+  const undoButton = () => dialog.getByRole('button', { name: 'Undo', exact: true });
+  const waitSections = async (want, message) => {
+    const got = await waitUntil(async () => { const s = await sectionIds(); return s && s.join() === want.join() ? s : null; }, 4000);
+    expect(got, `${message}: the canvas sections read ${JSON.stringify(await sectionIds())}, wanted ${JSON.stringify(want)}`);
+    return got;
+  };
+  const allIds = doc => { const out = []; const visit = n => { out.push(n.id); (n.children || []).forEach(visit); }; (doc?.sections || []).forEach(visit); return out; };
+
+  await go('templates', async () => {
+    const before = await sectionIds();
+    expect(before && before.length, 'the canvas draws no section before a template is used');
+    await leftView('templates').click();
+    const thumbs = await waitUntil(() => page.evaluate(() => {
+      const hosts = [...document.querySelectorAll('dialog[open] [data-template-thumb] > div')];
+      const drawn = hosts.filter(h => h.shadowRoot && h.shadowRoot.querySelector('#jvb-root'));
+      return drawn.length ? { hosts: hosts.length, drawn: drawn.length } : null;
+    }), 4000);
+    expect(thumbs && thumbs.drawn === TEMPLATES.length && thumbs.hosts === TEMPLATES.length, `thumbnails drawn: ${JSON.stringify(thumbs)} of ${TEMPLATES.length}`);
+    const groups = await page.locator('dialog[open] [aria-labelledby="jvb-templates-title"] h4').allInnerTexts();
+    await page.waitForTimeout(200);
+    await shot('w3-templates');
+    const name = TEMPLATES.find(t => t.id === TEMPLATE_ID).name;
+    await page.getByRole('button', { name: `Use this template: ${name}`, exact: true }).click();
+    const confirm = page.locator(`dialog[open] [data-template-confirm="${TEMPLATE_ID}"]`);
+    await confirm.waitFor({ state: 'visible', timeout: 3000 });
+    expect(await sectionIds().then(s => s.join()) === before.join(), 'the page changed before the confirm was pressed');
+    await confirm.click();
+    const want = buildTemplate(TEMPLATE_ID).sections.length;
+    const after = await waitUntil(async () => { const s = await sectionIds(); return s && s.join() !== before.join() && s.length === want ? s : null; }, 4000);
+    expect(after, `after Use this template the canvas has ${JSON.stringify(await sectionIds())}, wanted ${want} new sections`);
+    const stored = await storedWhere(b => b.sections.length === want && b.sections[0].id === after[0], 'the stored document does not hold the template');
+    const said = await waitUntil(async () => { const t = await liveText(page); return /template/i.test(t) ? t : null; }, 3000);
+    expect(said, `the replace was not said (the region holds "${await liveText(page)}")`);
+    await undoButton().click();
+    await waitSections(before, 'Undo after a template');
+    await storedWhere(b => b.sections.map(x => x.id).join() === before.join(), 'after Undo the stored document is not the page from before the template');
+    await leftView('blocks').click();
+    return `${thumbs.drawn} thumbnails in groups ${groups.join(', ')}; ${name} after a confirm: canvas ${after.length} sections, stored ${stored.sections.length}; said "${said}"; Undo brought back ${before.join(', ')}`;
+  });
+
+  await go('saved-section', async () => {
+    const before = await sectionIds();
+    const holder = before[before.length - 1];
+    await row(holder).click();
+    await toolbarButton('Save section').click();
+    const nameField = dialog.getByLabel('Name this saved section', { exact: true });
+    await nameField.waitFor({ state: 'visible', timeout: 3000 });
+    expect(await nameField.evaluate(el => el === document.activeElement), 'focus did not move to the name field');
+    await nameField.fill('Check saved block');
+    await dialog.locator('[data-save-section] button[type="submit"]').click();
+    const note = await waitUntil(async () => { const n = page.locator('dialog[open] [data-saved-note]'); return (await n.count()) ? n.innerText() : null; }, 4000);
+    expect(note && note.includes('not to your account yet') && !note.includes(LIBRARY_NOT_DURABLE), `the save note reads "${note}"`);
+    const said = await waitUntil(async () => { const t = await liveText(page); return t.includes('not to your account yet') ? t : null; }, 3000);
+    expect(said, `the durable:false note was not said (the region holds "${await liveText(page)}")`);
+    expect(library.length === 1 && library[0].section && library[0].section.id === holder, `the library route received ${JSON.stringify(library.map(i => [i.name, i.section && i.section.id]))}`);
+    const item = page.locator(`dialog[open] button[data-saved-item="${library[0].id}"]`);
+    await item.waitFor({ state: 'visible', timeout: 3000 });
+    const savedLabel = await item.getAttribute('aria-label');
+    await item.click();
+    const after = await waitUntil(async () => { const s = await sectionIds(); return s && s.length === before.length + 1 ? s : null; }, 4000);
+    expect(after, `adding the saved section left the canvas at ${JSON.stringify(await sectionIds())}`);
+    const added = after[after.length - 1];
+    expect(after.indexOf(holder) === after.length - 2 && added !== holder, `the copy is not right after ${holder}: ${after.join(', ')}`);
+    const doc = await storedWhere(b => b.sections.length === before.length + 1, 'the stored document does not hold the saved section');
+    const copyIds = allIds({ sections: [doc.sections[doc.sections.length - 1]] });
+    const original = new Set(allIds({ sections: [library[0].section] }));
+    expect(copyIds.length === original.size && copyIds.every(id => !original.has(id)), `the copy shares ids with the saved section: ${copyIds.join(', ')}`);
+    await undoButton().click();
+    await waitSections(before, 'Undo after adding a saved section');
+    await page.locator('dialog[open] [data-saved-note]').getByRole('button', { name: 'Close note' }).click();
+    return `saved "${library[0].name}" (note: ${note}); palette "${savedLabel}" added ${added} after ${holder} with ${copyIds.length} fresh ids; Undo took it back`;
+  });
+
+  await go('clipboard', async () => {
+    const column = 'legacy-offer-media';
+    const kids = async () => (await canvasFacts(page, column, 'none'))?.kids?.map(k => (k.cls.match(/jvb-n-([^\s]+)/) || [])[1]).filter(Boolean) ?? [];
+    const start = await kids();
+    const source = (await storedBuilder(page)) && findIn(await storedBuilder(page), column).children[0].id;
+    expect(source && start[0] === source, `the column's first block is ${source}, canvas ${start.join(', ')}`);
+    await row(source).click();
+    await toolbarButton('Copy').click();
+    const copied = await waitUntil(async () => { const t = await liveText(page); return /copied/i.test(t) ? t : null; }, 3000);
+    expect(copied, `Copy was not said (the region holds "${await liveText(page)}")`);
+    await row(source).focus();
+    await page.keyboard.press('Control+v');
+    const pasted = await waitUntil(async () => { const id = await selectedRowId(page); return id && id !== source ? id : null; }, 3000);
+    expect(pasted, 'Control V did not select a pasted block');
+    const known = new Set(allIds(await storedBuilder(page)).filter(id => id !== pasted));
+    const afterPaste = await waitUntil(async () => { const k = await kids(); return k.includes(pasted) ? k : null; }, 3000);
+    expect(afterPaste && afterPaste.indexOf(pasted) === afterPaste.indexOf(source) + 1, `the paste is not right after ${source}: ${JSON.stringify(await kids())}`);
+    await row(pasted).focus();
+    await page.keyboard.press('Control+x');
+    const cut = await waitUntil(async () => { const k = await kids(); return !k.includes(pasted) ? k : null; }, 3000);
+    expect(cut, `Control X left ${pasted} on the canvas`);
+    await row(source).click();
+    await toolbarButton('Paste').click();
+    const again = await waitUntil(async () => { const id = await selectedRowId(page); return id && id !== source && id !== pasted ? id : null; }, 3000);
+    expect(again, 'Paste on the toolbar did not select a block with a new id');
+    expect(!known.has(again), `the second paste reused an id already on the page: ${again}`);
+    const drawn = await waitUntil(async () => { const k = await kids(); return k.includes(again) ? k : null; }, 3000);
+    expect(drawn, `the canvas does not draw ${again}`);
+    await storedWhere(b => { const c = findIn(b, column); return c && c.children.some(x => x.id === again) && !c.children.some(x => x.id === pasted); }, 'the stored document does not hold the toolbar paste');
+    return `copied ${source}; Control V pasted ${pasted} after it; Control X cut it; toolbar Paste made ${again}; canvas column ${drawn.join(', ')}`;
+  });
+
+  await go('global-style', async () => {
+    await row('legacy-offer').click();
+    await row('legacy-offer').focus();
+    await page.keyboard.press('Escape');
+    await page.locator('dialog[open] #jvb-theme-title').waitFor({ state: 'visible' });
+    const gap = () => inShadow(page, "const r = root.querySelector('#jvb-root'); return r ? getComputedStyle(r).rowGap : null;");
+    const before = await gap();
+    await inspector.getByLabel('Space between sections (px)', { exact: true }).fill('40');
+    const after = await waitUntil(async () => { const g = await gap(); return g === '40px' ? g : null; }, 3000);
+    expect(after, `the canvas page root's row gap is ${await gap()} (was ${before}), not 40px`);
+    const doc = await storedWhere(b => b.theme && b.theme.sectionGap === 40, 'the stored theme does not hold sectionGap 40');
+    return `Space between sections 40: canvas #jvb-root row gap ${before} -> ${after}; stored theme.sectionGap ${doc.theme.sectionGap}`;
+  });
+
+  await go('history', async () => {
+    const before = await sectionIds();
+    const where = await page.evaluate(() => location.pathname + location.search);
+    await leftView('history').click();
+    const restore = page.getByRole('button', { name: `Restore version ${SEEDED_REV}`, exact: true });
+    await restore.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {});
+    expect(await restore.count(), `no Restore for the seeded revision (address ${where}; routes answered: ${answered.filter(a => /revisions/.test(a)).join(' | ') || 'none'})`);
+    await page.waitForTimeout(150);
+    await shot('w3-history');
+    await restore.click();
+    const want = SEEDED_DOC.sections.map(x => x.id);
+    await waitSections(want, 'after Restore');
+    await storedWhere(b => b.sections.map(x => x.id).join() === want.join(), 'the stored document is not the restored revision');
+    const said = await waitUntil(async () => { const t = await liveText(page); return /Restored version/.test(t) ? t : null; }, 3000);
+    expect(said, `the restore was not said (the region holds "${await liveText(page)}")`);
+    await undoButton().click();
+    await waitSections(before, 'Undo after Restore');
+    await storedWhere(b => b.sections.map(x => x.id).join() === before.join(), 'after Undo the stored document is not the page from before the restore');
+    await leftView('blocks').click();
+    return `address ${where}; version ${SEEDED_REV} restored: ${want.length} sections on the canvas and stored; said "${said}"; Undo brought back ${before.join(', ')}`;
+  });
+
+  await go('ai-rewrite-off', async () => {
+    const id = (await storedBuilder(page)) && findIn(await storedBuilder(page), 'legacy-offer-media').children.find(c => c.type === 'heading')?.id;
+    expect(id, 'no heading in the first column to rewrite');
+    const text = findIn(await storedBuilder(page), id).props.text;
+    await row(id).click();
+    await inspector.getByRole('tab', { name: 'Content' }).click();
+    await inspector.getByRole('button', { name: 'Rewrite with AI: Heading text', exact: true }).click();
+    await inspector.locator('[data-rewrite-run="heading"]').click();
+    const shown = await waitUntil(async () => { const m = inspector.locator('[data-rewrite-message]'); return (await m.count()) ? (await m.innerText()).trim() : null; }, 4000);
+    expect(shown === REWRITE_UNAVAILABLE, `the control shows "${shown}", not "${REWRITE_UNAVAILABLE}"`);
+    const said = await waitUntil(async () => { const t = await liveText(page); return t === REWRITE_UNAVAILABLE ? t : null; }, 3000);
+    expect(said, `the refusal was not said (the region holds "${await liveText(page)}")`);
+    await page.waitForTimeout(AUTOSAVE_WAIT);
+    const now = findIn(await storedBuilder(page), id).props.text;
+    expect(now === text, `the heading changed from "${text}" to "${now}"`);
+    expect(answered.some(a => a.startsWith('POST rewrite') && a.includes('"kind":"heading"')), 'the rewrite route was never asked');
+    return `503 answered: shown and said "${shown}"; the heading still reads "${now}"`;
   });
 
   await go('runtime', async () => {

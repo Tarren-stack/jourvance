@@ -40,6 +40,8 @@ export declare const LIMITS: Readonly<{
 }>;
 export declare const THEME_COLOR_KEYS: ReadonlyArray<ThemeColorKey>;
 export declare const DEFAULT_THEME: Readonly<BuilderTheme>;
+export declare const THEME_BUTTON_SHADOWS: ReadonlyArray<NonNullable<BuilderTheme['buttonShadow']>>;
+export declare const THEME_NUMBER_RANGES: Readonly<Record<string, { min: number; max: number; unit: string; integer?: boolean; step?: number }>>;
 export declare const VIDEO_HOSTS: ReadonlyArray<string>;
 export declare const STYLE_KEYS: Readonly<Record<keyof StyleValues, StyleSpec>>;
 export declare const SECTION_PROPS: Readonly<Record<keyof SectionProps, PropSpec>>;

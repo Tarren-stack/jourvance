@@ -24,6 +24,7 @@ import {
   duplicateNode,
   findNode,
   insertNode,
+  mintId,
   moveNode,
   removeNode,
   validateBuilderDoc,
@@ -72,6 +73,8 @@ export interface BuilderState {
   announcement: BuilderNotice | null;
   /** The coalesce key and time of the last change, so a run of edits is one undo step. */
   lastEdit: { key: string; at: number } | null;
+  /** The node Copy or Cut took: in memory only, never in the document, never saved. */
+  clipboard: BuilderNode | null;
   seq: number;
 }
 
@@ -94,6 +97,22 @@ export type BuilderAction =
   | ({ type: 'move'; id: string; parentId: string | null; index: number } & Coalescing)
   | { type: 'remove'; id: string }
   | { type: 'duplicate'; id: string }
+  /** Copy the node `id` (default: the selection) into the clipboard. */
+  | { type: 'copyNode'; id?: string }
+  /** Paste the clipboard after the selection, inside it when it is a container that takes it. */
+  | { type: 'pasteNode' }
+  /** Copy then remove, as one undo step. */
+  | { type: 'cutNode'; id?: string }
+  /**
+   * Insert a saved section (the library) with fresh ids: after the top-level section that holds the
+   * selection, else at the end of the page. One undo step.
+   */
+  | { type: 'insertSaved'; node: BuilderNode; name: string }
+  /**
+   * Replace the whole page with `doc` (a template, a restored revision) as ONE undo step, so Undo
+   * brings the page back. `sentence` is said in the live region. Refused when `doc` fails the model.
+   */
+  | { type: 'loadDoc'; doc: BuilderDoc; sentence: string }
   | ({ type: 'setProps'; id: string; props: Record<string, unknown>; target?: string } & Coalescing)
   | ({ type: 'setStyle'; id: string; values: Partial<Record<keyof StyleValues, unknown>>; target?: string } & Coalescing)
   | { type: 'setVisibility'; id: string; hidden: Record<BuilderDevice, boolean> }
@@ -120,12 +139,15 @@ export function createBuilderState(doc: BuilderDoc, device: BuilderDevice = 'des
     notice: null,
     announcement: null,
     lastEdit: null,
+    clipboard: null,
     seq: 0
   };
 }
 
 export const canUndo = (state: BuilderState): boolean => state.past.length > 0;
 export const canRedo = (state: BuilderState): boolean => state.future.length > 0;
+/** Whether Paste has anything to paste. */
+export const canPaste = (state: BuilderState): boolean => state.clipboard !== null;
 
 // ---- Reading the tree ----
 
@@ -475,6 +497,37 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
         `${nodeLabel(result.doc, result.id)} copied to ${placeOf(result.doc, result.id)}. The copy is selected.`);
     }
 
+    case 'copyNode': {
+      const id = action.id ?? state.selectedId;
+      const found = id ? findNode(state.doc, id) : null;
+      if (!id || !found) return refuse(state, id ? 'That block is no longer on the page.' : 'Select a block first.');
+      const spoken = say(state, `${nodeLabel(state.doc, id)} copied. Paste puts a copy after the selected block.`);
+      return { ...state, clipboard: structuredClone(found.node), notice: null, announcement: spoken.notice, seq: spoken.seq };
+    }
+
+    case 'pasteNode': {
+      if (!state.clipboard) return refuse(state, 'Nothing is copied yet. Select a block and choose Copy first.');
+      const copy = withFreshIds(state.doc, state.clipboard);
+      const target = pasteTarget(state.doc, state.selectedId, copy);
+      const result = insertNode(state.doc, target.parentId, target.index, copy);
+      if (!result.ok) return refuse(state, sentenceCase(result.reason));
+      return commit(state, result.doc, {}, { selectedId: result.id },
+        `${nodeLabel(result.doc, result.id)} pasted to ${placeOf(result.doc, result.id)}. The paste is selected.`);
+    }
+
+    case 'cutNode': {
+      const id = action.id ?? state.selectedId;
+      const found = id ? findNode(state.doc, id) : null;
+      if (!id || !found) return refuse(state, id ? 'That block is no longer on the page.' : 'Select a block first.');
+      const label = nodeLabel(state.doc, id);
+      const neighbour = neighbourAfterRemove(state.doc, id);
+      const result = removeNode(state.doc, id);
+      if (!result.ok) return refuse(state, sentenceCase(result.reason));
+      const selectedId = state.selectedId && hasNode(result.doc, state.selectedId) ? state.selectedId : neighbour;
+      return commit(state, result.doc, {}, { selectedId, hoveredId: null, clipboard: structuredClone(found.node) },
+        `${label} cut. Paste puts it back, and so does Undo.`);
+    }
+
     case 'setProps': {
       const found = findNode(state.doc, action.id);
       if (!found) return refuse(state, 'That block is no longer on the page.', action.target);
@@ -572,6 +625,22 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
       };
     }
 
+    case 'insertSaved': {
+      const copy = withFreshIds(state.doc, action.node);
+      const index = topLevelAfter(state.doc, state.selectedId);
+      const result = insertNode(state.doc, null, index, copy);
+      if (!result.ok) return refuse(state, sentenceCase(result.reason));
+      return commit(state, result.doc, {}, { selectedId: result.id },
+        `Saved section ${action.name} added to ${placeOf(result.doc, result.id)}.`);
+    }
+
+    case 'loadDoc': {
+      const problems = validateBuilderDoc(action.doc).problems;
+      if (problems.length) return refuse(state, sentenceCase(describeProblem(problems[0], null)));
+      if (sameJson(action.doc, state.doc)) return refuse(state, 'That is the page you have now. Nothing changed.');
+      return commit(state, action.doc, {}, { selectedId: null, hoveredId: null }, action.sentence);
+    }
+
     case 'replaceDoc':
       return {
         ...state,
@@ -660,4 +729,43 @@ export function crossMove(doc: BuilderDoc, id: string, delta: -1 | 1, at?: numbe
   }
   const index = delta < 0 ? target.children.length : 0;
   return { action: { type: 'move', id, parentId: target.id, index, coalesce: `keyboard-move:${id}`, at } };
+}
+
+// ---- Copy and paste ----
+
+/** A copy of `node` with a fresh id on every node in it, none shared with the page or with each other. */
+function withFreshIds(doc: BuilderDoc, node: BuilderNode): BuilderNode {
+  const taken = new Set(nodeIds(doc));
+  const copy = structuredClone(node);
+  const renumber = (n: BuilderNode): void => {
+    let fresh = mintId(n.kind === 'widget' ? n.type : n.kind);
+    while (taken.has(fresh)) fresh = mintId(n.kind === 'widget' ? n.type : n.kind);
+    taken.add(fresh);
+    n.id = fresh;
+    const children = (n as BuilderSection | BuilderColumn).children;
+    if (Array.isArray(children)) children.forEach(c => renumber(c as BuilderNode));
+  };
+  renumber(copy);
+  return copy;
+}
+
+/** The index just after the top-level section that holds `selectedId`, else the end of the page. */
+function topLevelAfter(doc: BuilderDoc, selectedId: string | null): number {
+  const top = selectedId ? ancestry(doc, selectedId)[0] : undefined;
+  const at = top ? doc.sections.findIndex(s => s.id === top.id) : -1;
+  return at < 0 ? doc.sections.length : at + 1;
+}
+
+/**
+ * Where a paste goes. With nothing selected: the end of the page. A selected container that takes
+ * the copy (a column takes a widget or an inner section, a section takes a column): the end of it.
+ * Otherwise right after the selection in its own parent. Whether that is legal is the model's call.
+ */
+function pasteTarget(doc: BuilderDoc, selectedId: string | null, copy: BuilderNode): { parentId: string | null; index: number } {
+  const found = selectedId ? findNode(doc, selectedId) : null;
+  if (!found) return { parentId: null, index: doc.sections.length };
+  const node = found.node;
+  const takes = node.kind === 'column' ? copy.kind !== 'column' : node.kind === 'section' && copy.kind === 'column';
+  if (takes) return { parentId: node.id, index: (node as BuilderSection | BuilderColumn).children.length };
+  return { parentId: found.parent ? found.parent.id : null, index: found.index + 1 };
 }

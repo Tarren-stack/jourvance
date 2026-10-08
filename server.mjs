@@ -89,6 +89,7 @@ import { mailCallbackPlan } from './server/mail-events.mjs';
 
 import { setupJourneyRoutes } from './server/routes/journeyRoutes.mjs';
 import { setupJourneySaveRoutes } from './server/routes/journeySaveRoutes.mjs';
+import { setupBuilderLibraryRoutes, removeLibraryEntry } from './server/routes/builderLibraryRoutes.mjs';
 import { setupJourneyListRoutes } from './server/routes/journeyListRoutes.mjs';
 import { listJourneyDocs, summarizeJourney } from './server/journeyList.mjs';
 import { setupAnalyticsRoutes } from './server/routes/analyticsRoutes.mjs';
@@ -143,6 +144,7 @@ import {
 import { applySecurity } from './security-sentinel.js';
 import { trustedProxy, proxyTrustSummary } from './server/proxy-trust.mjs';
 import { shieldProse, PROSE_ROUTE_PREFIXES } from './server/sentinel-shield.mjs';
+import { jsonBodyTooLarge } from './server/bodyErrors.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -171,6 +173,8 @@ app.use(express.json({
     if (url.startsWith('/api/webhooks/shopify') || url.startsWith('/api/billing/webhook')) req.rawBody = buf;
   }
 }));
+// A body over the limit is a JSON 413 like every other refusal here, not Express's HTML page.
+app.use(jsonBodyTooLarge);
 
 // Security Sentinel: the hub's vendored drop-in (security-sentinel.js is a byte copy of the
 // hub's sentinel-dist, pinned by sentinel-adoption.test.mjs). Hardened headers and a CSP, the
@@ -4534,6 +4538,59 @@ app.post('/api/email/send', requireUser, async (req, res) => {
   }
   res.status(503).json({ success: false, error: 'Email sending is not connected, so nothing was sent.' });
 });
+
+// ── Saved sections library (server/routes/builderLibraryRoutes.mjs) ──
+// One hub document per entry, builderlib.<uid>.<id>, so no account document can outgrow the store.
+// The local file keeps every entry too, and is what a hub-less server and a failed hub read answer from.
+const builderLibraryFile = path.join(__dirname, 'builder_library.json');
+let builderLibraryCache = {};
+try {
+  if (fs.existsSync(builderLibraryFile)) builderLibraryCache = JSON.parse(fs.readFileSync(builderLibraryFile, 'utf8'));
+} catch (e) {
+  console.warn('[Jourvance] Failed to read builder_library.json, starting empty:', e.message);
+}
+const persistBuilderLibrary = () => {
+  try {
+    fs.writeFileSync(builderLibraryFile, JSON.stringify(builderLibraryCache), 'utf8');
+  } catch (e) {
+    console.error('[Jourvance] Failed to persist builder_library.json:', e.message);
+  }
+};
+const builderLibraryPrefix = (uid) => `builderlib.${safe(uid)}.`;
+
+async function listLibrary(uid) {
+  const r = await listJourneyDocs({ hub, hubReady, uid, prefix: builderLibraryPrefix(uid), cached: builderLibraryCache[uid] || [] });
+  return { items: r.journeys, complete: r.complete, reason: r.reason };
+}
+
+async function putLibraryItem(uid, item) {
+  (builderLibraryCache[uid] ||= []).push(item);
+  persistBuilderLibrary();
+  if (!hubReady) return { durable: false, reason: 'HUB_API_KEY is not set on this server.' };
+  try {
+    const r = await hub.store.docs.put(builderLibraryPrefix(uid) + item.id, item);
+    if (r && r.error) return { durable: false, reason: r.error };
+    return { durable: true };
+  } catch (e) {
+    return { durable: false, reason: e.message };
+  }
+}
+
+// The store first, then this server's copy: see removeLibraryEntry.
+async function removeLibraryItem(uid, id) {
+  return removeLibraryEntry({
+    cache: builderLibraryCache,
+    uid,
+    id,
+    persist: persistBuilderLibrary,
+    hubReady,
+    remove: (docId) => hub.store.docs.remove(docId),
+    docId: builderLibraryPrefix(uid) + id
+  });
+}
+
+const builderLibraryCtx = { requireUser, listLibrary, putLibraryItem, removeLibraryItem };
+setupBuilderLibraryRoutes(app, builderLibraryCtx);
 
 // GET /api/user/:userId/journeys and GET /api/journeys: {success, journeys, complete, reason?}.
 setupJourneyListRoutes(app, { requireUser, listJourneys, summarize });

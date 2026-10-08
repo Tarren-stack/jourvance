@@ -1119,9 +1119,36 @@ function resolvedTheme(theme) {
     radius: Number.isFinite(t.radius) ? t.radius : DEFAULT_THEME.radius,
     spacingScale: Number.isFinite(t.spacingScale) ? t.spacingScale : DEFAULT_THEME.spacingScale,
     buttonStyle: pick(t.buttonStyle, ['solid', 'outline', 'pill'], DEFAULT_THEME.buttonStyle),
-    containerWidth: Number.isFinite(t.containerWidth) ? t.containerWidth : DEFAULT_THEME.containerWidth
+    containerWidth: Number.isFinite(t.containerWidth) ? t.containerWidth : DEFAULT_THEME.containerWidth,
+    headingScale: finiteOr(t.headingScale, DEFAULT_THEME.headingScale),
+    headingWeight: finiteOr(t.headingWeight, DEFAULT_THEME.headingWeight),
+    headingLineHeight: finiteOr(t.headingLineHeight, DEFAULT_THEME.headingLineHeight),
+    bodySize: finiteOr(t.bodySize, DEFAULT_THEME.bodySize),
+    bodyWeight: finiteOr(t.bodyWeight, DEFAULT_THEME.bodyWeight),
+    bodyLineHeight: finiteOr(t.bodyLineHeight, DEFAULT_THEME.bodyLineHeight),
+    linkColor: cssColor(t.linkColor) ? t.linkColor : DEFAULT_THEME.linkColor,
+    buttonRadius: Number.isFinite(t.buttonRadius) ? t.buttonRadius : DEFAULT_THEME.buttonRadius,
+    buttonShadow: pick(t.buttonShadow, Object.keys(BUTTON_SHADOWS), DEFAULT_THEME.buttonShadow),
+    sectionPaddingY: finiteOr(t.sectionPaddingY, DEFAULT_THEME.sectionPaddingY),
+    sectionGap: finiteOr(t.sectionGap, DEFAULT_THEME.sectionGap)
   };
 }
+
+function finiteOr(v, fallback) {
+  return Number.isFinite(v) ? v : fallback;
+}
+
+/** True when the theme sets `key` to something other than the built-in default. */
+function changed(theme, key) {
+  return theme[key] !== DEFAULT_THEME[key];
+}
+
+const BUTTON_SHADOWS = {
+  none: 'none',
+  soft: '0 2px 8px rgba(0,0,0,.2)',
+  medium: '0 6px 18px rgba(0,0,0,.3)',
+  strong: '0 10px 30px rgba(0,0,0,.45)'
+};
 
 function rootRule(theme) {
   const c = theme.colors;
@@ -1133,45 +1160,63 @@ function rootRule(theme) {
     `--jvb-radius:${fmt(theme.radius)}px`,
     `--jvb-space:${fmt(theme.spacingScale)}px`,
     `--jvb-container:${fmt(theme.containerWidth)}px`,
-    `--jvb-btn-radius:${theme.buttonStyle === 'pill' ? '9999px' : 'var(--jvb-radius)'}`,
+    `--jvb-btn-radius:${theme.buttonRadius !== null ? `${fmt(theme.buttonRadius)}px` : theme.buttonStyle === 'pill' ? '9999px' : 'var(--jvb-radius)'}`,
     `--jvb-btn-bg:${solid ? c.primary : 'transparent'}`,
     `--jvb-btn-fg:${solid ? readableOn(c.primary) : c.primary}`,
     `--jvb-btn-bd:${c.primary}`,
     `--jvb-btn-sec-fg:${readableOn(c.secondary)}`
   ];
-  return rule('', [
-    ...vars,
+  // A typography, link, shadow or spacing setting adds its custom property only when it differs
+  // from the built-in default, so a page that sets none of them keeps its exact earlier bytes.
+  if (changed(theme, 'headingScale')) vars.push(`--jvb-h-scale:${fmt(theme.headingScale)}`);
+  if (changed(theme, 'headingWeight')) vars.push(`--jvb-h-weight:${fmt(theme.headingWeight)}`);
+  if (changed(theme, 'headingLineHeight')) vars.push(`--jvb-h-lh:${fmt(theme.headingLineHeight)}`);
+  if (changed(theme, 'bodySize')) vars.push(`--jvb-body-size:${fmt(theme.bodySize)}px`);
+  if (changed(theme, 'bodyWeight')) vars.push(`--jvb-body-weight:${fmt(theme.bodyWeight)}`);
+  if (changed(theme, 'bodyLineHeight')) vars.push(`--jvb-body-lh:${fmt(theme.bodyLineHeight)}`);
+  if (changed(theme, 'linkColor')) vars.push(`--jvb-link:${cssColor(theme.linkColor)}`);
+  if (changed(theme, 'buttonShadow')) vars.push(`--jvb-btn-shadow:${BUTTON_SHADOWS[theme.buttonShadow]}`);
+  if (changed(theme, 'sectionPaddingY')) vars.push(`--jvb-sec-py:${fmt(theme.sectionPaddingY)}px`);
+  const base = [
     'display:flex', 'flex-direction:column', 'width:100%',
     'background-color:var(--jvb-background)', 'color:var(--jvb-text)', 'font-family:var(--jvb-font-body)',
-    'font-size:16px', 'line-height:1.5'
-  ]);
+    changed(theme, 'bodySize') ? 'font-size:var(--jvb-body-size)' : 'font-size:16px',
+    changed(theme, 'bodyLineHeight') ? 'line-height:var(--jvb-body-lh)' : 'line-height:1.5'
+  ];
+  if (changed(theme, 'bodyWeight')) base.push('font-weight:var(--jvb-body-weight)');
+  if (changed(theme, 'sectionGap')) base.push(`gap:${fmt(theme.sectionGap)}px`);
+  return rule('', [...vars, ...base]);
 }
 
 const MIX = 'color-mix(in srgb,var(--jvb-muted) 35%,transparent)';
 
 /** The base look of every widget, all under #jvb-root, no media queries. A node's style rules come after and win. */
-function staticRules() {
+function staticRules(theme) {
+  const hScale = changed(theme, 'headingScale');
+  const headSize = rem => (hScale ? `font-size:calc(${rem}rem * var(--jvb-h-scale))` : `font-size:${rem}rem`);
   return [
     rule('*, *::before, *::after', 'box-sizing:border-box'),
     rule(':where(h1,h2,h3,h4,h5,h6,p,figure,blockquote,ul,ol,hr)', 'margin:0'),
     rule('img', 'max-width:100%;height:auto;display:block'),
-    rule('.jvb-sec', 'display:flex;flex-direction:column;width:100%'),
+    rule('.jvb-sec', changed(theme, 'sectionPaddingY')
+      ? 'display:flex;flex-direction:column;width:100%;padding-top:var(--jvb-sec-py);padding-bottom:var(--jvb-sec-py)'
+      : 'display:flex;flex-direction:column;width:100%'),
     rule('.jvb-row', 'display:flex;flex-direction:row;align-items:stretch;width:100%;max-width:var(--jvb-container);margin-left:auto;margin-right:auto;padding-left:calc(var(--jvb-space) * 2);padding-right:calc(var(--jvb-space) * 2)'),
     rule('.jvb-full > .jvb-row', 'max-width:none'),
     rule('.jvb-col .jvb-row', 'padding-left:0;padding-right:0;max-width:none'),
     rule('.jvb-col', 'display:flex;flex-direction:column;flex:1 1 0;min-width:0;gap:calc(var(--jvb-space) * 2)'),
     rule('.jvb-w', 'min-width:0'),
-    rule('.jvb-heading', 'font-family:var(--jvb-font-heading);font-weight:700;line-height:1.2;overflow-wrap:anywhere'),
-    rule(':where(.jvb-heading:where(h1))', 'font-size:2.5rem'),
-    rule(':where(.jvb-heading:where(h2))', 'font-size:2rem'),
-    rule(':where(.jvb-heading:where(h3))', 'font-size:1.5rem'),
-    rule(':where(.jvb-heading:where(h4))', 'font-size:1.25rem'),
-    rule(':where(.jvb-heading:where(h5))', 'font-size:1.125rem'),
-    rule(':where(.jvb-heading:where(h6))', 'font-size:1rem'),
+    rule('.jvb-heading', `font-family:var(--jvb-font-heading);font-weight:${changed(theme, 'headingWeight') ? 'var(--jvb-h-weight)' : '700'};line-height:${changed(theme, 'headingLineHeight') ? 'var(--jvb-h-lh)' : '1.2'};overflow-wrap:anywhere`),
+    rule(':where(.jvb-heading:where(h1))', headSize('2.5')),
+    rule(':where(.jvb-heading:where(h2))', headSize('2')),
+    rule(':where(.jvb-heading:where(h3))', headSize('1.5')),
+    rule(':where(.jvb-heading:where(h4))', headSize('1.25')),
+    rule(':where(.jvb-heading:where(h5))', headSize('1.125')),
+    rule(':where(.jvb-heading:where(h6))', headSize('1')),
     rule('.jvb-heading a', 'color:inherit'),
     rule('.jvb-text > * + *', 'margin-top:.75em'),
     rule('.jvb-text ul, .jvb-text ol', 'padding-left:1.25em'),
-    rule('.jvb-text a, .jvb-embed a', 'color:var(--jvb-primary);text-decoration:underline'),
+    rule('.jvb-text a, .jvb-embed a', `color:var(--jvb-${changed(theme, 'linkColor') ? 'link' : 'primary'});text-decoration:underline`),
     rule('.jvb-image img', 'width:100%'),
     rule('.jvb-image figcaption', 'font-size:.875rem;color:var(--jvb-muted);margin-top:.5em'),
     rule('.jvb-frame', 'position:relative;overflow:hidden;width:100%'),
@@ -1183,7 +1228,7 @@ function staticRules() {
     rule('.jvb-ar-3-4', 'aspect-ratio:3 / 4'),
     rule('.jvb-ar-16-9', 'aspect-ratio:16 / 9'),
     rule('.jvb-ar-9-16', 'aspect-ratio:9 / 16'),
-    rule('.jvb-btn', 'display:block;align-self:flex-start;padding:.7em 1.4em;border:2px solid transparent;border-radius:var(--jvb-btn-radius);font:inherit;font-weight:600;line-height:1.2;text-align:center;text-decoration:none;cursor:pointer'),
+    rule('.jvb-btn', 'display:block;align-self:flex-start;padding:.7em 1.4em;border:2px solid transparent;border-radius:var(--jvb-btn-radius);font:inherit;font-weight:600;line-height:1.2;text-align:center;text-decoration:none;cursor:pointer' + (changed(theme, 'buttonShadow') ? ';box-shadow:var(--jvb-btn-shadow)' : '')),
     rule('.jvb-btn-sm', 'font-size:.875rem;padding:.5em 1em'),
     rule('.jvb-btn-md', 'font-size:1rem'),
     rule('.jvb-btn-lg', 'font-size:1.125rem;padding:.85em 1.8em'),
@@ -1283,7 +1328,7 @@ function buildCss(doc, ctx) {
   walk(doc, node => {
     nodes.push(node);
   });
-  const parts = [rootRule(theme), ...staticRules()];
+  const parts = [rootRule(theme), ...staticRules(theme)];
   for (const node of nodes) parts.push(...preludeRules(node, nodeKind(node)));
   const sel = node => `.jvb-n-${node.id}`;
 

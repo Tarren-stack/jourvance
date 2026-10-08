@@ -137,11 +137,13 @@ export function publishedPartly(answer: ServerAnswer | null): boolean {
 
 /**
  * What a successful publish still needs to say, or null: an old address that could not be taken
- * down (`stillLive`), or pages kept on this server only (`durable: false`).
+ * down (`stillLive`), pages kept on this server only (`durable: false`), a publish whose
+ * version did not reach the page history (`historyNote`), or one whose publish record did not
+ * reach the store (`publishLogNote`).
  */
 export function publishWarning(answer: ServerAnswer | null): string | null {
   if (!succeeded(answer)) return null;
-  const body = answer.body as { stillLive?: unknown; durable?: unknown };
+  const body = answer.body as { stillLive?: unknown; durable?: unknown; historyNote?: unknown; publishLogNote?: unknown };
   const stillLive = Array.isArray(body.stillLive) ? body.stillLive.filter((u): u is string => typeof u === 'string' && !!u) : [];
   const parts: string[] = [];
   if (stillLive.length) {
@@ -150,6 +152,10 @@ export function publishWarning(answer: ServerAnswer | null): string | null {
   if (body.durable === false) {
     parts.push('These pages are live on this server only. They were not saved to storage, so a restart could take them offline.');
   }
+  // The builder revision of this publish did not reach the stored page history.
+  if (typeof body.historyNote === 'string' && body.historyNote) parts.push(body.historyNote);
+  // The publish record did not reach the store, though the pages did.
+  if (typeof body.publishLogNote === 'string' && body.publishLogNote) parts.push(body.publishLogNote);
   return parts.length ? parts.join(' ') : null;
 }
 

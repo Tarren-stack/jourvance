@@ -12,6 +12,7 @@ import {
   PREVIEW_TTL_MS,
   previewMinutesLeft
 } from '../../src/lib/publishState.ts';
+import { addRevisions, listRevisions, getRevision, revisionsLogId, isRevisionsLogJourneyId, normalizeRevisionsLog } from '../builderRevisions.mjs';
 import { validateBuilderDoc } from '../../src/lib/pageBuilder/model.mjs';
 
 /**
@@ -239,6 +240,128 @@ export function setupJourneyRoutes(app, ctx) {
     }
   });
 
+  // Each publish of a page that carries a builder document keeps that document as a revision
+  // (server/builderRevisions.mjs), in the publish log store under its own id. The pages are live
+  // by now, so a store that cannot be read or written never fails the publish: the revision is
+  // skipped and said so in the log. A log that cannot be READ is never written over.
+  async function storeBuilderRevisions(uid, journeyId, number, publishedAt, writes) {
+    const entries = writes
+      .filter(w => w.record && w.record.builder)
+      .map(w => ({ nodeId: w.nodeId, document: w.record.builder, documentB: w.record.builderB, fingerprint: w.record.contentFingerprint }));
+    if (!entries.length) return 'none';
+    try {
+      const read = await loadPublishLog(uid, revisionsLogId(journeyId));
+      if (!read || !read.ok) {
+        console.error('[Jourvance] Builder revisions were not stored: the revisions log could not be read.');
+        return 'failed';
+      }
+      // A history already at this number or past it holds another publish's version under it:
+      // writing would replace that version. It is kept, and this one is said as not saved.
+      if (normalizeRevisionsLog(read.log).lastNumber >= number) {
+        console.error(`[Jourvance] Builder revisions were not stored: the history already holds number ${number}.`);
+        return 'failed';
+      }
+      const next = addRevisions(read.log, { number, publishedAt, userId: uid, entries });
+      const saved = await savePublishLog(uid, revisionsLogId(journeyId), next);
+      if (saved && saved.durable === false) {
+        console.error('[Jourvance] Builder revisions were kept on this server only:', saved.reason);
+        return 'local';
+      }
+      return 'saved';
+    } catch (err) {
+      console.error('[Jourvance] Storing builder revisions failed:', err);
+      return 'failed';
+    }
+  }
+
+  // The publish answer's sentence when the publish record did not reach the store.
+  const PUBLISH_LOG_NOT_SAVED = 'This publish could not be recorded in storage. Your pages are live; publish again soon so the record is kept.';
+
+  // The publish log, or a copy of it whose lastNumber is raised to the page history's when the
+  // history is ahead. A history that cannot be read changes nothing here: storeBuilderRevisions
+  // reads it again and refuses to write a number it already holds.
+  async function withHistoryFloor(uid, journeyId, log) {
+    let history;
+    try {
+      history = await loadPublishLog(uid, revisionsLogId(journeyId));
+    } catch {
+      return log;
+    }
+    if (!history || !history.ok) return log;
+    const ahead = normalizeRevisionsLog(history.log).lastNumber;
+    const mine = Number.isFinite(log?.lastNumber) ? Number(log.lastNumber) : 0;
+    return ahead > mine ? { ...(log && typeof log === 'object' ? log : {}), lastNumber: ahead } : log;
+  }
+
+  // The publish answer's sentence when this version did not reach the stored page history.
+  const HISTORY_NOT_SAVED = 'This version could not be saved to the page history, so History may not list it later. Your pages are live.';
+
+  // A journey id ending in REVISIONS_LOG_SUFFIX names another journey's history in the publish
+  // log store, so nothing that reads or writes a publish log takes one. True when it answered.
+  function refusedRevisionsLogId(req, res) {
+    if (!isRevisionsLogJourneyId(req.params.id)) return false;
+    res.status(400).json({ success: false, retryable: false, error: 'This journey cannot be published because its id ends in "#builder-revisions", which the page history keeps for itself. Duplicate the journey and publish the copy.' });
+    return true;
+  }
+
+  // Own journeys only: a journey the user does not hold is a 404, and so is one with no revisions.
+  async function openRevisionsLog(req, res) {
+    const nodeId = typeof req.query.nodeId === 'string' ? req.query.nodeId : '';
+    if (!nodeId) {
+      res.status(400).json({ success: false, error: 'nodeId is required.' });
+      return null;
+    }
+    let read;
+    try {
+      read = await readJourney(req.user.uid, req.params.id);
+    } catch (err) {
+      console.error('[Jourvance] Loading a journey for its revisions failed:', err);
+    }
+    if (!read || !read.ok) { answerJourneyUnavailable(res); return null; }
+    if (!read.journey) {
+      res.status(404).json({ success: false, error: 'Journey not found.' });
+      return null;
+    }
+    let logRead;
+    try {
+      logRead = await loadPublishLog(req.user.uid, revisionsLogId(req.params.id));
+    } catch (err) {
+      console.error('[Jourvance] Reading builder revisions failed:', err);
+    }
+    if (!logRead || !logRead.ok) {
+      res.set('Retry-After', '30');
+      res.status(503).json({ success: false, retryable: true, error: 'The page history could not be read. Try again in a minute.' });
+      return null;
+    }
+    return { nodeId, log: logRead.log };
+  }
+
+  // Express 4 does not catch a rejected handler, so each read answers its own failure: a throw
+  // here used to leave the request hanging with an unhandled rejection in the log.
+  app.get('/api/journey/:id/builder-revisions', requireUser, async (req, res) => {
+    try {
+      const opened = await openRevisionsLog(req, res);
+      if (!opened) return;
+      res.json({ success: true, revisions: listRevisions(opened.log, opened.nodeId) });
+    } catch (err) {
+      answerReadFailure(res, 'Reading the page history', err);
+    }
+  });
+
+  app.get('/api/journey/:id/builder-revisions/:rev', requireUser, async (req, res) => {
+    const rev = /^\d+$/.test(req.params.rev) ? Number(req.params.rev) : NaN;
+    if (!Number.isSafeInteger(rev)) return res.status(400).json({ success: false, error: 'The revision must be a number.' });
+    try {
+      const opened = await openRevisionsLog(req, res);
+      if (!opened) return;
+      const row = getRevision(opened.log, opened.nodeId, rev);
+      if (!row) return res.status(404).json({ success: false, error: 'Revision not found.' });
+      res.json({ success: true, revision: row });
+    } catch (err) {
+      answerReadFailure(res, 'Reading the page history', err);
+    }
+  });
+
   // Registered after every literal /api/journey/<name> GET above; see the header.
   app.get('/api/journey/:id', requireUser, async (req, res) => {
     let read;
@@ -290,6 +413,7 @@ export function setupJourneyRoutes(app, ctx) {
   // Phase 3 reserves the revision number, takes one synchronous last look and then starts every
   // write in the same tick.
   async function publishJourney(req, res, progress) {
+    if (refusedRevisionsLogId(req, res)) return;
     const uid = req.user.uid;
     const read = await readJourney(uid, req.params.id);
     if (!read || !read.ok) return answerJourneyUnavailable(res);
@@ -543,7 +667,10 @@ export function setupJourneyRoutes(app, ctx) {
     // number. Its planned pages are recorded now: a publish that stops partway leaves a "started"
     // entry that unpublish can still find.
     const revisionId = `rev_${crypto.randomBytes(8).toString('hex')}`;
-    let log = startRevision(logRead.log, revisionId, publishedAt, livePages);
+    // The page history keeps its own lastNumber. When the publish log lost a write (a hub put
+    // refused, then a fresh disk after a redeploy) the history can be ahead of it, and the next
+    // number must clear both, or a new version takes an old version's number in History.
+    let log = startRevision(await withHistoryFloor(uid, req.params.id, logRead.log), revisionId, publishedAt, livePages);
     const revisionNumber = log.lastNumber;
     await savePublishLog(uid, req.params.id, log);
 
@@ -618,9 +745,15 @@ export function setupJourneyRoutes(app, ctx) {
     const { retiredPages = [], ...finished } = finishRevision(log, revisionId, livePages, isoNow());
     const kept = retiredPages.filter(p => left.has(p.key));
     log = kept.length ? { ...finished, retiredPages: kept } : finished;
-    await savePublishLog(uid, req.params.id, log);
+    const finishSave = await savePublishLog(uid, req.params.id, log);
+    // The pages are live either way. A final publish record the store did not take is said,
+    // because the next publish after a restart would read an older record. (The "started" save
+    // above only matters until this one lands.)
+    const logNotSaved = Boolean(finishSave && finishSave.durable === false);
     persistPublicPages();
     await saveJourney(uid, req.params.id, { ...journey, nodes: nextNodes });
+    const history = await storeBuilderRevisions(uid, req.params.id, revisionNumber, publishedAt, writes);
+    const historyNotSaved = history === 'local' || history === 'failed';
 
     const stillLiveUrls = stillLive.map(p => p.url);
     res.json({
@@ -630,11 +763,14 @@ export function setupJourneyRoutes(app, ctx) {
       revision: { id: revisionId, number: revisionNumber, publishedAt },
       stillLive: stillLiveUrls,
       ...(notDurable ? { durable: false, reason: notDurable.reason } : {}),
-      message: stillLiveUrls.length
+      ...(historyNotSaved ? { historySaved: false, historyNote: HISTORY_NOT_SAVED } : {}),
+      ...(logNotSaved && !notDurable ? { publishLogSaved: false, publishLogNote: PUBLISH_LOG_NOT_SAVED } : {}),
+      message: (stillLiveUrls.length
         ? `Published ${publishedPages.length} landing page(s). An old address may still be live: ${stillLiveUrls.join(', ')}. Publish again or take the funnel offline to take it down.`
         : notDurable
           ? `Published ${publishedPages.length} landing page(s) on this server only. They were not saved to storage, so a restart could take them offline.`
-          : `Published ${publishedPages.length} landing page(s) successfully.`
+          : `Published ${publishedPages.length} landing page(s) successfully.`) + (historyNotSaved ? ` ${HISTORY_NOT_SAVED}` : '')
+        + (logNotSaved && !notDurable ? ` ${PUBLISH_LOG_NOT_SAVED}` : '')
     });
   }
 
@@ -692,6 +828,7 @@ export function setupJourneyRoutes(app, ctx) {
   };
 
   async function unpublishJourney(req, res) {
+    if (refusedRevisionsLogId(req, res)) return;
     const uid = req.user.uid;
     const read = await readJourney(uid, req.params.id);
     if (!read || !read.ok) return answerJourneyUnavailable(res);
@@ -741,6 +878,7 @@ export function setupJourneyRoutes(app, ctx) {
   const newerThan = (a, b) => String(a?.publishedAt || '') > String(b?.publishedAt || '');
 
   async function readPublication(req, res) {
+    if (refusedRevisionsLogId(req, res)) return;
     const uid = req.user.uid;
     const read = await readJourney(uid, req.params.id);
     if (!read || !read.ok) return answerJourneyUnavailable(res);
