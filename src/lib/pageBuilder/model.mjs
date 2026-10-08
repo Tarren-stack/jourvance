@@ -1211,7 +1211,7 @@ export const LEGACY_PLACEHOLDER_VARIANT_IDS = Object.freeze([
 // Seeded sample lines the published page drops (publicRoutes.mjs trustBadge and scarcitySeed,
 // pagePreviewCopy.ts SEEDED_TRUST and SEEDED_SCARCITY). The test pins the behaviour against
 // previewPageCopy.
-const SEEDED_TRUST = /4\.9\/5|verified (beauty lovers|customers|buyers|clients)/i;
+export const SEEDED_TRUST = /4\.9\/5|verified (beauty lovers|customers|buyers|clients)/i;
 const SEEDED_SCARCITY = /hand-blended batch #22|only 14 units remaining/i;
 
 const text = v => (typeof v === 'string' ? v : '');

@@ -1289,3 +1289,63 @@ describe('context', () => {
     assert.match(html, /data-base-price="\$10\.00">EUR \$10\.00</);
   });
 });
+
+// ---- Wave 1b fixes reported by 1a ----
+import { SEEDED_TRUST } from './src/lib/pageBuilder/model.mjs';
+
+describe('a heading\'s own size beats the base heading size, whatever the order', () => {
+  // Specificity of a selector as (ids, classes, tags); :where() contributes nothing, as in CSS.
+  const specificity = sel => {
+    const bare = sel.replace(/:where\([^()]*(?:\([^()]*\)[^()]*)*\)/g, '');
+    return [(bare.match(/#[\w-]+/g) || []).length, (bare.match(/\.[\w-]+/g) || []).length, (bare.match(/(?:^|[\s>+~])[a-z][a-z0-9]*/g) || []).length];
+  };
+  const cmp = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
+  const rulesOf = css => [...css.matchAll(/(^|\n)([^@{}\n][^{}\n]*)\{([^{}]*)\}/g)].map(m => ({ sel: m[2], body: m[3] }));
+
+  it('the base size for each level is a zero-class selector under the root', () => {
+    const { css } = render(pageWith(node('heading', { text: 'x', level: 1 }, 'h1')));
+    for (let n = 1; n <= 6; n += 1) {
+      assert.ok(css.includes(`#jvb-root :where(.jvb-heading:where(h${n})){font-size:`), `h${n} base size is wrapped in :where`);
+    }
+  });
+
+  it('the node\'s font-size rule is strictly more specific than the base rule, for every level', () => {
+    for (let level = 1; level <= 6; level += 1) {
+      const { css } = render(pageWith(node('heading', { text: 'x', level }, 'h1', { desktop: { fontSize: 20 }, mobile: { fontSize: 18 } })));
+      const rules = rulesOf(css);
+      const base = rules.find(r => r.sel === `#jvb-root :where(.jvb-heading:where(h${level}))`);
+      const own = rules.find(r => r.sel === '#jvb-root .jvb-n-h1' && /font-size:20px/.test(r.body));
+      assert.ok(base && own, `both rules exist for h${level}`);
+      assert.ok(cmp(specificity(own.sel), specificity(base.sel)) > 0, `own ${specificity(own.sel)} beats base ${specificity(base.sel)}`);
+    }
+  });
+
+  it('golden: the heading rules of a page whose heading sets a size on desktop and mobile', () => {
+    const { css } = render(pageWith(node('heading', { text: 'x', level: 1 }, 'h1', { desktop: { fontSize: 20 }, mobile: { fontSize: 18 } })));
+    const lines = css.split('\n').filter(l => l.includes('jvb-heading') && l.includes('font-size') || l.includes('.jvb-n-h1{'));
+    assert.deepEqual(lines, [
+      '#jvb-root :where(.jvb-heading:where(h1)){font-size:2.5rem}',
+      '#jvb-root :where(.jvb-heading:where(h2)){font-size:2rem}',
+      '#jvb-root :where(.jvb-heading:where(h3)){font-size:1.5rem}',
+      '#jvb-root :where(.jvb-heading:where(h4)){font-size:1.25rem}',
+      '#jvb-root :where(.jvb-heading:where(h5)){font-size:1.125rem}',
+      '#jvb-root :where(.jvb-heading:where(h6)){font-size:1rem}',
+      '#jvb-root .jvb-n-h1{font-size:20px}',
+      '#jvb-root .jvb-n-h1{font-size:18px}'
+    ]);
+  });
+});
+
+describe('the trust badge drops the seeded sample line today\'s page drops', () => {
+  it('a seeded sentence renders nothing, in any letter case', () => {
+    for (const seeded of ['4.9/5 from 2,000 reviews', 'Rated 4.9/5', 'Loved by verified beauty lovers', 'VERIFIED CUSTOMERS everywhere', 'Verified buyers only', 'trusted by verified clients']) {
+      assert.equal(rw('trustBadge', { text: seeded }), '', seeded);
+      assert.equal(rw('trustBadge', { text: seeded, icon: 'shield' }), '', `${seeded} with an icon`);
+    }
+  });
+
+  it('the merchant\'s own line still renders, and the filter is the model\'s exported pattern', () => {
+    assert.equal(rw('trustBadge', { text: 'Free returns for 30 days' }), '<div class="jvb-n-w1 jvb-w jvb-trust"><span>Free returns for 30 days</span></div>');
+    assert.ok(SEEDED_TRUST.test('4.9/5') && !SEEDED_TRUST.test('Free returns'));
+  });
+});

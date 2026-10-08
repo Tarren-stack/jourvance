@@ -29,6 +29,7 @@ import {
   linkProblem,
   propsWithDefaults,
   resolveStyle,
+  SEEDED_TRUST,
   validateBuilderDoc,
   walk
 } from './model.mjs';
@@ -827,7 +828,9 @@ function wStockCount(node, p, st) {
 }
 
 function wTrustBadge(node, p) {
-  const line = trimmed(p.text);
+  // Today's page drops a seeded sample trust line ("4.9/5", "verified customers"); so does this.
+  const saved = trimmed(p.text);
+  const line = SEEDED_TRUST.test(saved) ? '' : saved;
   if (!line) return '';
   const icon = TRUST_ICONS[pick(p.icon, ['none', 'shield', 'lock', 'star'], 'none')] || '';
   return `<div ${cls(node, 'jvb-w', 'jvb-trust')}>${icon}<span>${escLines(line)}</span></div>`;
@@ -1159,12 +1162,12 @@ function staticRules() {
     rule('.jvb-col', 'display:flex;flex-direction:column;flex:1 1 0;min-width:0;gap:calc(var(--jvb-space) * 2)'),
     rule('.jvb-w', 'min-width:0'),
     rule('.jvb-heading', 'font-family:var(--jvb-font-heading);font-weight:700;line-height:1.2;overflow-wrap:anywhere'),
-    rule('.jvb-heading:where(h1)', 'font-size:2.5rem'),
-    rule('.jvb-heading:where(h2)', 'font-size:2rem'),
-    rule('.jvb-heading:where(h3)', 'font-size:1.5rem'),
-    rule('.jvb-heading:where(h4)', 'font-size:1.25rem'),
-    rule('.jvb-heading:where(h5)', 'font-size:1.125rem'),
-    rule('.jvb-heading:where(h6)', 'font-size:1rem'),
+    rule(':where(.jvb-heading:where(h1))', 'font-size:2.5rem'),
+    rule(':where(.jvb-heading:where(h2))', 'font-size:2rem'),
+    rule(':where(.jvb-heading:where(h3))', 'font-size:1.5rem'),
+    rule(':where(.jvb-heading:where(h4))', 'font-size:1.25rem'),
+    rule(':where(.jvb-heading:where(h5))', 'font-size:1.125rem'),
+    rule(':where(.jvb-heading:where(h6))', 'font-size:1rem'),
     rule('.jvb-heading a', 'color:inherit'),
     rule('.jvb-text > * + *', 'margin-top:.75em'),
     rule('.jvb-text ul, .jvb-text ol', 'padding-left:1.25em'),

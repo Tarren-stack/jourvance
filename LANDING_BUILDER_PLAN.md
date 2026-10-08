@@ -133,6 +133,7 @@ builder page at `/p/<slug>` and Chrome shows the widgets with no CSP violation.
 | Survey | done 2026-10-08 | audit entry |
 | 0 | done 2026-10-08 | audit entry; 56 model tests; design doc |
 | 1a | done 2026-10-08 | 152 renderer tests; four planted reds |
-| 1b | first half done 2026-10-08; second half running | legacy snapshot 13; publish 8 |
+| 1b | done 2026-10-08 | legacy snapshot 13; publish 8; serve 21; Chrome 29 checks |
+| 2 | core running (Opus) | |
 | 2 | queued | |
 | 3 | queued | |

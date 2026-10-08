@@ -52,6 +52,18 @@ import {
 import { merchantReviewCode, isReferralLink, definedReferralRule, referralAmountText, seededSignupForm } from '../seededOffers.mjs';
 import { reviewTokenValid } from '../reviewTokens.mjs';
 import { leadBodyScript } from './publicLeadScript.mjs';
+import { render as renderBuilder } from '../../src/lib/pageBuilder/render.mjs';
+import { validateBuilderDoc, walk as walkBuilder } from '../../src/lib/pageBuilder/model.mjs';
+import {
+  builderFrameScript,
+  fontsLinkHtml,
+  pixelsHtml as builderPixelsHtml,
+  frameCss as builderFrameCss,
+  leadModalHtml as builderLeadModalHtml,
+  exitDrawerHtml as builderExitDrawerHtml,
+  stickyBarHtml as builderStickyBarHtml,
+  lightboxHtml as builderLightboxHtml
+} from './publicBuilderScript.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -207,6 +219,20 @@ function savedPrice(value) {
 }
 
 function pageTrackFrom(page) {
+  // A page drawn with the builder reports its FIRST product widget, not the flat fields it was
+  // converted from (LANDING_BUILDER_DESIGN.md section 8, question 4). A record whose builder does
+  // not validate is served as the legacy page, so it reports the flat fields as before.
+  const builderDoc = builderDocOf(page);
+  if (builderDoc) {
+    const hero = builderFirst(builderDoc, 'productHero')?.props || {};
+    const heroPlaceholder = Boolean(String(hero.variantId || '').trim()) && !realVariantId(hero.variantId);
+    return {
+      productId: shopifyId(hero.productId),
+      variantId: shopifyId(hero.variantId),
+      price: heroPlaceholder ? '' : savedPrice(hero.price),
+      collectionId: shopifyId(hero.collectionId)
+    };
+  }
   const data = page?.data || {};
   // No price is reported for a product picked with a placeholder variant: it is invented (R14).
   const placeholder = Boolean(String(data.shopifyVariantId || '').trim()) && !realVariantId(data.shopifyVariantId);
@@ -1148,7 +1174,234 @@ function renderGeoPricingSimulatorToolbar({
   `;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Pages drawn with the landing page builder (LANDING_BUILDER_PLAN.md wave 1b).
+// A published record that carries `builder` is rendered by src/lib/pageBuilder/render.mjs and
+// wrapped in the same frame as every page: head tags, pixels, withTracking (jv_vid, consent, UTM
+// capture, the event beacon, added by the route), the exit drawer, the sticky bar, the lead modal.
+// A record without `builder` never comes through here.
+// ---------------------------------------------------------------------------------------------
+
+/** The record's builder document, or null when it has none or it does not validate. */
+function builderDocOf(page) {
+  const doc = page?.builder;
+  if (!doc || typeof doc !== 'object') return null;
+  try {
+    return validateBuilderDoc(doc).ok ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The first widget of a type in page order, or null. */
+function builderFirst(doc, type) {
+  let found = null;
+  walkBuilder(doc, (node) => {
+    if (!found && node.kind === 'widget' && node.type === type) found = node;
+  });
+  return found;
+}
+
+/**
+ * What a builder page sells, for the routes that build a cart link server side: the first product
+ * widget's real variant, the first order bump's real variant and name, and the first checkout
+ * button's code. null for a page without a drawable builder document, which keeps the flat fields.
+ */
+function builderCommerceOf(page) {
+  const doc = builderDocOf(page);
+  if (!doc) return null;
+  const hero = builderFirst(doc, 'productHero')?.props || {};
+  const bump = builderFirst(doc, 'orderBump')?.props || {};
+  const checkout = builderFirst(doc, 'checkoutButton')?.props || {};
+  return {
+    variantId: realVariantId(hero.variantId),
+    bumpVariantId: realVariantId(bump.variantId),
+    bumpTitle: String(bump.title || bump.headline || '').trim(),
+    discountCode: String(checkout.discountCode || '').trim()
+  };
+}
+
+/** Every widget of a type, in page order. */
+function builderAll(doc, type) {
+  const out = [];
+  walkBuilder(doc, (node) => {
+    if (node.kind === 'widget' && node.type === type) out.push(node);
+  });
+  return out;
+}
+
+/**
+ * The whole HTML document of a builder page, or null when the page cannot be drawn (the document
+ * does not validate, or the renderer reports a problem, or anything throws). The caller then serves
+ * the legacy page for the same record: `data` still holds the flat fields, which is the honest
+ * fallback and never a 500. The failure is logged.
+ *
+ * A/B: a builder page serves version A only (design section 8, question 2, the accepted default).
+ * `builderB` is stored and validated at publish but not served, and no split cookie is set.
+ */
+function renderBuilderPage(page, req) {
+  if (!page || page.builder === undefined || page.builder === null) return null;
+  try {
+    const doc = builderDocOf(page);
+    if (!doc) {
+      console.error(`[builder] page "${page.slug}" has a builder document that does not validate; serving its flat fields instead`);
+      return null;
+    }
+    const rawData = page.data || {};
+    const shopify = page.shopifyConfig || {};
+    const storeDomain = realStoreDomain(shopify);
+    const slug = page.slug || 'offer';
+
+    // The VIP referral link, the same rule the legacy page applies.
+    const queryRef = String(req?.query?.ref || '').trim();
+    const queryCoupon = String(req?.query?.coupon || req?.query?.discount || '').trim();
+    const referralLink = isReferralLink(queryRef, queryCoupon);
+    const referralCode = queryRef || (referralLink ? 'GIVE15' : '');
+    const referralRule = referralLink ? definedReferralRule(loadDiscounts(), storeDomain) : null;
+    const isVipReferral = Boolean(referralRule);
+    const referralAmount = referralAmountText(referralRule, shopify.currency);
+
+    // Currency: the same detection as the legacy page.
+    const queryCurrency = String(req?.query?.currency || '').trim().toUpperCase();
+    const initialCurrency = (['USD', 'EUR', 'GBP', 'CAD', 'AUD'].includes(queryCurrency))
+      ? queryCurrency
+      : detectVisitorCurrency({
+          cookie: req?.headers?.cookie || '',
+          countryCode: req?.headers?.['cf-ipcountry'] || req?.headers?.['x-country-code'] || ''
+        });
+    const formatPrice = (price) => {
+      const converted = price ? convertCurrencyCharm(price, initialCurrency, 'USD') : null;
+      return converted ? converted.formatted : price;
+    };
+
+    // Verified reviews are read only when the page has a wall to show them in. The wall applies its
+    // own star threshold; the owner's rating and count cover every review, as on the legacy page.
+    const reviews = builderFirst(doc, 'reviewsWall')
+      ? realVerifiedReviews({ userId: page.userId, storeDomain, minRating: 1, hubStorage: reviewStore() })
+      : { summary: {}, reviews: [] };
+
+    const out = renderBuilder(doc, {
+      slug,
+      journeyId: page.journeyId || '',
+      nodeId: page.nodeId || '',
+      storeDomain,
+      currency: initialCurrency,
+      variant: 'a',
+      realVariantId,
+      formatPrice,
+      reviews
+    });
+    if (out.problems.length) {
+      console.error(`[builder] page "${slug}" did not render (${out.problems[0].path}: ${out.problems[0].message}); serving its flat fields instead`);
+      return null;
+    }
+
+    const hero = builderFirst(doc, 'productHero')?.props || null;
+    const heroVariant = hero ? realVariantId(hero.variantId) : '';
+    const heroPlaceholder = Boolean(hero && String(hero.variantId || '').trim() && !heroVariant);
+    const firstHeading = builderFirst(doc, 'heading');
+    const headline = String(rawData.headline || '').trim() || String(firstHeading?.props?.text || '').trim() || 'Offer';
+    const subhead = ownCopy(rawData.subhead) || '';
+    const heroImage = (hero && ((!heroPlaceholder && hero.productImage) || hero.imageUrl)) || rawData.heroImageUrl || '';
+    const productTitle = (hero && !heroPlaceholder && String(hero.title || '').trim()) || headline;
+    const productPrice = hero && !heroPlaceholder ? savedPrice(hero.price) : '';
+
+    const firstCheckout = builderFirst(doc, 'checkoutButton');
+    const leadOnly = !storeDomain;
+    const pageCode = firstCheckout ? String(firstCheckout.props?.discountCode || '').trim() : '';
+    const effectiveCode = isVipReferral ? 'GIVE15' : pageCode;
+    const leadHasCode = Boolean(effectiveCode) && !leadOnly;
+    const needsModal = leadOnly ? Boolean(firstCheckout) : builderAll(doc, 'checkoutButton').some(w => w.props?.checkoutMode === 'lead-gate');
+
+    const exitHeadline = String(rawData.exitIntentHeadline || '').trim();
+    const exitDrawerOn = Boolean(rawData.exitIntentEnabled && exitHeadline);
+    const exitCode = String(rawData.exitIntentDiscountCode || pageCode || '').trim();
+    const stickyOn = rawData.mobileStickyBarEnabled !== false && Boolean(firstCheckout);
+    const lightbox = out.html.includes('data-jv-photo');
+
+    const metaPixelId = realTrackingId(rawData.metaPixelId);
+    const tiktokPixelId = realTrackingId(rawData.tiktokPixelId);
+    const ga4TrackingId = realTrackingId(rawData.ga4TrackingId);
+
+    const script = builderFrameScript({
+      slug,
+      journeyId: page.journeyId || '',
+      nodeId: page.nodeId || '',
+      storeDomain,
+      referralCode,
+      vipCode: isVipReferral ? 'GIVE15' : '',
+      leadOnly,
+      modal: needsModal,
+      leadHasCode,
+      initialCurrency,
+      productTitle,
+      exitDrawer: exitDrawerOn ? { code: exitCode } : null,
+      sticky: stickyOn,
+      lightbox
+    });
+    const css = out.css.replace(/<\/style/gi, '<\\/style');
+    const background = doc.theme?.colors?.background;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(headline)} | Official Store</title>
+  <meta name="description" content="${escapeHtml(subhead)}">
+  <meta property="og:title" content="${escapeHtml(headline)}">
+  <meta property="og:description" content="${escapeHtml(subhead)}">
+  <meta property="og:image" content="${escapeHtml(heroImage)}">
+  <meta property="og:type" content="product">
+  ${fontsLinkHtml(out.fonts)}
+  ${builderPixelsHtml({ metaPixelId, tiktokPixelId, ga4TrackingId })}
+  <style id="jv-frame-style">
+    ${builderFrameCss(background)}
+  </style>
+  <style id="jvb-style">
+${css}
+  </style>
+</head>
+<body>
+  ${isVipReferral ? `<div class="jv-referral-banner" style="background: linear-gradient(135deg, rgba(236, 72, 153, 0.16) 0%, rgba(245, 158, 11, 0.12) 100%); border-bottom: 1px solid rgba(236, 72, 153, 0.32); padding: 11px 16px; font-size: 13px; font-weight: 500; color: #fdf2f8; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;">
+    <span style="font-weight: 800; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 9999px; background: rgba(236, 72, 153, 0.28); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.45);">VIP Friend Invitation</span>
+    <span>Your friend's code <strong>GIVE15</strong>${referralAmount ? ` (${escapeHtml(referralAmount)})` : ''} is applied at checkout</span>
+  </div>` : ''}
+  ${out.html}
+  ${needsModal ? builderLeadModalHtml({ leadOnly, leadHasCode, code: effectiveCode }) : ''}
+  ${exitDrawerOn ? builderExitDrawerHtml({
+    headline: exitHeadline,
+    badge: String(rawData.exitIntentBadge || ''),
+    subhead: String(rawData.exitIntentSubhead || ''),
+    buttonText: String(rawData.exitIntentButtonText || ''),
+    code: exitCode,
+    storeDomain,
+    hasVariant: Boolean(heroVariant),
+    leadOnly
+  }) : ''}
+  ${stickyOn ? builderStickyBarHtml({
+    title: productTitle,
+    price: productPrice,
+    initialPrice: productPrice ? formatPrice(productPrice) : '',
+    buttonText: String(firstCheckout.props?.label || '').trim() || 'Continue'
+  }) : ''}
+  ${lightbox ? builderLightboxHtml() : ''}
+  <script>
+    ${script}
+  </script>
+</body>
+</html>`;
+  } catch (err) {
+    console.error(`[builder] page "${page?.slug}" could not be drawn (${err?.message || err}); serving its flat fields instead`);
+    return null;
+  }
+}
+
 function renderPublicFunnelHtml(page, req, res) {
+  // A page with a builder document is drawn by the builder; one that cannot be drawn falls through
+  // to the legacy template below, which reads the flat fields in `data`.
+  const builtPage = renderBuilderPage(page, req);
+  if (builtPage !== null) return builtPage;
   const rawData = page.data || {};
   const activeVariant = resolveSplitVariant(page, req, res);
   const isVariantB = activeVariant === 'b' && rawData.variantB;
@@ -4270,12 +4523,17 @@ app.post('/api/public/lead', async (req, res) => {
   const page = slug ? await loadPublicPage(slug) : null;
   const storeDomain = realStoreDomain(page?.shopifyConfig);
   const storeConnected = Boolean(storeDomain);
-  const variantId = realVariantId(page?.data?.shopifyVariantId);
-  const bumpVariantId = realVariantId(page?.data?.orderBumpVariantId);
+  // A page drawn with the builder carries its product, bump and code in its widgets, not in the
+  // flat fields; the cart link this route hands back must name what the page sells.
+  const builderCommerce = builderCommerceOf(page);
+  const variantId = builderCommerce ? builderCommerce.variantId : realVariantId(page?.data?.shopifyVariantId);
+  const bumpVariantId = builderCommerce ? builderCommerce.bumpVariantId : realVariantId(page?.data?.orderBumpVariantId);
   const bumpSelected = Boolean(order_bump_selected ?? orderBumpAccepted);
-  const discountCode = (activeVariant === 'b' && page?.data?.variantB?.discountCode)
-    ? page.data.variantB.discountCode
-    : (page?.data?.discountCode || '');
+  const discountCode = builderCommerce
+    ? builderCommerce.discountCode
+    : (activeVariant === 'b' && page?.data?.variantB?.discountCode)
+      ? page.data.variantB.discountCode
+      : (page?.data?.discountCode || '');
 
   const exitIntent = Boolean(req.body?.exit_intent || req.body?.exitIntent);
   const tags = ['Jourvance Lead', `Variant-${activeVariant.toUpperCase()}`];
@@ -4537,7 +4795,7 @@ app.post('/api/public/lead', async (req, res) => {
   // Wave 3 & 4: Outbound Webhook Relay (Klaviyo / Zapier / Make / Custom Webhook with variant)
   const webhookUrl = customWebhookUrl || externalWebhookUrl || page?.data?.webhookUrl;
   if (webhookUrl && (webhookUrl.startsWith('http://') || webhookUrl.startsWith('https://'))) {
-    const bumpTitle = (page?.data?.orderBumpTitle || page?.data?.orderBumpHeadline || '').trim();
+    const bumpTitle = builderCommerce ? builderCommerce.bumpTitle : (page?.data?.orderBumpTitle || page?.data?.orderBumpHeadline || '').trim();
     fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': 'Jourvance-Webhook/1.0' },

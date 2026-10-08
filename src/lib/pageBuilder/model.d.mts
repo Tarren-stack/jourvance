@@ -46,6 +46,8 @@ export declare const SECTION_PROPS: Readonly<Record<keyof SectionProps, PropSpec
 export declare const SECTION_DEFAULTS: Readonly<SectionProps>;
 export declare const WIDGET_REGISTRY: Readonly<WidgetRegistry>;
 export declare const WIDGET_GROUPS: ReadonlyArray<{ id: WidgetGroup; label: string }>;
+/** The seeded sample trust line today's published page drops. */
+export declare const SEEDED_TRUST: RegExp;
 export declare const LEGACY_STARTER_TEXT: ReadonlyArray<string>;
 export declare const LEGACY_PLACEHOLDER_VARIANT_IDS: ReadonlyArray<string>;
 

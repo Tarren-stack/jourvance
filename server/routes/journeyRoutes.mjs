@@ -186,6 +186,12 @@ export function setupJourneyRoutes(app, ctx) {
     thankYou: parts.thankYouNode?.data ? { ...parts.thankYouNode.data } : d.thankYou
   });
 
+  // A copy of landing data without the builder documents (never the node's own object).
+  const withoutBuilder = (data) => {
+    const { builder: _builder, builderB: _builderB, ...rest } = data;
+    return rest;
+  };
+
   const upsellRecordData = (data, d) => ({
     ...data,
     upsell: d.offerType !== 'downsell' ? data : undefined,
@@ -409,7 +415,10 @@ export function setupJourneyRoutes(app, ctx) {
           customDomain: customDomain && isDomainVerified ? customDomain : '',
           record: {
             ...base,
-            data,
+            // The builder document lives at the top of the record only; data keeps the flat
+            // fields. The fingerprint below is taken from the full node data, so it still moves
+            // when the design does.
+            data: withoutBuilder(data),
             shopifyConfig,
             customDomain: customDomain || undefined,
             customDomainVerified: isDomainVerified,
@@ -863,7 +872,14 @@ export function setupJourneyRoutes(app, ctx) {
       const customDomain = cleanCustomDomain(d.customDomain);
       const isDomainVerified = domainVerifiedFor(customDomain, uid);
       const data = landingData(d, { slug, url, customDomain, isDomainVerified, publishedAt, parts: funnelParts(nodes) });
-      record = { ...base, data, shopifyConfig, customDomain: customDomain || undefined, customDomainVerified: isDomainVerified };
+      record = {
+        ...base,
+        data: withoutBuilder(data),
+        shopifyConfig,
+        customDomain: customDomain || undefined,
+        customDomainVerified: isDomainVerified,
+        ...(d.builder ? { builder: d.builder } : {})
+      };
     } else {
       const data = { ...d, slug, published: true, publishedAt, publishedUrl: url };
       record = { ...base, data: upsellRecordData(data, d), shopifyConfig };

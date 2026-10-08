@@ -88,7 +88,13 @@ test('a valid builder document reaches the stored public record byte for byte', 
   assert.ok(record, 'the landing page was stored under its slug');
   assert.equal(JSON.stringify(record.builder), JSON.stringify(builder));
   assert.equal(JSON.stringify(record.builderB), JSON.stringify(builderB));
-  assert.equal(JSON.stringify(record.data.builder), JSON.stringify(builder), 'the node data keeps it too');
+  assert.equal('builder' in record.data, false, 'the record holds the document once, at the top');
+  assert.equal('builderB' in record.data, false);
+  // The journey node keeps its own copy (the editor reads it back), and the fingerprint still
+  // covers it: the stripped copy is the record's, never the node's.
+  const savedNode = r.store.journey.nodes[0];
+  assert.equal(JSON.stringify(savedNode.data.builder), JSON.stringify(builder));
+  assert.equal(JSON.stringify(savedNode.data.builderB), JSON.stringify(builderB));
 });
 
 test('an invalid builder document is refused with its paths and nothing changes', async () => {
