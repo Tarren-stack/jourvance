@@ -53,7 +53,10 @@ test('server.mjs mounts the Sentinel after the body parser, inside the shield, w
   assert.match(opts, /hubUrl: process\.env\.HUB_URL/);
   assert.match(opts, /appId: process\.env\.APP_ID/);
   assert.match(opts, /extraFrameSrc: \['https:\/\/gen-lang-client-0527980301\.firebaseapp\.com'\]/);
-  assert.match(opts, /extraScriptSrc: \['https:\/\/zeluslabs\.dev'\]/, 'the hard-coded tracker tag needs its origin whatever HUB_URL says');
+  const scriptSrc = (opts.match(/extraScriptSrc: \[([^\]]*)\]/) || [])[1] || '';
+  for (const origin of ['https://zeluslabs.dev', 'https://connect.facebook.net', 'https://analytics.tiktok.com', 'https://www.googletagmanager.com']) {
+    assert.ok(scriptSrc.includes(`'${origin}'`), `extraScriptSrc must carry ${origin}: the tracker tag needs its origin whatever HUB_URL says, and the merchant pixel loaders (Meta, TikTok, Google tag) that publicRoutes.mjs injects would be refused otherwise`);
+  }
   assert.doesNotMatch(opts, /enabled: false/);
   assert.doesNotMatch(src, /app\.set\('trust proxy', (true|\d+)\)/);
 });
@@ -111,6 +114,18 @@ test('through a real app: a document route keeps its body, a token route is scan
     assert.match(csp, /default-src 'self'/);
     assert.match(csp, /frame-src 'self' https:\/\/gen-lang-client-0527980301\.firebaseapp\.com/);
     assert.match(csp, /font-src 'self' https:\/\/fonts\.gstatic\.com/);
+    {
+      const pix = express();
+      applySecurity(pix, { hubUrl: '', appId: '', appName: 'test', extraScriptSrc: ['https://connect.facebook.net'] });
+      pix.get('/p', (_q, res) => res.json({ success: true }));
+      const px = await listen(pix);
+      try {
+        const pr = await fetch(px.base + '/p');
+        assert.match(pr.headers.get('content-security-policy') || '', /script-src[^;]*https:\/\/connect\.facebook\.net/, 'extraScriptSrc reaches the script-src directive');
+      } finally {
+        await close(px.server);
+      }
+    }
     assert.equal(r.headers.get('x-frame-options'), 'DENY');
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
     assert.equal(r.headers.get('x-powered-by'), null);

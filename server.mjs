@@ -200,7 +200,10 @@ applySecurity(app, {
   // matters when HUB_URL is unset or points elsewhere (a local hub, a sandboxed boot), and
   // then it is what keeps the page's own telemetry tag from being refused. Seen blocked in
   // the browser on the first sandboxed boot.
-  extraScriptSrc: ['https://zeluslabs.dev'],
+  // Also the merchant pixel loaders that published landing pages inject
+  // (server/routes/publicRoutes.mjs): Meta, TikTok and Google tag. Without these origins the
+  // policy would refuse the pixels.
+  extraScriptSrc: ['https://zeluslabs.dev', 'https://connect.facebook.net', 'https://analytics.tiktok.com', 'https://www.googletagmanager.com'],
   // The cockpit fetches many small resources on a tab change and its sign-in is a bearer
   // token the Sentinel cannot verify cheaply, so the fairness bucket is the address. This is
   // the Sentinel default doubled; the per-address machine ceiling sits ten times above it.
