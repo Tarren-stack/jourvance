@@ -201,7 +201,8 @@ describe('the builder is a full-screen modal dialog on the shared stack', () => 
     const dragBranch = esc.slice(drag, esc.indexOf('}', drag) + 1);
     assert.match(dragBranch, /e\.preventDefault\(\);/);
     assert.doesNotMatch(dragBranch, /stopPropagation|handled\(\)/, 'a drag in progress still gets its Escape: the sensor listens on the document');
-    assert.match(canvasSrc, /if \(e\.key === 'Escape'\) \{\s*e\.preventDefault\(\);\s*state\.finish\(false\);/, 'the inline editor answers its own Escape by reverting');
+    assert.match(canvasSrc, /if \(e\.key === 'Escape'\) \{[^}]*e\.preventDefault\(\);\s*state\.finish\(true\);/, 'the inline editor answers its own Escape by keeping the text (design section 7); undo takes it back');
+    assert.doesNotMatch(canvasSrc, /state\.finish\(false\)/, 'nothing in the canvas reverts an inline edit');
     // The native dialog's own Escape (cancel) never closes behind the reducer's back.
     const cancel = shell.slice(shell.indexOf('onCancel={e => {'), shell.indexOf('style={{', shell.indexOf('onCancel={e => {')));
     assert.match(cancel, /e\.preventDefault\(\);/);

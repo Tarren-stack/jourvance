@@ -2,7 +2,24 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-08. The page builder editor (Wave 2 core) is committed and was driven in Chrome. The lead-capture fix (4008608) is still NOT deployed. Read the newest section first.
+Checked: 2026-10-08. The page builder editor (Wave 2 core) is committed and was driven in Chrome; the polish pass is committed too. The lead-capture fix (4008608) is still NOT deployed. Read the newest section first.
+
+## 2026-10-08: The page builder editor, polish pass
+
+Wave 2 polish, done by a Sonnet agent against the list the previous section left open.
+
+**Fixed, each found by driving it in Chrome:** the desktop canvas is drawn at 1280 and scaled into the frame (tablet 1024 scaled, mobile 390 as it is), with the editor's marks outside the scaled layer so no scale is divided out; a pointer drag from the canvas grip moved nothing, because the toolbar (and so the drag's source) was removed when the drag began and the drop found no block (the toolbar is hidden now, not removed); the selection toolbar stuck out of a 390px window and covered the text of a short block (it keeps inside the frame and drops below a short block); Escape in an inline edit keeps the text (design section 7) and Control Z takes it back; the empty-block hints were 2.7 to 1 on a white page (opaque backdrop now); refusals said "Theme containerWidth", "finite number" and "theme.primary" (the theme panel's own names and plain words now); layout names read "33 / 67" (now "2 columns, narrow first (33 / 67)"); `acorn` is a devDependency (8.19.0) so the route-context gate no longer finds it only in the hub checkout; blueprint cards are named groups and each button names its blueprint (they were never inert `div`s: the card holds a real button, so a card cannot also be a button).
+
+**Production policy:** the builder was opened under the real Content-Security-Policy on a sandboxed boot of `server.mjs` (no hub key). `style-src 'self' 'unsafe-inline'` allows the shadow root's `<style>`: 0 violations, the shadow stylesheet applied (button background read from it, then changed). Nothing was widened.
+
+### Evidence
+
+Main session re-ran: `npx tsc --noEmit` exit 0; `npm test` 2198 tests, 2195 passed, 0 failed, 3 skipped (2165 before, plus 33 new in three files); `npx vite build` built; no em dash in the builder files; the two screenshots (desktop scaled at about 0.62 with the selection outline on its block; a 390px window with Desktop chosen, toolbar inside the window) read. Reported by the agent, not re-run here: `scripts/builder-browser-check.mjs` 22 of 22 steps (was 8); the sandboxed boot under the real policy with 0 violations and an http image as the positive control; four planted faults each turning a unit test or a browser step red, restored `cmp` identical.
+
+### Not verified
+
+- Google Fonts and product images in the canvas: every outside request is blocked by the check, so they were never fetched. The policy allows `fonts.googleapis.com`; the header was read, the font was not loaded.
+- The deploy: nothing here is deployed.
 
 ## 2026-10-08 — The page builder editor
 

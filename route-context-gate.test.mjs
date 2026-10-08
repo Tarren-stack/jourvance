@@ -4,7 +4,7 @@
 // and never destructured, is not an error until the request that calls it: a ReferenceError inside
 // an async handler, which Express 4 does not answer, so the request HANGS. That shipped three
 // times (noteAttrMap, loadBehaviorBag, predictionAccount). This gate finds the whole class
-// statically, with a real parser (acorn, hoisted by Vite) and its own scope tracker.
+// statically, with a real parser (acorn, a devDependency of this spoke) and its own scope tracker.
 //
 // Per route module that reads a context it asserts:
 //   (a) no free identifier: every name used is declared in the module, imported, a JS or Node
@@ -16,16 +16,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-function loadAcorn() {
-  for (const p of ['acorn', path.resolve('../../node_modules/acorn')]) {
-    try { return require(p); } catch { /* try next */ }
-  }
-  return null;
-}
-const acorn = loadAcorn();
+import * as acorn from 'acorn';
 
 // Allowlist of free names that are legitimately not declared. Expected to stay empty.
 const ALLOWED_FREE = new Set([]);
@@ -312,16 +303,17 @@ function problems() {
   return [...new Set(out)];
 }
 
-test('acorn is available for the gate', { skip: acorn ? false : 'acorn not found' }, () => {
-  assert.ok(acorn.parse);
+test('acorn is available for the gate', () => {
+  assert.equal(typeof acorn.parse, 'function');
+  assert.match(acorn.version, /^8\./);
 });
 
-test('every route module context is complete: nothing called but not passed, nothing passed but not declared', { skip: acorn ? false : 'acorn not found' }, () => {
+test('every route module context is complete: nothing called but not passed, nothing passed but not declared', () => {
   const found = problems();
   assert.deepEqual(found, [], `\n${found.join('\n')}\n`);
 });
 
-test('the scope tracker itself: a planted free name is found, locals are not', { skip: acorn ? false : 'acorn not found' }, () => {
+test('the scope tracker itself: a planted free name is found, locals are not', () => {
   const src = `import fs from 'node:fs'; const top = 1;
 export function setupXRoutes(app, ctx) {
   const { a, b = 2 } = ctx;

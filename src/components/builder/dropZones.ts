@@ -52,9 +52,9 @@ export const LAYOUTS: ReadonlyArray<{ id: string; label: string; columns: number
   { id: 'two', label: '2 columns', columns: [0, 0] },
   { id: 'three', label: '3 columns', columns: [0, 0, 0] },
   { id: 'four', label: '4 columns', columns: [0, 0, 0, 0] },
-  { id: 'third-two-thirds', label: '33 / 67', columns: [33, 67] },
-  { id: 'two-thirds-third', label: '67 / 33', columns: [67, 33] },
-  { id: 'quarter-three-quarters', label: '25 / 75', columns: [25, 75] }
+  { id: 'third-two-thirds', label: '2 columns, narrow first (33 / 67)', columns: [33, 67] },
+  { id: 'two-thirds-third', label: '2 columns, wide first (67 / 33)', columns: [67, 33] },
+  { id: 'quarter-three-quarters', label: '2 columns, narrow first (25 / 75)', columns: [25, 75] }
 ]);
 
 export interface NodeFactory {

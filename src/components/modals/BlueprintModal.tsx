@@ -616,6 +616,9 @@ export const BlueprintModal: React.FC<Props> = ({
               return (
                 <div
                   key={bp.id}
+                  role="group"
+                  aria-labelledby={`bp-title-${bp.id}`}
+                  data-blueprint-card={bp.id}
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.03)',
                     border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -679,7 +682,7 @@ export const BlueprintModal: React.FC<Props> = ({
                       </span>
                     </div>
 
-                    <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#FFFFFF', margin: '0 0 4px 0' }}>
+                    <h3 id={`bp-title-${bp.id}`} style={{ fontSize: '16px', fontWeight: 800, color: '#FFFFFF', margin: '0 0 4px 0' }}>
                       {bp.title}
                     </h3>
                     <div style={{ fontSize: '12px', color: '#F472B6', fontWeight: 600, marginBottom: '6px' }}>
@@ -735,6 +738,7 @@ export const BlueprintModal: React.FC<Props> = ({
 
                   <button
                     type="button"
+                    aria-label={`Use Blueprint: ${bp.title}`}
                     onClick={e => {
                       e.stopPropagation();
                       handleSelectTurnkey(bp);
@@ -844,6 +848,9 @@ export const BlueprintModal: React.FC<Props> = ({
                 return (
                   <div
                     key={cb.id}
+                    role="group"
+                    aria-labelledby={`bp-custom-title-${cb.id}`}
+                    data-blueprint-card={cb.id}
                     style={{
                       backgroundColor: 'rgba(255, 255, 255, 0.03)',
                       border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -891,7 +898,7 @@ export const BlueprintModal: React.FC<Props> = ({
                         </span>
                       </div>
 
-                      <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#FFFFFF', margin: '0 0 4px 0' }}>
+                      <h3 id={`bp-custom-title-${cb.id}`} style={{ fontSize: '16px', fontWeight: 800, color: '#FFFFFF', margin: '0 0 4px 0' }}>
                         {cb.name}
                       </h3>
                       {cb.description && (
@@ -941,6 +948,7 @@ export const BlueprintModal: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => handleCopyShareLink(cb)}
+                        aria-label={copiedShareId === cb.id ? `Link Copied! ${cb.name}` : `Share ${cb.name}`}
                         title="Copy shareable link for another user"
                         style={{
                           padding: '9px 12px',
@@ -965,6 +973,7 @@ export const BlueprintModal: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => handleSelectCustom(cb)}
+                        aria-label={`Use Blueprint: ${cb.name}`}
                         style={{
                           padding: '9px 16px',
                           borderRadius: '8px',
@@ -989,6 +998,7 @@ export const BlueprintModal: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => handleDeleteCustom(cb.id, cb.name)}
+                        aria-label={`Delete ${cb.name}`}
                         title="Delete custom blueprint"
                         style={{
                           padding: '9px',

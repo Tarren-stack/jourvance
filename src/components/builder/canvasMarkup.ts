@@ -5,7 +5,29 @@
 // No React and no DOM, so `node --test` loads it as it is.
 
 import { WIDGET_REGISTRY } from '../../lib/pageBuilder/model.mjs';
-import type { BuilderWidget, WidgetType } from '../../types/pageBuilder';
+import type { BuilderDevice, BuilderWidget, WidgetType } from '../../types/pageBuilder';
+
+/**
+ * The width each device's page is DRAWN at, in CSS pixels, whatever room the frame has. Desktop and
+ * tablet are drawn at their design width and scaled down to fit (`canvasScale`), as page builders do,
+ * so the page lays out as a desktop page does even in a narrow window. Mobile is drawn as it is.
+ */
+export const DESIGN_WIDTHS: Readonly<Record<BuilderDevice, number>> = Object.freeze({ desktop: 1280, tablet: 1024, mobile: 390 });
+
+/** The smallest the canvas is ever scaled to: below this a page cannot be read at all. */
+export const MIN_CANVAS_SCALE = 0.1;
+
+/**
+ * How much the page is scaled to fit `available` CSS pixels of frame: never above 1 (a page is not
+ * blown up), never for mobile (a phone-sized page is drawn at its own size and the frame scrolls),
+ * and 1 when the room is not known yet.
+ */
+export function canvasScale(device: BuilderDevice, available: number): number {
+  if (device === 'mobile') return 1;
+  if (!Number.isFinite(available) || available <= 0) return 1;
+  const raw = Math.min(1, available / DESIGN_WIDTHS[device]);
+  return Math.round(Math.max(MIN_CANVAS_SCALE, raw) * 10000) / 10000;
+}
 
 /**
  * The renderer writes no script (render.mjs rule 5, pinned by page-builder-dropzones.test.mjs), and
@@ -165,7 +187,11 @@ export const EMPTY_HINTS: Readonly<Record<WidgetType, string>> = Object.freeze({
   trustBadge: 'Empty trust line. Double-click to write it.'
 });
 
-/** The editor's own look inside the shadow root. Hints and outlines only; never the page's look. */
+/**
+ * The editor's own look inside the shadow root. Hints and outlines only; never the page's look. A hint's
+ * backdrop is OPAQUE: it sits on the merchant's own page colour, and a translucent one over a white page
+ * left its text at 2.7 to 1.
+ */
 export const EDITOR_CSS = [
   ':host{display:block}',
   '#jvb-root{min-height:100%}',
@@ -173,6 +199,6 @@ export const EDITOR_CSS = [
   '#jvb-root :is(a,button,input,select,textarea,summary,label,iframe,details){pointer-events:none}',
   '#jvb-root [data-jvbe-editing]{pointer-events:auto;cursor:text;white-space:pre-wrap;-webkit-user-select:text;user-select:text;outline:2px solid #818CF8;outline-offset:3px}',
   '#jvb-root .jvb-col:empty{min-height:72px;outline:1px dashed rgba(148,163,184,.55);outline-offset:-6px}',
-  '#jvb-root .jvbe-empty{display:block;padding:12px 14px;border:1px dashed rgba(148,163,184,.65);border-radius:8px;color:#CBD5E1;background-color:rgba(15,23,42,.55);font:500 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:0;text-align:left}',
+  '#jvb-root .jvbe-empty{display:block;padding:12px 14px;border:1px dashed rgba(148,163,184,.65);border-radius:8px;color:#CBD5E1;background-color:#0F172A;font:500 13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:0;text-align:left}',
   '#jvb-root .jvbe-empty[data-jvbe-hidden]{display:none}'
 ].join('\n');

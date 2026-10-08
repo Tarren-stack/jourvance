@@ -245,7 +245,7 @@ export function ColorField({
           <input
             id={`${id}-hex`}
             type="text"
-            aria-label={allowTheme ? `${label}, hex code` : undefined}
+            aria-label={allowTheme ? `${label}, colour code` : undefined}
             aria-invalid={error ? true : undefined}
             aria-describedby={describedBy(allowTheme ? id : `${id}-hex`, hint, error)}
             value={hex}

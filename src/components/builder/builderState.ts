@@ -245,7 +245,7 @@ function newProblems(prev: BuilderDoc, next: BuilderDoc): BuilderProblem[] {
 function describeProblem(problem: BuilderProblem, node: BuilderNode | null): string {
   const styleKey = /\.style\.(?:desktop|tablet|mobile)\.([A-Za-z]+)$/.exec(problem.path);
   if (styleKey && Object.hasOwn(STYLE_KEYS, styleKey[1])) {
-    return `${(STYLE_KEYS as Record<string, { label: string }>)[styleKey[1]].label}: ${problem.message}`;
+    return `${(STYLE_KEYS as Record<string, { label: string }>)[styleKey[1]].label}: ${plainProblem(problem.message)}`;
   }
   const propKey = /\.props\.([A-Za-z]+)(?:\[\d+\](?:\.([A-Za-z]+))?)?$/.exec(problem.path);
   if (propKey && node) {
@@ -257,11 +257,39 @@ function describeProblem(problem: BuilderProblem, node: BuilderNode | null): str
           : {};
     const spec = specs[propKey[1]];
     const label = propKey[2] && spec?.item?.[propKey[2]] ? spec.item[propKey[2]].label : spec?.label;
-    if (label) return `${label}: ${problem.message}`;
+    if (label) return `${label}: ${plainProblem(problem.message)}`;
   }
   const theme = /^theme\.(?:colors|fonts)?\.?([A-Za-z]+)$/.exec(problem.path);
-  if (theme) return `Theme ${theme[1]}: ${problem.message}`;
-  return problem.message.charAt(0).toUpperCase() + problem.message.slice(1);
+  if (theme) return `${THEME_FIELD_NAMES[theme[1]] ?? 'Theme'}: ${plainProblem(problem.message)}`;
+  const text = plainProblem(problem.message);
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** The words the theme panel itself uses for each theme setting, so a refusal names the field the merchant sees. */
+const THEME_FIELD_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  primary: 'Main colour',
+  secondary: 'Second colour',
+  background: 'Page background',
+  surface: 'Card background',
+  text: 'Text',
+  muted: 'Quiet text',
+  heading: 'Heading font',
+  body: 'Body font',
+  radius: 'Corner radius',
+  containerWidth: 'Content width',
+  spacingScale: 'Spacing step',
+  buttonStyle: 'Button style'
+});
+
+/** The model's wording with the code words out of it: a number is a number, and a theme colour is picked from the list. */
+function plainProblem(message: string): string {
+  return message
+    .replace('is not a finite number', 'is not a number')
+    .replace('use #rgb, #rrggbb, #rrggbbaa or', 'use a colour code such as #ec4899, or')
+    .replace('a theme colour is #rgb, #rrggbb or #rrggbbaa', 'a theme colour is a colour code such as #ec4899')
+    .replace(/ or a theme colour such as theme\.primary/, ' or pick a theme colour from the list')
+    .replace(/, or theme\.heading or theme\.body/, ', or pick the theme heading or body font')
+    .replace('a font is a family name or theme.heading or theme.body', 'a font is a family name, or the theme heading or body font');
 }
 
 // ---- Building the next document without touching this one ----

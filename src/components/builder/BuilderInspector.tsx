@@ -201,7 +201,7 @@ function PropField({
     case 'anchor':
       return <TextField label={spec.label} value={typeof value === 'string' ? value : ''} hint="Letters, digits, hyphens and underscores, starting with a letter. Link to it with #name." error={error} onChange={set} />;
     case 'html':
-      return <TextField label={spec.label} value={typeof value === 'string' ? value : ''} multiline monospace rows={6} hint="Scripts, event handlers and javascript: links are removed when the page is drawn." error={error} onChange={set} />;
+      return <TextField label={spec.label} value={typeof value === 'string' ? value : ''} multiline monospace rows={6} hint="Anything that runs code (scripts, onclick and javascript: links) is removed when the page is drawn." error={error} onChange={set} />;
     case 'url':
       return (
         <TextField
@@ -476,7 +476,7 @@ function AdvancedTab({ node, dispatch, notice }: { node: BuilderNode; dispatch: 
       <TextField
         label="CSS class"
         value={className}
-        hint="Applies on every device. Class names only, separated by spaces."
+        hint="For developers: a class name your own style sheet uses, applied on every device. Names only, separated by spaces."
         error={errorFor(notice, 'style.customClass')}
         onChange={v => dispatch({ type: 'setClass', id: node.id, className: v, coalesce: `class:${node.id}`, at: coalesceAt() })}
       />

@@ -18,9 +18,11 @@ import { findNode, resolveStyle, walk } from '../../lib/pageBuilder/model.mjs';
 import type { BuilderDevice, BuilderDoc, BuilderNode, BuilderWidget } from '../../types/pageBuilder';
 import { zoneGeometry, type DropZone, type Rect } from './dropZones';
 import {
+  DESIGN_WIDTHS,
   EDITOR_CSS,
   EMPTY_HINTS,
   INLINE_TARGETS,
+  canvasScale,
   cleanInlineText,
   inlineLabel,
   inlineMultiline,
@@ -33,8 +35,11 @@ import {
   type InlineTarget
 } from './canvasMarkup';
 
-/** How wide the page is drawn for each device. Desktop takes the whole frame. */
-export const DEVICE_WIDTHS: Readonly<Record<BuilderDevice, number | null>> = Object.freeze({ desktop: null, tablet: 1024, mobile: 390 });
+/** How wide the page is drawn for each device (see canvasMarkup.DESIGN_WIDTHS). */
+export const DEVICE_WIDTHS = DESIGN_WIDTHS;
+
+/** The frame's padding on each side, in CSS pixels. */
+const FRAME_PAD = 24;
 
 export type ToolbarAction = 'up' | 'down' | 'duplicate' | 'remove';
 
@@ -248,6 +253,7 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
 }) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
   const editing = useRef<Editing | null>(null);
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -256,15 +262,28 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
   const [pageRect, setPageRect] = useState<Rect | null>(null);
   const [writeTick, setWriteTick] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // The room the frame gives the page, and the page's own height, both in CSS pixels. The page is
+  // drawn at its design width inside a transformed layer; the editor's marks live outside that layer
+  // in a box the size of the SCALED page, and are placed from getBoundingClientRect, which already
+  // reports the scaled boxes, so no scale ever has to be divided out.
+  const [room, setRoom] = useState(0);
+  const [layerHeight, setLayerHeight] = useState(0);
+  const designWidth = DESIGN_WIDTHS[device];
+  const scale = canvasScale(device, room);
+  const frameWidth = Math.round(designWidth * scale * 100) / 100;
+  // The selection toolbar keeps inside the frame: a block near the right edge would push its buttons
+  // out of the window, where a keyboard-less or touch user could not reach them.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarWidth, setToolbarWidth] = useState(0);
 
   const result = useMemo(() => render(doc, { device }), [doc, device]);
   useCanvasFonts(result.fonts);
 
   const measure = useCallback(() => {
     const root = hostRef.current?.shadowRoot;
-    const layer = layerRef.current;
-    if (!root || !layer) return;
-    const base = layer.getBoundingClientRect();
+    const frame = frameRef.current;
+    if (!root || !frame) return;
+    const base = frame.getBoundingClientRect();
     const rel = (r: DOMRect): Rect => ({ left: r.left - base.left, top: r.top - base.top, width: r.width, height: r.height });
     const next = new Map<string, Rect>();
     walk(docRef.current, node => {
@@ -298,6 +317,7 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
     if (!host) return;
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => measure()) : null;
     observer?.observe(host);
+    if (frameRef.current) observer?.observe(frameRef.current);
     window.addEventListener('resize', measure);
     const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
     fonts?.ready.then(() => measure()).catch(() => {});
@@ -309,7 +329,27 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
 
   useEffect(() => {
     measure();
-  }, [device, zones, selectedId, measureTick, measure]);
+  }, [device, scale, layerHeight, zones, selectedId, measureTick, measure]);
+
+  // The room the frame gives the page, and the page's own height (it sets the height of the box the
+  // scaled page takes up, because a transform does not change layout).
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    const layer = layerRef.current;
+    const read = () => {
+      if (scroller) setRoom(Math.max(0, scroller.clientWidth - FRAME_PAD * 2));
+      if (layer) setLayerHeight(layer.offsetHeight);
+    };
+    read();
+    if (typeof ResizeObserver !== 'function') {
+      window.addEventListener('resize', read);
+      return () => window.removeEventListener('resize', read);
+    }
+    const observer = new ResizeObserver(read);
+    if (scroller) observer.observe(scroller);
+    if (layer) observer.observe(layer);
+    return () => observer.disconnect();
+  }, [scrollerRef]);
 
   // The page's own forms and links do nothing in the editor.
   useEffect(() => {
@@ -401,8 +441,9 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
       if (e.key === 'Tab') return; // Tab moves on, and blur keeps the text
       e.stopPropagation();
       if (e.key === 'Escape') {
+        // Design section 7: Escape leaves editing and KEEPS what was typed. Undo takes it back.
         e.preventDefault();
-        state.finish(false);
+        state.finish(true);
       } else if (e.key === 'Enter' && !(multiline && e.shiftKey)) {
         e.preventDefault();
         state.finish(true);
@@ -455,11 +496,14 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
   }, [preview, device]);
 
   const selectedRect = selectedId ? rects.get(selectedId) : undefined;
+  useLayoutEffect(() => {
+    const w = toolbarRef.current ? toolbarRef.current.offsetWidth : 0;
+    if (w !== toolbarWidth) setToolbarWidth(w);
+  });
   const hoveredRect = hoveredId && hoveredId !== selectedId ? rects.get(hoveredId) : undefined;
   const selectedNode = selectedId ? findNode(doc, selectedId)?.node : undefined;
   const selectedLabel = selectedId ? labelOf(selectedId) : '';
   const across = selectedNode?.kind === 'column';
-  const width = DEVICE_WIDTHS[device];
   const showMarks = !preview;
 
   const zoneBoxes = useMemo(() => {
@@ -484,12 +528,28 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
         style={{ flex: 1, minHeight: 0, overflow: 'auto', backgroundColor: '#1F2937', padding: '24px' }}
       >
         <div
-          ref={layerRef}
+          ref={frameRef}
+          data-canvas-frame=""
+          data-canvas-scale={scale}
           style={{
             position: 'relative',
-            width: width ? `${width}px` : '100%',
-            maxWidth: width ? 'none' : '100%',
+            width: `${frameWidth}px`,
+            height: layerHeight > 0 ? `${Math.round(layerHeight * scale * 100) / 100}px` : undefined,
+            minHeight: `${Math.round(480 * scale)}px`,
             margin: '0 auto',
+            flex: 'none'
+          }}
+        >
+        <div
+          ref={layerRef}
+          data-canvas-layer=""
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: `${designWidth}px`,
+            transformOrigin: '0 0',
+            transform: scale < 1 ? `scale(${scale})` : undefined,
             boxShadow: '0 10px 30px rgba(0, 0, 0, 0.35)',
             backgroundColor: doc.theme?.colors?.background || '#09080E'
           }}
@@ -527,8 +587,9 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
             style={{ display: 'block', minHeight: '480px', outlineOffset: '-3px' }}
           />
           <span id="jvb-canvas-help" hidden>
-            Click a block to select it. With a block selected, press Enter to write its text in place, Enter again to keep it, or Escape to cancel.
+            Click a block to select it. With a block selected, press Enter to write its text in place. Enter or Escape keeps what you wrote, and Control or Command Z takes it back.
           </span>
+        </div>
 
           {showMarks && (
             <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
@@ -550,6 +611,7 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                 <>
                   <div
                     aria-hidden="true"
+                    data-selection-outline={selectedId}
                     style={{
                       position: 'absolute',
                       left: selectedRect.left,
@@ -560,14 +622,19 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                       outlineOffset: '-2px'
                     }}
                   />
-                  {!zones && (
-                    <div
+                  {/* While a drag is on the toolbar is hidden, not removed: the grip IS the drag's source,
+                      and a source that leaves the page takes the dragged block's identity with it (the
+                      drop then finds no block to move). */}
+                  <div
+                      ref={toolbarRef}
                       role="toolbar"
                       aria-label={`${selectedLabel} actions`}
                       style={{
                         position: 'absolute',
-                        left: Math.max(0, selectedRect.left),
-                        top: selectedRect.top >= 36 ? selectedRect.top - 34 : selectedRect.top + 4,
+                        left: Math.max(0, Math.min(selectedRect.left, frameWidth - toolbarWidth)),
+                        // Above the block; with no room above, below a short block (so it never covers the text a
+                        // double-click is meant to reach), else inside the top of a tall one.
+                        top: selectedRect.top >= 36 ? selectedRect.top - 34 : selectedRect.height < 80 ? selectedRect.top + selectedRect.height + 4 : selectedRect.top + 4,
                         display: 'flex',
                         alignItems: 'center',
                         gap: '2px',
@@ -575,7 +642,8 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                         borderRadius: '8px',
                         backgroundColor: '#312E81',
                         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.35)',
-                        pointerEvents: 'auto',
+                        pointerEvents: zones ? 'none' : 'auto',
+                        visibility: zones ? 'hidden' : 'visible',
                         zIndex: 5,
                         whiteSpace: 'nowrap'
                       }}
@@ -597,7 +665,6 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                         <Trash2 size={14} aria-hidden="true" />
                       </button>
                     </div>
-                  )}
                 </>
               )}
               {zoneBoxes.map(({ zone, rect }) => (
