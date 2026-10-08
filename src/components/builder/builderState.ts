@@ -75,6 +75,8 @@ export interface BuilderState {
   lastEdit: { key: string; at: number } | null;
   /** The node Copy or Cut took: in memory only, never in the document, never saved. */
   clipboard: BuilderNode | null;
+  /** The node a drop, paste or duplicate just landed, so the canvas can flash it once. */
+  flash: { id: string; seq: number } | null;
   seq: number;
 }
 
@@ -140,6 +142,7 @@ export function createBuilderState(doc: BuilderDoc, device: BuilderDevice = 'des
     announcement: null,
     lastEdit: null,
     clipboard: null,
+    flash: null,
     seq: 0
   };
 }
@@ -380,6 +383,11 @@ export function visibilityLayers(style: DeviceStyle | undefined, hidden: Record<
 
 // ---- The reducer ----
 
+/** The flash for the node that just landed: a new seq each time, so a repeat on the same node replays. */
+function flashOf(state: BuilderState, id: string): { id: string; seq: number } {
+  return { id, seq: (state.flash?.seq ?? 0) + 1 };
+}
+
 function pushLimited(list: BuilderDoc[], doc: BuilderDoc): BuilderDoc[] {
   const next = [...list, doc];
   return next.length > UNDO_LIMIT ? next.slice(next.length - UNDO_LIMIT) : next;
@@ -465,7 +473,7 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
       const result = insertNode(state.doc, action.parentId, action.index, action.node);
       if (!result.ok) return refuse(state, sentenceCase(result.reason));
       const select = action.select && hasNode(result.doc, action.select) ? action.select : result.id;
-      return commit(state, result.doc, action, { selectedId: select },
+      return commit(state, result.doc, action, { selectedId: select, flash: flashOf(state, select) },
         `${nodeLabel(result.doc, select)} added to ${placeOf(result.doc, select)}.`);
     }
 
@@ -476,7 +484,7 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
       if (fromParent === (action.parentId ?? null) && from.index === action.index) return state;
       const result = moveNode(state.doc, action.id, action.parentId, action.index);
       if (!result.ok) return refuse(state, sentenceCase(result.reason));
-      return commit(state, result.doc, action, { selectedId: action.id },
+      return commit(state, result.doc, action, { selectedId: action.id, flash: flashOf(state, action.id) },
         `${nodeLabel(result.doc, action.id)} moved to ${placeOf(result.doc, action.id)}.`);
     }
 
@@ -493,7 +501,7 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
     case 'duplicate': {
       const result = duplicateNode(state.doc, action.id);
       if (!result.ok) return refuse(state, sentenceCase(result.reason));
-      return commit(state, result.doc, {}, { selectedId: result.id },
+      return commit(state, result.doc, {}, { selectedId: result.id, flash: flashOf(state, result.id) },
         `${nodeLabel(result.doc, result.id)} copied to ${placeOf(result.doc, result.id)}. The copy is selected.`);
     }
 
@@ -511,7 +519,7 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
       const target = pasteTarget(state.doc, state.selectedId, copy);
       const result = insertNode(state.doc, target.parentId, target.index, copy);
       if (!result.ok) return refuse(state, sentenceCase(result.reason));
-      return commit(state, result.doc, {}, { selectedId: result.id },
+      return commit(state, result.doc, {}, { selectedId: result.id, flash: flashOf(state, result.id) },
         `${nodeLabel(result.doc, result.id)} pasted to ${placeOf(result.doc, result.id)}. The paste is selected.`);
     }
 
@@ -630,7 +638,7 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
       const index = topLevelAfter(state.doc, state.selectedId);
       const result = insertNode(state.doc, null, index, copy);
       if (!result.ok) return refuse(state, sentenceCase(result.reason));
-      return commit(state, result.doc, {}, { selectedId: result.id },
+      return commit(state, result.doc, {}, { selectedId: result.id, flash: flashOf(state, result.id) },
         `Saved section ${action.name} added to ${placeOf(result.doc, result.id)}.`);
     }
 

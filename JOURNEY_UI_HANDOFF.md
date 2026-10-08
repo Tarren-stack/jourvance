@@ -75,6 +75,14 @@ What it is: a full-screen visual editor for a landing page step, opened from "Op
 - Rewrite with AI: heading, text, button label and icon list items. The answer goes through `cleanModelStrings` and is applied as one undoable edit. With no hub key the route answers 503 and the control says AI copy is off; there is no template fallback.
 - Global styles: eleven optional theme keys. A rule is written only when the value differs from `DEFAULT_THEME`, so a page that sets none renders byte for byte as before.
 
+### Motion
+
+- Theme: `theme.motion` is `none`, `subtle` or `cinematic`; absent means none, so a page that sets nothing renders byte for byte as before. One table, `MOTION_PRESETS` in `src/lib/pageBuilder/model.mjs`, holds the numbers (subtle: 240ms reveal, 180ms interactions; cinematic: 560ms and 220ms; press 80ms). The renderer writes them as five `--jvb-motion-*` custom properties.
+- Sections: `props.reveal` is `inherit`, `rise`, `fade` or `none`; the first section never animates. The frame script (`server/routes/publicBuilderScript.mjs`) adds `jvb-motion-on` to the root only when the visitor has no reduced-motion preference and IntersectionObserver exists, then adds `jvb-in` on scroll. Nothing is hidden without script, in print, or under reduced motion. Keep every new published rule inside `@media screen and (prefers-reduced-motion: no-preference)`.
+- Editor: `src/components/builder/motion.ts` (selection, drop zone, drop flash, device fade, outline slide on reorder; classes `jv-motion-*`, keyframes `jvbe-*`). "Reduce motion in the editor" is kept per browser in localStorage (`jv_builder_reduce_motion`). The canvas marks reveal sections `jvb-in` (`REVEAL_SELECTOR`, `REVEALED_CLASS` in `BuilderCanvas.tsx`) so a redraw never replays an entrance; Preview motion plays one.
+- Known gaps (see the audit, 2026-10-08 motion pass): the exit-intent drawer still slides under reduced motion although the hints say visitors see none; the editor preference does not reach the page's own motion inside the canvas shadow root; a no-scroll full-page capture shows lower sections blank; `builder-serve-browser-check.mjs` failed 2 of 46 motion checks on the last run.
+- Tests: `page-builder-motion-{render,editor,fixes,fix2,integration}.test.mjs` at the repo root, `scripts/builder-motion-page-check.mjs` (published page, Chrome), 40 steps in `builder-browser-check.mjs`, 46 in `builder-serve-browser-check.mjs`.
+
 ### Tests and the browser check
 
 - Wave 3 suites at the repo root: `page-builder-templates`, `-theme`, `-clipboard`, `-revisions`, `-load-and-saved`, plus `builder-library-route`, `builder-rewrite-route` and the `builder-wave3-*` fix suites. Run with `node --test <file>`.

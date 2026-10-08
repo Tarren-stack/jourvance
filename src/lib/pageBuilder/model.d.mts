@@ -20,7 +20,9 @@ import type {
   SectionProps,
   StyleSpec,
   StyleValues,
+  SectionReveal,
   ThemeColorKey,
+  ThemeMotion,
   WidgetGroup,
   WidgetPropsMap,
   WidgetRegistry,
@@ -41,6 +43,9 @@ export declare const LIMITS: Readonly<{
 export declare const THEME_COLOR_KEYS: ReadonlyArray<ThemeColorKey>;
 export declare const DEFAULT_THEME: Readonly<BuilderTheme>;
 export declare const THEME_BUTTON_SHADOWS: ReadonlyArray<NonNullable<BuilderTheme['buttonShadow']>>;
+export declare const THEME_MOTION_LEVELS: ReadonlyArray<ThemeMotion>;
+export declare const SECTION_REVEALS: ReadonlyArray<SectionReveal>;
+export declare const MOTION_PRESETS: Readonly<Record<'subtle' | 'cinematic', Readonly<{ durationMs: number; fastMs: number; distancePx: number; liftPx: number; ease: string }>>>;
 export declare const THEME_NUMBER_RANGES: Readonly<Record<string, { min: number; max: number; unit: string; integer?: boolean; step?: number }>>;
 export declare const VIDEO_HOSTS: ReadonlyArray<string>;
 export declare const STYLE_KEYS: Readonly<Record<keyof StyleValues, StyleSpec>>;

@@ -7,13 +7,14 @@
 // The DOM is flat (aria-level, aria-setsize and aria-posinset carry the shape) while each sibling
 // group is its own SortableContext in the React tree, so a row's drag never reorders another group.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SortableContext, useSortable } from '@dnd-kit/sortable';
 import type { SortingStrategy } from '@dnd-kit/sortable';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { resolveStyle } from '../../lib/pageBuilder/model.mjs';
 import type { BuilderColumn, BuilderDevice, BuilderDoc, BuilderNode, BuilderSection } from '../../types/pageBuilder';
 import { ancestry, nodeSnippet } from './builderState';
+import { FLIP_EASE, FLIP_MS, flipOffsets } from './motion';
 
 export interface BuilderOutlineProps {
   doc: BuilderDoc;
@@ -25,6 +26,8 @@ export interface BuilderOutlineProps {
   activeId: string | null;
   overId: string | null;
   dragging: boolean;
+  /** The editor's motion is off (the device asks for less, or the preference is on): rows jump. */
+  motionOff?: boolean;
 }
 
 interface Row {
@@ -133,10 +136,57 @@ const OutlineRow: React.FC<{
   );
 };
 
-export const BuilderOutline: React.FC<BuilderOutlineProps> = ({ doc, device, selectedId, labelOf, onSelect, activeId, overId, dragging }) => {
+export const BuilderOutline: React.FC<BuilderOutlineProps> = ({ doc, device, selectedId, labelOf, onSelect, activeId, overId, dragging, motionOff = false }) => {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const treeRef = useRef<HTMLDivElement>(null);
+
+  // FLIP (section 4): when the document changed and no drag is on, a row that moved slides from where
+  // it was to where it is. Tops are read as offsetTop, which a scroll and a transform do not change.
+  const lastTops = useRef<Map<string, number>>(new Map());
+  const lastDoc = useRef(doc);
+  useLayoutEffect(() => {
+    const tree = treeRef.current;
+    const after = new Map<string, number>();
+    const els = new Map<string, HTMLElement>();
+    tree?.querySelectorAll<HTMLElement>('[data-node-id]').forEach(el => {
+      const id = el.getAttribute('data-node-id');
+      if (id) {
+        after.set(id, el.offsetTop);
+        els.set(id, el);
+      }
+    });
+    const changed = lastDoc.current !== doc;
+    const before = lastTops.current;
+    lastDoc.current = doc;
+    lastTops.current = after;
+    if (!changed || motionOff || dragging || !tree) return;
+    const offsets = flipOffsets(before, after);
+    if (offsets.size === 0) return;
+    const moved: HTMLElement[] = [];
+    offsets.forEach((delta, id) => {
+      const el = els.get(id);
+      if (!el) return;
+      el.style.transition = 'none';
+      el.style.transform = `translateY(${delta}px)`;
+      moved.push(el);
+    });
+    void tree.offsetHeight;
+    // Never cancelled: a re-render before the frame would leave the rows held at their old place.
+    requestAnimationFrame(() => {
+      for (const el of moved) {
+        const clear = () => {
+          el.style.transition = '';
+          el.style.transform = '';
+          el.removeEventListener('transitionend', clear);
+        };
+        el.addEventListener('transitionend', clear);
+        window.setTimeout(clear, FLIP_MS + 150);
+        el.style.transition = `transform ${FLIP_MS}ms ${FLIP_EASE}`;
+        el.style.transform = 'none';
+      }
+    });
+  });
 
   // The canvas's selection opens its rows in the outline and brings the row into view.
   useEffect(() => {

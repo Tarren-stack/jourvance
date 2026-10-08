@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, BookmarkPlus, ClipboardCopy, ClipboardPaste, Copy, GripVertical, Scissors, Trash2 } from 'lucide-react';
 import { render } from '../../lib/pageBuilder/render.mjs';
-import { findNode, resolveStyle, walk } from '../../lib/pageBuilder/model.mjs';
+import { MOTION_PRESETS, findNode, resolveStyle, walk } from '../../lib/pageBuilder/model.mjs';
 import type { BuilderDevice, BuilderDoc, BuilderNode, BuilderWidget } from '../../types/pageBuilder';
 import { zoneGeometry, type DropZone, type Rect } from './dropZones';
 import {
@@ -34,6 +34,7 @@ import {
   stripScripts,
   type InlineTarget
 } from './canvasMarkup';
+import { DEVICE_IN_MAX_MS, removeClassWhenPlayed, toolbarFocusMemo, toolbarFocusTarget, type ToolbarFocusMemo } from './motion';
 
 /** How wide the page is drawn for each device (see canvasMarkup.DESIGN_WIDTHS). */
 export const DEVICE_WIDTHS = DESIGN_WIDTHS;
@@ -71,7 +72,18 @@ export interface BuilderCanvasProps {
   onScroll?: () => void;
   /** Bumped by the shell when the frame scrolls during a drag, so the zones are measured again. */
   measureTick?: number;
+  /** The node a drop, paste or duplicate just landed: drawn once as a flash (section 4). */
+  flash?: { id: string; seq: number } | null;
+  /** The editor's own motion is off (the device asks for less, or the preference is on). */
+  motionOff?: boolean;
+  /** Bumped by the theme panel's Preview motion button. */
+  motionPreview?: { seq: number } | null;
+  /** Told when a Preview motion run starts and when it ends, so the shell can say so. */
+  onMotionPreview?: (phase: 'start' | 'end', level: 'subtle' | 'cinematic') => void;
 }
+
+/** How long a flash overlay may stay if its animation never reports an end. */
+const FLASH_MAX_MS = 900;
 
 interface Editing {
   id: string;
@@ -100,10 +112,24 @@ function contains(r: DOMRect, x: number, y: number): boolean {
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }
 
+/** A section that has a reveal on the published page, and the class it carries once revealed (render.mjs, publicBuilderScript.mjs). */
+export const REVEAL_SELECTOR = '[data-jvb-reveal]';
+export const REVEALED_CLASS = 'jvb-in';
+
+/**
+ * "Reduce motion in the editor", and the device's own setting, inside the canvas. The light-DOM rule
+ * in index.css (`.jv-builder[data-reduce-motion] *`) cannot cross the shadow boundary, so the page's
+ * own button and link transitions and its keyframes would still play here. The host carries
+ * `data-jvbe-motion-off` whenever the editor's motion is off, and this rule, written last into the
+ * shadow root, turns every transition and animation of the drawn page off while it does. It is
+ * editor CSS: the published page never carries it.
+ */
+export const CANVAS_MOTION_OFF_CSS = ':host([data-jvbe-motion-off]) #jvb-root,:host([data-jvbe-motion-off]) #jvb-root *,:host([data-jvbe-motion-off]) #jvb-root *::before,:host([data-jvbe-motion-off]) #jvb-root *::after{animation:none!important;transition:none!important}';
+
 /** Writes the rendered page into the shadow root, cleaned, with a hint where an empty widget drew nothing. */
 export function writeShadow(root: ShadowRoot, html: string, css: string, doc: BuilderDoc, device: BuilderDevice): void {
   const style = document.createElement('style');
-  style.textContent = `${EDITOR_CSS}\n${css}`;
+  style.textContent = `${EDITOR_CSS}\n${css}\n${CANVAS_MOTION_OFF_CSS}`;
   const template = document.createElement('template');
   template.innerHTML = stripScripts(html);
   const content = template.content;
@@ -115,6 +141,12 @@ export function writeShadow(root: ShadowRoot, html: string, css: string, doc: Bu
     }
     if (el.matches(FOCUSABLE_IN_PAGE)) el.setAttribute('tabindex', '-1');
   });
+  // A reveal is drawn SETTLED, as the published page shows a section once it has scrolled in: the
+  // section carries the class the frame script gives it then (`jvb-in`). The canvas never runs that
+  // script, so the root never holds `jvb-motion-on` here and nothing hides; and because each
+  // section is written already in, a redraw starts it at rest instead of playing its entrance.
+  // Only Preview motion takes the class away, for one run.
+  content.querySelectorAll(REVEAL_SELECTOR).forEach(el => el.classList.add(REVEALED_CLASS));
   root.replaceChildren(style, content);
 
   // An empty widget draws nothing on the published page. The editor shows a hint in its place, so it
@@ -171,6 +203,7 @@ const ZoneView: React.FC<{ zone: DropZone; rect: Rect; over: boolean }> = ({ zon
       ref={setNodeRef}
       data-zone-id={zone.id}
       aria-hidden="true"
+      className="jv-motion-appear"
       style={{
         position: 'absolute',
         left: rect.left,
@@ -185,6 +218,7 @@ const ZoneView: React.FC<{ zone: DropZone; rect: Rect; over: boolean }> = ({ zon
       }}
     >
       <div
+        className="jv-motion-zone"
         style={box ? {
           width: '100%',
           height: '100%',
@@ -255,7 +289,11 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
   onEditingChange,
   scrollerRef,
   onScroll,
-  measureTick = 0
+  measureTick = 0,
+  flash = null,
+  motionOff = false,
+  motionPreview = null,
+  onMotionPreview
 }) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -279,10 +317,87 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
   const frameWidth = Math.round(designWidth * scale * 100) / 100;
   // The selection toolbar keeps inside the frame: a block near the right edge would push its buttons
   // out of the window, where a keyboard-less or touch user could not reach them.
-  const toolbarRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [toolbarWidth, setToolbarWidth] = useState(0);
+  // The toolbar is keyed by the selected id, so Duplicate, Paste, Delete and Cut (which all move the
+  // selection) replace it. The ref sees the old one leave while it still holds the focus, and puts
+  // the focus on the same button of the new one (motion.ts toolbarFocusMemo / toolbarFocusTarget).
+  const toolbarFocus = useRef<ToolbarFocusMemo | null>(null);
+  const attachToolbar = useCallback((el: HTMLDivElement | null) => {
+    if (el) {
+      const target = toolbarFocusTarget(el, toolbarFocus.current, document.activeElement, document.body, Date.now());
+      toolbarFocus.current = null;
+      if (target instanceof HTMLElement) target.focus();
+    } else {
+      toolbarFocus.current = toolbarFocusMemo(toolbarRef.current, document.activeElement, Date.now());
+    }
+    toolbarRef.current = el;
+  }, []);
 
   const result = useMemo(() => render(doc, { device }), [doc, device]);
+
+  // A device switch fades the new drawing up. The layer is not keyed: it holds the shadow root, the
+  // observers and the listeners below, so the animation is restarted on the same element instead.
+  const lastDevice = useRef(device);
+  useEffect(() => {
+    if (lastDevice.current === device) return;
+    lastDevice.current = device;
+    const layer = layerRef.current;
+    if (!layer || motionOff) return;
+    // Off again once the fade has played (or after DEVICE_IN_MAX_MS when none ran), so it never replays
+    // when its rule starts matching again with no device change. Armed before the restart, on purpose.
+    removeClassWhenPlayed(layer, 'jv-motion-device-in', 'jvbe-device-in', DEVICE_IN_MAX_MS);
+    layer.classList.remove('jv-motion-device-in');
+    void layer.offsetWidth;
+    layer.classList.add('jv-motion-device-in');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [device]);
+
+  // The flash: one overlay per new flash seq, gone when its animation ends and in any case after
+  // FLASH_MAX_MS. A flash that was already there when the canvas mounted is not replayed.
+  const lastFlash = useRef(flash ? flash.seq : 0);
+  const [flashLive, setFlashLive] = useState<{ id: string; seq: number } | null>(null);
+  useEffect(() => {
+    if (!flash || flash.seq === lastFlash.current) return;
+    lastFlash.current = flash.seq;
+    if (motionOff) return;
+    setFlashLive(flash);
+    const timer = window.setTimeout(() => setFlashLive(cur => (cur && cur.seq === flash.seq ? null : cur)), FLASH_MAX_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flash?.seq]);
+
+  // Preview motion: play every section's reveal once on the canvas, then take the hidden state away,
+  // so nothing is ever left hidden here. The run is a visual one, so it is also said: the shell
+  // announces its start and its end in the builder's polite live region.
+  const onMotionPreviewRef = useRef(onMotionPreview);
+  onMotionPreviewRef.current = onMotionPreview;
+  const lastPreview = useRef(motionPreview ? motionPreview.seq : 0);
+  useEffect(() => {
+    if (!motionPreview || motionPreview.seq === lastPreview.current) return;
+    lastPreview.current = motionPreview.seq;
+    if (motionOff) return;
+    const level = docRef.current.theme.motion;
+    const preset = level === 'subtle' || level === 'cinematic' ? MOTION_PRESETS[level] : null;
+    const root = hostRef.current?.shadowRoot?.querySelector<HTMLElement>('#jvb-root');
+    if (!preset || !root) return;
+    const playing: 'subtle' | 'cinematic' = level === 'cinematic' ? 'cinematic' : 'subtle';
+    const sections = Array.from(root.querySelectorAll<HTMLElement>('[data-jvb-reveal]'));
+    sections.forEach(el => el.classList.remove('jvb-in'));
+    root.classList.add('jvb-motion-on');
+    void root.offsetWidth;
+    sections.forEach(el => el.classList.add('jvb-in'));
+    onMotionPreviewRef.current?.('start', playing);
+    const timer = window.setTimeout(() => {
+      root.classList.remove('jvb-motion-on');
+      onMotionPreviewRef.current?.('end', playing);
+    }, preset.durationMs + 100);
+    return () => {
+      window.clearTimeout(timer);
+      root.classList.remove('jvb-motion-on');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [motionPreview?.seq]);
   useCanvasFonts(result.fonts);
 
   const measure = useCallback(() => {
@@ -567,6 +682,7 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
             aria-describedby="jvb-canvas-help"
             tabIndex={0}
             data-jvb-canvas-host=""
+            data-jvbe-motion-off={motionOff ? '' : undefined}
             onClick={e => {
               if (editing.current) return;
               onSelect(nodeIdFromEvent(e.nativeEvent));
@@ -616,8 +732,10 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
               {selectedRect && selectedId && (
                 <>
                   <div
+                    key={`outline:${selectedId}`}
                     aria-hidden="true"
                     data-selection-outline={selectedId}
+                    className="jv-motion-appear"
                     style={{
                       position: 'absolute',
                       left: selectedRect.left,
@@ -632,7 +750,9 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                       and a source that leaves the page takes the dragged block's identity with it (the
                       drop then finds no block to move). */}
                   <div
-                      ref={toolbarRef}
+                      key={`toolbar:${selectedId}`}
+                      ref={attachToolbar}
+                      className="jv-motion-appear"
                       role="toolbar"
                       aria-label={`${selectedLabel} actions`}
                       style={{
@@ -698,6 +818,30 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                     </div>
                 </>
               )}
+              {flashLive && !motionOff && rects.get(flashLive.id) && (() => {
+                const r = rects.get(flashLive.id)!;
+                return (
+                  <div
+                    key={`flash:${flashLive.seq}`}
+                    aria-hidden="true"
+                    data-jvbe-flash={flashLive.id}
+                    className="jv-motion-flash"
+                    onAnimationEnd={() => setFlashLive(cur => (cur && cur.seq === flashLive.seq ? null : cur))}
+                    style={{
+                      position: 'absolute',
+                      left: r.left,
+                      top: r.top,
+                      width: r.width,
+                      height: r.height,
+                      outline: '2px solid #F472B6',
+                      outlineOffset: '-2px',
+                      backgroundColor: 'rgba(244, 114, 182, 0.28)',
+                      pointerEvents: 'none',
+                      zIndex: 2
+                    }}
+                  />
+                );
+              })()}
               {zoneBoxes.map(({ zone, rect }) => (
                 <ZoneView key={zone.id} zone={zone} rect={rect} over={zone.id === overZoneId} />
               ))}

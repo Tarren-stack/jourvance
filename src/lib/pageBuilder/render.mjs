@@ -23,8 +23,10 @@ import {
   BREAKPOINTS,
   DEFAULT_THEME,
   DEVICES,
+  MOTION_PRESETS,
   STYLE_KEYS,
   THEME_COLOR_KEYS,
+  THEME_MOTION_LEVELS,
   WIDGET_REGISTRY,
   linkProblem,
   propsWithDefaults,
@@ -898,7 +900,21 @@ function renderColumn(node, st) {
   return `<div ${cls(node, 'jvb-col')}>${renderChildren(Array.isArray(node.children) ? node.children : [], st)}</div>`;
 }
 
-function renderSection(node, st) {
+/**
+ * The reveal attribute for a section, or ''. Only a page with motion on writes one, only on a
+ * top level section (`index` is its place in `doc.sections`), never on the first, and the
+ * section's own choice (fade, rise, none) wins over the page's default. An inner section never
+ * gets one: it moves with the section around it, and inside the first section it would move the
+ * top of the page.
+ */
+function revealAttr(p, st, index) {
+  if (!st.motion || typeof index !== 'number' || index === 0) return '';
+  const r = p.reveal;
+  if (r === 'none') return '';
+  return ` data-jvb-reveal="${r === 'fade' ? 'fade' : 'rise'}"`;
+}
+
+function renderSection(node, st, index) {
   const p = propsWithDefaults(node);
   let id = '';
   if (typeof p.anchor === 'string' && ANCHOR_RE.test(p.anchor) && !FRAME_ID_RE.test(p.anchor) && !st.anchors.has(p.anchor)) {
@@ -906,7 +922,7 @@ function renderSection(node, st) {
     id = ` id="${esc(p.anchor)}"`;
   }
   const full = p.contentWidth === 'full' ? ' jvb-full' : '';
-  return `<section ${cls(node, `jvb-sec${full}`)}${id}><div class="jvb-row">${renderChildren(Array.isArray(node.children) ? node.children : [], st)}</div></section>`;
+  return `<section ${cls(node, `jvb-sec${full}`)}${id}${revealAttr(p, st, index)}><div class="jvb-row">${renderChildren(Array.isArray(node.children) ? node.children : [], st)}</div></section>`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1130,7 +1146,8 @@ function resolvedTheme(theme) {
     buttonRadius: Number.isFinite(t.buttonRadius) ? t.buttonRadius : DEFAULT_THEME.buttonRadius,
     buttonShadow: pick(t.buttonShadow, Object.keys(BUTTON_SHADOWS), DEFAULT_THEME.buttonShadow),
     sectionPaddingY: finiteOr(t.sectionPaddingY, DEFAULT_THEME.sectionPaddingY),
-    sectionGap: finiteOr(t.sectionGap, DEFAULT_THEME.sectionGap)
+    sectionGap: finiteOr(t.sectionGap, DEFAULT_THEME.sectionGap),
+    motion: pick(t.motion, THEME_MOTION_LEVELS, 'none')
   };
 }
 
@@ -1177,6 +1194,13 @@ function rootRule(theme) {
   if (changed(theme, 'linkColor')) vars.push(`--jvb-link:${cssColor(theme.linkColor)}`);
   if (changed(theme, 'buttonShadow')) vars.push(`--jvb-btn-shadow:${BUTTON_SHADOWS[theme.buttonShadow]}`);
   if (changed(theme, 'sectionPaddingY')) vars.push(`--jvb-sec-py:${fmt(theme.sectionPaddingY)}px`);
+  const motion = MOTION_PRESETS[theme.motion];
+  if (motion) {
+    vars.push(
+      `--jvb-motion-duration:${motion.durationMs}ms`, `--jvb-motion-fast:${motion.fastMs}ms`,
+      `--jvb-motion-distance:${motion.distancePx}px`, `--jvb-motion-lift:${motion.liftPx}px`, `--jvb-motion-ease:${motion.ease}`
+    );
+  }
   const base = [
     'display:flex', 'flex-direction:column', 'width:100%',
     'background-color:var(--jvb-background)', 'color:var(--jvb-text)', 'font-family:var(--jvb-font-body)',
@@ -1322,6 +1346,36 @@ function collectFonts(doc, theme) {
   return out;
 }
 
+/**
+ * The motion rules, appended last when the page asks for motion (LANDING_BUILDER_MOTION.md
+ * section 5). Literal lines, not rule(): `#jvb-root.jvb-motion-on` takes no space. Only the five
+ * custom properties on the root differ between levels. Nothing is hidden without both the class the
+ * frame script sets and a screen, so a page with no script, or printed, shows every section.
+ */
+const MOTION_CSS = [
+  '@media (hover: hover) and (prefers-reduced-motion: no-preference){',
+  '#jvb-root .jvb-btn:hover:not(:disabled){transform:translateY(var(--jvb-motion-lift))}',
+  '#jvb-root .jvb-text a:hover,#jvb-root .jvb-embed a:hover{text-underline-offset:.3em}',
+  '}',
+  '@media (prefers-reduced-motion: no-preference){',
+  '#jvb-root .jvb-btn{transition:transform var(--jvb-motion-fast) var(--jvb-motion-ease)}',
+  '#jvb-root .jvb-btn:active:not(:disabled){transform:scale(.98);transition-duration:80ms}',
+  '#jvb-root .jvb-text a,#jvb-root .jvb-embed a{text-underline-offset:.15em;transition:text-underline-offset var(--jvb-motion-fast) var(--jvb-motion-ease)}',
+  '#jvb-root .jvb-text a:focus-visible,#jvb-root .jvb-embed a:focus-visible{text-underline-offset:.3em}',
+  '#jvb-root .jvb-bump-cb:checked{animation:jvb-tick var(--jvb-motion-fast) var(--jvb-motion-ease)}',
+  '#jvb-root .jvb-countdown-clock[data-jvb-tick="a"]{animation:jvb-digit-a var(--jvb-motion-fast) var(--jvb-motion-ease)}',
+  '#jvb-root .jvb-countdown-clock[data-jvb-tick="b"]{animation:jvb-digit-b var(--jvb-motion-fast) var(--jvb-motion-ease)}',
+  '@keyframes jvb-tick{0%{transform:scale(.8)}60%{transform:scale(1.12)}100%{transform:scale(1)}}',
+  '@keyframes jvb-digit-a{from{opacity:.35}to{opacity:1}}',
+  '@keyframes jvb-digit-b{from{opacity:.35}to{opacity:1}}',
+  '}',
+  '@media screen and (prefers-reduced-motion: no-preference){',
+  '#jvb-root.jvb-motion-on [data-jvb-reveal]:not(.jvb-in){opacity:0}',
+  '#jvb-root.jvb-motion-on [data-jvb-reveal="rise"]:not(.jvb-in){transform:translateY(var(--jvb-motion-distance))}',
+  '#jvb-root.jvb-motion-on [data-jvb-reveal].jvb-in{transition:opacity var(--jvb-motion-duration) var(--jvb-motion-ease),transform var(--jvb-motion-duration) var(--jvb-motion-ease)}',
+  '}'
+].join('\n');
+
 function buildCss(doc, ctx) {
   const theme = resolvedTheme(doc.theme);
   const nodes = [];
@@ -1338,6 +1392,7 @@ function buildCss(doc, ctx) {
       parts.push(rule(sel(node), layerDecls(node, kind, resolveStyle(node, ctx.device))));
       if (kind === 'section') parts.push(...stackRules(node, ctx.device));
     }
+    if (MOTION_PRESETS[theme.motion]) parts.push(MOTION_CSS);
     return parts.filter(Boolean).join('\n');
   }
 
@@ -1352,6 +1407,7 @@ function buildCss(doc, ctx) {
     const body = inner.filter(Boolean);
     if (body.length) parts.push(`@media (max-width: ${max}px){\n${body.join('\n')}\n}`);
   }
+  if (MOTION_PRESETS[theme.motion]) parts.push(MOTION_CSS);
   return parts.filter(Boolean).join('\n');
 }
 
@@ -1367,7 +1423,7 @@ function buildCss(doc, ctx) {
  * desktop layer first, then the tablet layer inside `@media (max-width: 1024px)`, then the
  * mobile layer inside `@media (max-width: 640px)`, each holding only the keys that layer sets.
  * With `context.device` the CSS is that one device resolved through resolveStyle and holds no
- * media query. `fonts` lists the Google Fonts families the page uses, once each.
+ * width media query (a page with motion on adds the motion block, which holds none either). `fonts` lists the Google Fonts families the page uses, once each.
  * @param {unknown} doc
  * @param {RenderContext} [context]
  * @returns {{ html: string, css: string, problems: Array<{ path: string, message: string }>, fonts: string[] }}
@@ -1386,6 +1442,8 @@ export function render(doc, context = {}) {
   }
   const st = newState(ctx);
   const page = /** @type {any} */ (doc);
-  const html = `<div id="jvb-root" class="jvb">${page.sections.map(section => renderSection(section, st)).join('')}</div>`;
+  const level = resolvedTheme(page.theme).motion;
+  st.motion = MOTION_PRESETS[level] ? level : '';
+  const html = `<div id="jvb-root" class="jvb"${st.motion ? ` data-jvb-motion="${st.motion}"` : ''}>${page.sections.map((section, index) => renderSection(section, st, index)).join('')}</div>`;
   return { html, css: buildCss(page, ctx), problems: [], fonts: collectFonts(page, resolvedTheme(page.theme)) };
 }

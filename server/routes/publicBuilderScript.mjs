@@ -106,8 +106,21 @@ export function pixelsHtml({ metaPixelId = '', tiktokPixelId = '', ga4TrackingId
 }
 
 // ---------------------------------------------------------------------------------------------
-// Frame CSS: only what the frame's own elements need. Every selector is an id or a jvf- class, so
-// nothing here reaches #jvb-root, and nothing in #jvb-root reaches these.
+// Frame CSS: only what the frame's own elements need. Every selector starts at a frame id or is a
+// jvf- class, so nothing here reaches #jvb-root, and nothing in #jvb-root reaches these. One
+// exception, the overflow clip: while the frame script holds sections hidden for their reveal
+// (jvb-motion-on, which only the script sets), the root clips its vertical overflow, so a hidden
+// section's translateY never lengthens the page and the page does not shrink under the visitor when
+// the last one reveals. The script takes the class off once nothing is hidden and the last reveal
+// has finished, so static shadows, negative margins and focus rings at the root's edges are clipped
+// only while they must be.
+//
+// The frame's own motion (the exit drawer's slide, its backdrop's fade, the lead modal's spinner)
+// lives only in the screen + no-preference block, like the page's: a visitor whose device asks for
+// less motion sees none of it (LANDING_BUILDER_MOTION.md section 3). The cookie banner is written by
+// withTracking, which legacy pages share and the legacy snapshot pins byte for byte, so its
+// transitions cannot move; the block after that one turns them, and its button's hover lift, off
+// everywhere else (the media query there is the exact complement of screen + no-preference).
 // ---------------------------------------------------------------------------------------------
 
 /** @param {string} background  the page background (a validated hex colour), for the body behind the root */
@@ -122,7 +135,7 @@ export function frameCss(background = '#09080E') {
     #lead-modal .jvf-input:focus { border-color: #EC4899; box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.2); }
     #lead-modal #lead-submit-btn { display: block; width: 100%; padding: 14px 24px; background: linear-gradient(135deg, #EC4899 0%, #DB2777 50%, #BE185D 100%); color: #FFFFFF; border: none; border-radius: 12px; font-size: 15px; font-weight: 800; cursor: pointer; }
     #lead-modal #lead-submit-btn:disabled { opacity: 0.7; cursor: default; }
-    #lead-modal .loading-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: jvf-spin 0.8s linear infinite; }
+    #lead-modal .loading-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; }
     @keyframes jvf-spin { to { transform: rotate(360deg); } }
     #jvb-lightbox { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(8, 7, 12, 0.88); z-index: 999999; align-items: center; justify-content: center; padding: 20px; }
     #jvb-lightbox.jvf-open { display: flex; }
@@ -130,7 +143,17 @@ export function frameCss(background = '#09080E') {
     #jvb-lightbox img { max-width: 100%; max-height: 80vh; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.2); object-fit: contain; }
     #jvb-lightbox .jvf-lightbox-close { position: absolute; top: -38px; right: 0; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; line-height: 1; }
     .jv-referral-banner { text-align: center; }
-    body.jv-sticky-bar-active { padding-bottom: 72px; }`;
+    body.jv-sticky-bar-active { padding-bottom: 72px; }
+    @media screen and (prefers-reduced-motion: no-preference) { #jvb-root.jvb-motion-on { overflow-y: clip; } }
+    @media screen and (prefers-reduced-motion: no-preference) {
+      #lead-modal .loading-spinner { animation: jvf-spin 0.8s linear infinite; }
+      #jv-exit-backdrop { transition: opacity 0.3s ease; }
+      #jv-exit-drawer { transition: transform 0.38s cubic-bezier(0.16, 1, 0.3, 1); }
+    }
+    @media not screen and (prefers-reduced-motion: no-preference) {
+      #jv-consent-banner, #jv-consent-banner * { transition: none; }
+      #jv-consent-banner .jv-consent-btn-accept:hover { transform: none; }
+    }`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -175,9 +198,9 @@ export function leadModalHtml({ leadOnly = false, leadHasCode = false, code = ''
 
 /** The exit-intent drawer, the legacy markup. Published only with the merchant's own headline. */
 export function exitDrawerHtml({ headline = '', badge = '', subhead = '', buttonText = '', code = '', storeDomain = '', hasVariant = false, leadOnly = false } = {}) {
-  return `<div id="jv-exit-backdrop" style="display:none; position:fixed; inset:0; background:rgba(8, 10, 18, 0.75); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:99998; opacity:0; transition:opacity 0.3s ease;"></div>
+  return `<div id="jv-exit-backdrop" style="display:none; position:fixed; inset:0; background:rgba(8, 10, 18, 0.75); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:99998; opacity:0;"></div>
 
-  <div id="jv-exit-drawer" role="dialog" aria-modal="true" aria-labelledby="jv-exit-title" style="display:none; position:fixed; bottom:0; left:0; right:0; max-width:540px; margin:0 auto; z-index:99999; transform:translateY(100%); transition:transform 0.38s cubic-bezier(0.16, 1, 0.3, 1); background:linear-gradient(180deg, rgba(24, 18, 30, 0.98), rgba(13, 13, 20, 0.99)); border-top:1px solid rgba(236, 72, 153, 0.4); border-left:1px solid rgba(255, 255, 255, 0.08); border-right:1px solid rgba(255, 255, 255, 0.08); border-radius:24px 24px 0 0; box-shadow:0 -20px 60px rgba(0, 0, 0, 0.85), 0 0 40px rgba(236, 72, 153, 0.12); padding:20px 24px 32px; color:#FFFFFF; text-align:center; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;">
+  <div id="jv-exit-drawer" role="dialog" aria-modal="true" aria-labelledby="jv-exit-title" style="display:none; position:fixed; bottom:0; left:0; right:0; max-width:540px; margin:0 auto; z-index:99999; transform:translateY(100%); background:linear-gradient(180deg, rgba(24, 18, 30, 0.98), rgba(13, 13, 20, 0.99)); border-top:1px solid rgba(236, 72, 153, 0.4); border-left:1px solid rgba(255, 255, 255, 0.08); border-right:1px solid rgba(255, 255, 255, 0.08); border-radius:24px 24px 0 0; box-shadow:0 -20px 60px rgba(0, 0, 0, 0.85), 0 0 40px rgba(236, 72, 153, 0.12); padding:20px 24px 32px; color:#FFFFFF; text-align:center; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;">
     <div style="width:38px; height:4px; border-radius:9999px; background:rgba(255, 255, 255, 0.22); margin:0 auto 16px; cursor:pointer;" id="jv-exit-drag-handle"></div>
 
     <button id="jv-exit-close" aria-label="Close" style="position:absolute; top:16px; right:18px; width:30px; height:30px; border-radius:50%; background:rgba(255, 255, 255, 0.06); border:1px solid rgba(255, 255, 255, 0.1); color:#94A3B8; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;">&times;</button>
@@ -306,6 +329,98 @@ export function builderFrameScript(c) {
       const modal = document.getElementById('lead-modal');
       const closeBtn = document.getElementById('modal-close-btn');
 
+      // Page motion (LANDING_BUILDER_MOTION.md section 5). The root says which level the page
+      // asked for; nothing is hidden until the observer watches every section that will be.
+      var jvbRoot = document.getElementById('jvb-root');
+      var jvbMotion = jvbRoot ? (jvbRoot.getAttribute('data-jvb-motion') || '') : '';
+      try {
+        if (jvbMotion && window.matchMedia && window.matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
+          var fold = window.innerHeight || document.documentElement.clientHeight || 0;
+          // Once nothing is held hidden and the last reveal's transition has had its time (the
+          // level's duration, read off the root, plus a margin), jvb-motion-on comes off: the clip
+          // below and the hidden state are only for while something is hidden.
+          var jvbSettleTimer = 0;
+          var jvbSettle = function() {
+            if (jvbSettleTimer || jvbHidden().length) return;
+            var wait = 1000;
+            try {
+              var ms = parseFloat(window.getComputedStyle(jvbRoot).getPropertyValue('--jvb-motion-duration'));
+              if (ms >= 0) wait = ms + 120;
+            } catch (e) {}
+            jvbSettleTimer = window.setTimeout(function() {
+              try { if (!jvbHidden().length) jvbRoot.classList.remove('jvb-motion-on'); } catch (e) {}
+            }, wait) || 1;
+          };
+          var revealIo = new IntersectionObserver(function(entries) {
+            entries.forEach(function(e) { if (e.isIntersecting) { e.target.classList.add('jvb-in'); revealIo.unobserve(e.target); } });
+            jvbSettle();
+          }, { rootMargin: '0px 0px -10% 0px' });
+          // The element a #fragment names, when it sits on this page's root.
+          var jvbTarget = function(hash) {
+            if (!hash || hash.length < 2) return null;
+            var t = document.getElementById(hash.slice(1));
+            if (!t) { try { t = document.getElementById(decodeURIComponent(hash.slice(1))); } catch (e) {} }
+            return t && jvbRoot.contains && jvbRoot.contains(t) ? t : null;
+          };
+          // Shows a section with no transition (and ends one already running): it is where the
+          // visitor is jumping to, or where keyboard focus has just landed.
+          var jvbShowNow = function(el) {
+            var st = el.style;
+            var before = st ? st.transition : '';
+            if (st) st.transition = 'none';
+            el.classList.add('jvb-in');
+            if (st) { void el.offsetWidth; st.transition = before; }
+            revealIo.unobserve(el);
+            jvbSettle();
+          };
+          var jvbHidden = function() { return jvbRoot.querySelectorAll('[data-jvb-reveal]:not(.jvb-in)'); };
+          // A jump to an anchor: the target's section, and every section that will be on screen
+          // or above it once the browser has scrolled, are shown at once before the scroll is
+          // measured, so the jump lands on the untransformed box and nothing plays on arrival.
+          var jvbSettleAt = function(t) {
+            if (!t) return;
+            var own = t.closest ? t.closest('[data-jvb-reveal]') : null;
+            if (own) jvbShowNow(own);
+            var limit = t.getBoundingClientRect().top + (window.innerHeight || fold);
+            Array.prototype.forEach.call(jvbHidden(), function(el) { if (el.getBoundingClientRect().top < limit) jvbShowNow(el); });
+          };
+          // On screen when the page loads, or on screen once the browser scrolls to the
+          // #fragment it was opened with: shown at once, with no animation.
+          var landing = jvbTarget(window.location && window.location.hash);
+          var limitAtLoad = landing ? landing.getBoundingClientRect().top + fold : fold;
+          Array.prototype.forEach.call(jvbRoot.querySelectorAll('[data-jvb-reveal]'), function(el) {
+            if (el.getBoundingClientRect().top < limitAtLoad) el.classList.add('jvb-in');
+            else revealIo.observe(el);
+          });
+          jvbRoot.addEventListener('focusin', function(e) {
+            var s = e.target && e.target.closest ? e.target.closest('[data-jvb-reveal]') : null;
+            if (s) jvbShowNow(s);
+          });
+          document.addEventListener('click', function(e) {
+            if (e.defaultPrevented) return;
+            var a = e.target && e.target.closest ? e.target.closest('a[href*="#"]') : null;
+            if (!a || !a.hash || String(a.href).split('#')[0] !== String(window.location.href).split('#')[0]) return;
+            jvbSettleAt(jvbTarget(a.hash));
+          });
+          // The bottom of the page: whatever is still hidden there can never scroll further into
+          // the observer's area (a section shorter than its bottom margin), so it is revealed.
+          var jvbAtBottom = function() {
+            var d = document.documentElement;
+            var y = window.pageYOffset || d.scrollTop || 0;
+            return y + (window.innerHeight || d.clientHeight || 0) >= d.scrollHeight - 2;
+          };
+          var jvbRevealRest = function() {
+            if (!jvbAtBottom()) return;
+            Array.prototype.forEach.call(jvbHidden(), function(el) { el.classList.add('jvb-in'); revealIo.unobserve(el); });
+            jvbSettle();
+          };
+          window.addEventListener('scroll', jvbRevealRest, { passive: true });
+          window.addEventListener('resize', jvbRevealRest);
+          jvbRoot.classList.add('jvb-motion-on');
+          jvbSettle();
+        }
+      } catch (e) {}
+
       // Countdowns. Evergreen: a clock per visitor kept in localStorage (the key the legacy page
       // uses for the first one). Deadline: counts to a moment that carries a time zone offset.
       function pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -323,7 +438,7 @@ export function builderFrameScript(c) {
         if (box.getAttribute('data-jvb-mode') === 'deadline') {
           var raw = (box.getAttribute('data-jvb-deadline') || '').replace(' ', 'T');
           var offset = raw.match(/([+-][0-9]{2})([0-9]{2})$/);
-          if (offset) raw = raw.slice(0, raw.length - 4) + offset[1] + ':' + offset[2];
+          if (offset) raw = raw.slice(0, raw.length - 5) + offset[1] + ':' + offset[2];
           end = Date.parse(raw);
         } else {
           var key = 'jv_reserve_' + slug + (index ? '_' + index : '');
@@ -337,13 +452,23 @@ export function builderFrameScript(c) {
           end = stored;
         }
         if (!end || isNaN(end)) return;
+        var lastHead = null;
+        function flipTick() {
+          clock.setAttribute('data-jvb-tick', clock.getAttribute('data-jvb-tick') === 'a' ? 'b' : 'a');
+        }
         function tick() {
           var remaining = Math.max(0, end - Date.now());
           if (remaining > 0) {
             showClock(clock, remaining);
+            if (jvbMotion) {
+              var head = clock.textContent.slice(0, -3);
+              if (lastHead !== null && head !== lastHead) flipTick();
+              lastHead = head;
+            }
             setTimeout(tick, 1000);
           } else {
             clock.textContent = '00:00';
+            if (jvbMotion && lastHead !== null) flipTick();
             if (label && expiredText) label.textContent = expiredText;
           }
         }

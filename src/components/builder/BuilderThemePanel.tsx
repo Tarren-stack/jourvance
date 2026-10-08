@@ -9,10 +9,10 @@
 // DEFAULT_THEME's value, which is how the page drew before these settings existed.
 
 import React from 'react';
-import { DEFAULT_THEME, THEME_BUTTON_SHADOWS, THEME_COLOR_KEYS, THEME_NUMBER_RANGES } from '../../lib/pageBuilder/model.mjs';
-import type { BuilderTheme, ThemeColorKey } from '../../types/pageBuilder';
+import { DEFAULT_THEME, MOTION_PRESETS, THEME_BUTTON_SHADOWS, THEME_COLOR_KEYS, THEME_NUMBER_RANGES } from '../../lib/pageBuilder/model.mjs';
+import type { BuilderTheme, ThemeColorKey, ThemeMotion } from '../../types/pageBuilder';
 import type { BuilderAction, BuilderNotice } from './builderState';
-import { ColorField, NumberField, SelectField, hintStyle } from './BuilderFields';
+import { CheckField, ColorField, NumberField, SelectField, hintStyle, smallButton } from './BuilderFields';
 
 /** The fonts the theme and the Style tab offer. Every name passes the model's font rule. */
 export const FONT_CHOICES: string[] = [
@@ -64,9 +64,39 @@ export interface BuilderThemePanelProps {
   theme: BuilderTheme;
   dispatch: (action: BuilderAction) => void;
   notice: BuilderNotice | null;
+  /** The device asks for reduced motion. */
+  osReduce?: boolean;
+  /** The "Reduce motion in the editor" preference (this browser only). */
+  reducePref?: boolean;
+  onReducePref?: (on: boolean) => void;
+  onPreviewMotion?: () => void;
 }
 
-export const BuilderThemePanel: React.FC<BuilderThemePanelProps> = ({ theme, dispatch, notice }) => {
+const MOTION_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'subtle', label: 'Subtle' },
+  { value: 'cinematic', label: 'Cinematic' }
+];
+
+/** The hint under the Motion select. Every number is read from MOTION_PRESETS, none is written here. */
+export function motionHint(level: ThemeMotion): string {
+  if (level === 'subtle') {
+    return `Sections fade in and rise ${MOTION_PRESETS.subtle.distancePx}px as they scroll into view, in a quarter of a second. Buttons lift slightly on hover.`;
+  }
+  if (level === 'cinematic') {
+    return `Sections fade in and rise ${MOTION_PRESETS.cinematic.distancePx}px in about half a second. Best for a launch page; on a long sales page it can feel slow.`;
+  }
+  return 'Nothing on the page moves.';
+}
+
+export const BuilderThemePanel: React.FC<BuilderThemePanelProps> = ({ theme, dispatch, notice, osReduce = false, reducePref = false, onReducePref, onPreviewMotion }) => {
+  const motion: ThemeMotion = theme.motion ?? 'none';
+  const previewOff = motion === 'none' || osReduce || reducePref;
+  const previewReason = motion === 'none'
+    ? 'Page motion is off.'
+    : osReduce
+      ? 'Your device asks for reduced motion, so the preview is off. Visitors who ask for it see no motion either.'
+      : reducePref ? 'Reduce motion in the editor is on.' : '';
   const errorFor = (target: string) => (notice && notice.target === target ? notice.text : null);
   const set = (patch: Parameters<typeof dispatchTheme>[1], target: string) => dispatchTheme(dispatch, patch, target);
   const fontOptions = (current: string) => [
@@ -210,6 +240,34 @@ export const BuilderThemePanel: React.FC<BuilderThemePanelProps> = ({ theme, dis
         options={(THEME_BUTTON_SHADOWS as ReadonlyArray<string>).map(v => ({ value: v, label: SHADOW_WORDS[v] ?? v }))}
         error={errorFor('theme.buttonShadow')}
         onChange={v => set({ buttonShadow: v as NonNullable<BuilderTheme['buttonShadow']> }, 'theme.buttonShadow')}
+      />
+
+      <p id="jvb-motion-group" style={{ margin: '14px 0 6px', fontSize: '12px', fontWeight: 700, color: '#E2E8F0' }}>Motion</p>
+      <SelectField
+        label="Motion"
+        value={motion}
+        options={MOTION_OPTIONS}
+        hint={`${motionHint(motion)} The first section never moves, and visitors whose device asks for less motion see none.`}
+        error={errorFor('theme.motion')}
+        onChange={v => set({ motion: v } as Pick<BuilderTheme, 'motion'>, 'theme.motion')}
+      />
+      <button
+        type="button"
+        aria-disabled={previewOff}
+        aria-describedby="jvb-motion-preview-hint"
+        onClick={() => { if (!previewOff) onPreviewMotion?.(); }}
+        style={{ ...smallButton, opacity: previewOff ? 0.55 : 1, cursor: previewOff ? 'not-allowed' : 'pointer' }}
+      >
+        Preview motion
+      </button>
+      <p id="jvb-motion-preview-hint" style={hintStyle}>{previewReason || 'Plays every section\'s entrance once on the canvas.'}</p>
+
+      <p id="jvb-editor-group" style={{ margin: '14px 0 6px', fontSize: '12px', fontWeight: 700, color: '#E2E8F0' }}>Editor</p>
+      <CheckField
+        label="Reduce motion in the editor"
+        checked={reducePref}
+        onChange={v => onReducePref?.(v)}
+        hint="Only this browser, only the editor. The published page follows each visitor's own device setting."
       />
     </div>
   );

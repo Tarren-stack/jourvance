@@ -77,10 +77,22 @@ export const DEFAULT_THEME = deepFreeze(/** @satisfies {import('../../types/page
 /** The button shadow presets a theme may name. */
 export const THEME_BUTTON_SHADOWS = Object.freeze(['none', 'soft', 'medium', 'strong']);
 
+/** Page motion levels. Absent reads as none and is NOT in DEFAULT_THEME, so created pages keep their bytes. */
+export const THEME_MOTION_LEVELS = Object.freeze(['none', 'subtle', 'cinematic']);
+
+/** A section's entrance animation. Absent reads as inherit and is NOT in SECTION_DEFAULTS. */
+export const SECTION_REVEALS = Object.freeze(['inherit', 'none', 'fade', 'rise']);
+
 /**
  * The numeric theme settings added after the first release, each with its range. A document that
  * leaves one out gets DEFAULT_THEME's value, which reproduces the page as it rendered before.
  */
+/** The ONE place the motion numbers live. The renderer and the theme panel's hints both read this. */
+export const MOTION_PRESETS = deepFreeze({
+  subtle: { durationMs: 240, fastMs: 180, distancePx: 10, liftPx: -1, ease: 'cubic-bezier(.2,0,0,1)' },
+  cinematic: { durationMs: 560, fastMs: 220, distancePx: 24, liftPx: -2, ease: 'cubic-bezier(.16,1,.3,1)' }
+});
+
 export const THEME_NUMBER_RANGES = Object.freeze({
   headingScale: Object.freeze({ min: 0.5, max: 2, unit: 'x' }),
   headingWeight: Object.freeze({ min: 100, max: 900, unit: '', integer: true, step: 100 }),
@@ -321,7 +333,8 @@ export const SECTION_PROPS = deepFreeze(/** @satisfies {Record<keyof import('../
   anchor: { kind: 'anchor', label: 'Anchor for links (#name)' },
   contentWidth: oneOf('Content width', ['boxed', 'full']),
   columnGap: num('Space between columns', 0, 120, { integer: true, unit: 'px' }),
-  stackOn: oneOf('Stack columns on', ['tablet', 'mobile', 'never'])
+  stackOn: oneOf('Stack columns on', ['tablet', 'mobile', 'never']),
+  reveal: oneOf('Entrance animation', [...SECTION_REVEALS])
 }));
 
 export const SECTION_DEFAULTS = deepFreeze(/** @satisfies {import('../../types/pageBuilder').SectionProps} */ ({
@@ -780,7 +793,7 @@ function checkTheme(theme, state) {
   }
   const known = [
     'colors', 'fonts', 'radius', 'spacingScale', 'buttonStyle', 'containerWidth',
-    ...Object.keys(THEME_NUMBER_RANGES), 'linkColor', 'buttonShadow'
+    ...Object.keys(THEME_NUMBER_RANGES), 'linkColor', 'buttonShadow', 'motion'
   ];
   for (const key of Object.keys(theme)) {
     if (!known.includes(key)) report(state, `${path}.${key}`, `${quote(key)} is not a theme setting`);
@@ -832,6 +845,9 @@ function checkTheme(theme, state) {
   }
   if ('buttonShadow' in theme && !THEME_BUTTON_SHADOWS.includes(theme.buttonShadow)) {
     report(state, `${path}.buttonShadow`, `${quote(theme.buttonShadow)} is not one of ${THEME_BUTTON_SHADOWS.join(', ')}`);
+  }
+  if ('motion' in theme && !THEME_MOTION_LEVELS.includes(theme.motion)) {
+    report(state, `${path}.motion`, `${quote(theme.motion)} is not one of ${THEME_MOTION_LEVELS.join(', ')}`);
   }
 }
 

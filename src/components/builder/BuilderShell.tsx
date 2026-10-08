@@ -71,6 +71,7 @@ import { BuilderTemplates } from './BuilderTemplates';
 import { BuilderHistory } from './BuilderHistory';
 import { BuilderOutline, OUTLINE_PREFIX } from './BuilderOutline';
 import { BuilderInspector, DeviceSwitch } from './BuilderInspector';
+import { editorMotionOff, readReduceMotionPref, writeReduceMotionPref } from './motion';
 
 /** How long after the last change the document is written into the step. */
 export const AUTOSAVE_MS = 1500;
@@ -156,6 +157,26 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
   const journeyId = journeyIdProp ?? here.journeyId;
   const nodeId = nodeIdProp ?? here.step;
   const [dialogEl, setDialogEl] = useState<HTMLDialogElement | null>(null);
+  // Motion in the editor (LANDING_BUILDER_MOTION.md section 4): off when the OS asks for less, or when
+  // the merchant ticked "Reduce motion in the editor" (this browser only, never in the document).
+  const [osReduce, setOsReduce] = useState<boolean>(() => {
+    try {
+      return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      return false;
+    }
+  });
+  const [reducePref, setReducePref] = useState<boolean>(() => readReduceMotionPref());
+  const [motionPreview, setMotionPreview] = useState<{ seq: number } | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const on = () => setOsReduce(query.matches);
+    on();
+    query.addEventListener?.('change', on);
+    return () => query.removeEventListener?.('change', on);
+  }, []);
+  const reduceMotion = editorMotionOff(osReduce, reducePref);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const lastEscape = useRef(0);
   // A Space or Enter that placed a block must not also click the palette button it was pressed on.
@@ -648,6 +669,7 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
       aria-labelledby={titleId}
       aria-modal="true"
       className="jv-builder nokey"
+      {...(reduceMotion ? { 'data-reduce-motion': '' } : {})}
       onKeyDown={onKeyDown}
       onCancel={e => {
         e.preventDefault();
@@ -784,6 +806,7 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
               activeId={dragOutlineNodeId}
               overId={dragOutlineNodeId ? overId : null}
               dragging={!!drag}
+              motionOff={reduceMotion}
             />}
           </div>
 
@@ -868,6 +891,10 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
               scrollerRef={scrollerRef}
               onScroll={onCanvasScroll}
               measureTick={measureTick}
+              flash={state.flash}
+              motionOff={reduceMotion}
+              motionPreview={motionPreview}
+              onMotionPreview={(phase, level) => say(phase === 'start' ? `Previewing ${level} motion` : 'Preview finished')}
             />
           </div>
 
@@ -881,6 +908,13 @@ export const BuilderShell: React.FC<BuilderShellProps> = ({ data, onChange, onCl
               onDevice={d => dispatch({ type: 'setDevice', device: d })}
               labelOf={labelOf}
               onSay={say}
+              osReduce={osReduce}
+              reducePref={reducePref}
+              onReducePref={on => {
+                setReducePref(on);
+                writeReduceMotionPref(on);
+              }}
+              onPreviewMotion={() => setMotionPreview(prev => ({ seq: (prev?.seq ?? 0) + 1 }))}
             />
           </div>
         </div>

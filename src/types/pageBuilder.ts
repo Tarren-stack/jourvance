@@ -106,6 +106,11 @@ export interface DeviceStyle {
   mobile?: StyleValues;
 }
 
+/** Page motion: none (or absent) writes nothing; subtle and cinematic add entrance and interaction motion. */
+export type ThemeMotion = 'none' | 'subtle' | 'cinematic';
+/** A section's entrance animation; inherit (or absent) follows the page's motion. */
+export type SectionReveal = 'inherit' | 'none' | 'fade' | 'rise';
+
 /** The page's theme. Colours are plain hex here; nodes refer to them as `theme.<slot>`. */
 export interface BuilderTheme {
   colors: Record<ThemeColorKey, string>;
@@ -135,6 +140,8 @@ export interface BuilderTheme {
   /** Button corner radius in pixels; null follows the theme radius (and the pill style). */
   buttonRadius?: number | null;
   buttonShadow?: 'none' | 'soft' | 'medium' | 'strong';
+  /** Page motion level. Absent reads as none. */
+  motion?: ThemeMotion;
   /** Top and bottom padding every section starts with, in pixels. A section's own padding wins. */
   sectionPaddingY?: number;
   /** The space between stacked sections, in pixels. */
@@ -154,6 +161,8 @@ export interface SectionProps {
   columnGap: number;
   /** The largest device on which the columns stack into one. */
   stackOn: 'tablet' | 'mobile' | 'never';
+  /** Entrance animation. Absent reads as inherit. The first section never moves. */
+  reveal?: SectionReveal;
 }
 
 /** A column has no props of its own: its width, alignment and spacing are style. */

@@ -54,6 +54,34 @@
 //                       the stored document; Undo brings the previous page back
 //   ai-rewrite-off      Rewrite with AI on a heading, when the route answers 503: the route's own
 //                       sentence is shown verbatim and said, and the heading is unchanged
+//   Editor motion (LANDING_BUILDER_MOTION.md section 4), on the document the steps above leave:
+//   motion-theme        Global styles, Motion to Subtle: the stored theme, the canvas root's
+//                       data-jvb-motion and --jvb-motion-duration, the first section without a reveal and
+//                       the second with "rise", every section at opacity 1
+//   motion-section-override  Advanced, Entrance animation: Fade in, None, Same as the page, on the canvas
+//                       attribute and the stored prop; the first section shows its hint
+//   motion-selection    the selection outline and the toolbar animate jvbe-appear over 0.12s
+//   motion-drop-zone    during a palette drag a zone bar's transition-duration includes 0.15s
+//   motion-flash        Paste on the toolbar draws a [data-jvbe-flash] overlay that is gone within 1.5s
+//   motion-outline-flip Alt+Up on a section row writes translateY( and 180ms to the outline rows and
+//                       leaves no inline transform 500 ms later
+//   motion-device       switching to Tablet fades the canvas layer in (jvbe-device-in, 0.18s)
+//   motion-preview      Preview motion sets jvb-motion-on and jvb-in in the shadow root, then clears it;
+//                       the builder's polite live region says "Previewing subtle motion", then
+//                       "Preview finished"
+//   motion-canvas-settled every reveal section is drawn with jvb-in (the published settled state); a
+//                       Cinematic redraw reads 560ms and 24px with nothing animating; under jvb-motion-on
+//                       every section still reads opacity 1 and transform none
+//   motion-reorder-midway with the animation clock slowed tenfold, an outline row has a computed
+//                       transform mid-slide (saved as motion-mid-reorder.png with --shots)
+//   motion-reduced-os   reducedMotion emulated: data-reduce-motion, no selection animation, no flash, no
+//                       device fade, no FLIP, Preview motion aria-disabled; inside the canvas shadow root
+//                       the host carries data-jvbe-motion-off and nothing of the drawn page has a
+//                       transition or an animation
+//   motion-reduced-pref the same checks from the "Reduce motion in the editor" checkbox (the shadow root
+//                       ones are where the preference used to stop short: the page's button kept its
+//                       0.18s transition); unticked, the host attribute is gone and the button's 0.18s
+//                       transition is back (the positive control)
 //   runtime   no uncaught page error
 //
 // Usage: node scripts/builder-browser-check.mjs [--shots <dir>]
@@ -1225,6 +1253,348 @@ async function runChecks(browser, origin, shots, blocked) {
     expect(now === text, `the heading changed from "${text}" to "${now}"`);
     expect(answered.some(a => a.startsWith('POST rewrite') && a.includes('"kind":"heading"')), 'the rewrite route was never asked');
     return `503 answered: shown and said "${shown}"; the heading still reads "${now}"`;
+  });
+
+  // ---- Editor motion (LANDING_BUILDER_MOTION.md section 4) ----
+
+  const motionRoot = () => inShadow(page, "const r = root.querySelector('#jvb-root'); if (!r) return null; return { motion: r.getAttribute('data-jvb-motion'), duration: getComputedStyle(r).getPropertyValue('--jvb-motion-duration').trim(), reveals: [...r.querySelectorAll(':scope > section')].map(s => s.getAttribute('data-jvb-reveal')), opacities: [...r.querySelectorAll(':scope > section')].map(s => getComputedStyle(s).opacity), classes: r.className };");
+  const toThemePanel = async () => {
+    const ids = await sectionIds();
+    await row(ids[0]).click();
+    await row(ids[0]).focus();
+    await page.keyboard.press('Escape');
+    await page.locator('dialog[open] #jvb-theme-title').waitFor({ state: 'visible', timeout: 3000 });
+  };
+  const cssOf = (selector, props) => page.evaluate(([sel, ps]) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const cs = getComputedStyle(el);
+    return Object.fromEntries(ps.map(p => [p, cs[p]]));
+  }, [selector, props]);
+  const startFlipWatch = () => page.evaluate(() => {
+    window.__flip = [];
+    if (window.__flipObs) window.__flipObs.disconnect();
+    const tree = document.querySelector('dialog[open] [role="tree"]');
+    window.__flipObs = new MutationObserver(ms => ms.forEach(m => window.__flip.push(m.target.getAttribute('style') || '')));
+    window.__flipObs.observe(tree, { subtree: true, attributes: true, attributeFilter: ['style'] });
+  });
+  const readFlip = () => page.evaluate(() => window.__flip.slice());
+  const inlineTransforms = () => page.evaluate(() => [...document.querySelectorAll('dialog[open] [role="tree"] [role="treeitem"]')].filter(r => r.style.transform && r.style.transform !== 'none').length);
+  let motionSectionsBefore = null;
+
+  await go('motion-theme', async () => {
+    await toThemePanel();
+    const select = inspector.getByLabel('Motion', { exact: true });
+    await select.selectOption('subtle');
+    const doc = await storedWhere(b => b.theme && b.theme.motion === 'subtle', 'the stored theme does not hold motion subtle');
+    const facts = await waitUntil(async () => { const f = await motionRoot(); return f && f.motion === 'subtle' ? f : null; }, 3000);
+    expect(facts, `the canvas root never got data-jvb-motion="subtle": ${JSON.stringify(await motionRoot())}`);
+    expect(facts.duration === '240ms', `--jvb-motion-duration reads "${facts.duration}", not 240ms`);
+    expect(facts.reveals.length >= 2, `the page has ${facts.reveals.length} sections, need two`);
+    expect(facts.reveals[0] === null, `the first section carries data-jvb-reveal="${facts.reveals[0]}"`);
+    expect(facts.reveals[1] === 'rise', `the second section reads ${facts.reveals[1]}, not "rise"`);
+    expect(facts.opacities.every(o => o === '1'), `a section is not fully visible in the editor: ${facts.opacities.join()}`);
+    return `stored theme.motion ${doc.theme.motion}; canvas root data-jvb-motion ${facts.motion}, --jvb-motion-duration ${facts.duration}; reveals ${JSON.stringify(facts.reveals)}; opacities ${facts.opacities.join()}`;
+  });
+
+  await go('motion-section-override', async () => {
+    const ids = await sectionIds();
+    await row(ids[1]).click();
+    await inspector.getByRole('tab', { name: 'Advanced' }).click();
+    const entrance = inspector.getByLabel('Entrance animation', { exact: true });
+    await entrance.selectOption('fade');
+    await storedWhere(b => b.sections[1] && b.sections[1].props.reveal === 'fade', 'the stored section does not hold reveal fade');
+    const fade = await waitUntil(async () => { const f = await motionRoot(); return f && f.reveals[1] === 'fade' ? f : null; }, 3000);
+    expect(fade, `the canvas attribute is ${JSON.stringify((await motionRoot())?.reveals)}, not fade on the second section`);
+    await entrance.selectOption('none');
+    const gone = await waitUntil(async () => { const f = await motionRoot(); return f && f.reveals[1] === null ? f : null; }, 3000);
+    expect(gone, `the attribute is still ${JSON.stringify((await motionRoot())?.reveals)} after None`);
+    await entrance.selectOption('inherit');
+    await waitUntil(async () => { const f = await motionRoot(); return f && f.reveals[1] === 'rise' ? f : null; }, 3000);
+    await row(ids[0]).click();
+    const hint = await waitUntil(async () => {
+      const t = await inspector.innerText();
+      return /The first section never moves, so the top of the page shows at once\./.test(t) ? t : null;
+    }, 3000);
+    expect(hint, 'the first section does not show the "never moves" hint in Advanced');
+    return 'second section: Fade in stored and drawn as "fade", None removed the attribute, Same as the page put "rise" back; the first section shows its hint';
+  });
+
+  await go('motion-selection', async () => {
+    const ids = await sectionIds();
+    await row(ids[1]).click();
+    const mark = await waitUntil(() => page.$('dialog[open] [data-selection-outline]'), 3000);
+    expect(mark, 'no selection outline');
+    const bar = await cssOf('dialog[open] [role="toolbar"]', ['animationName', 'animationDuration']);
+    const out = await cssOf('dialog[open] [data-selection-outline]', ['animationName', 'animationDuration']);
+    expect(out && out.animationName === 'jvbe-appear' && out.animationDuration === '0.12s', `the selection outline animates ${JSON.stringify(out)}`);
+    expect(bar && bar.animationName === 'jvbe-appear' && bar.animationDuration === '0.12s', `the toolbar animates ${JSON.stringify(bar)}`);
+    return `outline ${out.animationName} ${out.animationDuration}; toolbar ${bar.animationName} ${bar.animationDuration}`;
+  });
+
+  await go('motion-drop-zone', async () => {
+    const item = palette('Divider');
+    await item.scrollIntoViewIfNeeded();
+    const a = await item.boundingBox();
+    expect(a, 'the palette item is not on screen');
+    const ax = a.x + a.width / 2;
+    const ay = a.y + a.height / 2;
+    await page.mouse.move(ax, ay);
+    await page.mouse.down();
+    await page.mouse.move(ax + 14, ay + 6, { steps: 4 });
+    const zone = await waitUntil(() => page.$('dialog[open] [data-zone-id]'), 3000);
+    expect(zone, 'no drop zone appeared during the drag');
+    const facts = await page.evaluate(() => {
+      const outer = document.querySelector('dialog[open] [data-zone-id]');
+      const bar = outer.firstElementChild;
+      return { outer: getComputedStyle(outer).animationName, duration: getComputedStyle(bar).transitionDuration, property: getComputedStyle(bar).transitionProperty };
+    });
+    // Drop it on the dialog's top-left corner, where there is no zone: nothing is added.
+    await page.mouse.move(4, 4, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    expect(facts.duration.split(',').some(d => d.trim() === '0.15s'), `the zone bar's transition-duration is "${facts.duration}"`);
+    expect(facts.outer === 'jvbe-appear', `the zone's animation is "${facts.outer}"`);
+    return `zone fades in with ${facts.outer}; bar transition-duration ${facts.duration}`;
+  });
+
+  await go('motion-flash', async () => {
+    const column = 'legacy-offer-media';
+    const source = findIn(await storedBuilder(page), column)?.children?.[0]?.id;
+    expect(source, 'no block in the first column to copy');
+    await row(source).click();
+    await toolbarButton('Copy').click();
+    await toolbarButton('Paste').click();
+    const flash = await waitUntil(async () => {
+      const f = await cssOf('dialog[open] [data-jvbe-flash]', ['animationName', 'animationDuration']);
+      return f || null;
+    }, 1500, 30);
+    expect(flash && flash.animationName === 'jvbe-flash', `the flash overlay animates ${JSON.stringify(flash)}`);
+    const started = Date.now();
+    const gone = await waitUntil(async () => ((await page.locator('dialog[open] [data-jvbe-flash]').count()) === 0 ? true : null), 1500, 30);
+    expect(gone, 'the flash overlay was still there 1500 ms later');
+    await undoButton().click();
+    return `paste flashed (${flash.animationName}, ${flash.animationDuration}) and was gone about ${Date.now() - started} ms later; undone`;
+  });
+
+  await go('motion-outline-flip', async () => {
+    const before = await sectionIds();
+    expect(before.length >= 2, 'need two sections to reorder');
+    await row(before[1]).click();
+    await row(before[1]).focus();
+    await startFlipWatch();
+    await page.keyboard.press('Alt+ArrowUp');
+    await waitSections([before[1], before[0], ...before.slice(2)], 'after Alt+ArrowUp');
+    await page.waitForTimeout(120);
+    const seen = await readFlip();
+    expect(seen.some(s => s.includes('translateY(')), `no row was offset with translateY: ${JSON.stringify(seen.slice(0, 4))}`);
+    expect(seen.some(s => s.includes('180ms')), `no row got the 180ms transition: ${JSON.stringify(seen.slice(0, 4))}`);
+    await page.waitForTimeout(500);
+    const left = await inlineTransforms();
+    expect(left === 0, `${left} outline rows still hold an inline transform 500 ms later`);
+    const order = await outlineRows(page);
+    const tops = order.filter(r => r.level === 1).map(r => r.id);
+    expect(tops.join() === [before[1], before[0], ...before.slice(2)].join(), `the outline reads ${tops.join()}`);
+    await undoButton().click();
+    await waitSections(before, 'after Undo');
+    return `Alt+ArrowUp: ${seen.length} style writes, translateY and 180ms among them; no inline transform 500 ms later; outline order ${tops.join(', ')}`;
+  });
+
+  await go('motion-device', async () => {
+    await page.waitForTimeout(AUTOSAVE_WAIT);
+    motionSectionsBefore = JSON.stringify((await storedBuilder(page)).sections);
+    await device('Tablet').click();
+    const layer = await waitUntil(async () => {
+      const f = await cssOf('dialog[open] [data-canvas-layer]', ['animationName', 'animationDuration']);
+      return f && f.animationName === 'jvbe-device-in' ? f : null;
+    }, 1500, 30);
+    expect(layer && layer.animationDuration === '0.18s', `the canvas layer animates ${JSON.stringify(await cssOf('dialog[open] [data-canvas-layer]', ['animationName', 'animationDuration']))}`);
+    await device('Desktop').click();
+    return `switching to Tablet: layer ${layer.animationName} ${layer.animationDuration}`;
+  });
+
+  await go('motion-preview', async () => {
+    await toThemePanel();
+    await inShadow(page, "window.__mp = []; if (window.__mpObs) window.__mpObs.disconnect(); const r = root.querySelector('#jvb-root'); window.__mpObs = new MutationObserver(() => window.__mp.push({ on: r.classList.contains('jvb-motion-on'), ins: r.querySelectorAll('[data-jvb-reveal].jvb-in').length })); window.__mpObs.observe(r, { subtree: true, attributes: true, attributeFilter: ['class'] }); return true;");
+    const button = inspector.getByRole('button', { name: 'Preview motion', exact: true });
+    expect((await button.getAttribute('aria-disabled')) === 'false', 'Preview motion is disabled while the page motion is subtle');
+    // What the builder's one polite live region says while the preview runs.
+    const regions = await page.evaluate(() => {
+      const found = document.querySelectorAll('dialog[open] > .jv-sr-only[role="status"][aria-live="polite"]');
+      window.__said = [];
+      if (window.__saidObs) window.__saidObs.disconnect();
+      if (found.length === 1) {
+        const el = found[0];
+        window.__saidObs = new MutationObserver(() => window.__said.push(el.textContent.trim()));
+        window.__saidObs.observe(el, { childList: true, subtree: true, characterData: true });
+      }
+      return found.length;
+    });
+    expect(regions === 1, `${regions} polite live regions in the builder, not one`);
+    await button.click();
+    const played = await waitUntil(async () => {
+      const m = await page.evaluate(() => window.__mp.slice());
+      return m.some(x => x.on) && m.some(x => x.on && x.ins >= 1) ? m : null;
+    }, 1000, 30);
+    expect(played, `the preview never set jvb-motion-on with a section in: ${JSON.stringify(await page.evaluate(() => window.__mp))}`);
+    await page.waitForTimeout(1500);
+    const after = await motionRoot();
+    expect(!/jvb-motion-on/.test(after.classes), `jvb-motion-on is still set 1500 ms later: ${after.classes}`);
+    expect(after.opacities.every(o => o === '1'), `a section is not visible after the preview: ${after.opacities.join()}`);
+    const said = await page.evaluate(() => window.__said.slice());
+    const start = said.indexOf('Previewing subtle motion');
+    expect(start >= 0 && said.indexOf('Preview finished', start) > start, `the live region said ${JSON.stringify(said)}`);
+    return `preview toggled the class ${played.length} times, then removed jvb-motion-on; opacities ${after.opacities.join()}; said ${JSON.stringify(said)}`;
+  });
+
+  // The canvas draws every reveal SETTLED, the state a published section is in once it has scrolled
+  // in: each [data-jvb-reveal] section carries jvb-in, so a redraw never plays an entrance and, were
+  // the published frame's jvb-motion-on ever on this root, nothing would hide.
+  const settledFacts = () => inShadow(page, "const r = root.querySelector('#jvb-root'); if (!r) return null; const secs = [...r.querySelectorAll('[data-jvb-reveal]')]; return { on: r.classList.contains('jvb-motion-on'), reveals: secs.length, inCount: secs.filter(s => s.classList.contains('jvb-in')).length, running: root.getAnimations().length, duration: getComputedStyle(r).getPropertyValue('--jvb-motion-duration').trim(), distance: getComputedStyle(r).getPropertyValue('--jvb-motion-distance').trim() };");
+  await go('motion-canvas-settled', async () => {
+    await toThemePanel();
+    const at = await settledFacts();
+    expect(at && at.reveals >= 1, `the canvas has no section with a reveal: ${JSON.stringify(at)}`);
+    expect(at.inCount === at.reveals, `${at.reveals - at.inCount} of ${at.reveals} reveal sections are not drawn settled (no jvb-in): ${JSON.stringify(at)}`);
+    expect(!at.on, 'the canvas root holds jvb-motion-on outside a preview');
+    // A redraw: Motion to Cinematic. The new level's custom properties reach the shadow root, every
+    // section is drawn settled again, and nothing is animating straight after it.
+    const select = inspector.getByLabel('Motion', { exact: true });
+    await select.selectOption('cinematic');
+    const cine = await waitUntil(async () => { const f = await settledFacts(); return f && f.duration === '560ms' ? f : null; }, 3000, 20);
+    expect(cine, `the canvas never read --jvb-motion-duration 560ms after Cinematic: ${JSON.stringify(await settledFacts())}`);
+    expect(cine.distance === '24px', `--jvb-motion-distance reads "${cine.distance}" at cinematic`);
+    expect(cine.inCount === cine.reveals && cine.running === 0, `after the redraw: ${JSON.stringify(cine)}`);
+    // The published settled state, on the canvas: with the frame's jvb-motion-on set by hand, every
+    // section still reads opacity 1 and transform none, because each one is already in.
+    const asPublished = await inShadow(page, "const r = root.querySelector('#jvb-root'); r.classList.add('jvb-motion-on'); const out = [...r.querySelectorAll(':scope > section')].map(s => { const cs = getComputedStyle(s); return cs.opacity + '/' + cs.transform; }); r.classList.remove('jvb-motion-on'); return out;");
+    expect(asPublished.every(v => v === '1/none'), `with jvb-motion-on a canvas section would hide or move: ${asPublished.join(', ')}`);
+    await select.selectOption('subtle');
+    const back = await waitUntil(async () => { const f = await settledFacts(); return f && f.duration === '240ms' ? f : null; }, 3000, 20);
+    expect(back && back.inCount === back.reveals && back.running === 0, `back at subtle: ${JSON.stringify(await settledFacts())}`);
+    return `${at.reveals} reveal sections drawn with jvb-in; Cinematic redraw read 560ms and 24px with ${cine.running} running animations; under jvb-motion-on every section read ${[...new Set(asPublished)].join()}`;
+  });
+
+  // The outline slide caught MID-FLIGHT: the page's animation clock is slowed tenfold (CDP
+  // Animation.setPlaybackRate), so 150 ms after Alt+ArrowUp a moved row still has a computed
+  // transform that is not none. With --shots the frame is saved as motion-mid-reorder.png.
+  await go('motion-reorder-midway', async () => {
+    const before = await sectionIds();
+    expect(before.length >= 2, 'need two sections to reorder');
+    await row(before[1]).click();
+    await row(before[1]).focus();
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Animation.enable');
+    await cdp.send('Animation.setPlaybackRate', { playbackRate: 0.1 });
+    let moving = null;
+    try {
+      await page.keyboard.press('Alt+ArrowUp');
+      moving = await waitUntil(() => page.evaluate(() => {
+        const rows = [...document.querySelectorAll('dialog[open] [role="tree"] [role="treeitem"]')];
+        // In flight: the inline target is already none with the 180ms transition on, while the
+        // computed transform is still between the old offset and none.
+        const m = rows.filter(r => r.style.transform === 'none' && /180ms/.test(r.style.transition)).map(r => getComputedStyle(r).transform).filter(t => t && t !== 'none');
+        return m.length ? m : null;
+      }), 600, 15);
+      await shot('motion-mid-reorder');
+    } finally {
+      await cdp.send('Animation.setPlaybackRate', { playbackRate: 1 });
+      await cdp.detach().catch(() => {});
+    }
+    expect(moving, 'no outline row had a computed transform while the slide was slowed tenfold');
+    await waitSections([before[1], before[0], ...before.slice(2)], 'after Alt+ArrowUp');
+    await page.waitForTimeout(2200);
+    const left = await inlineTransforms();
+    expect(left === 0, `${left} rows still hold an inline transform after the slowed slide`);
+    await undoButton().click();
+    await waitSections(before, 'after Undo');
+    return `mid-slide computed transforms: ${moving.slice(0, 3).join(' | ')}`;
+  });
+
+  /** The canvas host's motion-off attribute, a page button's transition, and every element of the drawn page that still moves. */
+  const canvasMotion = async () => ({
+    hostOff: await page.evaluate(() => { const h = document.querySelector('dialog[open] [data-jvb-canvas-host]'); return h ? h.hasAttribute('data-jvbe-motion-off') : null; }),
+    button: await inShadow(page, "const b = root.querySelector('#jvb-root .jvb-btn'); return b ? getComputedStyle(b).transitionDuration : null;"),
+    moving: await inShadow(page, "return [...root.querySelectorAll('#jvb-root, #jvb-root *')].filter(el => { const cs = getComputedStyle(el); return cs.transitionDuration.split(',').some(x => parseFloat(x) > 0) || cs.animationName !== 'none'; }).map(el => `${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\\s+/).join('.')} ${getComputedStyle(el).transitionDuration}`);")
+  });
+
+  /** The four editor-motion facts that must all read "off" (the same list for the OS setting and the preference). */
+  const motionIsOff = async (why, hintPattern) => {
+    const attr = await waitUntil(async () => ((await dialog.getAttribute('data-reduce-motion')) !== null ? true : null), 3000);
+    expect(attr, `${why}: the dialog has no data-reduce-motion`);
+    const shadowOff = await canvasMotion();
+    expect(shadowOff.hostOff === true, `${why}: the canvas host has no data-jvbe-motion-off`);
+    expect(shadowOff.button === '0s', `${why}: a page button in the canvas still transitions over ${shadowOff.button}`);
+    expect(shadowOff.moving.length === 0, `${why}: in the canvas shadow root these still move: ${shadowOff.moving.join(' | ')}`);
+    const ids = await sectionIds();
+    await row(ids[1]).click();
+    const sel = await cssOf('dialog[open] [data-selection-outline]', ['animationName']);
+    expect(sel && sel.animationName === 'none', `${why}: the selection outline animates ${JSON.stringify(sel)}`);
+    const column = 'legacy-offer-media';
+    const source = findIn(await storedBuilder(page), column)?.children?.[0]?.id;
+    await row(source).click();
+    await toolbarButton('Copy').click();
+    await toolbarButton('Paste').click();
+    await page.waitForTimeout(350);
+    const flashes = await page.locator('dialog[open] [data-jvbe-flash]').count();
+    expect(flashes === 0, `${why}: ${flashes} flash overlays were drawn`);
+    await undoButton().click();
+    await device('Tablet').click();
+    await page.waitForTimeout(60);
+    const layer = await cssOf('dialog[open] [data-canvas-layer]', ['animationName']);
+    expect(layer && layer.animationName === 'none', `${why}: the device switch animates ${JSON.stringify(layer)}`);
+    await device('Desktop').click();
+    const sections = await sectionIds();
+    await row(sections[1]).click();
+    await row(sections[1]).focus();
+    await startFlipWatch();
+    await page.keyboard.press('Alt+ArrowUp');
+    await waitSections([sections[1], sections[0], ...sections.slice(2)], `${why}: after Alt+ArrowUp`);
+    await page.waitForTimeout(300);
+    const seen = await readFlip();
+    expect(!seen.some(s => s.includes('translateY(')), `${why}: a row was offset with translateY: ${JSON.stringify(seen.slice(0, 3))}`);
+    await undoButton().click();
+    await waitSections(sections, `${why}: after Undo`);
+    await toThemePanel();
+    const preview = inspector.getByRole('button', { name: 'Preview motion', exact: true });
+    expect((await preview.getAttribute('aria-disabled')) === 'true', `${why}: Preview motion is not aria-disabled`);
+    const hint = (await inspector.innerText());
+    expect(hintPattern.test(hint), `${why}: the preview hint does not match ${hintPattern}`);
+  };
+
+  await go('motion-reduced-os', async () => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await motionIsOff('OS reduced motion', /Your device asks for reduced motion/);
+    return 'reduced motion emulated: data-reduce-motion set, no selection animation, no flash, no device fade, no outline FLIP, Preview motion aria-disabled naming the device setting';
+  });
+
+  await go('motion-reduced-pref', async () => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const cleared = await waitUntil(async () => ((await dialog.getAttribute('data-reduce-motion')) === null ? true : null), 3000);
+    expect(cleared, 'data-reduce-motion stayed after the device went back to no-preference');
+    await toThemePanel();
+    const box = inspector.getByLabel('Reduce motion in the editor', { exact: true });
+    await box.check();
+    const stored = await page.evaluate(() => localStorage.getItem('jv_builder_reduce_motion'));
+    expect(stored === '1', `localStorage jv_builder_reduce_motion is ${JSON.stringify(stored)}, not "1"`);
+    await motionIsOff('the editor preference', /Reduce motion in the editor is on\./);
+    await toThemePanel();
+    await inspector.getByLabel('Reduce motion in the editor', { exact: true }).uncheck();
+    const back = await waitUntil(async () => ((await dialog.getAttribute('data-reduce-motion')) === null ? true : null), 3000);
+    expect(back, 'data-reduce-motion stayed after the preference was cleared');
+    const shadowOn = await canvasMotion();
+    expect(shadowOn.hostOff === false, 'the canvas host kept data-jvbe-motion-off after the preference was cleared');
+    expect(shadowOn.button === '0.18s', `a page button in the canvas transitions over ${shadowOn.button} once the preference is cleared, not the subtle 0.18s`);
+    const ids = await sectionIds();
+    await row(ids[1]).click();
+    const sel = await cssOf('dialog[open] [data-selection-outline]', ['animationName']);
+    expect(sel && sel.animationName === 'jvbe-appear', `the selection animation did not come back: ${JSON.stringify(sel)}`);
+    await page.waitForTimeout(AUTOSAVE_WAIT);
+    const now = JSON.stringify(await storedBuilder(page));
+    const nowDoc = JSON.parse(now);
+    expect(nowDoc.theme.motion === 'subtle', 'the stored theme lost motion subtle');
+    expect(JSON.stringify(nowDoc.sections) === motionSectionsBefore, 'the stored sections changed across the motion steps');
+    return `preference stored as "1", the same checks hold (canvas host data-jvbe-motion-off, page button 0s, nothing moving in the shadow root), unchecking brought the animation back and the page button's ${shadowOn.button}; stored sections unchanged`;
   });
 
   await go('runtime', async () => {

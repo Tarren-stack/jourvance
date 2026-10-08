@@ -17,6 +17,26 @@
 //      wide, the evergreen and the expired countdowns, the lead modal post (every field of the
 //      design) and the cart link it ends in (with the bump), the lead form widget's success line,
 //      the sticky bar on a phone and the exit drawer.
+//   3b. Motion (LANDING_BUILDER_MOTION.md): a second published page with theme.motion subtle, five
+//      tall sections. The served root carries data-jvb-motion and the five custom properties, every
+//      section but the first carries data-jvb-reveal (the first none); after load the root has
+//      jvb-motion-on, a below-the-fold section is hidden and gains jvb-in within 1 s of scrolling into
+//      view, settling at opacity 1 and transform none; the motion-less page gets none of it. Under
+//      emulated reduced motion every section reads opacity 1 at load, the root never gets
+//      jvb-motion-on and nothing transitions. --shots saves builder-serve-motion.png with a revealed
+//      section on screen. About 80 ms after the section gains jvb-in it is sampled mid-reveal (0 <
+//      opacity < 1, transition 0.24s); once settled the frame script takes jvb-motion-on off, and the
+//      transition with it, so the settled check asks for opacity 1 and transform none only. The
+//      motion-less page is read where motion would be written (the root tag, the section tags and
+//      <style id="jvb-style">), because the frame script's own text names --jvb-motion-duration on
+//      every builder page; in Chrome its frame script never adds jvb-motion-on or jvb-in (a class
+//      recorder installed before any page script, proven live on the motion page).
+//   3c. Reduced motion, the whole page and its frame (fix round 3): a third page, the first one's
+//      document at subtle with a link, under emulated reduced motion: nothing in the body has a
+//      transition or an animation at rest or after hovering the button and the link, ticking the
+//      bump and opening the exit drawer; the drawer is in place on its first frames; the lead modal's
+//      spinner does not turn. The same page with no preference is the control (drawer 0.38s, backdrop
+//      0.3s, cookie banner 0.35s, button 0.18s, the spinner and the bump tick, a drawer mid-slide).
 //   4. Kills the server's process GROUP and confirms nothing of the sandbox is left running.
 // Every request that is not the sandbox server or the shop's checkout is aborted (fonts, pixels), and
 // the shop's checkout is answered locally, so the run needs no network and sends nothing out.
@@ -33,7 +53,7 @@ import express from 'express';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setupJourneyRoutes } from '../server/routes/journeyRoutes.mjs';
 import { LEAD_BODY_FIELDS } from '../server/routes/publicLeadScript.mjs';
-import { createNode, insertNode, migrateLegacyPage } from '../src/lib/pageBuilder/model.mjs';
+import { MOTION_PRESETS, createEmptyPage, createNode, insertNode, migrateLegacyPage } from '../src/lib/pageBuilder/model.mjs';
 import { render } from '../src/lib/pageBuilder/render.mjs';
 import { DEFAULT_LEAD_CAPTURE_PROJECT } from '../src/lib/defaultBlueprint.ts';
 
@@ -42,9 +62,24 @@ const PLAYWRIGHT = process.env.PLAYWRIGHT_MODULE || '/Users/tarrenmunoz/antigrav
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const shotsAt = process.argv.includes('--shots') ? process.argv[process.argv.indexOf('--shots') + 1] : '';
 const SLUG = 'bld-demo';
+const MOTION_SLUG = 'bld-motion';
+const MOTION_FULL_SLUG = 'bld-motion-full';
 const VARIANT = 'gid://shopify/ProductVariant/123';
 const BUMP = 'gid://shopify/ProductVariant/456';
 const SHOP = { storeDomain: 'shop.myshopify.com', currency: 'USD', status: 'connected' };
+
+/** Records, from before any page script runs, every time the root gains jvb-motion-on or a section gains jvb-in. */
+const CLASS_RECORDER = () => {
+  window.__jvbClassLog = [];
+  new MutationObserver(list => {
+    for (const m of list) {
+      const t = m.target;
+      if (!t || !t.classList) continue;
+      if (t.id === 'jvb-root' && t.classList.contains('jvb-motion-on')) window.__jvbClassLog.push('root:jvb-motion-on');
+      if (t.tagName === 'SECTION' && t.classList.contains('jvb-in')) window.__jvbClassLog.push('section:jvb-in');
+    }
+  }).observe(document, { subtree: true, attributes: true, attributeFilter: ['class'] });
+};
 
 const results = [];
 const check = (name, pass, detail = '') => {
@@ -90,10 +125,39 @@ function buildDoc() {
   return doc;
 }
 
-async function publishRecord(doc) {
+/** Five tall sections at motion subtle; the third has its own reveal (fade), the fifth opts out (none). */
+function buildMotionDoc() {
+  let doc = createEmptyPage({ motion: 'subtle' });
+  for (let i = 0; i < 5; i++) {
+    const sec = createNode('section');
+    sec.style = { desktop: { paddingTop: 40, paddingBottom: 40, minHeight: 700 } };
+    if (i === 2) sec.props = { ...sec.props, reveal: 'fade' };
+    if (i === 4) sec.props = { ...sec.props, reveal: 'none' };
+    const h = createNode('widget', 'heading');
+    h.props = { ...h.props, text: `Motion section ${i + 1}`, level: i === 0 ? 1 : 2 };
+    sec.children[0].children.push(h);
+    const r = insertNode(doc, null, doc.sections.length, sec);
+    if (!r.ok) die(`could not add motion section ${i + 1}: ${r.reason}`);
+    doc = r.doc;
+  }
+  return doc;
+}
+
+/** The first page's document at motion subtle with a link in a text widget: every part of a page that can move. */
+function buildFullMotionDoc() {
+  const doc = buildDoc();
+  doc.theme = { ...doc.theme, motion: 'subtle' };
+  const text = createNode('widget', 'text');
+  text.props = { ...text.props, text: 'Read [the guide](https://example.com/guide) first.' };
+  const r = insertNode(doc, doc.sections[0].children[1].id, 0, text);
+  if (!r.ok) die(`could not add the text link: ${r.reason}`);
+  return r.doc;
+}
+
+async function publishRecord(doc, slug = SLUG) {
   const saved = {};
   const store = {
-    journey: { id: 'j1', nodes: [{ id: 'page-1', type: 'landing-page', data: { type: 'landing-page', slug: SLUG, headline: 'Glow in seven days', subhead: 'A serum made in small batches.', exitIntentEnabled: true, exitIntentHeadline: 'Wait, take a code', exitIntentDiscountCode: 'STAY10', builder: doc } }], edges: [] }
+    journey: { id: 'j1', nodes: [{ id: 'page-1', type: 'landing-page', data: { type: 'landing-page', slug, headline: 'Glow in seven days', subhead: 'A serum made in small batches.', exitIntentEnabled: true, exitIntentHeadline: 'Wait, take a code', exitIntentDiscountCode: 'STAY10', builder: doc } }], edges: [] }
   };
   const ctx = {
     requireUser: (req, _res, next) => { req.user = { uid: 'u1' }; next(); },
@@ -122,12 +186,12 @@ async function publishRecord(doc) {
   try {
     const res = await fetch(`http://127.0.0.1:${server.address().port}/api/journey/j1/publish`, { method: 'POST' });
     const body = await res.json();
-    if (res.status !== 200 || !saved[SLUG]) die(`the publish route answered ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
+    if (res.status !== 200 || !saved[slug]) die(`the publish route answered ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
   } finally {
     server.closeAllConnections();
     await new Promise(r => server.close(r));
   }
-  const record = structuredClone(saved[SLUG]);
+  const record = structuredClone(saved[slug]);
   record.shopifyConfig = { ...SHOP };
   // Left owned, a lead post never gets an answer on the current tree: POST /api/public/lead calls
   // noteSegmentChanges(page.userId), which throws ReferenceError: predictionAccount is not defined
@@ -166,8 +230,11 @@ async function main() {
   if (!fs.existsSync(CHROME)) die(`Chrome not found at ${CHROME} (set CHROME_PATH)`);
   const doc = buildDoc();
   const record = await publishRecord(doc);
+  const motionDoc = buildMotionDoc();
+  const motionRecord = await publishRecord(motionDoc, MOTION_SLUG);
+  const fullRecord = await publishRecord(buildFullMotionDoc(), MOTION_FULL_SLUG);
   const dir = makeSandbox();
-  fs.writeFileSync(path.join(dir, 'public_pages.json'), JSON.stringify({ [SLUG]: record }));
+  fs.writeFileSync(path.join(dir, 'public_pages.json'), JSON.stringify({ [SLUG]: record, [MOTION_SLUG]: motionRecord, [MOTION_FULL_SLUG]: fullRecord }));
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
   const logPath = path.join(dir, 'server.log');
@@ -323,6 +390,215 @@ async function main() {
         check('phone (390px): the exit drawer opens when the pointer leaves the top edge', drawer === 'block', drawer);
       }
       check(`${name}: no page error and no CSP violation`, seen.pageErrors.length === 0 && seen.csp.length === 0, [...seen.pageErrors, ...seen.csp].join(' | '));
+      await ctx.close();
+    }
+
+    // ---- motion (LANDING_BUILDER_MOTION.md sections 2 and 5) ----
+    {
+      const P = MOTION_PRESETS.subtle;
+      const props = `--jvb-motion-duration:${P.durationMs}ms;--jvb-motion-fast:${P.fastMs}ms;--jvb-motion-distance:${P.distancePx}px;--jvb-motion-lift:${P.liftPx}px;--jvb-motion-ease:${P.ease}`;
+      const raw = await (await fetch(`${base}/p/${MOTION_SLUG}`)).text();
+      check('motion: the served HTML carries data-jvb-motion="subtle" on the root', raw.includes('<div id="jvb-root" class="jvb" data-jvb-motion="subtle">'));
+      check('motion: the served CSS carries the five custom properties in order', raw.includes(props), props);
+      // The frame script is the same on every builder page, so its own text names what it reads
+      // (getAttribute('data-jvb-motion'), --jvb-motion-duration in jvbSettle). What a motion-less page
+      // must not carry is in its markup and its CSS: the root tag, the section tags and jvb-style.
+      const plain = await (await fetch(`${base}/p/${SLUG}`)).text();
+      const plainRoot = (plain.match(/<div id="jvb-root"[^>]*>/) || ['(no root)'])[0];
+      const plainSections = plain.match(/<section\b[^>]*>/g) || [];
+      const plainStyle = (plain.match(/<style id="jvb-style">([\s\S]*?)<\/style>/) || [null, null])[1];
+      check('motion: the motion-less page\'s root tag is plain, no section tag carries data-jvb-reveal, and <style id="jvb-style"> holds no motion property or rule',
+        plainRoot === '<div id="jvb-root" class="jvb">' && plainSections.length > 0 && !plainSections.some(t => /data-jvb-reveal=/.test(t)) && plainStyle !== null && !/--jvb-motion-|jvb-motion-on|data-jvb-reveal|@keyframes jvb-|prefers-reduced-motion/.test(plainStyle),
+        `root ${plainRoot}; ${plainSections.length} section tags; jvb-style ${plainStyle === null ? 'missing' : `${plainStyle.length} chars`}`);
+      {
+        // In the browser: the frame script runs on the motion-less page and never touches a section.
+        const { page, seen, ctx } = await newPage(1280, 800);
+        await page.addInitScript(CLASS_RECORDER);
+        await page.goto(`${base}/p/${SLUG}`, { waitUntil: 'load' });
+        await page.waitForSelector('#jvb-root', { state: 'visible', timeout: 10000 });
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await page.waitForTimeout(500);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForTimeout(300);
+        const got = await page.evaluate(() => ({ log: window.__jvbClassLog || null, on: document.getElementById('jvb-root').classList.contains('jvb-motion-on'), ins: document.querySelectorAll('#jvb-root section.jvb-in').length, reveals: document.querySelectorAll('[data-jvb-reveal]').length }));
+        check('motion: on the motion-less page the frame script never adds jvb-motion-on or jvb-in (loaded, scrolled to the bottom and back)', got.log !== null && got.log.length === 0 && !got.on && got.ins === 0 && got.reveals === 0, JSON.stringify(got));
+        check('motion: the motion-less page loads with no page error', seen.pageErrors.length === 0, seen.pageErrors.join(' | '));
+        await ctx.close();
+      }
+
+      const { page, seen, ctx } = await newPage(1280, 800);
+      await page.addInitScript(CLASS_RECORDER);
+      await page.goto(`${base}/p/${MOTION_SLUG}`, { waitUntil: 'load' });
+      await page.waitForSelector('#jvb-root', { state: 'visible', timeout: 10000 });
+      const recorded = await page.evaluate(() => window.__jvbClassLog || null);
+      check('motion: the class recorder sees the frame script at work on the motion page (positive control for the motion-less check)', recorded !== null && recorded.includes('root:jvb-motion-on') && recorded.includes('section:jvb-in'), JSON.stringify(recorded));
+      const state = () => page.evaluate(() => {
+        const r = document.getElementById('jvb-root');
+        return {
+          on: r.classList.contains('jvb-motion-on'),
+          secs: [...r.querySelectorAll(':scope > section')].map(s => {
+            const cs = getComputedStyle(s);
+            return { reveal: s.getAttribute('data-jvb-reveal'), in: s.classList.contains('jvb-in'), opacity: cs.opacity, transform: cs.transform, td: cs.transitionDuration, top: Math.round(s.getBoundingClientRect().top) };
+          })
+        };
+      });
+      const atLoad = await state();
+      const reveals = atLoad.secs.map(s => s.reveal);
+      check('motion: five sections served, the first with no data-jvb-reveal', atLoad.secs.length === 5 && reveals[0] === null, JSON.stringify(reveals));
+      check('motion: the others carry rise, rise, fade and none (the opt-out writes no attribute)', JSON.stringify(reveals.slice(1)) === JSON.stringify(['rise', 'fade', 'rise', null]), JSON.stringify(reveals));
+      check('motion: after load the frame script set jvb-motion-on on the root', atLoad.on);
+      check('motion: the first section is visible at load and never carries jvb-in', atLoad.secs[0].opacity === '1' && !atLoad.secs[0].in, JSON.stringify(atLoad.secs[0]));
+      const far = atLoad.secs[3];
+      check('motion: a below-the-fold rise section is hidden (opacity 0, 10px down) before it scrolls in', far.top >= 800 && !far.in && far.opacity === '0' && far.transform === `matrix(1, 0, 0, 1, 0, ${P.distancePx})`, JSON.stringify(far));
+      // A sample taken about 80 ms after the section gains jvb-in, timed in the page (a MutationObserver
+      // on its class, then animation frames until 80 ms have passed), so the polling below cannot delay it.
+      await page.evaluate((at) => {
+        const s = document.querySelectorAll('#jvb-root > section')[3];
+        window.__jvbMid = null;
+        const mo = new MutationObserver(() => {
+          if (!s.classList.contains('jvb-in')) return;
+          mo.disconnect();
+          const t0 = performance.now();
+          const sample = () => {
+            const now = performance.now();
+            if (now - t0 < at) { requestAnimationFrame(sample); return; }
+            const cs = getComputedStyle(s);
+            window.__jvbMid = { ms: Math.round(now - t0), opacity: cs.opacity, transform: cs.transform, td: cs.transitionDuration };
+          };
+          requestAnimationFrame(sample);
+        });
+        mo.observe(s, { attributes: true, attributeFilter: ['class'] });
+      }, 80);
+      const t0 = Date.now();
+      await page.evaluate(() => document.querySelectorAll('#jvb-root > section')[3].scrollIntoView({ block: 'center' }));
+      let gained = null;
+      while (Date.now() - t0 < 1000) {
+        const s = await state();
+        if (s.secs[3].in) { gained = Date.now() - t0; break; }
+        await page.waitForTimeout(25);
+      }
+      check('motion: the section gains jvb-in within 1 s of scrolling into view', gained !== null, gained === null ? 'never in 1000 ms' : `${gained} ms`);
+      let mid = null;
+      for (const until = Date.now() + 1500; !mid && Date.now() < until;) {
+        mid = await page.evaluate(() => window.__jvbMid);
+        if (!mid) await page.waitForTimeout(25);
+      }
+      const midOpacity = mid ? Number(mid.opacity) : NaN;
+      check(`motion: about 80 ms after it gains jvb-in it is mid-reveal (0 < opacity < 1) with the ${P.durationMs / 1000}s transition`,
+        mid !== null && mid.ms < P.durationMs && midOpacity > 0 && midOpacity < 1 && mid.td.split(',').map(x => x.trim()).includes(`${P.durationMs / 1000}s`),
+        mid ? JSON.stringify(mid) : 'no sample in 1500 ms');
+      await page.waitForTimeout(P.durationMs + 200);
+      const settled = (await state()).secs[3];
+      // Once nothing is hidden and the last reveal has had its time, the frame script takes
+      // jvb-motion-on off (jvbSettle), and the transition rule with it, so the duration is not asked here.
+      const rootOn = await page.evaluate(() => document.getElementById('jvb-root').classList.contains('jvb-motion-on'));
+      check('motion: it settles at opacity 1 and transform none', settled.opacity === '1' && settled.transform === 'none', `${JSON.stringify(settled)}; root jvb-motion-on ${rootOn}`);
+      await page.screenshot({ path: shotsAt ? path.join(shotsAt, 'builder-serve-motion.png') : path.join(dir, 'motion.png'), fullPage: false });
+      await page.evaluate(() => document.querySelectorAll('#jvb-root > section')[2].scrollIntoView({ block: 'center' }));
+      await page.waitForTimeout(P.durationMs + 400);
+      const fade = (await state()).secs[2];
+      check('motion: the fade section reveals without moving (opacity 1, transform none)', fade.in && fade.opacity === '1' && fade.transform === 'none', JSON.stringify(fade));
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForTimeout(200);
+      check('motion: scrolled back to the top, the revealed section keeps jvb-in', (await state()).secs[3].in);
+      check('motion: no page error and no CSP violation', seen.pageErrors.length === 0 && seen.csp.length === 0, [...seen.pageErrors, ...seen.csp].join(' | '));
+      await ctx.close();
+    }
+    {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', e => errors.push(String(e.message || e).slice(0, 300)));
+      await ctx.route('**/*', route => (new URL(route.request().url()).origin === base ? route.continue() : route.abort()));
+      await page.goto(`${base}/p/${MOTION_SLUG}`, { waitUntil: 'load' });
+      await page.waitForSelector('#jvb-root', { state: 'visible', timeout: 10000 });
+      const read = () => page.evaluate(() => {
+        const r = document.getElementById('jvb-root');
+        return {
+          on: r.classList.contains('jvb-motion-on'),
+          secs: [...r.querySelectorAll(':scope > section')].map(s => { const cs = getComputedStyle(s); return `${cs.opacity}/${cs.transform}/${cs.transitionDuration}`; }),
+          btn: (() => { const b = r.querySelector('.jvb-btn'); return b ? getComputedStyle(b).transitionDuration : 'no button'; })(),
+          animations: document.getAnimations().length
+        };
+      });
+      const r1 = await read();
+      check('reduced motion: every section is visible at load with no transform and no transition', r1.secs.every(v => v === '1/none/0s'), r1.secs.join(', '));
+      check('reduced motion: the root never gets jvb-motion-on', !r1.on);
+      await page.evaluate(() => document.querySelectorAll('#jvb-root > section')[3].scrollIntoView({ block: 'center' }));
+      await page.waitForTimeout(600);
+      const r2 = await read();
+      check('reduced motion: after scrolling, still every section visible and nothing animating', r2.secs.every(v => v === '1/none/0s') && !r2.on && r2.animations === 0, `${r2.secs.join(', ')}; animations ${r2.animations}`);
+      check('reduced motion: no page error', errors.length === 0, errors.join(' | '));
+      await ctx.close();
+    }
+
+    // ---- reduced motion, the whole page and its frame (fix round 3) ----
+    // The Motion hint promises that a visitor whose device asks for less motion sees none. On a subtle
+    // page with a button, a link, the bump, a countdown, the lead modal, the exit drawer and the cookie
+    // banner, nothing may have a transition or an animation at rest or after use, and the exit drawer
+    // must be in place on its first frame. The same page with no preference is the control: the motion
+    // is still there for everyone else, and this scan can see it.
+    for (const [label, reducedMotion] of [['reduced motion (frame)', 'reduce'], ['no preference (frame control)', 'no-preference']]) {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', e => errors.push(String(e.message || e).slice(0, 300)));
+      await ctx.route('**/*', route => (new URL(route.request().url()).origin === base ? route.continue() : route.abort()));
+      await page.goto(`${base}/p/${MOTION_FULL_SLUG}`, { waitUntil: 'load' });
+      await page.waitForSelector('#jvb-root', { state: 'visible', timeout: 10000 });
+      await page.waitForTimeout(400);
+      const scan = () => page.evaluate(() => [...document.querySelectorAll('body, body *')].filter(el => {
+        const cs = getComputedStyle(el);
+        return cs.transitionDuration.split(',').some(x => parseFloat(x) > 0) || cs.animationName !== 'none';
+      }).map(el => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${typeof el.className === 'string' && el.className.trim() ? `.${el.className.trim().split(/\s+/).join('.')}` : ''} ${getComputedStyle(el).transitionDuration}/${getComputedStyle(el).animationName}`));
+      const parts = await page.evaluate(() => ({
+        button: !!document.querySelector('#jvb-root .jvb-btn'), link: !!document.querySelector('#jvb-root .jvb-text a'), bump: !!document.getElementById('bump-checkbox-page'),
+        countdown: !!document.querySelector('#jvb-root .jvb-countdown-clock'), modal: !!document.getElementById('lead-modal'), drawer: !!document.getElementById('jv-exit-drawer'), banner: !!document.getElementById('jv-consent-banner')
+      }));
+      check(`${label}: the page holds every part that can move`, Object.values(parts).every(Boolean), JSON.stringify(parts));
+      const atRest = await scan();
+      await page.locator('#jvb-root .jvb-btn').first().hover();
+      await page.locator('#jvb-root .jvb-text a').first().hover();
+      await page.locator('#bump-checkbox-page').check();
+      await page.waitForTimeout(30);
+      const used = await page.evaluate(() => ({
+        lift: getComputedStyle(document.querySelector('#jvb-root .jvb-btn')).transform,
+        anims: document.getAnimations().map(a => a.animationName || a.transitionProperty || a.constructor.name)
+      }));
+      const spin = await page.evaluate(() => {
+        const s = document.createElement('span');
+        s.className = 'loading-spinner';
+        document.getElementById('lead-modal').appendChild(s);
+        const name = getComputedStyle(s).animationName;
+        s.remove();
+        return name;
+      });
+      await page.mouse.move(640, 400);
+      const drawerBefore = await page.evaluate(() => getComputedStyle(document.getElementById('jv-exit-drawer')).display);
+      await page.evaluate(() => document.dispatchEvent(new MouseEvent('mouseleave', { clientY: -1 })));
+      await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+      const drawer = await page.evaluate(() => {
+        const d = document.getElementById('jv-exit-drawer');
+        const b = document.getElementById('jv-exit-backdrop');
+        return { display: getComputedStyle(d).display, transform: getComputedStyle(d).transform, backdrop: getComputedStyle(b).opacity, anims: document.getAnimations().length };
+      });
+      drawer.before = drawerBefore;
+      const afterUse = await scan();
+      if (reducedMotion === 'reduce') {
+        check(`${label}: nothing on the page or its frame has a transition or an animation at rest`, atRest.length === 0, atRest.join(' | ') || 'none');
+        check(`${label}: hovering the button and the link and ticking the bump start nothing, and the button does not lift`, used.anims.length === 0 && used.lift === 'none', JSON.stringify(used));
+        check(`${label}: the lead modal's spinner does not turn`, spin === 'none', spin);
+        check(`${label}: the exit drawer is in place on its first frames, with its backdrop, and nothing is animating`, drawer.before === 'none' && drawer.display === 'block' && drawer.transform === 'matrix(1, 0, 0, 1, 0, 0)' && drawer.backdrop === '1' && drawer.anims === 0, JSON.stringify(drawer));
+        check(`${label}: still nothing with a transition or an animation after all of that`, afterUse.length === 0, afterUse.join(' | ') || 'none');
+      } else {
+        const has = (list, re) => list.some(x => re.test(x));
+        check(`${label}: the scan sees the motion everyone else still gets (drawer 0.38s, backdrop 0.3s, banner 0.35s, the page's button 0.18s)`,
+          has(atRest, /^div#jv-exit-drawer 0\.38s/) && has(atRest, /^div#jv-exit-backdrop 0\.3s/) && has(atRest, /^div#jv-consent-banner\.jv-cookie-consent 0\.35s/) && has(atRest, /\.jvb-btn\b.* 0\.18s/), atRest.join(' | '));
+        check(`${label}: the spinner turns and the bump ticks`, spin === 'jvf-spin' && used.anims.includes('jvb-tick'), `${spin}; ${JSON.stringify(used.anims)}`);
+        const y = Number((drawer.transform.match(/matrix\(1, 0, 0, 1, 0, ([-\d.]+)\)/) || [])[1]);
+        check(`${label}: the exit drawer is still sliding in two frames after it opens`, drawer.before === 'none' && drawer.display === 'block' && y > 1, JSON.stringify(drawer));
+      }
+      check(`${label}: no page error`, errors.length === 0, errors.join(' | '));
       await ctx.close();
     }
   } finally {

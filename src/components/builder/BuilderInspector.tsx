@@ -13,10 +13,12 @@ import type {
   BuilderDevice,
   BuilderDoc,
   BuilderNode,
+  BuilderSection,
   BuilderWidget,
   PropSpec,
   StyleSpec,
-  StyleValues
+  StyleValues,
+  ThemeMotion
 } from '../../types/pageBuilder';
 import type { BuilderAction, BuilderNotice } from './builderState';
 import {
@@ -113,6 +115,11 @@ export interface BuilderInspectorProps {
   labelOf: (id: string) => string;
   /** Says a sentence in the builder's polite live region (an AI rewrite's outcome). */
   onSay?: (text: string) => void;
+  /** Editor motion (section 4): passed to the theme panel, which shows the Motion group. */
+  osReduce?: boolean;
+  reducePref?: boolean;
+  onReducePref?: (on: boolean) => void;
+  onPreviewMotion?: () => void;
 }
 
 type Tab = 'content' | 'style' | 'advanced';
@@ -356,7 +363,7 @@ function ContentTab({ node, dispatch, notice, isInner, onSay }: { node: BuilderN
     const props = (node.props || {}) as unknown as Record<string, unknown>;
     return (
       <>
-        {(Object.entries(SECTION_PROPS) as Array<[string, PropSpec]>).filter(([k]) => k !== 'anchor').map(([key, spec]) => (
+        {(Object.entries(SECTION_PROPS) as Array<[string, PropSpec]>).filter(([k]) => k !== 'anchor' && k !== 'reveal').map(([key, spec]) => (
           <PropField key={key} node={node} propKey={key} spec={spec} value={props[key] ?? ((spec.kind === 'string' || spec.kind === 'anchor') ? '' : undefined)} dispatch={dispatch} notice={notice} />
         ))}
         <p style={hintStyle}>{isInner ? 'An inner section sits inside a column of the section around it.' : 'The name is for this outline only. Visitors never see it.'}</p>
@@ -491,7 +498,14 @@ function StyleTab({ node, device, onDevice, dispatch, notice }: { node: BuilderN
 
 // ---- Advanced ----
 
-function AdvancedTab({ node, dispatch, notice }: { node: BuilderNode; dispatch: (a: BuilderAction) => void; notice: BuilderNotice | null }) {
+const REVEAL_OPTIONS = [
+  { value: 'inherit', label: 'Same as the page' },
+  { value: 'none', label: 'None' },
+  { value: 'fade', label: 'Fade in' },
+  { value: 'rise', label: 'Fade and rise' }
+];
+
+function AdvancedTab({ node, dispatch, notice, pageMotion, isFirstSection, isInner }: { node: BuilderNode; dispatch: (a: BuilderAction) => void; notice: BuilderNotice | null; pageMotion: ThemeMotion; isFirstSection: boolean; isInner: boolean }) {
   const hidden = {
     desktop: resolveStyle(node, 'desktop').hidden === true,
     tablet: resolveStyle(node, 'tablet').hidden === true,
@@ -502,6 +516,21 @@ function AdvancedTab({ node, dispatch, notice }: { node: BuilderNode; dispatch: 
     <>
       {node.kind === 'section' && (
         <PropField node={node} propKey="anchor" spec={SECTION_PROPS.anchor as PropSpec} value={(node.props as { anchor?: string }).anchor ?? ''} dispatch={dispatch} notice={notice} />
+      )}
+      {isInner && (
+        <p style={hintStyle}>An inner section moves with the section around it, so it has no entrance animation of its own.</p>
+      )}
+      {!isInner && node.kind === 'section' && (
+        <SelectField
+          label="Entrance animation"
+          value={(node as BuilderSection).props?.reveal ?? 'inherit'}
+          options={REVEAL_OPTIONS}
+          hint={isFirstSection
+            ? 'The first section never moves, so the top of the page shows at once.'
+            : pageMotion === 'none' ? 'Page motion is off in Global styles, so this section does not move.' : undefined}
+          error={errorFor(notice, 'props.reveal')}
+          onChange={v => dispatch({ type: 'setProps', id: node.id, props: { reveal: v }, target: 'props.reveal' })}
+        />
       )}
       <TextField
         label="CSS class"
@@ -526,11 +555,16 @@ function AdvancedTab({ node, dispatch, notice }: { node: BuilderNode; dispatch: 
   );
 }
 
+/** The page's motion level; absent reads as none. */
+function pageMotionOf(doc: BuilderDoc): ThemeMotion {
+  return doc.theme.motion ?? 'none';
+}
+
 // ---- The inspector ----
 
 const quiet = () => {};
 
-export const BuilderInspector: React.FC<BuilderInspectorProps> = ({ doc, device, selectedId, notice, dispatch, onDevice, labelOf, onSay = quiet }) => {
+export const BuilderInspector: React.FC<BuilderInspectorProps> = ({ doc, device, selectedId, notice, dispatch, onDevice, labelOf, onSay = quiet, osReduce = false, reducePref = false, onReducePref, onPreviewMotion }) => {
   const [tab, setTab] = useState<Tab>('content');
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const baseId = useId().replace(/[^A-Za-z0-9_-]/g, '');
@@ -546,7 +580,7 @@ export const BuilderInspector: React.FC<BuilderInspectorProps> = ({ doc, device,
       <section aria-labelledby="jvb-theme-title" style={{ display: 'flex', flexDirection: 'column' }}>
         <h3 id="jvb-theme-title" style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#F8FAFC' }}>Page theme</h3>
         <p style={{ ...hintStyle, marginBottom: '10px' }}>Select a block on the page or in the outline to edit it. These settings apply to the whole page.</p>
-        <BuilderThemePanel theme={doc.theme} dispatch={dispatch} notice={notice} />
+        <BuilderThemePanel theme={doc.theme} dispatch={dispatch} notice={notice} osReduce={osReduce} reducePref={reducePref} onReducePref={onReducePref} onPreviewMotion={onPreviewMotion} />
       </section>
     );
   }
@@ -602,7 +636,7 @@ export const BuilderInspector: React.FC<BuilderInspectorProps> = ({ doc, device,
       <div role="tabpanel" id={`${baseId}-panel`} aria-labelledby={`${baseId}-tab-${tab}`}>
         {tab === 'content' && <ContentTab key={node.id} node={node} dispatch={dispatch} notice={notice} isInner={isInner} onSay={onSay} />}
         {tab === 'style' && <StyleTab key={`${node.id}:${device}`} node={node} device={device} onDevice={onDevice} dispatch={dispatch} notice={notice} />}
-        {tab === 'advanced' && <AdvancedTab key={node.id} node={node} dispatch={dispatch} notice={notice} />}
+        {tab === 'advanced' && <AdvancedTab key={node.id} node={node} dispatch={dispatch} notice={notice} pageMotion={pageMotionOf(doc)} isFirstSection={!isInner && doc.sections[0]?.id === node.id} isInner={isInner} />}
       </div>
     </section>
   );

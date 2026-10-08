@@ -1,0 +1,698 @@
+{
+ "template-product-drop": {
+  "published": {
+   "html": [
+    "6e50c97d639638bbf160ae471226c9b441db3ac3e3ee7b15ac477074d0037d29",
+    1945
+   ],
+   "css": [
+    "6da2ddb256d93413f6b56a9e981fa05161b2532eea4319574d2310ed45b565ad",
+    11939
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "6e50c97d639638bbf160ae471226c9b441db3ac3e3ee7b15ac477074d0037d29",
+    1945
+   ],
+   "css": [
+    "f5c6feb0365e577b6afe9de3e490e9eacc6b3e4d836b1da8da7dc51605fa187e",
+    11294
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "6e50c97d639638bbf160ae471226c9b441db3ac3e3ee7b15ac477074d0037d29",
+    1945
+   ],
+   "css": [
+    "f5c6feb0365e577b6afe9de3e490e9eacc6b3e4d836b1da8da7dc51605fa187e",
+    11294
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "6e50c97d639638bbf160ae471226c9b441db3ac3e3ee7b15ac477074d0037d29",
+    1945
+   ],
+   "css": [
+    "9981bb1b573538f41a5af7158dba274bee0e2f9180c4be2175f44207af3b9ffe",
+    11910
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "template-lead-magnet": {
+  "published": {
+   "html": [
+    "9307602eaa24f80361ec566e310df7e4fdcf3115c7d65f0a29b4e7941756105b",
+    1694
+   ],
+   "css": [
+    "5d5a38890b548fbe6f2ad49ac21d209a70736717c5288f1736e86c965ba492a0",
+    11452
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "9307602eaa24f80361ec566e310df7e4fdcf3115c7d65f0a29b4e7941756105b",
+    1694
+   ],
+   "css": [
+    "1226d6b341924c0c9af5848b6f0ce51e8bd5ca04aa0c3dfa151c27c4fbf0cef8",
+    11055
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "9307602eaa24f80361ec566e310df7e4fdcf3115c7d65f0a29b4e7941756105b",
+    1694
+   ],
+   "css": [
+    "1226d6b341924c0c9af5848b6f0ce51e8bd5ca04aa0c3dfa151c27c4fbf0cef8",
+    11055
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "9307602eaa24f80361ec566e310df7e4fdcf3115c7d65f0a29b4e7941756105b",
+    1694
+   ],
+   "css": [
+    "5f0fcd24e35ebfc5c1fcd29fd2db9766e93faecd09779a2b459ecab6d6ff6f68",
+    11423
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "template-consultation-application": {
+  "published": {
+   "html": [
+    "ef8fdff6d61fdc44456629de919d2712d3c6a20d24d80f3b8ac7b9436a646be9",
+    1855
+   ],
+   "css": [
+    "cb0ada123a7d896302fce5e57406e8da6bd4d97f4b78864267423ea7832eb3ed",
+    11470
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "ef8fdff6d61fdc44456629de919d2712d3c6a20d24d80f3b8ac7b9436a646be9",
+    1855
+   ],
+   "css": [
+    "cd2809e4702f6f8f28309a3c65465af21e42253636288d07e9e9f71cedbd2ba2",
+    11073
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "ef8fdff6d61fdc44456629de919d2712d3c6a20d24d80f3b8ac7b9436a646be9",
+    1855
+   ],
+   "css": [
+    "cd2809e4702f6f8f28309a3c65465af21e42253636288d07e9e9f71cedbd2ba2",
+    11073
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "ef8fdff6d61fdc44456629de919d2712d3c6a20d24d80f3b8ac7b9436a646be9",
+    1855
+   ],
+   "css": [
+    "482ad5a2d30575303f8ddf4f1e1e7136a0f2fb7a9ca937e5c098adb2c1ea2414",
+    11441
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "template-order-bump-offer": {
+  "published": {
+   "html": [
+    "82207607d1cc501e201de0a5e5629fab4ff430c238572439bf9b3196e59a88e0",
+    1619
+   ],
+   "css": [
+    "b4573572187be26bc38b670afdec3d3028771cbd62f18327bf3888998d627364",
+    11080
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "82207607d1cc501e201de0a5e5629fab4ff430c238572439bf9b3196e59a88e0",
+    1619
+   ],
+   "css": [
+    "18091a1a61e1237eb250f49d6761f38722bc792550ad3a458a7cb4e15dea351e",
+    10805
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "82207607d1cc501e201de0a5e5629fab4ff430c238572439bf9b3196e59a88e0",
+    1619
+   ],
+   "css": [
+    "18091a1a61e1237eb250f49d6761f38722bc792550ad3a458a7cb4e15dea351e",
+    10805
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "82207607d1cc501e201de0a5e5629fab4ff430c238572439bf9b3196e59a88e0",
+    1619
+   ],
+   "css": [
+    "dc90a897ec265b2b6a7724b34cd69e5928ee89d6930a047e28a678cfc206393f",
+    11051
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "template-waitlist": {
+  "published": {
+   "html": [
+    "44d80b35281c0f8e9b03d65d453dd4e84c8cdc44c40ee57b4bca67bdbc033e8f",
+    1415
+   ],
+   "css": [
+    "9e062122993998e21bd47dd35bd7e442e1e7cf6f0771b63d76bce33dea9b7d27",
+    11112
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "44d80b35281c0f8e9b03d65d453dd4e84c8cdc44c40ee57b4bca67bdbc033e8f",
+    1415
+   ],
+   "css": [
+    "fb05da246c7bf07e5c24c18483fde757bc7c027f47f65292beac18b140375239",
+    10839
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "44d80b35281c0f8e9b03d65d453dd4e84c8cdc44c40ee57b4bca67bdbc033e8f",
+    1415
+   ],
+   "css": [
+    "fb05da246c7bf07e5c24c18483fde757bc7c027f47f65292beac18b140375239",
+    10839
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "44d80b35281c0f8e9b03d65d453dd4e84c8cdc44c40ee57b4bca67bdbc033e8f",
+    1415
+   ],
+   "css": [
+    "836acfdd1588f113358b210389933b1a9318ab407c636533420037c7a37ca0eb",
+    11083
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "template-review-wall": {
+  "published": {
+   "html": [
+    "567e9443922212a1ade14f20ad73705ea1eb0c4341166b94b676b2431c579ba5",
+    1795
+   ],
+   "css": [
+    "6bda5c25536a75560ea041870139367c3f35ef348f547d8f1e45066ab55e28ca",
+    11558
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "567e9443922212a1ade14f20ad73705ea1eb0c4341166b94b676b2431c579ba5",
+    1795
+   ],
+   "css": [
+    "546a014325909d5ea29cfd0bd602714c2d884f986f35da13dac95aea6b1516eb",
+    11039
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "567e9443922212a1ade14f20ad73705ea1eb0c4341166b94b676b2431c579ba5",
+    1795
+   ],
+   "css": [
+    "546a014325909d5ea29cfd0bd602714c2d884f986f35da13dac95aea6b1516eb",
+    11039
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "567e9443922212a1ade14f20ad73705ea1eb0c4341166b94b676b2431c579ba5",
+    1795
+   ],
+   "css": [
+    "816d8fc92de9de2451be00b4df31820578cd9263cf2aef71b30d3c9cbf423f77",
+    11529
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "template-countdown-launch": {
+  "published": {
+   "html": [
+    "54c32cb8680ddcc181cc26aff01aac602b2d04a47c6e2cb79417b2bf105fd818",
+    2043
+   ],
+   "css": [
+    "af5d75b3e40fc3a52531c6b8906ac2fde917b424e37987479b84b926b8d4eecc",
+    11670
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "54c32cb8680ddcc181cc26aff01aac602b2d04a47c6e2cb79417b2bf105fd818",
+    2043
+   ],
+   "css": [
+    "87ce9edd25b84df1e51ec347c78f73ad0e24da7fc52059f8de8a4419105ab2b5",
+    11151
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "54c32cb8680ddcc181cc26aff01aac602b2d04a47c6e2cb79417b2bf105fd818",
+    2043
+   ],
+   "css": [
+    "87ce9edd25b84df1e51ec347c78f73ad0e24da7fc52059f8de8a4419105ab2b5",
+    11151
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "54c32cb8680ddcc181cc26aff01aac602b2d04a47c6e2cb79417b2bf105fd818",
+    2043
+   ],
+   "css": [
+    "a9dd6a285ef985aaef31ccbe629aae8135fafc5bf399408777a2d60dbd4ac0e2",
+    11641
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "template-long-form-sales": {
+  "published": {
+   "html": [
+    "47c9f0f29d6ae71a505db714ad830523dcbc2bb52777a1c3cdd8e15d39ad3b29",
+    2717
+   ],
+   "css": [
+    "ee290d4fd93c21caad4a917c167af58189890e2e57adf0c9cf184b171b12ae02",
+    12963
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "47c9f0f29d6ae71a505db714ad830523dcbc2bb52777a1c3cdd8e15d39ad3b29",
+    2717
+   ],
+   "css": [
+    "9284189502196a7a30eb22f87e193d90ec35a44018d596feb9af6c5411265db3",
+    11948
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "47c9f0f29d6ae71a505db714ad830523dcbc2bb52777a1c3cdd8e15d39ad3b29",
+    2717
+   ],
+   "css": [
+    "9284189502196a7a30eb22f87e193d90ec35a44018d596feb9af6c5411265db3",
+    11948
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "47c9f0f29d6ae71a505db714ad830523dcbc2bb52777a1c3cdd8e15d39ad3b29",
+    2717
+   ],
+   "css": [
+    "709699a645f7e4a5c368cf79c95027dedfea6fb87fff8149189cb6a2cdabf799",
+    12934
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "widgets": {
+  "published": {
+   "html": [
+    "0e5df71caa1a3aaad92f6258e6dff6399be8a0881858112b3c35412c8c0941a4",
+    3135
+   ],
+   "css": [
+    "84fdba2bd5ceb8a2624a84ae9c255ce82b6872baa47ba7c3dda5d0ebc31e6fec",
+    10897
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "0e5df71caa1a3aaad92f6258e6dff6399be8a0881858112b3c35412c8c0941a4",
+    3135
+   ],
+   "css": [
+    "371662db372437da5af6e0e93f24feab83221a768f4076b458137d5349d1df4b",
+    10746
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "0e5df71caa1a3aaad92f6258e6dff6399be8a0881858112b3c35412c8c0941a4",
+    3135
+   ],
+   "css": [
+    "371662db372437da5af6e0e93f24feab83221a768f4076b458137d5349d1df4b",
+    10746
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "0e5df71caa1a3aaad92f6258e6dff6399be8a0881858112b3c35412c8c0941a4",
+    3135
+   ],
+   "css": [
+    "d05c29cca7e9fe11a028bfe9d070e8cce02c86b6459f6189818d5c26cc55d8cd",
+    10868
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "theme-default": {
+  "published": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "0c0b3da50754f7b857f5846d4d8b614d623b36f926db25b8c22eab287398739e",
+    10650
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "cf045e1fe022e3ad81ef76b9023739680ea61af95b29d229a8ad57f04eb87374",
+    10499
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "cf045e1fe022e3ad81ef76b9023739680ea61af95b29d229a8ad57f04eb87374",
+    10499
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "069df88d10d79a89e3169ff28ef18563a9838b3a143aa34b4ec951495276b0cd",
+    10621
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "theme-outline": {
+  "published": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "03e929be5f8e7010dd823d02693ba09156bad2092843398c4c7d22b5959fb52c",
+    10654
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "e06e906d7604a4d47302af05fd7c16fdd5b59d42f3d2f5e8bb3e23d75bbdaec1",
+    10503
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "e06e906d7604a4d47302af05fd7c16fdd5b59d42f3d2f5e8bb3e23d75bbdaec1",
+    10503
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "a8b29a9276e29b95686746692f8c897295259dffe7b18e1b17efc975d3f23cb4",
+    10625
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ },
+ "theme-pill": {
+  "published": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "50d4f8ec769e57117f3835ca07c7df8188de74d4bb7c01aabe5547c141e721f5",
+    10639
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "desktop": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "cc6f76018cea8e84380e6ff1e15c7f24531b0568a574c56a59cfcc6139aafe96",
+    10488
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "tablet": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "cc6f76018cea8e84380e6ff1e15c7f24531b0568a574c56a59cfcc6139aafe96",
+    10488
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  },
+  "mobile": {
+   "html": [
+    "86ff93cb5d1094ba02d61308c48488b6af8535ce44172ce7b0d42c909d792fc1",
+    342
+   ],
+   "css": [
+    "c3fcca16450ff88c2783bfe28816bc9fc02a66f0ce34666b803ef1d56dbfe1e4",
+    10610
+   ],
+   "fonts": [
+    "Playfair Display",
+    "Outfit"
+   ]
+  }
+ }
+}

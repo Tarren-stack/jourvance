@@ -759,3 +759,47 @@ body {
     display: none !important;
   }
 }
+
+/* The page builder's own motion (LANDING_BUILDER_MOTION.md section 4). Only opacity moves, except the
+   drop zone, which eases its size. The selection marks follow a scroll with no lag: left and top never
+   transition. The block below is gated by the OS setting; the preference rule after it does the same
+   job for "Reduce motion in the editor". */
+@keyframes jvbe-appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes jvbe-flash {
+  from { outline-color: #F472B6; background-color: rgba(244, 114, 182, 0.28); }
+  to { outline-color: rgba(244, 114, 182, 0); background-color: rgba(244, 114, 182, 0); }
+}
+
+@keyframes jvbe-device-in {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .jv-builder:not([data-reduce-motion]) .jv-motion-appear {
+    animation: jvbe-appear 120ms ease-out;
+  }
+
+  .jv-builder:not([data-reduce-motion]) .jv-motion-zone {
+    transition: height 150ms ease-out, width 150ms ease-out, background-color 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out;
+  }
+
+  .jv-builder:not([data-reduce-motion]) .jv-motion-flash {
+    animation: jvbe-flash 600ms ease-out both;
+  }
+
+  .jv-builder:not([data-reduce-motion]) .jv-motion-device-in {
+    animation: jvbe-device-in 180ms ease-out;
+  }
+}
+
+.jv-builder[data-reduce-motion] *,
+.jv-builder[data-reduce-motion] *::before,
+.jv-builder[data-reduce-motion] *::after {
+  animation: none !important;
+  transition: none !important;
+}
