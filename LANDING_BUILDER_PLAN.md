@@ -136,7 +136,7 @@ builder page at `/p/<slug>` and Chrome shows the widgets with no CSP violation.
 | 1b | done 2026-10-08 | legacy snapshot 13; publish 8; serve 21; Chrome 29 checks |
 | 2 | done 2026-10-08 | 138 editor tests; Chrome 22 steps |
 | 3 | done 2026-10-08 after two review-and-fix rounds | audit entry (Wave 3); browser check 28 of 28, re-run by the main session |
-| Motion | built 2026-10-08, NOT clean: marked done on the build only | audit entry (motion pass); integration agent reports tsc 0, npm test 2452 (0 fail), browser 40 of 40, two planted reds; serve check re-run by the docs writer exit 1, 44 of 46; one medium review defect open |
+| Motion | done 2026-10-08, not committed | audit entry (motion pass); after fix round 3 and the countdown dip removal: tsc exit 0, npm test 2513 (2510 pass, 0 fail, 3 skipped), builder check 40 of 40, serve check 62 of 62, published-page motion check 18 of 18, planted reds seen |
 
 ## Wave 3 decisions (2026-10-08)
 
@@ -152,6 +152,6 @@ builder page at `/p/<slug>` and Chrome shows the widgets with no CSP violation.
 - Motion is a theme setting (`none`, `subtle`, `cinematic`), default none, so existing pages are unchanged. Per-section entrance overrides it.
 - The editor preference to reduce motion is per browser (localStorage), not part of the document.
 - The canvas starts reveal sections already revealed, so a redraw never replays an entrance; Preview motion is the way to see it.
-- Open question for the owner: the exit-intent drawer slides under reduced motion. Fix it with a reduced-motion rule, or reword the Motion hints to promise only entrance and hover effects?
+- Resolved in fix round 3: the exit-intent drawer, backdrop, spinner and cookie banner moved under the reduced-motion rule, so the Motion hints stand as written.
 - Open question for the owner: keep the countdown's once-a-minute dip, or drop it as an attention cue?
 - Open: sections below the first screen are blank in a capture that never scrolls; whether ad-review captures behave that way is unknown.

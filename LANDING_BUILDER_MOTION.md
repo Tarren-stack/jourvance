@@ -33,8 +33,8 @@ portable `LandingBuilder.css`.
    move, the cookie banner's, is switched off in the complement of that query.
 4. **Only opacity and transform move** (both run on the compositor), plus the link underline offset,
    which is a few pixels on hover. No layout property is ever animated on the published page.
-5. **Nothing loops.** Every animation runs once per trigger. The countdown animates once a minute at
-   most, never every second, so it is not "moving content that lasts more than five seconds"
+5. **Nothing loops.** Every animation runs once per trigger. The countdown does not animate at all
+   (see section 3), so nothing on the page is "moving content that lasts more than five seconds"
    (WCAG 2.2.2).
 6. **The first section never moves.** It is what the visitor sees first; motion there only delays
    the headline.
@@ -152,14 +152,13 @@ All CSS. All inside `@media (prefers-reduced-motion: no-preference)`. All writte
 | `.jvb-btn` | unchanged | press (`:active`, not disabled) | `scale(.98)` in `80ms`, then back over `--jvb-motion-fast` |
 | Links in text and embeds (`.jvb-text a`, `.jvb-embed a`) | underline offset `.15em` | hover (real pointer) or `:focus-visible` | underline offset grows to `.3em` over `--jvb-motion-fast` |
 | Order bump tick (`.jvb-bump-cb`) | unchanged | becomes checked | one `jvb-tick` pop: `scale(.8)` to `1.12` to `1`, over `--jvb-motion-fast` |
-| Countdown clock (`.jvb-countdown-clock`) | unchanged | the minutes (or hours) change, or the clock expires | one opacity dip, `.35` to `1`, over `--jvb-motion-fast`. Never on a seconds-only change. Opacity only, no movement |
+| Countdown clock (`.jvb-countdown-clock`) | unchanged | never | does not animate |
 
-The countdown needs one hook from the frame script, because CSS cannot see a text change: when
-`#jvb-root` carries `data-jvb-motion`, the tick compares the clock's text without its last
-`:ss` part to the previous tick's; when it differs (and a previous tick existed), and on expiry,
-it flips the clock's `data-jvb-tick` attribute between `a` and `b`. Two identical keyframes,
-`jvb-digit-a` and `jvb-digit-b`, restart the animation with no reflow trick. The first tick after
-load never flips it.
+The countdown does not animate. An earlier pass dipped the clock's opacity (`.35` to `1`) each time
+the minutes changed, through a `data-jvb-tick` flip in the frame script and two `jvb-digit`
+keyframes. It was removed after review: it was the one repeating motion on the page, it had no end
+and no control beyond the visitor's OS reduced-motion setting, and it told the visitor nothing the
+clock's own text did not. The tick function is as it was before the motion work.
 
 Left as today: the stock pulse dot, FAQ open and close, focus rings, the review photo viewer, and
 the frame (lead modal, exit drawer, sticky bar, lightbox, consent) apart from one thing.
@@ -307,11 +306,7 @@ lines, one rule per line, the same for both levels (only the custom property val
 #jvb-root .jvb-text a,#jvb-root .jvb-embed a{text-underline-offset:.15em;transition:text-underline-offset var(--jvb-motion-fast) var(--jvb-motion-ease)}
 #jvb-root .jvb-text a:focus-visible,#jvb-root .jvb-embed a:focus-visible{text-underline-offset:.3em}
 #jvb-root .jvb-bump-cb:checked{animation:jvb-tick var(--jvb-motion-fast) var(--jvb-motion-ease)}
-#jvb-root .jvb-countdown-clock[data-jvb-tick="a"]{animation:jvb-digit-a var(--jvb-motion-fast) var(--jvb-motion-ease)}
-#jvb-root .jvb-countdown-clock[data-jvb-tick="b"]{animation:jvb-digit-b var(--jvb-motion-fast) var(--jvb-motion-ease)}
 @keyframes jvb-tick{0%{transform:scale(.8)}60%{transform:scale(1.12)}100%{transform:scale(1)}}
-@keyframes jvb-digit-a{from{opacity:.35}to{opacity:1}}
-@keyframes jvb-digit-b{from{opacity:.35}to{opacity:1}}
 }
 @media screen and (prefers-reduced-motion: no-preference){
 #jvb-root.jvb-motion-on [data-jvb-reveal]:not(.jvb-in){opacity:0}
@@ -376,8 +371,7 @@ unchanged. `page-builder-motion-fixes.test.mjs` pins each of these over a stub D
 `fix-*` steps of `scripts/builder-motion-page-check.mjs` pin them in Chrome.
 
 The `jvb-motion-on` line is the LAST statement in the `if`: nothing is hidden until the observer is
-watching every hidden section. The countdown's `tick` gains the minute comparison and the
-`data-jvb-tick` flip from section 3, guarded by `jvbMotion`.
+watching every hidden section. The countdown's `tick` is unchanged (section 3).
 
 `publicRoutes.mjs` is NOT changed: the script finds the level on the root itself. Consequence, said
 plainly: a builder page with no motion is served with a frame script that is longer than today's
@@ -413,7 +407,7 @@ whole loop, updates the docs, and commits.
   `SectionProps.reveal?`.
 - `src/lib/pageBuilder/render.mjs`, `render.d.mts`: root attribute, section attribute, root custom
   properties, the motion block.
-- `server/routes/publicBuilderScript.mjs`: the motion block and the countdown flip.
+- `server/routes/publicBuilderScript.mjs`: the motion block.
 - New: `page-builder-motion-render.test.mjs`, `test-fixtures/page-builder-motion-before.json`,
   `scripts/builder-motion-page-check.mjs` (the published-page browser check; a new file no one else
   touches, added to P's list because the reveal can only be proved in a browser).
@@ -500,8 +494,8 @@ before the plant, run green. Existing tests are never edited.
   `@media screen and (prefers-reduced-motion: no-preference){` and only with `.jvb-motion-on`.
 - R9. Frame script: `builderFrameScript({ slug: 's' })` parses (`new Function(script)` does not
   throw); it contains `getAttribute('data-jvb-motion')`,
-  `matchMedia('(prefers-reduced-motion: no-preference)')`, `IntersectionObserver`, `focusin` and
-  `data-jvb-tick`; `classList.add('jvb-motion-on')` appears after the `observe(` call and inside a
+  `matchMedia('(prefers-reduced-motion: no-preference)')`, `IntersectionObserver`, and
+  `focusin`; `classList.add('jvb-motion-on')` appears after the `observe(` call and inside a
   `try {` that opens after `getElementById('jvb-root')` and before the first `[data-jvb-countdown]`.
 - Seen red, at least: R5 with the first-section guard planted off (`sections[0]` gets the
   attribute); R7 with `80ms` changed to `90ms`; R1 with one character of the root rule changed for
@@ -612,8 +606,6 @@ Builds pages in node from `render()`, `frameCss()` and `builderFrameScript()` ex
   larger than at rest.
 - `page-bump-tick`: subtle, clicking the bump checkbox: its `getAnimations()` holds one whose
   `animationName` is `jvb-tick`.
-- `page-countdown-minute`: subtle, a deadline countdown ending 61.5 s from now: within 4 s the
-  clock gains `data-jvb-tick`; over the following 3 s the attribute does not change again.
 - `runtime`: no page error and no console error on any page above.
 - Seen red, at least: the `screen` condition removed from the hidden-state block (`page-print`
   must go red) and the `top < fold` branch removed from the frame script (`page-above-fold` must

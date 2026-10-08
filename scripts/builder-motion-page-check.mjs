@@ -10,7 +10,7 @@
 //
 // The spec's steps: page-unset, page-subtle-reveal, page-above-fold, page-focus-reveal,
 // page-cinematic, page-reduced, page-no-js, page-print, page-button, page-link, page-bump-tick,
-// page-countdown-minute, runtime.
+// runtime.
 // The motion review's fix round added: fix-short-last (a section shorter than the observer's
 // bottom margin, last on the page, is revealed at the bottom), fix-inner (an inner section never
 // moves on its own, not even inside the first section), fix-anchor-load and fix-anchor-click (a
@@ -308,21 +308,6 @@ step('page-bump-tick', async () => {
   await p.click('.jvb-bump-cb');
   const names = await p.evaluate(() => document.querySelector('.jvb-bump-cb').getAnimations().map(a => a.animationName));
   check('page-bump-tick', names.includes('jvb-tick'), JSON.stringify(names));
-  await ctx.close();
-});
-
-step('page-countdown-minute', async () => {
-  const url = serve('/countdown', countdownDoc(isoAhead(61500, '+00:00')));
-  const { ctx, p } = await open('/countdown');
-  await p.goto(url, { waitUntil: 'load' });
-  const first = await waitFor(p, () => document.querySelector('.jvb-countdown-clock').hasAttribute('data-jvb-tick'), null, 4000);
-  const tick = await p.evaluate(() => document.querySelector('.jvb-countdown-clock').getAttribute('data-jvb-tick'));
-  const seen = new Set([tick]);
-  for (let i = 0; i < 12; i++) {
-    await p.waitForTimeout(250);
-    seen.add(await p.evaluate(() => document.querySelector('.jvb-countdown-clock').getAttribute('data-jvb-tick')));
-  }
-  check('page-countdown-minute', first && seen.size === 1, `gained ${first}, values over 3 s ${JSON.stringify([...seen])}`);
   await ctx.close();
 });
 

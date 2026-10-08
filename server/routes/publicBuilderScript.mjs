@@ -452,23 +452,13 @@ export function builderFrameScript(c) {
           end = stored;
         }
         if (!end || isNaN(end)) return;
-        var lastHead = null;
-        function flipTick() {
-          clock.setAttribute('data-jvb-tick', clock.getAttribute('data-jvb-tick') === 'a' ? 'b' : 'a');
-        }
         function tick() {
           var remaining = Math.max(0, end - Date.now());
           if (remaining > 0) {
             showClock(clock, remaining);
-            if (jvbMotion) {
-              var head = clock.textContent.slice(0, -3);
-              if (lastHead !== null && head !== lastHead) flipTick();
-              lastHead = head;
-            }
             setTimeout(tick, 1000);
           } else {
             clock.textContent = '00:00';
-            if (jvbMotion && lastHead !== null) flipTick();
             if (label && expiredText) label.textContent = expiredText;
           }
         }

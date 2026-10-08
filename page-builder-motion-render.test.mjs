@@ -102,11 +102,7 @@ const EXPECTED_BLOCK = `@media (hover: hover) and (prefers-reduced-motion: no-pr
 #jvb-root .jvb-text a,#jvb-root .jvb-embed a{text-underline-offset:.15em;transition:text-underline-offset var(--jvb-motion-fast) var(--jvb-motion-ease)}
 #jvb-root .jvb-text a:focus-visible,#jvb-root .jvb-embed a:focus-visible{text-underline-offset:.3em}
 #jvb-root .jvb-bump-cb:checked{animation:jvb-tick var(--jvb-motion-fast) var(--jvb-motion-ease)}
-#jvb-root .jvb-countdown-clock[data-jvb-tick="a"]{animation:jvb-digit-a var(--jvb-motion-fast) var(--jvb-motion-ease)}
-#jvb-root .jvb-countdown-clock[data-jvb-tick="b"]{animation:jvb-digit-b var(--jvb-motion-fast) var(--jvb-motion-ease)}
 @keyframes jvb-tick{0%{transform:scale(.8)}60%{transform:scale(1.12)}100%{transform:scale(1)}}
-@keyframes jvb-digit-a{from{opacity:.35}to{opacity:1}}
-@keyframes jvb-digit-b{from{opacity:.35}to{opacity:1}}
 }
 @media screen and (prefers-reduced-motion: no-preference){
 #jvb-root.jvb-motion-on [data-jvb-reveal]:not(.jvb-in){opacity:0}
@@ -310,7 +306,7 @@ describe('R9: the frame script', () => {
   const script = builderFrameScript({ slug: 's' });
   it('parses', () => assert.doesNotThrow(() => new Function(script)));
   it('holds the motion contract', () => {
-    for (const token of ["getAttribute('data-jvb-motion')", "matchMedia('(prefers-reduced-motion: no-preference)')", 'IntersectionObserver', 'focusin', 'data-jvb-tick']) {
+    for (const token of ["getAttribute('data-jvb-motion')", "matchMedia('(prefers-reduced-motion: no-preference)')", 'IntersectionObserver', 'focusin']) {
       assert.ok(script.includes(token), token);
     }
   });
