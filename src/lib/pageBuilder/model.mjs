@@ -177,6 +177,18 @@ function urlProblem(v, { video = false } = {}) {
   return null;
 }
 
+/**
+ * The link rule as a function the renderer can call: why a link is refused, or null when it is
+ * allowed (empty, http(s) with a host, a site path starting with one slash, or a same-page
+ * anchor). `video: true` also requires a host on VIDEO_HOSTS. The same function validation uses.
+ * @param {unknown} v
+ * @param {{ video?: boolean }} [options]
+ * @returns {string | null}
+ */
+export function linkProblem(v, options) {
+  return urlProblem(v, options);
+}
+
 function stringProblem(v) {
   if (typeof v !== 'string') return 'this is text';
   if (v.length > LIMITS.maxString) return `text is at most ${LIMITS.maxString} characters; this has ${v.length}`;

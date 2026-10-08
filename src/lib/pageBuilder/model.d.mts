@@ -65,6 +65,7 @@ export declare function propsWithDefaults(node: BuilderSection): SectionProps;
 export declare function propsWithDefaults<T extends WidgetType>(node: BuilderWidgetOf<T>): WidgetPropsMap[T];
 export declare function propsWithDefaults(node: BuilderNode): Record<string, unknown>;
 
+export declare function linkProblem(v: unknown, options?: { video?: boolean }): string | null;
 export declare function validateBuilderDoc(doc: unknown): BuilderValidation;
 export declare function resolveStyle(node: { style?: BuilderNode['style'] } | null | undefined, device: BuilderDevice): StyleValues;
 export declare function countNodes(docOrNode: BuilderDoc | BuilderNode): number;
