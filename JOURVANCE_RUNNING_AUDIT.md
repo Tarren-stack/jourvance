@@ -2,7 +2,17 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-08. Wave 3 of the page builder is committed after two review-and-fix rounds; the main session re-ran every check. The lead-capture fix (4008608) is still NOT deployed. Read the newest section first.
+Checked: 2026-10-08. DEPLOYED: jourvance.com serves c137590 (the lead-capture fix, the Sentinel, the page builder Waves 0 to 3). Read the newest section first.
+
+## 2026-10-08 — Deployed: c137590 is live on jourvance.com
+
+The push ran into one remote commit the local history lacked, `a650b87` "boot again and hold fixture mail", the deploy that was live. Its only change, the fixture-mail block in `server.mjs`, was already in the local tree byte for byte, so the merge keeps the local file (the textual merge had declared the same constant twice and did not parse). Merged in a separate worktree so the running motion agents were not disturbed, verified there (`npx tsc --noEmit` exit 0; `route-context-gate` and `sentinel-adoption` 8 passed, 0 failed; the cockpit built; a sandboxed boot answered 200 with no page error and no policy violation), and pushed as `c137590`.
+
+Render, asked through its API: `build_in_progress`, then `update_in_progress`, then `live c137590` with `a650b87` deactivated. The two deploys before `a650b87` had failed, so this was watched rather than assumed.
+
+Live checks by the main session on jourvance.com after the swap: `/__sentinel/status` answers with the six patches (that route exists only in the new code); the Content-Security-Policy header carries `connect.facebook.net`, `analytics.tiktok.com` and `www.googletagmanager.com` in `script-src`, with `x-frame-options: DENY` and `nosniff`; `/api/x/../health` is 403; `POST /api/public/lead` with an empty body answers 400 in 0.14 s. The full lead path (a lead that reaches `noteSegmentChanges`) was not posted live, because it would write a record into the owner's account; it is pinned by `public-lead-route-answers.test.mjs`.
+
+Known on the worktree: `seeded-codes.test.mjs` reads the gitignored `drips.json` directly and fails on any checkout without it. It passes in the main tree. Not fixed.
 
 ## 2026-10-08: The page builder, Wave 3: templates, saved sections, clipboard, history, global styles, rewrite
 
