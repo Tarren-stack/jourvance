@@ -52,7 +52,10 @@ test('server.mjs mounts the Sentinel after the body parser, inside the shield, w
   const opts = src.slice(sentinel, src.indexOf('});', sentinel));
   assert.match(opts, /hubUrl: process\.env\.HUB_URL/);
   assert.match(opts, /appId: process\.env\.APP_ID/);
-  assert.match(opts, /extraFrameSrc: \['https:\/\/gen-lang-client-0527980301\.firebaseapp\.com'\]/);
+  const frameSrc = (opts.match(/extraFrameSrc: \[([^\]]*)\]/) || [])[1] || '';
+  for (const origin of ['https://gen-lang-client-0527980301.firebaseapp.com', 'https://www.youtube-nocookie.com', 'https://player.vimeo.com']) {
+    assert.ok(frameSrc.includes(`'${origin}'`), `extraFrameSrc must carry ${origin}: Firebase Auth's helper frame and the page builder's two video hosts`);
+  }
   const scriptSrc = (opts.match(/extraScriptSrc: \[([^\]]*)\]/) || [])[1] || '';
   for (const origin of ['https://zeluslabs.dev', 'https://connect.facebook.net', 'https://analytics.tiktok.com', 'https://www.googletagmanager.com']) {
     assert.ok(scriptSrc.includes(`'${origin}'`), `extraScriptSrc must carry ${origin}: the tracker tag needs its origin whatever HUB_URL says, and the merchant pixel loaders (Meta, TikTok, Google tag) that publicRoutes.mjs injects would be refused otherwise`);

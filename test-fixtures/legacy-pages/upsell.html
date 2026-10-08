@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Another offer | One-Time Offer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0B0F19;
+      color: #F8FAFC;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      line-height: 1.6;
+    }
+    .container {
+      width: 100%;
+      max-width: 620px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .secure-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #34D399;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-weight: 600;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .currency-select-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .currency-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #E2E8F0;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 22px 4px 10px;
+      border-radius: 9999px;
+      cursor: pointer;
+      outline: none;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    .currency-select:hover, .currency-select:focus {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(236, 72, 153, 0.4);
+      color: #FFFFFF;
+    }
+    .currency-select-wrap::after {
+      content: '▾';
+      position: absolute;
+      right: 8px;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.6);
+      pointer-events: none;
+    }
+    .currency-select option {
+      background: #0F172A;
+      color: #FFFFFF;
+    }
+
+    /* Geo-Pricing Simulator Toolbar (Preview Mode Only) */
+    .jv-geo-simulator-toolbar {
+      position: sticky;
+      top: 0;
+      left: 0;
+      right: 0;
+      width: 100%;
+      z-index: 999999;
+      background: rgba(11, 15, 25, 0.96);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(244, 114, 182, 0.3);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 11px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      margin-bottom: 20px;
+    }
+    .jv-sim-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-badge {
+      background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(147, 51, 234, 0.25));
+      border: 1px solid rgba(236, 72, 153, 0.45);
+      color: #F472B6;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+    }
+    .jv-sim-rate {
+      color: #94A3B8;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .jv-sim-currencies {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-currency-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #CBD5E1;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      outline: none;
+      font-family: inherit;
+    }
+    .jv-sim-currency-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(244, 114, 182, 0.4);
+      color: #FFFFFF;
+      transform: translateY(-1px);
+    }
+    .jv-sim-currency-btn.active {
+      background: rgba(236, 72, 153, 0.25);
+      border-color: #EC4899;
+      color: #FFFFFF;
+      box-shadow: 0 0 10px rgba(236, 72, 153, 0.35);
+    }
+    .jv-sim-code {
+      font-weight: 700;
+    }
+    .jv-sim-sym {
+      color: #94A3B8;
+    }
+    .jv-sim-currency-btn.active .jv-sim-sym {
+      color: #FCE7F3;
+    }
+    .jv-sim-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-pill {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34D399;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .jv-sim-link {
+      color: #38BDF8;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: color 0.15s ease;
+    }
+    .jv-sim-link:hover {
+      color: #7DD3FC;
+      text-decoration: underline;
+    }
+    .recovery-banner {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(99, 102, 241, 0.15));
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      border-radius: 12px;
+      padding: 12px 18px;
+      text-align: center;
+      font-size: 13px;
+      color: #34D399;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .recovery-tag {
+      background: rgba(16, 185, 129, 0.25);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #FFFFFF;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .reassurance-banner {
+      background: rgba(234, 179, 8, 0.12);
+      border: 1px solid rgba(234, 179, 8, 0.3);
+      border-radius: 12px;
+      padding: 12px 16px;
+      text-align: center;
+      font-size: 13px;
+      color: #FACC15;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .card {
+      background: linear-gradient(145deg, rgba(26, 18, 34, 0.7), rgba(15, 23, 42, 0.85));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 32px 28px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .badge-pill {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      background: rgba(16, 185, 129, 0.18);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #10B981;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 26px;
+      line-height: 1.3;
+      color: #FFFFFF;
+      margin-bottom: 10px;
+    }
+    p.subhead {
+      font-size: 14px;
+      color: #94A3B8;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .product-box {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .product-img {
+      width: 90px;
+      height: 90px;
+      border-radius: 10px;
+      object-fit: cover;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .product-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .product-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #F8FAFC;
+      margin-bottom: 6px;
+    }
+    .pricing-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .price-special {
+      font-size: 22px;
+      font-weight: 800;
+      color: #10B981;
+    }
+    .price-reg {
+      font-size: 14px;
+      color: #64748B;
+      text-decoration: line-through;
+    }
+    .benefits-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 26px;
+    }
+    .benefit-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: #CBD5E1;
+    }
+    .benefit-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34D399;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .btn-accept {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 16px 24px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #10B981, #059669);
+      color: #FFFFFF;
+      font-size: 15px;
+      font-weight: 800;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 10px 25px rgba(16, 185, 129, 0.35);
+      transition: all 0.2s ease;
+    }
+    .btn-accept:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 14px 30px rgba(16, 185, 129, 0.45);
+    }
+    .decline-link {
+      display: block;
+      text-align: center;
+      margin-top: 14px;
+      font-size: 12px;
+      color: #94A3B8;
+      text-decoration: underline;
+      cursor: pointer;
+      background: transparent;
+      border: none;
+    }
+    .decline-link:hover {
+      color: #CBD5E1;
+    }
+  </style>
+</head>
+<body>
+  
+  <div class="container">
+    <header class="upsell-header" style="width: 100%; display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+      <div class="brand" style="font-family: 'Playfair Display', Georgia, serif; font-size: 18px; font-weight: 700; color: #FFFFFF; letter-spacing: 0.02em;">shop</div>
+      <div class="header-actions" style="display: flex; align-items: center; gap: 10px;">
+        <div class="currency-select-wrap">
+          <select id="jv-currency-select" class="currency-select" aria-label="Select currency">
+            
+              <option value="USD" selected>
+                🇺🇸 USD ($)
+              </option>
+            
+              <option value="EUR" >
+                🇪🇺 EUR (€)
+              </option>
+            
+              <option value="GBP" >
+                🇬🇧 GBP (£)
+              </option>
+            
+              <option value="CAD" >
+                🇨🇦 CAD (CA$)
+              </option>
+            
+              <option value="AUD" >
+                🇦🇺 AUD (A$)
+              </option>
+            
+          </select>
+        </div>
+        <div class="secure-pill"><span>Checkout continues on shop.myshopify.com</span></div>
+      </div>
+    </header>
+
+    
+
+    <!-- Main Presentation Card -->
+    
+    <div class="card" id="jv-main-card">
+      <div style="text-align:center;">
+        
+        <h1>Another offer</h1>
+        
+      </div>
+
+      <!-- Product Box -->
+      <div class="product-box">
+        
+        <div class="product-info">
+          
+          
+          <div style="font-size:11px; color:#94A3B8; font-weight:600;">No store checkout is connected for this offer.</div>
+        </div>
+      </div>
+
+      <!-- Benefit Bullets -->
+      
+
+      <!-- Accept CTA -->
+      <a
+        id="jv-accept-btn"
+        href="#"
+        data-base-checkout-url=""
+        class="btn-accept"
+      >
+        Continue
+      </a>
+
+      <!-- Decline Option -->
+      <a
+        id="jv-decline-btn"
+        href="/p/up/thank-you"
+        data-base-decline-url="/p/up/thank-you"
+        class="decline-link"
+      >
+        No thanks, skip this offer
+      </a>
+    </div>
+
+  </div>
+
+  <script>
+    var CURRENCY_CONFIG = {
+      USD: { rate: 1.0, prefix: '$', symbol: '$' },
+      EUR: { rate: 0.92, prefix: '€', symbol: '€' },
+      GBP: { rate: 0.79, prefix: '£', symbol: '£' },
+      CAD: { rate: 1.36, prefix: 'CA$', symbol: 'CA$' },
+      AUD: { rate: 1.52, prefix: 'A$', symbol: 'A$' }
+    };
+
+    let activeCurrency = "USD";
+
+    function formatCharmPrice(baseStr, targetCurr) {
+      if (!baseStr) return '';
+      var cfg = CURRENCY_CONFIG[targetCurr] || CURRENCY_CONFIG.USD;
+      var num = parseFloat(String(baseStr).replace(/[^0-9.-]/g, ''));
+      if (!num || isNaN(num) || num <= 0) return baseStr;
+      var rawClean = String(baseStr);
+      var hasDecimals = rawClean.indexOf('.') !== -1;
+      var ending = 'raw';
+      if (rawClean.endsWith('.99') || rawClean.endsWith('99')) ending = '99';
+      else if (rawClean.endsWith('.95') || rawClean.endsWith('95')) ending = '95';
+      else if (!hasDecimals || rawClean.endsWith('.00')) ending = '00';
+
+      var rawConverted = num * cfg.rate;
+      var charmAmount = rawConverted;
+      if (ending === '99') {
+        charmAmount = Math.max(1, Math.round(rawConverted - 0.99)) + 0.99;
+      } else if (ending === '95') {
+        charmAmount = Math.max(1, Math.round(rawConverted - 0.95)) + 0.95;
+      } else {
+        charmAmount = Math.max(1, Math.round(rawConverted));
+      }
+      var numStr = (hasDecimals || ending !== '00') ? charmAmount.toFixed(2) : Math.round(charmAmount).toString();
+      return cfg.prefix + numStr;
+    }
+
+    function syncSimulatorToolbar(code) {
+      var simToolbar = document.getElementById('jv-geo-simulator-toolbar');
+      if (!simToolbar) return;
+      var btns = simToolbar.querySelectorAll('.jv-sim-currency-btn');
+      btns.forEach(function(b) {
+        if (b.getAttribute('data-currency') === code) {
+          b.classList.add('active');
+        } else {
+          b.classList.remove('active');
+        }
+      });
+      var rateBadge = document.getElementById('jv-sim-rate-badge');
+      if (rateBadge) {
+        var cfg = CURRENCY_CONFIG[code] || CURRENCY_CONFIG.USD;
+        rateBadge.textContent = 'Rate: 1 USD = ' + cfg.rate + ' ' + code + ' (' + cfg.symbol + ')';
+      }
+      var navLink = document.getElementById('jv-sim-nav-link');
+      if (navLink) {
+        var baseHref = navLink.getAttribute('data-base-href') || navLink.href;
+        try {
+          var u2 = new URL(baseHref, window.location.origin);
+          u2.searchParams.set('currency', code);
+          navLink.href = u2.toString();
+        } catch(e){}
+      }
+      var checkoutBadge = document.getElementById('jv-sim-checkout-badge');
+      if (checkoutBadge) {
+        checkoutBadge.textContent = 'Shopify Cart: ' + (code === 'USD' ? 'USD (default)' : '?currency=' + code);
+      }
+    }
+
+    function applyCurrency(code) {
+      if (!CURRENCY_CONFIG[code]) return;
+      activeCurrency = code;
+      try {
+        document.cookie = 'jv_currency=' + encodeURIComponent(code) + '; path=/; max-age=2592000; SameSite=Lax';
+      } catch(e){}
+
+      var selectEl = document.getElementById('jv-currency-select');
+      if (selectEl && selectEl.value !== code) {
+        selectEl.value = code;
+      }
+
+      var upsellPriceEl = document.getElementById('jv-upsell-price');
+      if (upsellPriceEl) {
+        var discBase = upsellPriceEl.getAttribute('data-discounted-base');
+        var base = discBase || upsellPriceEl.getAttribute('data-base-price');
+        if (base) {
+          upsellPriceEl.textContent = formatCharmPrice(base, code);
+        }
+      }
+
+      var regPriceEl = document.getElementById('jv-regular-price');
+      if (regPriceEl) {
+        var regBase = regPriceEl.getAttribute('data-base-price');
+        if (regBase) {
+          regPriceEl.textContent = formatCharmPrice(regBase, code);
+        }
+      }
+
+      var acceptBtn = document.getElementById('jv-accept-btn');
+      if (acceptBtn) {
+        var baseCart = acceptBtn.getAttribute('data-base-checkout-url');
+        if (baseCart) {
+          try {
+            var u = new URL(baseCart, window.location.origin);
+            if (code !== 'USD') {
+              u.searchParams.set('currency', code);
+            } else {
+              u.searchParams.delete('currency');
+            }
+            acceptBtn.href = u.toString();
+          } catch(e){
+            var sep = baseCart.indexOf('?') !== -1 ? '&' : '?';
+            acceptBtn.href = code !== 'USD' ? (baseCart + sep + 'currency=' + code) : baseCart;
+          }
+        }
+      }
+
+      var declineBtn = document.getElementById('jv-decline-btn');
+      if (declineBtn) {
+        var baseDecline = declineBtn.getAttribute('data-base-decline-url');
+        if (baseDecline) {
+          declineBtn.href = code !== 'USD' ? (baseDecline + '?currency=' + code) : baseDecline;
+        }
+      }
+
+      syncSimulatorToolbar(code);
+    }
+
+    var currencySelect = document.getElementById('jv-currency-select');
+    if (currencySelect) {
+      currencySelect.addEventListener('change', function(e) {
+        applyCurrency(e.target.value);
+      });
+    }
+
+    var simButtons = document.querySelectorAll('.jv-sim-currency-btn');
+    simButtons.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var c = this.getAttribute('data-currency');
+        if (c) applyCurrency(c);
+      });
+    });
+
+    (function() {
+      if (document.cookie.indexOf('jv_currency=') !== -1) return;
+      try {
+        var tz = Intl.DateTimeFormat().resolvedOptions().timeZone.toLowerCase();
+        var detected = null;
+        if (tz.indexOf('london') !== -1 || tz.indexOf('belfast') !== -1) detected = 'GBP';
+        else if (tz.indexOf('europe/') === 0) detected = 'EUR';
+        else if (tz.indexOf('australia/') === 0 || tz.indexOf('pacific/auckland') === 0) detected = 'AUD';
+        else if (tz.indexOf('toronto') !== -1 || tz.indexOf('vancouver') !== -1 || tz.indexOf('montreal') !== -1) detected = 'CAD';
+        if (detected && detected !== activeCurrency) {
+          applyCurrency(detected);
+        }
+      } catch(e){}
+    })();
+
+    
+
+    
+
+    // Track accept action
+    var acceptBtn = document.getElementById('jv-accept-btn');
+    if (acceptBtn) {
+      acceptBtn.addEventListener('click', function(e) {
+        var queryParams = new URLSearchParams(location.search);
+        var emailFromQuery = queryParams.get('email') || "";
+        if (!"") {
+          e.preventDefault();
+        } else {
+          try {
+            var url = new URL(this.href, window.location.origin);
+            var params = new URLSearchParams(location.search);
+            var vid = window.jourvanceVisitor ? window.jourvanceVisitor() : '';
+            if (vid) url.searchParams.set('attributes[jv_vid]', vid);
+            url.searchParams.set('attributes[jv_slug]', "up");
+            var journey = "";
+            if (journey) url.searchParams.set('attributes[jv_journey]', journey);
+            ['utm_source','utm_medium','utm_campaign','fbclid','gclid','ttclid'].forEach(function(key) {
+              var value = params.get(key);
+              if (value) url.searchParams.set('attributes[' + key + ']', value);
+            });
+            this.href = url.toString();
+          } catch (err) {}
+        }
+        try {
+          fetch('/api/public/upsell-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              slug: "up",
+              action: 'accept',
+              offerType: "upsell",
+              amount: 0,
+              currency: activeCurrency,
+              customerEmail: emailFromQuery,
+              discountCode: "",
+              visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
+            }),
+            keepalive: true
+          }).catch(function(){});
+        } catch(err) {}
+      });
+    }
+
+    // Track decline action
+    var declineBtn = document.getElementById('jv-decline-btn');
+    if (declineBtn) {
+      declineBtn.addEventListener('click', function(e) {
+        try {
+          var queryParams = new URLSearchParams(location.search);
+          var emailFromQuery = queryParams.get('email') || "";
+          fetch('/api/public/upsell-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              slug: "up",
+              action: 'decline',
+              offerType: "upsell",
+              customerEmail: emailFromQuery,
+              visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
+            }),
+            keepalive: true
+          }).catch(function(){});
+        } catch(err) {}
+      });
+    }
+  </script>
+</body>
+</html>

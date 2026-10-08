@@ -191,6 +191,9 @@ export interface PublicPublishedPage {
   data: PageNodeData;
   shopifyConfig?: ShopifyConfig;
   customDomain?: string;
+  // The landing page builder document, copied from the node at publish (version A, and B when set).
+  builder?: BuilderDoc;
+  builderB?: BuilderDoc;
 }
 
 export type CanvasViewMode = 'edit' | 'roas';

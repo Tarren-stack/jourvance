@@ -12,6 +12,7 @@ import {
   PREVIEW_TTL_MS,
   previewMinutesLeft
 } from '../../src/lib/publishState.ts';
+import { validateBuilderDoc } from '../../src/lib/pageBuilder/model.mjs';
 
 /**
  * Mounts journey loading, publishing, unpublishing, publication status, preview links and the
@@ -306,6 +307,31 @@ export function setupJourneyRoutes(app, ctx) {
     const edges = Array.isArray(journey.edges) ? journey.edges : [];
     const shopifyConfig = publishShopifyConfig(ws);
 
+    // A landing page that carries a builder document (LANDING_BUILDER_PLAN.md) is validated before
+    // anything else happens, and a document with problems refuses the whole publish: a broken page
+    // is never published half drawn, and no page of this journey changes. `builder` is version A;
+    // `builderB` is carried for a later wave and checked the same way.
+    const builderProblems = [];
+    for (const node of nodes) {
+      if (node?.type !== 'landing-page') continue;
+      for (const field of ['builder', 'builderB']) {
+        const doc = node.data?.[field];
+        if (doc === undefined || doc === null) continue;
+        for (const p of validateBuilderDoc(doc).problems) {
+          builderProblems.push({ nodeId: node.id, field, path: p.path, message: p.message });
+        }
+      }
+    }
+    if (builderProblems.length) {
+      const first = builderProblems[0];
+      const where = `${first.field}${first.path ? (first.path.startsWith('[') ? '' : '.') + first.path : ''}`;
+      return res.status(400).json({
+        success: false,
+        error: `The page design has ${builderProblems.length === 1 ? 'a problem' : `${builderProblems.length} problems`}, so nothing was published. First: ${where}: ${first.message}`,
+        problems: builderProblems.slice(0, 50)
+      });
+    }
+
     // Phase 1: plan every address. Nothing is written. An address live on another of this user's
     // journeys is refused and that journey named, never taken over. A journey that no longer
     // exists owns nothing, so its leftover page may be replaced as before; those keys are
@@ -387,6 +413,8 @@ export function setupJourneyRoutes(app, ctx) {
             shopifyConfig,
             customDomain: customDomain || undefined,
             customDomainVerified: isDomainVerified,
+            ...(d.builder ? { builder: d.builder } : {}),
+            ...(d.builderB ? { builderB: d.builderB } : {}),
             ...stamp(data),
             servedThankYou
           }

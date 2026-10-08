@@ -194,7 +194,9 @@ applySecurity(app, {
   appName: 'Jourvance',
   // Firebase Auth keeps a helper iframe on the project's auth domain. With no frame-src
   // directive a frame falls back to default-src 'self', and sign-in would fail silently.
-  extraFrameSrc: ['https://gen-lang-client-0527980301.firebaseapp.com'],
+  // The last two are the only hosts the page builder's video widget writes an iframe for
+  // (LANDING_BUILDER_DESIGN.md, the embed allowlist): YouTube in privacy mode and Vimeo.
+  extraFrameSrc: ['https://gen-lang-client-0527980301.firebaseapp.com', 'https://www.youtube-nocookie.com', 'https://player.vimeo.com'],
   // index.html loads the hub's tracker.js from this origin by a hard-coded tag, whatever
   // HUB_URL says. The Sentinel adds HUB_URL's origin to script-src on its own, so this only
   // matters when HUB_URL is unset or points elsewhere (a local hub, a sandboxed boot), and

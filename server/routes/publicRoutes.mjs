@@ -51,6 +51,7 @@ import {
 } from '../reviewEngine.mjs';
 import { merchantReviewCode, isReferralLink, definedReferralRule, referralAmountText, seededSignupForm } from '../seededOffers.mjs';
 import { reviewTokenValid } from '../reviewTokens.mjs';
+import { leadBodyScript } from './publicLeadScript.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2494,25 +2495,7 @@ function renderPublicFunnelHtml(page, req, res) {
             const resp = await fetch('/api/public/lead', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                slug,
-                email: emailInput.value,
-                name: nameInput.value,
-                phone: phoneInput.value,
-                order_bump_selected: isBumpChecked,
-                variant: activeVariant,
-                currency: activeCurrency,
-                utm_source,
-                utm_medium,
-                utm_campaign,
-                utm_content: (utm_content ? utm_content + '_' : '') + 'var-' + activeVariant,
-                utm_term,
-                fbclid,
-                ttclid,
-                gclid,
-                visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : '',
-                ref: referralCode || undefined
-              })
+              ${leadBodyScript()}
             });
 
             if (leadOnly) {

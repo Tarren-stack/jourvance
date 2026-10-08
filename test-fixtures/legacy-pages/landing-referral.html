@@ -1,0 +1,1429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Refer | Official Store</title>
+  <meta name="description" content="">
+  <meta property="og:title" content="Refer">
+  <meta property="og:description" content="">
+  <meta property="og:image" content="">
+  <meta property="og:type" content="product">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
+
+  
+
+  
+
+  
+
+  <style>
+    :root {
+      --bg: #09080E;
+      --card-bg: rgba(22, 19, 32, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --pink: #EC4899;
+      --pink-glow: rgba(236, 72, 153, 0.35);
+      --emerald: #10B981;
+      --text: #F8FAFC;
+      --text-muted: #94A3B8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(236, 72, 153, 0.12), transparent 50%),
+        radial-gradient(circle at 10% 80%, rgba(99, 102, 241, 0.08), transparent 40%);
+      color: var(--text);
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-bottom: 40px;
+    }
+
+    .top-bar {
+      width: 100%;
+      background: linear-gradient(90deg, #ec4899, #db2777, #9333ea);
+      color: #FFFFFF;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 7px 16px;
+    }
+
+    header {
+      width: 100%;
+      max-width: 840px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      font-family: 'Playfair Display', serif;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: #FFFFFF;
+    }
+    .secure-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #34D399;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-weight: 600;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .currency-select-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .currency-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #E2E8F0;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 22px 4px 10px;
+      border-radius: 9999px;
+      cursor: pointer;
+      outline: none;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    .currency-select:hover, .currency-select:focus {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(236, 72, 153, 0.4);
+      color: #FFFFFF;
+    }
+    .currency-select-wrap::after {
+      content: '▾';
+      position: absolute;
+      right: 8px;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.6);
+      pointer-events: none;
+    }
+    .currency-select option {
+      background: #0F172A;
+      color: #FFFFFF;
+    }
+
+    main {
+      width: 100%;
+      max-width: 840px;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .offer-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(236, 72, 153, 0.06);
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+    @media (min-width: 720px) {
+      .offer-card {
+        grid-template-columns: 1fr 1.1fr;
+        padding: 36px;
+        gap: 36px;
+      }
+    }
+
+    .image-wrap {
+      position: relative;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: #000;
+      aspect-ratio: 1 / 1;
+    }
+    .image-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.4s ease;
+    }
+    .image-wrap:hover img {
+      transform: scale(1.03);
+    }
+    .price-tag {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #34D399;
+      font-weight: 800;
+      font-size: 14px;
+      padding: 6px 14px;
+      border-radius: 8px;
+    }
+
+    .content-area {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--pink);
+      background: rgba(236, 72, 153, 0.12);
+      padding: 4px 12px;
+      border-radius: 9999px;
+      margin-bottom: 12px;
+      align-self: flex-start;
+    }
+    h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: 26px;
+      font-weight: 700;
+      color: #FFFFFF;
+      line-height: 1.25;
+      margin-bottom: 10px;
+    }
+    @media (min-width: 720px) {
+      h1 { font-size: 32px; }
+    }
+    .subhead {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+
+    .bullets {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+    .bullet {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+      color: #E2E8F0;
+      line-height: 1.4;
+    }
+    .check {
+      color: var(--emerald);
+      font-weight: 800;
+      font-size: 14px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .trust-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #CBD5E1;
+      margin-bottom: 20px;
+    }
+
+    /* Order Bump / Add-on Offer Styling */
+    .order-bump-card {
+      background: rgba(236, 72, 153, 0.05);
+      border: 2px dashed rgba(236, 72, 153, 0.4);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      transition: all 0.2s ease;
+      text-align: left;
+    }
+    .order-bump-card.checked {
+      background: rgba(236, 72, 153, 0.12);
+      border: 2px solid #EC4899;
+      box-shadow: 0 0 20px rgba(236, 72, 153, 0.25);
+    }
+    .bump-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .bump-checkbox {
+      width: 18px;
+      height: 18px;
+      accent-color: #EC4899;
+      cursor: pointer;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+    .bump-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #EC4899;
+      background: rgba(236, 72, 153, 0.18);
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-bottom: 3px;
+    }
+    .bump-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #FFFFFF;
+      line-height: 1.3;
+    }
+    .bump-body {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .bump-thumb {
+      width: 44px;
+      height: 44px;
+      border-radius: 6px;
+      object-fit: cover;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .bump-desc {
+      flex: 1;
+      font-size: 11px;
+      color: #94A3B8;
+      line-height: 1.4;
+    }
+    .bump-price-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 3px;
+    }
+    .bump-product-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #E2E8F0;
+    }
+    .bump-product-price {
+      font-size: 11px;
+      font-weight: 800;
+      color: #34D399;
+      background: rgba(16, 185, 129, 0.15);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    .cta-btn {
+      display: block;
+      width: 100%;
+      padding: 16px 24px;
+      background: linear-gradient(135deg, #EC4899 0%, #DB2777 50%, #BE185D 100%);
+      color: #FFFFFF;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 8px 24px var(--pink-glow);
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .cta-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px rgba(236, 72, 153, 0.5);
+    }
+    .cta-btn:active {
+      transform: translateY(0);
+    }
+
+    .guarantee-note {
+      text-align: center;
+      font-size: 11px;
+      color: #64748B;
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 9999;
+    }
+    .modal-card {
+      width: 100%;
+      max-width: 440px;
+      background: #13101C;
+      border: 1px solid rgba(236, 72, 153, 0.3);
+      border-radius: 18px;
+      padding: 28px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 50px rgba(236, 72, 153, 0.15);
+      position: relative;
+    }
+    .modal-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      background: transparent;
+      border: none;
+      color: #94A3B8;
+      font-size: 20px;
+      cursor: pointer;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .input-field {
+      width: 100%;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      color: #FFFFFF;
+      fontSize: 13px;
+      outline: none;
+      margin-bottom: 12px;
+      font-family: inherit;
+    }
+    .input-field:focus {
+      border-color: #EC4899;
+      box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.2);
+    }
+    .loading-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Wave 4: Luxury On-Brand Urgency & Scarcity */
+    .reservation-bar {
+      width: 100%;
+      background: linear-gradient(90deg, rgba(236, 72, 153, 0.16) 0%, rgba(147, 51, 234, 0.12) 50%, rgba(236, 72, 153, 0.16) 100%);
+      border-bottom: 1px solid rgba(236, 72, 153, 0.28);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #FCE7F3;
+      backdrop-filter: blur(8px);
+    }
+    .reservation-inner {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+    }
+    .reservation-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #F472B6;
+      box-shadow: 0 0 10px #EC4899;
+      animation: reservationPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes reservationPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+    .reservation-label {
+      color: #E2E8F0;
+    }
+    .reservation-countdown {
+      font-family: 'Outfit', monospace;
+      font-weight: 800;
+      color: #F472B6;
+      background: rgba(236, 72, 153, 0.2);
+      border: 1px solid rgba(236, 72, 153, 0.4);
+      padding: 2px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.04em;
+    }
+    .scarcity-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(236, 72, 153, 0.1);
+      border: 1px solid rgba(236, 72, 153, 0.28);
+      padding: 5px 12px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #F472B6;
+      margin-bottom: 12px;
+      align-self: flex-start;
+    }
+    .scarcity-pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #EC4899;
+      box-shadow: 0 0 6px #EC4899;
+    }
+
+    /* Geo-Pricing Simulator Toolbar (Preview Mode Only) */
+    .jv-geo-simulator-toolbar {
+      position: sticky;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 999999;
+      background: rgba(11, 15, 25, 0.96);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(244, 114, 182, 0.3);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 11px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+    .jv-sim-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-badge {
+      background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(147, 51, 234, 0.25));
+      border: 1px solid rgba(236, 72, 153, 0.45);
+      color: #F472B6;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+    }
+    .jv-sim-rate {
+      color: #94A3B8;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .jv-sim-currencies {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-currency-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #CBD5E1;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      outline: none;
+      font-family: inherit;
+    }
+    .jv-sim-currency-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(244, 114, 182, 0.4);
+      color: #FFFFFF;
+      transform: translateY(-1px);
+    }
+    .jv-sim-currency-btn.active {
+      background: rgba(236, 72, 153, 0.25);
+      border-color: #EC4899;
+      color: #FFFFFF;
+      box-shadow: 0 0 10px rgba(236, 72, 153, 0.35);
+    }
+    .jv-sim-code {
+      font-weight: 700;
+    }
+    .jv-sim-sym {
+      color: #94A3B8;
+    }
+    .jv-sim-currency-btn.active .jv-sim-sym {
+      color: #FCE7F3;
+    }
+    .jv-sim-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .jv-sim-pill {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34D399;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .jv-sim-link {
+      color: #38BDF8;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: color 0.15s ease;
+    }
+    .jv-sim-link:hover {
+      color: #7DD3FC;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  
+
+  <div class="top-bar">Code <strong>SAVE5</strong> is ready at checkout</div>
+
+  
+
+  <header>
+    <div class="brand">shop</div>
+    <div class="header-actions">
+      <div class="currency-select-wrap">
+        <select id="jv-currency-select" class="currency-select" aria-label="Select currency">
+          
+            <option value="USD" selected>
+              🇺🇸 USD ($)
+            </option>
+          
+            <option value="EUR" >
+              🇪🇺 EUR (€)
+            </option>
+          
+            <option value="GBP" >
+              🇬🇧 GBP (£)
+            </option>
+          
+            <option value="CAD" >
+              🇨🇦 CAD (CA$)
+            </option>
+          
+            <option value="AUD" >
+              🇦🇺 AUD (A$)
+            </option>
+          
+        </select>
+      </div>
+      <div class="secure-pill"><span>Checkout continues on shop.myshopify.com</span></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="offer-card">
+      <div class="image-wrap">
+        <img src="" alt="Refer" id="product-img">
+        
+      </div>
+
+      <div class="content-area">
+        
+        <div class="eyebrow"><span>Code SAVE5 is ready at checkout</span></div>
+
+        <h1>Refer</h1>
+        
+
+        
+
+        
+
+        
+
+        <button id="main-cta-btn" class="cta-btn" type="button">
+          Buy
+        </button>
+        
+        <form id="jv-restock-form" style="margin-top:14px; display:flex; flex-direction:column; gap:8px;">
+          <label for="jv-restock-email" style="font-size:13px; color:#e5e7eb;">Email me when this is back</label>
+          <input id="jv-restock-email" type="email" required autocomplete="email" style="padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:#0b0b10; color:#fff;">
+          <label style="font-size:12px; color:#9ca3af;"><input id="jv-restock-marketing" type="checkbox"> Also send me store news</label>
+          <button type="submit" style="padding:10px; border:0; border-radius:8px; background:#10b981; color:#fff; font-weight:600;">Tell me</button>
+          <p id="jv-restock-note" style="margin:0; font-size:12px; color:#9ca3af;"></p>
+        </form>
+
+
+      </div>
+    </div>
+
+    
+  </main>
+
+  <div id="lead-modal" class="modal-overlay">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="lead-modal-title">
+      <button id="modal-close-btn" class="modal-close" type="button" aria-label="Close">&times;</button>
+      
+      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #ec4899; letter-spacing: 0.08em; margin-bottom: 8px;">
+        VIP Access
+      </div>
+      <h2 id="lead-modal-title" style="font-size: 20px; font-weight: 800; color: #FFFFFF; margin-bottom: 6px;">
+        Unlock Your Exclusive Discount
+      </h2>
+      <p style="font-size: 13px; color: #94A3B8; margin-bottom: 18px; line-height: 1.5;">
+        Enter your email to claim your <strong>SAVE5</strong> coupon and route straight to checkout.
+      </p>
+
+      <form id="lead-form">
+        <input type="text" id="lead-name" class="input-field" placeholder="Your Full Name (optional)">
+        <input type="email" id="lead-email" class="input-field" placeholder="Your Best Email Address" required>
+        <input type="tel" id="lead-phone" class="input-field" placeholder="Mobile Phone (for tracking SMS, optional)">
+
+        
+
+        <button id="lead-submit-btn" type="submit" class="cta-btn" style="padding: 14px;">
+          <span id="btn-text">Claim Voucher & Checkout &rarr;</span>
+        </button>
+      </form>
+      <p id="lead-status" role="status" aria-live="polite" style="font-size: 13px; color: #CBD5E1; margin-top: 12px; line-height: 1.5;"></p>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      const utm_source = params.get('utm_source') || '';
+      const utm_medium = params.get('utm_medium') || '';
+      const utm_campaign = params.get('utm_campaign') || '';
+      const jvJourney = "";
+      const jvNode = "";
+      const utm_content = params.get('utm_content') || '';
+      const utm_term = params.get('utm_term') || '';
+      const fbclid = params.get('fbclid') || '';
+      const ttclid = params.get('ttclid') || '';
+      const gclid = params.get('gclid') || '';
+
+      const storeDomain = "shop.myshopify.com";
+      const variantId = "gid://shopify/ProductVariant/123";
+      const productId = "";
+      const productPrice = "";
+      const bumpVariantId = "";
+      const orderBumpEnabled = false;
+      const discountCode = "SAVE5";
+      const isVipReferral = false;
+      const referralCode = "friend42";
+      const slug = "ref";
+      const isLeadGate = false;
+      const leadOnly = false;
+      const defaultButtonText = "Buy";
+      const activeVariant = "a";
+      window.__jvVariant = activeVariant;
+
+      // Wave 4: Urgency Reservation Timer Persistence
+      const urgencyTimerEnabled = false;
+      const urgencyMinutes = 0;
+      if (urgencyTimerEnabled) {
+        const timerKey = 'jv_reserve_' + slug;
+        const durationMs = urgencyMinutes * 60 * 1000;
+        let expireTime = parseInt(localStorage.getItem(timerKey), 10);
+        if (!expireTime || isNaN(expireTime) || expireTime < Date.now()) {
+          expireTime = Date.now() + durationMs;
+          localStorage.setItem(timerKey, expireTime.toString());
+        }
+        const timerEl = document.getElementById('jv-countdown-display');
+        function updateTimer() {
+          if (!timerEl) return;
+          const remaining = Math.max(0, expireTime - Date.now());
+          const m = Math.floor(remaining / 60000);
+          const s = Math.floor((remaining % 60000) / 1000);
+          timerEl.textContent = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+          if (remaining > 0) {
+            setTimeout(updateTimer, 1000);
+          } else {
+            timerEl.textContent = '00:00';
+            const labelEl = document.getElementById('jv-urgency-label');
+            if (labelEl) labelEl.textContent = 'Reservation extended for final checkout:';
+          }
+        }
+        updateTimer();
+      }
+
+      // Phase 2: Client-Side Multi-Currency Switcher & Charm Pricing Engine
+      const CURRENCY_CONFIG = {
+        USD: { rate: 1.0, prefix: '$' },
+        EUR: { rate: 0.92, prefix: '€' },
+        GBP: { rate: 0.79, prefix: '£' },
+        CAD: { rate: 1.36, prefix: 'CA$' },
+        AUD: { rate: 1.52, prefix: 'A$' }
+      };
+      let activeCurrency = "USD";
+
+      function formatCharmPrice(baseStr, targetCurr) {
+        if (!baseStr) return '';
+        var cfg = CURRENCY_CONFIG[targetCurr] || CURRENCY_CONFIG.USD;
+        var num = parseFloat(String(baseStr).replace(/[^0-9.-]/g, ''));
+        if (!num || isNaN(num) || num <= 0) return baseStr;
+        var rawClean = String(baseStr);
+        var hasDecimals = rawClean.indexOf('.') !== -1;
+        var ending = 'raw';
+        if (rawClean.endsWith('.99') || rawClean.endsWith('99')) ending = '99';
+        else if (rawClean.endsWith('.95') || rawClean.endsWith('95')) ending = '95';
+        else if (!hasDecimals || rawClean.endsWith('.00')) ending = '00';
+
+        var rawConverted = num * cfg.rate;
+        var charmAmount = rawConverted;
+        if (ending === '99') {
+          charmAmount = Math.max(1, Math.round(rawConverted - 0.99)) + 0.99;
+        } else if (ending === '95') {
+          charmAmount = Math.max(1, Math.round(rawConverted - 0.95)) + 0.95;
+        } else {
+          charmAmount = Math.max(1, Math.round(rawConverted));
+        }
+        var numStr = (hasDecimals || ending !== '00') ? charmAmount.toFixed(2) : Math.round(charmAmount).toString();
+        return cfg.prefix + numStr;
+      }
+
+      function syncSimulatorToolbar(code) {
+        var simToolbar = document.getElementById('jv-geo-simulator-toolbar');
+        if (!simToolbar) return;
+        var btns = simToolbar.querySelectorAll('.jv-sim-currency-btn');
+        btns.forEach(function(b) {
+          if (b.getAttribute('data-currency') === code) {
+            b.classList.add('active');
+          } else {
+            b.classList.remove('active');
+          }
+        });
+        var rateBadge = document.getElementById('jv-sim-rate-badge');
+        if (rateBadge) {
+          var cfg = CURRENCY_CONFIG[code] || CURRENCY_CONFIG.USD;
+          rateBadge.textContent = 'Rate: 1 USD = ' + cfg.rate + ' ' + code + ' (' + cfg.symbol + ')';
+        }
+        var navLink = document.getElementById('jv-sim-nav-link');
+        if (navLink) {
+          var baseHref = navLink.getAttribute('data-base-href') || navLink.href;
+          try {
+            var u2 = new URL(baseHref, window.location.origin);
+            u2.searchParams.set('currency', code);
+            navLink.href = u2.toString();
+          } catch(e){}
+        }
+        var checkoutBadge = document.getElementById('jv-sim-checkout-badge');
+        if (checkoutBadge) {
+          checkoutBadge.textContent = 'Shopify Cart: ' + (code === 'USD' ? 'USD (default)' : '?currency=' + code);
+        }
+      }
+
+      function applyCurrency(code) {
+        if (!CURRENCY_CONFIG[code]) return;
+        activeCurrency = code;
+        try {
+          document.cookie = 'jv_currency=' + encodeURIComponent(code) + '; path=/; max-age=2592000; SameSite=Lax';
+        } catch(e){}
+
+        var selectEl = document.getElementById('jv-currency-select');
+        if (selectEl && selectEl.value !== code) {
+          selectEl.value = code;
+        }
+
+        var priceElements = document.querySelectorAll('[data-base-price]');
+        priceElements.forEach(function(el) {
+          var base = el.getAttribute('data-base-price');
+          if (base) {
+            el.textContent = formatCharmPrice(base, code);
+          }
+        });
+
+        syncSimulatorToolbar(code);
+      }
+
+      var currencySelect = document.getElementById('jv-currency-select');
+      if (currencySelect) {
+        currencySelect.addEventListener('change', function(e) {
+          applyCurrency(e.target.value);
+        });
+      }
+
+      var simButtons = document.querySelectorAll('.jv-sim-currency-btn');
+      simButtons.forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          var c = this.getAttribute('data-currency');
+          if (c) applyCurrency(c);
+        });
+      });
+
+      // Timezone fallback if initial is USD and no sticky cookie is saved
+      (function() {
+        if (document.cookie.indexOf('jv_currency=') !== -1) return;
+        try {
+          var tz = Intl.DateTimeFormat().resolvedOptions().timeZone.toLowerCase();
+          var detected = null;
+          if (tz.indexOf('london') !== -1 || tz.indexOf('belfast') !== -1) detected = 'GBP';
+          else if (tz.indexOf('europe/') === 0) detected = 'EUR';
+          else if (tz.indexOf('australia/') === 0 || tz.indexOf('pacific/auckland') === 0) detected = 'AUD';
+          else if (tz.indexOf('toronto') !== -1 || tz.indexOf('vancouver') !== -1 || tz.indexOf('montreal') !== -1) detected = 'CAD';
+          if (detected && detected !== activeCurrency) {
+            applyCurrency(detected);
+          }
+        } catch(e){}
+      })();
+
+      const mainCta = document.getElementById('main-cta-btn');
+      const modal = document.getElementById('lead-modal');
+      const closeBtn = document.getElementById('modal-close-btn');
+      const leadForm = document.getElementById('lead-form');
+      const submitBtn = document.getElementById('lead-submit-btn');
+      const btnText = document.getElementById('btn-text');
+
+      // Order Bump Synchronization
+      const bumpCbPage = document.getElementById('bump-checkbox-page');
+      const bumpCbModal = document.getElementById('bump-checkbox-modal');
+      const bumpCardPage = document.getElementById('page-order-bump');
+      const bumpCardModal = document.getElementById('modal-order-bump');
+      let isBumpChecked = false;
+
+      function setBumpState(checked) {
+        isBumpChecked = checked;
+        if (bumpCbPage) bumpCbPage.checked = checked;
+        if (bumpCbModal) bumpCbModal.checked = checked;
+        if (bumpCardPage) bumpCardPage.classList.toggle('checked', checked);
+        if (bumpCardModal) bumpCardModal.classList.toggle('checked', checked);
+
+        if (mainCta) {
+          if (checked) {
+            mainCta.innerHTML = 'Upgrade Order & Checkout &rarr;';
+          } else {
+            mainCta.textContent = defaultButtonText;
+          }
+        }
+        if (btnText) {
+          if (checked) {
+            btnText.innerHTML = 'Claim Voucher & Upgrade Order &rarr;';
+          } else {
+            btnText.innerHTML = 'Claim Voucher & Checkout &rarr;';
+          }
+        }
+      }
+
+      if (bumpCbPage) bumpCbPage.addEventListener('change', function(e) { setBumpState(e.target.checked); });
+      if (bumpCbModal) bumpCbModal.addEventListener('change', function(e) { setBumpState(e.target.checked); });
+
+      function buildCheckoutUrl() {
+        let items = [];
+        if (variantId) items.push(variantId + ':1');
+        if (isBumpChecked && bumpVariantId) items.push(bumpVariantId + ':1');
+        let base = 'https://' + storeDomain + '/cart/' + (items.length ? items.join(',') : '');
+
+        const out = new URLSearchParams();
+        if (discountCode) out.set('discount', discountCode);
+        if (activeCurrency && activeCurrency !== 'USD') out.set('currency', activeCurrency);
+        if (utm_source) out.set('utm_source', utm_source);
+        if (utm_medium) out.set('utm_medium', utm_medium);
+        if (utm_campaign) out.set('utm_campaign', utm_campaign);
+        if (utm_content) {
+          out.set('utm_content', utm_content);
+        } else {
+          out.set('utm_content', 'var-' + activeVariant);
+        }
+        if (utm_term) out.set('utm_term', utm_term);
+        if (fbclid) out.set('fbclid', fbclid);
+        if (ttclid) out.set('ttclid', ttclid);
+        if (gclid) out.set('gclid', gclid);
+        var vid = window.jourvanceVisitor ? window.jourvanceVisitor() : '';
+        if (vid) out.set('attributes[jv_vid]', vid);
+        if (slug) out.set('attributes[jv_slug]', slug);
+        if (jvJourney) out.set('attributes[jv_journey]', jvJourney);
+        if (jvNode) out.set('attributes[jv_node]', jvNode);
+        if (utm_source) out.set('attributes[utm_source]', utm_source);
+        if (utm_medium) out.set('attributes[utm_medium]', utm_medium);
+        if (utm_campaign) out.set('attributes[utm_campaign]', utm_campaign);
+        if (utm_content) out.set('attributes[utm_content]', utm_content);
+        if (fbclid) out.set('attributes[fbclid]', fbclid);
+        if (ttclid) out.set('attributes[ttclid]', ttclid);
+        if (gclid) out.set('attributes[gclid]', gclid);
+        if (referralCode) out.set('attributes[jv_ref]', referralCode);
+        const qs = out.toString();
+        return base + (qs ? '?' + qs : '');
+      }
+
+      function fireInitiateCheckout() {
+        if (window.fbq) {
+          try { fbq('track', 'InitiateCheckout', { content_name: "Refer", currency: activeCurrency || 'USD' }); } catch(e){}
+        }
+        if (window.ttq) {
+          try { ttq.track('InitiateCheckout', { content_name: "Refer", currency: activeCurrency || 'USD' }); } catch(e){}
+        }
+        if (window.gtag) {
+          try { gtag('event', 'begin_checkout', { items: [{ item_name: "Refer" }], currency: activeCurrency || 'USD' }); } catch(e){}
+        }
+        if (window.jourvanceTrack) window.jourvanceTrack('checkout_start');
+      }
+
+      function fireLeadEvent() {
+        if (window.fbq) {
+          try { fbq('track', 'Lead'); } catch(e){}
+        }
+        if (window.ttq) {
+          try { ttq.track('SubmitForm'); } catch(e){}
+        }
+        if (window.gtag) {
+          try { gtag('event', 'generate_lead'); } catch(e){}
+        }
+      }
+
+      // The lead form is a modal dialog, like the exit drawer: opening it moves focus to the email
+      // field, Tab stays inside it, Escape closes it, and closing it hands focus back to the button
+      // that opened it. With no store it is the only thing the button does (R18).
+      let focusBeforeModal = null;
+      function leadModalOpen() {
+        return !!modal && modal.style.display === 'flex';
+      }
+      function openLeadModal() {
+        focusBeforeModal = document.activeElement;
+        modal.style.display = 'flex';
+        var leadEmail = document.getElementById('lead-email');
+        if (leadEmail && leadEmail.getClientRects().length) leadEmail.focus();
+        else if (closeBtn) closeBtn.focus();
+      }
+      function closeLeadModal() {
+        modal.style.display = 'none';
+        var back = focusBeforeModal && focusBeforeModal !== document.body && document.contains(focusBeforeModal) && focusBeforeModal.getClientRects().length ? focusBeforeModal : mainCta;
+        if (back && back.focus) back.focus({ preventScroll: true });
+        focusBeforeModal = null;
+      }
+      document.addEventListener('keydown', function(e) {
+        if (!leadModalOpen()) return;
+        // The exit drawer sits above this modal and handles its own keys while it is open.
+        var exitDrawerEl = document.getElementById('jv-exit-drawer');
+        if (exitDrawerEl && exitDrawerEl.style.display === 'block') return;
+        if (e.key === 'Escape') { e.preventDefault(); closeLeadModal(); return; }
+        if (e.key !== 'Tab') return;
+        var items = Array.prototype.filter.call(modal.querySelectorAll('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'), function(el) {
+          return !el.disabled && el.getClientRects().length > 0;
+        });
+        if (!items.length) return;
+        var first = items[0];
+        var last = items[items.length - 1];
+        var inside = modal.contains(document.activeElement);
+        if (e.shiftKey && (!inside || document.activeElement === first)) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (!inside || document.activeElement === last)) { e.preventDefault(); first.focus(); }
+      });
+
+      if (mainCta) {
+        mainCta.addEventListener('click', function(e) {
+          e.preventDefault();
+          if (isLeadGate || leadOnly) {
+            openLeadModal();
+          } else {
+            fireInitiateCheckout();
+            const targetUrl = buildCheckoutUrl();
+            window.location.href = targetUrl;
+          }
+        });
+      }
+
+      if (closeBtn) {
+        closeBtn.addEventListener('click', closeLeadModal);
+      }
+
+      if (modal) {
+        modal.addEventListener('click', function(e) {
+          if (e.target === modal) closeLeadModal();
+        });
+      }
+
+      const restockForm = document.getElementById('jv-restock-form');
+      if (restockForm) {
+        restockForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const note = document.getElementById('jv-restock-note');
+          const response = await fetch('/api/public/restock-request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              slug: slug,
+              email: document.getElementById('jv-restock-email').value,
+              variantId: variantId,
+              visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : '',
+              acceptsMarketing: document.getElementById('jv-restock-marketing').checked === true
+            })
+          });
+          const data = await response.json().catch(function() { return {}; });
+          if (note) note.textContent = data.message || (response.ok ? 'Request saved. Nothing was sent yet.' : 'That request was not saved.');
+        });
+      }
+
+      if (leadForm) {
+        leadForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const emailInput = document.getElementById('lead-email');
+          const nameInput = document.getElementById('lead-name');
+          const phoneInput = document.getElementById('lead-phone');
+
+          if (!emailInput.value) return;
+
+          btnText.innerHTML = '<span class="loading-spinner"></span> Securing Voucher…';
+          submitBtn.disabled = true;
+
+          const leadStatus = document.getElementById('lead-status');
+          if (leadStatus) leadStatus.textContent = '';
+          try {
+            const resp = await fetch('/api/public/lead', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                slug,
+                email: emailInput.value,
+                name: nameInput.value,
+                phone: phoneInput.value,
+                order_bump_selected: isBumpChecked,
+                variant: activeVariant,
+                currency: activeCurrency,
+                utm_source,
+                utm_medium,
+                utm_campaign,
+                utm_content: (utm_content ? utm_content + '_' : '') + 'var-' + activeVariant,
+                utm_term,
+                fbclid,
+                ttclid,
+                gclid,
+                visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : '',
+                ref: referralCode || undefined
+              })
+            });
+
+            if (leadOnly) {
+              // No checkout follows. Say what happened, and only claim a save the server confirmed.
+              if (!resp.ok) throw new Error('lead not saved');
+              fireLeadEvent();
+              leadForm.style.display = 'none';
+              if (leadStatus) leadStatus.textContent = 'Thanks. Your details were received.';
+              // The form just disappeared with the focused button in it, so focus moves to Close,
+              // the one control left, while the status line announces the save.
+              if (closeBtn) closeBtn.focus({ preventScroll: true });
+              return;
+            }
+
+            fireLeadEvent();
+            fireInitiateCheckout();
+
+            const resData = await resp.json();
+            const finalUrl = resData.checkoutUrl || buildCheckoutUrl();
+            btnText.textContent = 'Redirecting to Checkout…';
+            setTimeout(function() {
+              window.location.href = finalUrl;
+            }, 300);
+          } catch(err) {
+            if (leadOnly) {
+              if (leadStatus) leadStatus.textContent = 'Your details were not sent. Try again.';
+              btnText.innerHTML = 'Claim Voucher & Checkout &rarr;';
+              submitBtn.disabled = false;
+              return;
+            }
+            console.error('Lead submission failed, proceeding to checkout:', err);
+            window.location.href = buildCheckoutUrl();
+          }
+        });
+      }
+
+      // Phase 16: Visual Exit-Intent VIP Lead Magnet & Gift Drawer
+      function setupExitIntentDrawer() {
+        var exitDismissedKey = 'jv_exit_dismissed_' + slug;
+        var backdrop = document.getElementById('jv-exit-backdrop');
+        var drawer = document.getElementById('jv-exit-drawer');
+        if (!backdrop || !drawer) return;
+
+        var closeBtn = document.getElementById('jv-exit-close');
+        var dragHandle = document.getElementById('jv-exit-drag-handle');
+        var submitBtn = document.getElementById('jv-exit-submit-btn');
+        var emailInput = document.getElementById('jv-exit-email');
+        var formState = document.getElementById('jv-exit-form-state');
+        var successState = document.getElementById('jv-exit-success-state');
+        var continueBtn = document.getElementById('jv-exit-continue-btn');
+        var exitStatus = document.getElementById('jv-exit-status');
+        var hasTriggered = false;
+        var focusBeforeDrawer = null;
+
+        // The drawer is a modal dialog: opening it moves focus to the email field, Tab stays inside it,
+        // and closing it hands focus back to where the shopper was.
+        function showExitDrawer() {
+          if (hasTriggered || sessionStorage.getItem(exitDismissedKey)) return;
+          hasTriggered = true;
+          focusBeforeDrawer = document.activeElement;
+          backdrop.style.display = 'block';
+          drawer.style.display = 'block';
+          if (emailInput) emailInput.focus({ preventScroll: true });
+          requestAnimationFrame(function() {
+            backdrop.style.opacity = '1';
+            drawer.style.transform = 'translateY(0)';
+          });
+        }
+
+        function closeExitDrawer() {
+          backdrop.style.opacity = '0';
+          drawer.style.transform = 'translateY(100%)';
+          setTimeout(function() {
+            backdrop.style.display = 'none';
+            drawer.style.display = 'none';
+          }, 380);
+          sessionStorage.setItem(exitDismissedKey, '1');
+          if (focusBeforeDrawer && focusBeforeDrawer.focus && document.contains(focusBeforeDrawer)) focusBeforeDrawer.focus({ preventScroll: true });
+          focusBeforeDrawer = null;
+        }
+
+        function drawerFocusables() {
+          return Array.prototype.filter.call(drawer.querySelectorAll('button, input, a[href], [tabindex]:not([tabindex="-1"])'), function(el) {
+            return !el.disabled && el.getClientRects().length > 0;
+          });
+        }
+
+        if (closeBtn) closeBtn.addEventListener('click', closeExitDrawer);
+        if (dragHandle) dragHandle.addEventListener('click', closeExitDrawer);
+        backdrop.addEventListener('click', closeExitDrawer);
+        document.addEventListener('keydown', function(e) {
+          if (drawer.style.display !== 'block') return;
+          if (e.key === 'Escape') { closeExitDrawer(); return; }
+          if (e.key !== 'Tab') return;
+          var items = drawerFocusables();
+          if (!items.length) return;
+          var first = items[0];
+          var last = items[items.length - 1];
+          var inside = drawer.contains(document.activeElement);
+          if (e.shiftKey && (!inside || document.activeElement === first)) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && (!inside || document.activeElement === last)) { e.preventDefault(); first.focus(); }
+        });
+
+        // 1. Desktop Trigger: Cursor velocity leaving top of viewport
+        document.addEventListener('mouseleave', function(e) {
+          if (e.clientY <= 0) {
+            showExitDrawer();
+          }
+        });
+
+        // 2. Mobile Option 1: Rapid Up-Scroll Detection + 14s Inactivity Fallback
+        var lastScrollY = window.scrollY;
+        var lastScrollTime = Date.now();
+        var maxScrollDepth = 0;
+        var idleTimer = null;
+
+        function resetIdleTimer() {
+          if (idleTimer) clearTimeout(idleTimer);
+          if (window.scrollY > 150 && !hasTriggered && !sessionStorage.getItem(exitDismissedKey)) {
+            idleTimer = setTimeout(function() {
+              showExitDrawer();
+            }, 14000);
+          }
+        }
+
+        window.addEventListener('scroll', function() {
+          var currentY = window.scrollY;
+          var now = Date.now();
+          var dt = Math.max(1, now - lastScrollTime);
+          var dy = currentY - lastScrollY;
+          var scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+          var depthRatio = scrollHeight > 0 ? (currentY / scrollHeight) : 0;
+
+          if (depthRatio > maxScrollDepth) {
+            maxScrollDepth = depthRatio;
+          }
+
+          // Rapid upward flick: user reached >20% depth and scrolled up >= 45px in < 120ms
+          if (maxScrollDepth > 0.20 && dy < -45 && dt < 120) {
+            showExitDrawer();
+          }
+
+          lastScrollY = currentY;
+          lastScrollTime = now;
+          resetIdleTimer();
+        }, { passive: true });
+
+        window.addEventListener('touchstart', resetIdleTimer, { passive: true });
+        window.addEventListener('mousemove', resetIdleTimer, { passive: true });
+        resetIdleTimer();
+
+        if (submitBtn && emailInput) {
+          submitBtn.addEventListener('click', async function() {
+            var val = (emailInput.value || '').trim();
+            var exitError = document.getElementById('jv-exit-error');
+            if (!val || !val.includes('@')) {
+              emailInput.style.borderColor = '#EF4444';
+              emailInput.setAttribute('aria-invalid', 'true');
+              if (exitError) { exitError.textContent = 'Enter a valid email address.'; exitError.style.display = 'block'; }
+              emailInput.focus();
+              return;
+            }
+            emailInput.style.borderColor = '';
+            emailInput.removeAttribute('aria-invalid');
+            var submitLabel = submitBtn.textContent;
+            if (exitError) exitError.style.display = 'none';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving…';
+
+            try {
+              var exitCode = "SAVE5";
+              var exitResp = await fetch('/api/public/lead', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  slug: slug,
+                  email: val,
+                  variant: activeVariant,
+                  exit_intent: true,
+                  currency: activeCurrency,
+                  utm_source: utm_source,
+                  utm_campaign: utm_campaign,
+                  fbclid: fbclid,
+                  ttclid: ttclid,
+                  gclid: gclid,
+                  visitorId: window.jourvanceVisitor ? window.jourvanceVisitor() : ''
+                })
+              });
+              var exitData = await exitResp.json().catch(function() { return null; });
+              // Success is shown only for an email the server saved.
+              if (!exitResp.ok || !exitData || exitData.success === false) throw new Error('Lead not saved');
+              if (!exitCode && exitData.discountCode) exitCode = String(exitData.discountCode);
+              var codeBlock = document.getElementById('jv-exit-code-block');
+              var savedNote = document.getElementById('jv-exit-saved-note');
+              if (exitCode) {
+                var codeDisplay = document.getElementById('jv-exit-code-display');
+                if (codeDisplay) codeDisplay.textContent = exitCode;
+                if (codeBlock) codeBlock.style.display = 'block';
+              } else if (savedNote) {
+                savedNote.style.display = 'block';
+              }
+
+              formState.style.display = 'none';
+              successState.style.display = 'block';
+              // The submit button just disappeared, so focus moves to Continue, and the status line
+              // (present since the page loaded, so it is announced) says what happened. With no store
+              // there is no checkout to continue to, so Continue is not rendered and focus goes to
+              // Close (it used to send the visitor to https:///cart/, R18).
+              if (exitStatus) exitStatus.textContent = exitCode ? 'Your email is saved. Your code is ' + exitCode + '.' : 'Your email is saved.';
+              if (continueBtn) continueBtn.focus({ preventScroll: true });
+              else if (closeBtn) closeBtn.focus({ preventScroll: true });
+
+              if (continueBtn) {
+                continueBtn.addEventListener('click', function() {
+                  var checkoutUrl = (exitData && exitData.checkoutUrl) ? exitData.checkoutUrl : buildCheckoutUrl();
+                  // The code the drawer showed is the one the checkout link carries.
+                  if (exitCode) {
+                    try { var exitUrl = new URL(checkoutUrl); exitUrl.searchParams.set('discount', exitCode); checkoutUrl = exitUrl.toString(); } catch (urlErr) {}
+                  }
+                  window.location.href = checkoutUrl;
+                });
+              }
+            } catch(e) {
+              console.error('Exit lead submission error:', e);
+              submitBtn.disabled = false;
+              submitBtn.textContent = submitLabel;
+              if (exitError) { exitError.textContent = 'Your email was not saved, please try again.'; exitError.style.display = 'block'; }
+            }
+          });
+        }
+      }
+      // The drawer's markup comes after this script, so the wiring waits for the document.
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupExitIntentDrawer);
+      else setupExitIntentDrawer();
+    })();
+  </script>
+
+  
+
+  
+  <!-- Mobile Sticky Action Bar -->
+  <div id="jv-mobile-sticky-bar" style="display:none; position:fixed; bottom:0; left:0; right:0; z-index:9000; background:rgba(15, 23, 42, 0.95); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-top:1px solid rgba(255, 255, 255, 0.12); padding:10px 16px; box-shadow:0 -10px 25px rgba(0,0,0,0.5); align-items:center; justify-content:space-between; gap:12px;">
+    <div style="flex:1; min-width:0;">
+      <div style="font-size:12px; font-weight:700; color:#FFFFFF; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        Refer
+      </div>
+      
+    </div>
+    <button id="jv-mobile-sticky-btn" type="button" style="flex-shrink:0; padding:10px 18px; border-radius:10px; border:none; background:linear-gradient(135deg, #EC4899, #DB2777); color:#FFFFFF; font-size:13px; font-weight:800; letter-spacing:0.02em; cursor:pointer; box-shadow:0 4px 15px rgba(236, 72, 153, 0.4);">
+      Buy
+    </button>
+  </div>
+  <script>
+    (function() {
+      if (window.innerWidth >= 768) return;
+      var stickyBar = document.getElementById('jv-mobile-sticky-bar');
+      var mainBtn = document.getElementById('main-cta-btn');
+      var stickyBtn = document.getElementById('jv-mobile-sticky-btn');
+      if (!stickyBar || !mainBtn) return;
+
+      if (stickyBtn) {
+        stickyBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          mainBtn.click();
+        });
+      }
+
+      window.addEventListener('scroll', function() {
+        var rect = mainBtn.getBoundingClientRect();
+        if (rect.bottom < 0) {
+          stickyBar.style.display = 'flex';
+          document.body.classList.add('jv-sticky-bar-active');
+        } else {
+          stickyBar.style.display = 'none';
+          document.body.classList.remove('jv-sticky-bar-active');
+        }
+      }, { passive: true });
+    })();
+  </script>
+  
+</body>
+</html>
