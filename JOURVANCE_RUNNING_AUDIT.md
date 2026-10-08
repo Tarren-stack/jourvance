@@ -2,7 +2,25 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-08. Lead capture and thirteen other email routes have thrown on the live site since 2026-09-27; fixed and gated here, NOT yet deployed. Builder Waves 0, 1a and 1b committed. Read the newest section first.
+Checked: 2026-10-08. The page builder editor (Wave 2 core) is committed and was driven in Chrome. The lead-capture fix (4008608) is still NOT deployed. Read the newest section first.
+
+## 2026-10-08 — The page builder editor
+
+Wave 2 core, built by an Opus agent against `LANDING_BUILDER_DESIGN.md` sections 4 to 7. `src/components/builder/`: a reducer with 50 steps of undo and redo whose style edits land only on the active device layer; a Shadow DOM canvas that draws the SAME HTML the server publishes, with hover and selection overlays, drop zones, a selection toolbar and inline text editing; `@dnd-kit` for the palette, the canvas and the outline with keyboard pick-up and screen reader announcements; palette, outline, inspector (Content, Style with the device switch and "Set for mobile only" hints, Advanced), theme panel; a full-screen shell with autosave through the node's own save callback. "Open page builder" and "Convert to page builder" in the step panel, with "Back to simple editor" behind a confirm (publish state does not say whether the live page has a builder layout, so the button is always shown). Seven section layouts in the palette, because the design had no way to add a section.
+
+**Found by driving it in Chrome, fixed, and pinned:** Delete inside the builder deleted the landing page STEP. React redraws inside the keypress, the focused outline row leaves the page, and the journey map's own Delete handler no longer sees the guard around it. Every key the builder acts on now stops inside it and focus lost to a redraw returns to the same row. Also: Space in an edited button label pressed the button, so an edited button is swapped for a span while editing.
+
+### Evidence
+
+- Main session re-ran: `npx tsc --noEmit` exit 0; the three editor suites 105 passed, 0 failed; `npm test` 2165 tests, 2162 passed, 0 failed, 3 skipped; `npx vite build` built; no em dash in the builder files. Screenshots `1-builder-open` and `4-mobile-padding` read.
+- Reported by the agent: `scripts/builder-browser-check.mjs` 8 of 8 steps in Chrome (open and convert, drag a heading into a column, reorder two sections, set mobile padding 8 with desktop still 36, undo twice, close and read the saved document back from localStorage, the Delete key guard); six planted faults each turned a test or the browser check red, including "Delete in the builder deleted the journey step"; the nine suites that pin PageEditor stayed 176 of 176.
+- Dependency: `@dnd-kit/core` 6.3.1, `sortable` 10.0.0, `utilities` 3.2.2, MIT.
+
+### Left for the polish pass
+
+- With Desktop chosen the canvas is about 790px wide at 1440, under the 1024 tablet breakpoint, so the desktop view is drawn squeezed; a narrow window cuts the Continue label.
+- Not driven in a browser: the theme panel, list, colour and date fields, hide-on switches, a pointer drag from the canvas grip, a dnd-kit keyboard drag of an outline row, a widget dropped between sections, Google Fonts and product images in the canvas (every outside request was blocked), the production policy around the canvas (`server.mjs` was never started by the agent).
+- Inline edit Escape reverts (the task said so) where the design doc said keep; blur keeps.
 
 ## 2026-10-08 — Lead capture hung on every owned page since September 27, and thirteen routes with it
 

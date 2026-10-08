@@ -50,6 +50,8 @@ import {
   convertCurrencyCharm,
   type CurrencyCode
 } from '../../lib/geoCurrency';
+import { migrateLegacyPage } from '../../lib/pageBuilder/model.mjs';
+import { BuilderShell } from '../builder/BuilderShell';
 
 interface Props {
   data: PageNodeData;
@@ -80,6 +82,7 @@ export const PageEditor: React.FC<Props> = ({
 }) => {
   const [loadingAI, setLoadingAI] = useState(false);
   const [editorTab, setEditorTab] = useState<'settings' | 'preview'>('settings');
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
   const [previewCurrency, setPreviewCurrency] = useState<CurrencyCode>('USD');
   const [syncingDisc, setSyncingDisc] = useState(false);
@@ -516,6 +519,45 @@ export const PageEditor: React.FC<Props> = ({
           Preview
         </button>
       </div>
+
+      {/* PAGE BUILDER: the drag and drop editor for this page (LANDING_BUILDER_PLAN.md Wave 2). It
+          writes the step's `builder` field through this editor's own onChange. Converting keeps every
+          field below, so going back to the simple editor loses nothing. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(129, 140, 248, 0.35)', backgroundColor: 'rgba(99, 102, 241, 0.10)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (!data.builder) onChange({ ...data, builder: migrateLegacyPage(data) });
+              setBuilderOpen(true);
+            }}
+            style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer', backgroundColor: '#4338CA', color: '#FFFFFF' }}
+          >
+            {data.builder ? 'Open page builder' : 'Convert to page builder'}
+          </button>
+          {data.builder && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!window.confirm('Go back to the simple editor? This removes the page builder layout from this step. Every field in the simple editor is kept as it was, and the live page does not change until you publish.')) return;
+                const { builder: _layout, ...simple } = data;
+                onChange(simple);
+              }}
+              style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid rgba(199, 210, 254, 0.45)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', backgroundColor: 'transparent', color: '#E0E7FF' }}
+            >
+              Back to simple editor
+            </button>
+          )}
+        </div>
+        <p style={{ margin: 0, fontSize: '11px', color: '#C7D2FE', lineHeight: 1.45 }}>
+          {data.builder
+            ? 'This page is laid out in the page builder. Its words, product and checkout are edited there; the fields below are kept so you can go back.'
+            : 'Lay this page out with drag and drop: sections, columns and blocks, with its own look on desktop, tablet and mobile. Your words carry over.'}
+        </p>
+      </div>
+      {builderOpen && data.builder && (
+        <BuilderShell data={data} onChange={onChange} onClose={() => setBuilderOpen(false)} />
+      )}
 
       {editorTab === 'preview' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

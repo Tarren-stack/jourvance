@@ -726,3 +726,36 @@ body {
     display: flex !important;
   }
 }
+
+/* The page builder (src/components/builder): palette and outline, canvas, inspector side by side,
+   and one of them at a time on a narrow screen, chosen with the Blocks, Page and Settings switch. */
+.jv-builder-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 320px;
+}
+
+.jv-builder-panel {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.jv-builder-views {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .jv-builder-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .jv-builder-views {
+    display: flex;
+  }
+
+  .jv-builder-body > [data-view]:not([data-view-active]) {
+    display: none !important;
+  }
+}
