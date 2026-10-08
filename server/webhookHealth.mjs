@@ -45,7 +45,7 @@ export function summarizeWebhookPayload(topic, body) {
 
   // Orders
   if (cleanTopic.includes('order')) {
-    const orderNum = body.order_number || body.name || body.id || '—';
+    const orderNum = body.order_number || body.name || body.id || 'unknown';
     const total = Number(body.total_price || body.totalPrice || 0).toFixed(2);
     const currency = body.currency || 'USD';
     const itemsCount = Array.isArray(body.line_items) ? body.line_items.length : 1;
@@ -66,7 +66,7 @@ export function summarizeWebhookPayload(topic, body) {
 
   // Fulfillments
   if (cleanTopic.includes('fulfillment')) {
-    const fulId = body.id || '—';
+    const fulId = body.id || 'unknown';
     const status = body.shipment_status || body.status || 'created';
     const tracking = body.tracking_number ? ` (Track: ${body.tracking_number})` : '';
     return `Fulfillment #${fulId} · ${status}${tracking}`;
@@ -74,7 +74,7 @@ export function summarizeWebhookPayload(topic, body) {
 
   // Refunds
   if (cleanTopic.includes('refund')) {
-    const orderId = body.order_id || '—';
+    const orderId = body.order_id || 'unknown';
     const amount = body.transactions?.[0]?.amount || body.order_adjustments?.[0]?.amount || '0.00';
     return `Refund on Order #${orderId} · $${Number(amount).toFixed(2)}`;
   }
@@ -88,7 +88,7 @@ export function summarizeWebhookPayload(topic, body) {
 
   // Inventory
   if (cleanTopic.includes('inventory')) {
-    const itemId = body.inventory_item_id || '—';
+    const itemId = body.inventory_item_id || 'unknown';
     const qty = typeof body.available === 'number' ? body.available : 'updated';
     return `Inventory Level for item #${itemId} · Stock: ${qty}`;
   }

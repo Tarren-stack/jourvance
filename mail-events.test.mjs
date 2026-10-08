@@ -150,6 +150,11 @@ test('the send path carries the spoke ids and the callback registers only when t
   assert.match(deliver, /jourvanceMessageId: messageId/);
   const ctx = server.slice(server.indexOf('const emailCtx'), server.indexOf('setupEmailRoutes(app, emailCtx)'));
   assert.match(ctx, /\bknownSend\b/);
+  // accountEvents() in emailRoutes reads loadBehaviorBag off the context; with it missing every
+  // prediction refresh threw ReferenceError (seen in the boot log on 2026-10-07).
+  assert.match(ctx, /\bloadBehaviorBag\b/);
+  const routes = fs.readFileSync(new URL('./server/routes/emailRoutes.mjs', import.meta.url), 'utf8');
+  assert.match(routes.slice(routes.indexOf('const {'), routes.indexOf('} = ctx')), /\bloadBehaviorBag\b/);
   assert.match(server, /Mail events stay off until MAIL_EVENT_SECRET and a public https PUBLIC_BASE_URL are set/);
   assert.match(fs.readFileSync(new URL('./hub-sdk.js', import.meta.url), 'utf8'), /\/api\/email\/webhook\/callback/);
 });

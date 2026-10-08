@@ -20,9 +20,12 @@ test('drip_seq_upsell_recovery is configured in the server seed', () => {
   assert.match(slice, /\{\{order_number\}\}/);
   assert.match(slice, /\{\{first_name\}\}/);
   assert.doesNotMatch(slice, /\{\{discount_code\}\}/);
+});
 
+test('a local drip store that exists still has the recovery sequence', (t) => {
   const file = path.join(__dirname, 'drips.json');
-  if (!fs.existsSync(file)) return;
+  // A skip is counted and reported; an early return used to count as a pass (truth protocol, 3).
+  if (!fs.existsSync(file)) return t.skip('drips.json is not on this machine');
   const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
   const recoverySeq = stored.sequences.find(s => s.id === 'drip_seq_upsell_recovery');
   assert.ok(recoverySeq, 'a local drip store that exists still has the recovery sequence');

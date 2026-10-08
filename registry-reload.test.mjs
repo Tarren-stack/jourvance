@@ -31,6 +31,8 @@ function slice(from, to) {
 // the TLS probe stubbed and every file in `dir`.
 function loadServerCaches(dir, { cnames = {} } = {}) {
   const src = [
+    // The per-process signing key the domain token falls back to with no SESSION_SECRET.
+    slice('const processSecrets = new Map();', '\nfunction mailLinkSecrets() {'),
     slice("const publicPagesFile = path.join(__dirname, 'public_pages.json');", 'reloadPublicPageCache();\n'),
     slice('const persistPublicPages = () => {', '\n};\n'),
     slice("const domainsFilePath = path.join(__dirname, 'domains.json');", '// ── Funnel Publishing Routes')

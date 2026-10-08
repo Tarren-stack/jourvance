@@ -29,6 +29,7 @@ export function setupEmailRoutes(app, ctx) {
   const {
     hub,
     hubReady,
+    loadBehaviorBag,
     requireUser,
     ensureSignalStarters,
     suitePayload,

@@ -29,3 +29,15 @@ scratch/
 test_sample.json
 journey_publish_logs.json
 shots/
+
+# Shared Truth Protocol is project policy; keep other AI tool files local.
+!/.claude/
+/.claude/*
+!/.claude/rules/
+/.claude/rules/*
+!/.claude/rules/truth-protocol.md
+!/.agent/
+/.agent/*
+!/.agent/rules/
+/.agent/rules/*
+!/.agent/rules/truth-protocol.md

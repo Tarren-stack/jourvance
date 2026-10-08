@@ -2,7 +2,34 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-07, after the support entry below (the two entries come from different clocks). Letters now name the account so a verified merchant domain is used. Read the newest section first. The local API was not started.
+Checked: 2026-10-07, hub rules pass. The app was BOOTED sandboxed and loaded in Chrome this time. Read the newest section first.
+
+## 2026-10-07 — Truth protocol and hub rules, applied to the app
+
+The owner asked for the app to be checked against `truth-protocol.md` and for every hub rule to be adopted. The protocol copies in `.claude/rules/` and `.agent/rules/` are byte-identical to the hub's. Neither they nor `CLAUDE.md` and `AGENTS.md` were tracked in git until this pass. Both agent files now carry the same "Hub rules this spoke adopts" block.
+
+### What was out of order, and what changed
+
+- **Four tests used an early return as a precondition** (`boot-safety` twice, `upsell-recovery`, `canvas-browser-check`), which the protocol's section 3 names: the runner counts a return as a pass. Each is a visible `t.skip(reason)` now, and the upsell file-backed half is its own test.
+- **No Security Sentinel.** The hub's drop-in that every spoke vendors was absent: no CSP, no hardened headers, no rate limit, no posture report, and no `trust proxy` setting at all. `security-sentinel.js` is a byte copy of the hub's `sentinel-dist`, mounted after the body parser (the virtual-patch scan reads `req.body`), inside the prose shield its own header prescribes (`server/sentinel-shield.mjs`: on a document route every string is blanked for the scan and put back before the route; the URL and the query string are scanned everywhere). `trust proxy` is set by address through `server/proxy-trust.mjs`, a port of the hub's rule (the socket peer, loopback, private ranges, `TRUSTED_PROXY_CIDRS`, and at most one Cloudflare hop, which ends the walk). Without it the Sentinel's per-IP limit behind Render would have been one bucket for the whole site.
+- **The vendored SDK had diverged both ways.** This folder's `hub-sdk.js` carried `webhook.setCallback`, which the hub dist lacked, and the hub dist carried a newer landing middleware and `onlyIfNewer` that this folder lacked. The method is in the hub dist and `SDK_REFERENCE.md` now (uncommitted in the hub checkout), and this folder's copy is the dist, byte for byte. `sentinel-adoption.test.mjs` pins both copies against the hub when it is beside this checkout, and skips visibly when it is not.
+- **Two secrets fell back to literals in source:** the mail-link signing key (`jourvance_internal_salt_key_84920`, which signs unsubscribe links) and the domain-token salt (`jourvance_domain_salt_2026`). Each now falls back to `HUB_API_KEY`, then to a key minted once per process with a boot warning. `secrets-in-source.test.mjs` is the gate. **Consequence on the live site:** `SESSION_SECRET` is not set on Render, so a domain verification token started before this deploy will not match after it; the merchant reads the token again from the app. No merchant had a verified sender, and whether any had a pending domain was not checked.
+- **`/api/ai/copy` returned model copy with no em dash strip and no rule in the prompt**, where `/api/ai/journey-plan` had both. It uses the same `cleanModelStrings` now. Four hand-written em dash placeholders in `server/webhookHealth.mjs` read `unknown`.
+- **A pre-existing error, found only because the server was booted:** `accountEvents` in `server/routes/emailRoutes.mjs` reads `loadBehaviorBag` off the route context and the server never passed it, so every prediction refresh threw `ReferenceError` (the 300 s boot log carried it). It is passed and pinned now. It was in commit `12025c8`.
+
+### Evidence
+
+- `npx tsc --noEmit` exited 0. `npm test`: 1797 tests, 1794 passed, 0 failed, 3 skipped (the skips need `JOURVANCE_LIVE_TEST_URL`).
+- Seen red, each by planting the fault and inverting the plant: the mount-order pin (restore mounted before the Sentinel: 5 passed, 1 failed), the one-Cloudflare-hop latch (removed: the Worker-chain case failed), and the context binding (removed: 3 passed, 1 failed). Every restored file was compared byte for byte with its pre-plant copy.
+- The hub's `npm run test:seo-fix`, which imports the changed dist, ran 44 tests, 44 passed.
+- **Booted and loaded.** `node server.mjs` ran from an empty data directory with `HUB_API_KEY`, `HUB_URL`, `MAIL_EVENT_SECRET`, `PUBLIC_BASE_URL` and `INTERNAL_CRON_SECRET` all empty (the shell value wins over `.env`, checked with a throwaway file). Real Chrome through Playwright loaded `/` with status 200, `#root` holding one child, 6,456 characters of text including the headline "Map, Build & Convert Your Entire Customer Journey", no page error and no CSP violation. The first boot DID show one: the CSP refused the hub's `tracker.js` because the tag in `index.html` names `https://zeluslabs.dev` whatever `HUB_URL` says, so that origin is on `extraScriptSrc` now. One console line remains, a 401 from the page's own session check with no token; it predates this pass and was not chased. Probes from node: `/__sentinel/status` 200; `POST /api/email/provider-event` 401 "Mail event secret is not configured"; `POST /api/email/senders` with no token 401; a `<script>` body on `/api/user/*` 403 (scanned), `/api/x/../health` 403, `/wp-login.php` 403. A 75 s boot after the context fix logged no error line, where the 300 s boot before it logged the `ReferenceError`; there is no positive control that the tick ran in those 75 s.
+
+### Not done, and whose it is
+
+- The hub cockpit actions from the previous section (resume sending, set `replyTo`) still need the operator. Unchanged.
+- The hub-side dist and reference edits are uncommitted in the hub checkout. Every spoke scaffolded from the hub also mounts the Sentinel with no `trust proxy` setting; `server/proxy-trust.mjs` here is a port, and the rule belongs in the hub's `sentinel-dist` so every spoke gets it once. Not done here.
+- The Sentinel's rate limit has no per-user key: sign-in is a bearer token the middleware cannot verify cheaply, so the fairness bucket is the address at 240 a minute on `/api`. Not measured against the cockpit's real request rate.
+- The email studio, the canvas and the sign-in flow were not loaded in the browser; only the public homepage was. The `frame-src` entry for Firebase Auth is reasoned from the SDK's helper iframe, not observed.
 
 ## 2026-10-07 — Letters send as the merchant
 

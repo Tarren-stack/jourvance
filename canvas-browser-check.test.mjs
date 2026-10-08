@@ -367,8 +367,9 @@ test('the check runs at 1440x900, 768x1024 and 390x844', () => {
   assert.deepEqual(CHECK_VIEWPORTS.map(v => [v.label, v.width, v.height]), [['1440', 1440, 900], ['768', 768, 1024], ['390', 390, 844]]);
 });
 
-test('when the baseline file exists, every entry has a whole count of 1 or more and an owning item', () => {
-  if (!fs.existsSync(BASELINE)) return;
+test('when the baseline file exists, every entry has a whole count of 1 or more and an owning item', (t) => {
+  // A skip is counted and reported; an early return used to count as a pass (truth protocol, 3).
+  if (!fs.existsSync(BASELINE)) return t.skip('no axe baseline file on this machine');
   const baseline = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
   for (const [rule, entry] of Object.entries(baseline)) {
     assert.ok(Number.isInteger(entry.count) && entry.count >= 1, rule);

@@ -140,6 +140,10 @@ import {
   escapeHtml
 } from './server/routes/publicRoutes.mjs';
 
+import { applySecurity } from './security-sentinel.js';
+import { trustedProxy, proxyTrustSummary } from './server/proxy-trust.mjs';
+import { shieldProse, PROSE_ROUTE_PREFIXES } from './server/sentinel-shield.mjs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Local runs read .env; nothing loaded it before, so `npm start` on a laptop booted with no
@@ -167,6 +171,42 @@ app.use(express.json({
     if (url.startsWith('/api/webhooks/shopify') || url.startsWith('/api/billing/webhook')) req.rawBody = buf;
   }
 }));
+
+// Security Sentinel: the hub's vendored drop-in (security-sentinel.js is a byte copy of the
+// hub's sentinel-dist, pinned by sentinel-adoption.test.mjs). Hardened headers and a CSP, the
+// virtual patches, the per-address rate limit, and a posture report to the hub. Mounted AFTER
+// the body parser on purpose: the virtual-patch scan reads req.body, so in front of the parser
+// the POST half of it is dead code while the fleet dashboard reports it live. The prose shield
+// (server/sentinel-shield.mjs) blanks the strings of a document route for the duration of the
+// scan and puts them back before the route runs; the URL and the query string are scanned on
+// every route.
+//
+// `trust proxy` is set by ADDRESS (server/proxy-trust.mjs), never by count: the Sentinel keys
+// its rate limit on req.ip, and with no trust setting at all, which is what this server had,
+// every visitor behind Render's load balancer was one address and one bucket.
+app.set('trust proxy', trustedProxy);
+for (const bad of proxyTrustSummary().rejected) console.warn(`[Jourvance] Ignored proxy range ${bad}: not a CIDR.`);
+const sentinelShield = shieldProse(PROSE_ROUTE_PREFIXES);
+app.use(sentinelShield.mask);
+applySecurity(app, {
+  hubUrl: process.env.HUB_URL,
+  appId: process.env.APP_ID,
+  appName: 'Jourvance',
+  // Firebase Auth keeps a helper iframe on the project's auth domain. With no frame-src
+  // directive a frame falls back to default-src 'self', and sign-in would fail silently.
+  extraFrameSrc: ['https://gen-lang-client-0527980301.firebaseapp.com'],
+  // index.html loads the hub's tracker.js from this origin by a hard-coded tag, whatever
+  // HUB_URL says. The Sentinel adds HUB_URL's origin to script-src on its own, so this only
+  // matters when HUB_URL is unset or points elsewhere (a local hub, a sandboxed boot), and
+  // then it is what keeps the page's own telemetry tag from being refused. Seen blocked in
+  // the browser on the first sandboxed boot.
+  extraScriptSrc: ['https://zeluslabs.dev'],
+  // The cockpit fetches many small resources on a tab change and its sign-in is a bearer
+  // token the Sentinel cannot verify cheaply, so the fairness bucket is the address. This is
+  // the Sentinel default doubled; the per-address machine ceiling sits ten times above it.
+  localRateLimit: 240
+});
+app.use(sentinelShield.restore);
 
 // Hub SDK client (fails open if credentials not yet configured)
 const hub = createHubClient({
@@ -1140,8 +1180,24 @@ function recordEvent(evt) {
   hubStorage.set('store.events', 'events.json', trimLastPerOwner(events, 'userId', 20000));
 }
 
+// A secret that falls back to a literal in the source is a secret everyone has. With neither
+// its own variable nor HUB_API_KEY set, a signing key is minted once per process and the boot
+// log says so: what it signed will not verify after a restart, which is honest, where the old
+// literal was a key anyone could read off the repo and forge an unsubscribe or a domain token
+// with. Same rule as INTERNAL_CRON_SECRET, whose route no longer mounts without a value.
+const processSecrets = new Map();
+function processSecret(name, what) {
+  let value = processSecrets.get(name);
+  if (!value) {
+    value = crypto.randomBytes(32).toString('hex');
+    processSecrets.set(name, value);
+    console.warn(`[Jourvance] ${name} is not set: ${what} are signed with a key minted for this process and will not verify after a restart. Set ${name}.`);
+  }
+  return value;
+}
+
 function mailLinkSecrets() {
-  const current = process.env.MAIL_LINK_SECRET || process.env.HUB_API_KEY || 'jourvance_internal_salt_key_84920';
+  const current = process.env.MAIL_LINK_SECRET || process.env.HUB_API_KEY || processSecret('MAIL_LINK_SECRET', 'unsubscribe and tracked mail links');
   const oldSecretsRaw = process.env.MAIL_LINK_OLD_SECRETS || '';
   const olds = oldSecretsRaw
     .split(',')
@@ -2854,6 +2910,7 @@ const emailCtx = {
   loadDrips,
   saveDrips,
   predictStore,
+  loadBehaviorBag,
   accountOrders,
   publicPrediction,
   refreshPredictions,
@@ -4634,7 +4691,7 @@ const persistDomainRegistry = () => {
 
 function getDomainVerificationToken(userId, domain) {
   const cleanDomain = String(domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-  const secret = process.env.SESSION_SECRET || 'jourvance_domain_salt_2026';
+  const secret = process.env.SESSION_SECRET || process.env.HUB_API_KEY || processSecret('SESSION_SECRET', 'domain verification tokens');
   return 'jrv_' + crypto.createHash('sha256').update(`${userId}:${cleanDomain}:${secret}`).digest('hex').slice(0, 16);
 }
 

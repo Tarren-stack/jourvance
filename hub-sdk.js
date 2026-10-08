@@ -491,60 +491,55 @@ export function createHubClient(config = {}) {
     };
   }
 
-  /**
-   * Hub-built landing pages on this app's own domain. Same two-stage shape as
-   * pagesMiddleware: a cached slug list decides whether a path is ours at all
-   * (so unpublished slugs fall through to your own 404), then the HTML is
-   * proxied and cached. Fails open in every direction: a hub outage serves the
-   * stale copy if there is one and otherwise calls next().
-   *
-   * basePath defaults to "/p" and is configurable because a spoke may already
-   * own that prefix.
-   */
+  /** Published landing HTML is conditionally revalidated on every request.
+   * Cache keys include app, origin and route; a changed published version has a
+   * different upstream ETag. Missing/unpublished/error responses never use stale
+   * HTML. No slug-feed TTL can delay a new publication or keep an old one live. */
   function landingMiddleware(opts) {
-    var ttlMs = (opts && opts.ttlMs) || 300000;
     var basePath = ((opts && opts.basePath) || "/p").replace(/\/+$/, "");
     if (basePath.charAt(0) !== "/") basePath = "/" + basePath;
     var re = new RegExp("^" + basePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/([a-z0-9-]+)/?$");
-    var feed = { slugs: null, at: 0, pending: null };
-    var htmlCache = new Map(); // slug → { html, at }
-    function refreshFeed() {
-      return refreshSlugFeed(feed, hubUrl + "/api/apps/" + appId + "/landing/feed", ttlMs);
-    }
+    var htmlCache = new Map();
     return function (req, res, next) {
-      if (req.method !== "GET") return next();
+      if (req.method !== "GET" && req.method !== "HEAD") return next();
       var m = re.exec(String(req.path || (req.url || "").split("?")[0]));
       if (!m) return next();
-      var slug = m[1];
-      function proceed() {
-        if (!feed.slugs || !feed.slugs[slug]) return next();
-        var hit = htmlCache.get(slug);
-        if (hit && Date.now() - hit.at < ttlMs) {
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          return res.send(hit.html);
-        }
-        var origin = (req.protocol || "https") + "://" + req.get("host");
-        var signal;
-        try { signal = AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined; } catch (e) {}
-        fetch(hubUrl + "/api/apps/" + appId + "/landing/render/" + encodeURIComponent(slug) + "?origin=" + encodeURIComponent(origin), { signal: signal })
-          .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, t: t }; }); })
-          .then(function (r) {
-            if (!r.ok) return next();
-            htmlCache.set(slug, { html: r.t, at: Date.now() });
-            if (htmlCache.size > 300) htmlCache.delete(htmlCache.keys().next().value);
-            res.setHeader("Content-Type", "text/html; charset=utf-8");
-            res.send(r.t);
-          })
-          .catch(function () {
-            if (hit && hit.html) {
-              res.setHeader("Content-Type", "text/html; charset=utf-8");
-              return res.send(hit.html); // stale beats missing
-            }
-            next();
-          });
+      var origin = (req.protocol || "https") + "://" + req.get("host");
+      var key = JSON.stringify([appId, origin, basePath, m[1]]);
+      var hit = htmlCache.get(key);
+      res.setHeader("Cache-Control", "private, no-store");
+      var signal;
+      try { signal = AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined; } catch (e) {}
+      function serve(entry) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
+        if (req.get("cookie") || req.get("authorization")) res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+        res.vary("Cookie"); res.vary("Authorization");
+        if (entry.etag) res.setHeader("ETag", entry.etag);
+        return res.send(entry.html);
       }
-      if (feed.slugs === null || Date.now() - feed.at > ttlMs) refreshFeed().then(proceed, proceed);
-      else proceed();
+      fetch(hubUrl + "/api/apps/" + appId + "/landing/render/" + encodeURIComponent(m[1]) + "?origin=" + encodeURIComponent(origin), {
+        signal: signal, cache: "no-cache", headers: hit && hit.etag ? { "If-None-Match": hit.etag } : {}
+      }).then(function (r) {
+        if (r.status === 304 && hit) return serve(hit);
+        if (!r.ok || !/text\/html/i.test(r.headers.get("content-type") || "")) {
+          htmlCache.delete(key);
+          return next();
+        }
+        return r.text().then(function (html) {
+          var entry = { html: html, etag: r.headers.get("etag") };
+          // The Hub's renderer explicitly declares public revalidation. Unknown
+          // or private responses are served once, never retained by this proxy.
+          if (/^public,/.test(r.headers.get("cache-control") || "") && entry.etag) {
+            htmlCache.set(key, entry);
+            if (htmlCache.size > 300) htmlCache.delete(htmlCache.keys().next().value);
+            return serve(entry);
+          }
+          htmlCache.delete(key);
+          res.setHeader("Content-Type", "text/html; charset=utf-8");
+          return res.send(html);
+        });
+      }).catch(function () { htmlCache.delete(key); next(); });
     };
   }
 
@@ -803,7 +798,7 @@ export function createHubClient(config = {}) {
      * standalone campaign pages you (or your own customers) build with the
      * landing builder, complete with theme, motion and SEO tags.
      * Mount alongside the others:  app.use(hub.landingMiddleware());
-     * Options: { basePath: "/p", ttlMs: 300000 }. Keyless, cached, fail-open.
+     * Options: { basePath: "/p" }. Keyless, conditionally revalidated; no stale HTML fallback.
      * Not to be confused with pagesMiddleware, which serves the SEO Suite's
      * generated service-by-location pages at /lp/:slug.
      */
@@ -1586,7 +1581,7 @@ export function createHubClient(config = {}) {
       status: () => get("/api/phone/status?appId=" + encodeURIComponent(appId)),
       // → { config } (persona, direction, brainMode, autopilot, recordCalls, phoneNumber)
       getConfig: () => get("/api/phone/config/" + encodeURIComponent(appId)),
-      // { persona:{ role, goal:"sales"|"support"|"cold-lead", greeting, voice, language, guardrails, forbidden[] },
+      // { persona:{ role, goal:"sales"|"support"|"cold-lead"|"notify", greeting, voice, language, guardrails, forbidden[] },
       //   direction?, brainMode?, autopilot?, recordCalls?, transferNumber?,
       //   toolsUrl?, toolsToken?, toolsEnabled?, toolsSendCaller?, tools? } → { config }
       //   transferNumber "+1…" arms cold transfer: the hub injects a native transfer_to_human tool and
@@ -2110,10 +2105,13 @@ export function createHubClient(config = {}) {
      *  segment and land the call on another route. FREE, unmetered. Server-side only. */
     store: {
       docs: {
-        // (name, document, { sourceUpdatedAt? }) any JSON value (null allowed)
+        // (name, document, { sourceUpdatedAt?, onlyIfNewer? }) any JSON value (null allowed)
         //   → { name, bytes, chunks, rev, updatedAt, sourceUpdatedAt? }; 413 over 6,400,000 bytes.
+        //   onlyIfNewer (needs sourceUpdatedAt): 409 { stale:true, storedSourceUpdatedAt } and nothing
+        //   written when the stored copy is at least as new; atomic for a document under 1 MiB.
         put: (name, document, opts = {}) => badSegment("name", name) || put(STORE + "/docs/" + encodeURIComponent(name),
-          { document: document, ...(opts.sourceUpdatedAt ? { sourceUpdatedAt: opts.sourceUpdatedAt } : {}) }, 2 * 60 * 1000),
+          { document: document, ...(opts.sourceUpdatedAt ? { sourceUpdatedAt: opts.sourceUpdatedAt } : {}),
+            ...(opts.onlyIfNewer ? { onlyIfNewer: true } : {}) }, 2 * 60 * 1000),
         // (name) → { name, document, bytes, chunks, rev, updatedAt, sourceUpdatedAt? };
         //   404 { error:"No such document." }; 409 "holds parts from two different writes" when a
         //   rewrite raced the read (the hub retries once first): read it again.

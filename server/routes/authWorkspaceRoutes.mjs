@@ -14,6 +14,10 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { workspaceCreateBlocked } from '../billing.mjs';
 import { batchGetAll } from '../../hub-storage.mjs';
+// The one em dash strip for model copy, shared with /api/ai/journey-plan: the house rule is
+// enforced in code at the route boundary, because a model reintroduces em dashes however the
+// prompt is worded.
+import { cleanModelStrings } from './aiJourneyRoutes.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -447,7 +451,7 @@ export function setupAuthWorkspaceRoutes(app, ctx) {
       try {
         const prompt =
           `Write high-converting ${kind} copy for a ${businessType || 'business'} whose offer is "${offerHeadline || 'their offer'}". ` +
-          `Goal: ${goal || 'capture leads'}. Concise, punchy, conversion-focused. ` +
+          `Goal: ${goal || 'capture leads'}. Concise, punchy, conversion-focused. Plain sentences, no em dashes or spaced en dashes. ` +
           `Reply with JSON only, exactly these keys: ${fields.join(', ')}.`;
         const answer = await hub.brain.chat(prompt, { json: true });
         if (answer?.success && typeof answer.text === 'string') {
@@ -459,7 +463,7 @@ export function setupAuthWorkspaceRoutes(app, ctx) {
           const parsed = JSON.parse(cleanJson);
           if (parsed && fields.every((f) => typeof parsed[f] === 'string' && parsed[f])) {
             const copy = {};
-            for (const f of fields) copy[f] = parsed[f];
+            for (const f of fields) copy[f] = cleanModelStrings(parsed[f]);
             return res.json({ success: true, copy, source: 'hub-brain' });
           }
         }

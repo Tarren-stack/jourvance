@@ -43,9 +43,10 @@ test('sample storefront hosts are not served', () => {
   assert.match(routes, /This address is not a published page/);
 });
 
-test('the local public page file does not keep the sample storefronts', () => {
+test('the local public page file does not keep the sample storefronts', (t) => {
   const file = new URL('./public_pages.json', import.meta.url);
-  if (!fs.existsSync(file)) return;
+  // A skip is counted and reported; an early return used to count as a pass (truth protocol, 3).
+  if (!fs.existsSync(file)) return t.skip('public_pages.json is not on this machine');
   const pages = JSON.parse(fs.readFileSync(file, 'utf8'));
   for (const slug of ['glow-elixir', 'wave5-elixir', 'wave9-radiance', 'vip-glow-kit', 'duo-glow-bundle', 'wave4-elixir']) {
     assert.equal(pages[slug], undefined, slug);
@@ -55,9 +56,9 @@ test('the local public page file does not keep the sample storefronts', () => {
   assert.ok(pages['saas-growth-funnel'], 'the dev funnel page stays');
 });
 
-test('the local drip store has no active fixture enrolment', () => {
+test('the local drip store has no active fixture enrolment', (t) => {
   const file = new URL('./drips.json', import.meta.url);
-  if (!fs.existsSync(file)) return;
+  if (!fs.existsSync(file)) return t.skip('drips.json is not on this machine');
   const drips = JSON.parse(fs.readFileSync(file, 'utf8'));
   const active = (drips.enrollments || []).filter((row) => row.status === 'active');
   assert.equal(active.length, 0);
