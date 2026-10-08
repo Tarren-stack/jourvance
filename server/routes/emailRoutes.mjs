@@ -86,7 +86,21 @@ export function setupEmailRoutes(app, ctx) {
     smsQuietEnabled,
     quietOpenAt,
     textConsentKnown,
-    prepareSmsMessage
+    prepareSmsMessage,
+    rememberAdminCatalog,
+    cleanLibrary,
+    cleanSteps,
+    historicSpend,
+    predictionLine,
+    overlayPrediction,
+    predictionAccount,
+    enrollFlowsForTrigger,
+    messageStatsFor,
+    holdoutReport,
+    cleanHoldout,
+    smartSendConflict,
+    assignSmartSend,
+    sequenceRevenue
   } = ctx;
 
 // ── Hub Email Suite Routes ──

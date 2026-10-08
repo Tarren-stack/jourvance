@@ -2939,7 +2939,23 @@ const emailCtx = {
   smsQuietEnabled,
   quietOpenAt,
   textConsentKnown,
-  prepareSmsMessage
+  prepareSmsMessage,
+  // Used inside emailRoutes.mjs handlers, so they must travel on the ctx or the request hangs
+  // on a ReferenceError (route-context-gate.test.mjs holds this).
+  rememberAdminCatalog,
+  cleanLibrary,
+  cleanSteps,
+  historicSpend,
+  predictionLine,
+  overlayPrediction,
+  predictionAccount,
+  enrollFlowsForTrigger,
+  messageStatsFor,
+  holdoutReport,
+  cleanHoldout,
+  smartSendConflict,
+  assignSmartSend,
+  sequenceRevenue
 };
 const emailHandlers = setupEmailRoutes(app, emailCtx);
 noteSegmentChanges = emailHandlers.noteSegmentChanges;
@@ -4928,6 +4944,7 @@ const publicCtx = {
   publicBase,
   mailLinkSecret,
   loadDiscounts,
+  loadWorkspace,
   hubStorage,
   requireUser
 };

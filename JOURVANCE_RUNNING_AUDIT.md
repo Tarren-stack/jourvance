@@ -2,7 +2,29 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-08, landing builder Wave 0 committed. The plan is LANDING_BUILDER_PLAN.md and the contract LANDING_BUILDER_DESIGN.md. Read the newest section first.
+Checked: 2026-10-08. Lead capture and thirteen other email routes have thrown on the live site since 2026-09-27; fixed and gated here, NOT yet deployed. Builder Waves 0, 1a and 1b committed. Read the newest section first.
+
+## 2026-10-08 — Lead capture hung on every owned page since September 27, and thirteen routes with it
+
+Found by the Wave 1b browser check, which posted a lead and never got an answer. `POST /api/public/lead` calls `noteSegmentChanges` in `server/routes/emailRoutes.mjs`, which calls `predictionAccount`, a function that lives in `server.mjs` and was never put on the context when the email routes were split out of the main file in commit `4d6b3c0` (2026-09-27). Express 4 does not answer a rejected async handler, so the visitor's form hung. The live deploy `a650b87` carries it: the file there uses the name twice and defines it nowhere (`git show`, main session).
+
+A gate written for the bug class (`route-context-gate.test.mjs`, acorn with its own scope tracker, over every route module that reads a context) found fourteen such names in the email routes on the committed tree: `rememberAdminCatalog`, `cleanLibrary`, `cleanSteps`, `historicSpend`, `predictionLine`, `overlayPrediction`, `predictionAccount`, `enrollFlowsForTrigger`, `messageStatsFor`, `holdoutReport`, `cleanHoldout`, `smartSendConflict`, `assignSmartSend`, `sequenceRevenue`, plus one name the public routes destructure that the server never passed (harmless, never called). So the letter library, holdout, smart send, the segment entry flows and the attributed revenue readouts have been throwing at request time too. This is the same shape as `noteAttrMap` (crashed boot) and `loadBehaviorBag` (prediction refresh), the third and fourth times it bit.
+
+### What changed
+
+The fourteen names are on `emailCtx` in `server.mjs` and destructured in `emailRoutes.mjs` (33 lines, no refactor). `route-context-gate.test.mjs` fails on any function a route module calls that is not passed through its context, any destructured name the server does not pass, and any context key the server does not declare. `public-lead-route-answers.test.mjs` mounts the real email and public routes with the real context shape and requires a lead post to answer 2xx within two seconds.
+
+### Evidence
+
+- Main session: `node --check` on both files; the gate and the lead test 4 passed, 0 failed with the fix; with the two fixed files stashed (the committed tree) 2 passed, 2 failed, the gate naming the missing functions by line. Restored, diff identical.
+- Reported by the Sonnet agent: `npm test` 2060 tests, 2057 passed, 0 failed, 3 skipped; sandboxed boot clean; the lead test before the fix failed with `ReferenceError: predictionAccount is not defined` and after it passed in 37 ms.
+- Done by an agent, re-run here: the gate and the lead test. Not re-run here: the full suite (another agent is mid-build on the editor and the typecheck is red on its half-written files).
+
+### Left open
+
+- NOT DEPLOYED. jourvance.com is still serving `a650b87`. This commit on its own is worth a deploy before the builder.
+- The gate needs `acorn`, found today at the hub checkout's `node_modules`; a standalone clone of this spoke would fail the gate's first test until `acorn` is a devDependency here. Not added, because another agent holds `package.json` right now.
+- Only the lead path has a runtime test; the other thirteen names are held statically by the gate.
 
 ## 2026-10-08 — Landing page builder: survey, plan, Wave 0
 
