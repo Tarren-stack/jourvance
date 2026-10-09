@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The Email Studio browser check (EMAIL_STUDIO_PLAN.md Waves 1 to 4): node scripts/email-studio-browser-check.mjs
+// The Email Studio browser check (EMAIL_STUDIO_PLAN.md Waves 1 to 6): node scripts/email-studio-browser-check.mjs
 //
 // What it does, from /canvas, in real Chrome at 1440x900. "All flows" is the Flows destination's first
 // section, the screen the Automations tab was before Wave 3; the steps reach it through the tablists.
@@ -14,8 +14,8 @@
 //                    its counted emails and Enrolled through statText; the hub's flows are a closed group
 //                    under the list and their flow is not shown; (Wave 2 fix) Welcome's row says its 3 emails
 //                    are still starter drafts and not sent, and no other row says so
-//   starter-open     on All flows, the Welcome sequence row: Flows and its Flow map are the selected tabs,
-//                    Welcome sequence is the chosen flow, its first email is drawn selected, and the
+//   starter-open     on All flows, the Welcome flow row: Flows and its Flow map are the selected tabs,
+//                    Welcome flow is the chosen flow, its first email is drawn selected, and the
 //                    step heading reads "Email 1 of 3" and holds focus
 //   starter-draft-note (Wave 2) on Welcome's email 1, the step panel says the D6 starter-draft sentence under the
 //                    starter note; it stays while the email's text is edited and not saved; Save posts the new
@@ -70,7 +70,7 @@
 //   row-switches     (Wave 4 fix) Viewed a product turns on and off from its row through /api/email/flows/:id with
 //                    { enabled } alone; while the answer is held the switch reads Saving and its name begins with
 //                    Saving
-//   starter-off      (Wave 2) Welcome's row reads On; Turn off Welcome sequence posts exactly { enabled: false } to
+//   starter-off      (Wave 2) Welcome's row reads On; Turn off Welcome flow posts exactly { enabled: false } to
 //                    /api/email/flow-content/drip_seq_default, the row reads Off and its switch Turn on, and the
 //                    status says what happens to the people in it (starterOffNotice); in the editor Welcome's
 //                    header says "Off for this account" beside a switch that reads Turn on and posts
@@ -103,14 +103,78 @@
 //   nav-390          at 390x844, for every destination: the destination strip takes at most two rows, its
 //                    section strip at most two, neither scrolls sideways, no tab is past an edge, and the
 //                    page's scrollWidth is 390
+//   broadcast-new    (Wave 5) Broadcasts' sections are All broadcasts and New broadcast (no Builder tab); All
+//                    broadcasts' New broadcast opens the composer with focus on its "New broadcast" heading; the
+//                    builder shows all 15 Add buttons and starts with a heading and a paragraph; the saved-block
+//                    library from GET /api/email/suite is offered and Insert copy adds its block; Send to offers
+//                    the segments and the list with the counts the stubs reported and no unmeasured 0; no modal;
+//                    at 390 nothing in the studio is past an edge and the page does not scroll sideways
+//   broadcast-draft  a subject, the heading and the words, then Save draft: one POST to /api/email/broadcast-drafts
+//                    with no id, carrying them and the settings, and the saved sentence; (fix round) while the
+//                    words are unsaved a beforeunload is cancelled (the browser asks before a reload drops them),
+//                    and once saved it is not; New broadcast (nothing unsaved, so it does not ask) empties the
+//                    composer; Flows and back to Broadcasts reads Drafts again, it lists the draft, and Open
+//                    draft puts back its subject, heading and words
+//   broadcast-test-send  Send a test to me renders the draft's blocks through POST /api/email/programs/preview once,
+//                    then POSTs /api/email/send once, to the typed address only, with that html (it carries the
+//                    heading and the words); server.mjs's /api/email/send takes html, not blocks
+//   broadcast-preview-check  Preview draws the draft in an iframe wider than 600px and says the route's label in a
+//                    status region, Mobile width draws it at 375px with its words in it; Check this email posts
+//                    the rendered html to /api/email/lint once and says the score and the warning; (fix round)
+//                    an edit to the words hides the preview and says it changed, and putting the words back
+//                    shows it again; it ends at Mobile width with the A/B, text and link groups open
+//   broadcast-confirm  with Send to set to VIP Whales, Send now asks first, naming the segment and the count the
+//                    segments stub reported; Cancel sends nothing and says so; (fix round) then at 390, with the
+//                    375px preview, the three groups open and that sentence in the sticky bar, nothing is past
+//                    an edge, the preview is inside the screen, and the page does not scroll sideways
+//   broadcast-payload  At a clock time, then Schedule asks naming the time and the count; accepted, the
+//                    campaign/send stub has one body whose blocks are the draft's (no flattened body), when clock,
+//                    sendAt the typed time, the whales pick, A/B and holdout off; All broadcasts then has focus
+//                    on its heading, says it was scheduled, and the sent draft was deleted and is gone from Drafts;
+//                    the send carries a requestId
+//   broadcast-send-guards (fix round) a new broadcast with a subject and blank blocks: Send now says to add words
+//                    and asks nothing; with words, a send the server never answers says so, and Send now again
+//                    carries the SAME requestId (campaign/send refuses a second copy), then lands on All broadcasts
+//   broadcast-audience-failed (fix round) with the segments read failing, the composer says so with Retry, and
+//                    Send now says who gets it could not be loaded, asks nothing and posts nothing; Retry loads it
+//   broadcast-replace-delete (fix round) "Unsaved changes" is a status region; a written draft over unsaved work
+//                    asks COMPOSER_REPLACE first and Cancel keeps the work; accepted, its words call nothing a
+//                    note; Save draft, then Delete on All broadcasts asks, sends one DELETE, says so and puts
+//                    focus on the Drafts heading
 //   nav-from-step    the canvas entry: Back to Canvas, the follow-up step on the map, its flow picker set to
 //                    Viewed a product, then "Edit this flow in Email Studio" (signed out, the journey saves to
 //                    this browser first). The studio lands on Flows, Flow map, with that flow chosen and the
 //                    Back to funnel banner; Back to funnel lands on the canvas with the step selected and
 //                    focus on the button that left
+//   states-mixed     (fix round) only the postal address read and the audience read fail: Sending says
+//                    the postal address failure in its one alert with a Retry named for it, Save Postal
+//                    Footer says POSTAL_NOT_SAVED and posts nothing, and once the read answers Retry loads it
+//                    and Save posts once; Texts says the phone count failure in its one alert, and its Retry
+//                    counts the phones once the audience answers
+//   states-401       (Wave 6, D6) a fresh context whose studio reads all answer 401, as requireUser answers a
+//                    signed-out reader: on every screen (All flows, People in starter flows, Flow map, All
+//                    broadcasts, People, Sign-up forms, Replies, Open checkouts, Results, Sending, Klaviyo, Texts)
+//                    the screen's sign-in sentence is in an alert with no button to try again, and its empty
+//                    sentence ("No replies have arrived for this account.", "No broadcasts yet. ...", "Not
+//                    connected.") is not on screen; Replies, Sending and Texts each raise one alert for
+//                    their one cause; no uncaught page error
+//   states-500       the same walk with every studio read answering 500: each screen's failure sentence in an
+//                    alert with a Retry named for it ("Retry: <failure>", retryLabel), no button named only
+//                    Retry, Try again or Loading, and never its empty sentence; one alert on Replies, Sending
+//                    and Texts; on Replies a Retry that fails again redraws the failure as a new node and
+//                    keeps focus on Retry
+//   states-unanswered the same walk with every studio read aborted (fetch rejects): each failure sentence says
+//                    the server did not answer, with a named Retry, and never the empty sentence
+//   states-empty     the same walk with every list answered and empty (the flow map holds only the starter,
+//                    built-in and order flows): each screen says its empty sentence ("No flows of your own
+//                    yet. ...", "Nothing has been sent yet, so there are no results.") and no screen draws a
+//                    failure. The four states steps share nothing with the page above, so each one runs
+//                    whatever an earlier step did
 //   no-dash          the studio's visible text and its aria-label, placeholder and title values, read on
 //                    every screen above, hold no em dash and no spaced en dash; on the Flows screens (All flows,
-//                    Flow map) they never say the retired "letter" (D2)
+//                    Flow map) they never say the retired "letter" (D2); (Wave 6) on every states screen
+//                    they say none of D2's retired words (studioVocabulary.ts), once the subjects and preview
+//                    texts of the server's seeded flows are taken out (fix round: never their names)
 //   runtime          no uncaught page error
 //
 // Usage: node scripts/email-studio-browser-check.mjs [--shots <dir>]
@@ -142,7 +206,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build, preview } from 'vite';
 import { routeVerdict } from '../src/lib/canvasCheckRules.ts';
 import { DEFAULT_LEAD_CAPTURE_PROJECT } from '../src/lib/defaultBlueprint.ts';
-import { FLOW_MAP_WRITE_UNREACHABLE } from '../src/lib/flowMapLoad.ts';
+import { FLOW_MAP_UNREACHABLE, FLOW_MAP_WRITE_UNREACHABLE } from '../src/lib/flowMapLoad.ts';
+import { FLOWS_EMPTY, FLOWS_FAILED, FLOWS_SIGN_IN } from '../src/lib/emailFlowsList.ts';
+import {
+  BROADCASTS_LIST, BROADCASTS_READ, FORMS_LIST, FORMS_READ, KLAVIYO_READ, PEOPLE_LIST, PEOPLE_READ, PHONES_READ, POSTAL_NOT_SAVED, POSTAL_READ,
+  REPLIES_LIST, REPLIES_READ, RESULTS_LIST, RESULTS_READ, SENDING_READ, STARTER_PEOPLE_LIST, STARTER_PEOPLE_READ, TEXTS_READ, UNANSWERED_TAIL,
+  retryLabel
+} from '../src/lib/studioLoad.ts';
+import { retiredIn } from '../src/lib/studioVocabulary.ts';
 import { TRIGGER_META } from '../email-flows.mjs';
 import { isStarterDraft, mergeAccountSteps, starterFlowOn } from '../email-flow-content.mjs';
 import { signalStarterFlows } from '../shopify-signals.mjs';
@@ -157,7 +228,7 @@ const NEW_PREVIEW = 'A preview line from the studio check';
 const IMAGE_URL = 'https://images.example.test/studio-check.png';
 const BUTTON_URL = 'https://shop.example.test/studio-check';
 const SAVED_CONTENT = 'Saved. Every email sent from now on uses this version, including for people already in this flow.';
-const SAVED_FLOW = 'Saved. It sends only after you turn it on and the queue reaches a due step.';
+const SAVED_FLOW = 'Saved. It sends only after you turn it on, and each email only once it comes due.';
 const SAVING_CONTENT = 'Saving these emails.';
 const UNSAVED = 'Unsaved changes';
 const UNHEARD_SUBJECT = 'A subject the server never hears about';
@@ -187,7 +258,34 @@ const STARTER_FLOW_NOTE = 'This starter flow is shared by every account. Your ed
 const BUILT_IN_FLOW_NOTE = 'This built-in flow is on this account only. You can edit its emails and waits here. Its steps and what starts it stay fixed. Turn it on or off from All flows.';
 /** The flow-content route's refusals (EMAIL_STUDIO_PLAN.md Wave 1, item 3). */
 const NOT_ON_ACCOUNT = 'That flow is not on this account.';
+/** Wave 5: the broadcast composer. What the check writes, the one saved block, and what the stubs count. */
+const BC_SUBJECT = 'Spring restock, from the studio check';
+const BC_HEADING = 'Back in stock, from the studio check';
+const BC_WORDS = 'The spring candles are back. Written in the broadcast builder by the studio check.';
+const TEST_ADDRESS = 'me@example.test';
+const SCHEDULE_AT = '2030-01-15T09:30';
+const WHALES_COUNT = 3;
+const LIBRARY_ROW = { id: 'lib_check', name: 'Studio check footer', block: { id: 'lib_check_b', kind: 'text', text: 'A saved footer, from the library' } };
+const DRAFT_SAVED = 'Draft saved. It is under Drafts in All broadcasts, and nothing was sent.';
+/** Fix round: BroadcastComposer.tsx's COMPOSER_REPLACE and the sentences the send guards and the stale preview say. */
+const COMPOSER_REPLACE = 'Replace the broadcast you are writing? Changes that are not saved as a draft will be lost.';
+const BLANK_EMAIL = 'Add words, a picture or a button to the email before sending.';
+const AUDIENCE_UNLOADED = 'Who gets it could not be loaded, so nothing was sent.';
+const PREVIEW_STALE = 'The email changed after this preview, so the preview is hidden.';
+const PREVIEW_LABEL = 'Sample preview. The name and example product are samples.';
+const VIP_SUBJECT = 'A thank-you to our most loyal clients';
+/** emailRoutes.mjs GET /api/email/segments rows (counts the stub's own), and one list (GET /api/email/lists). */
+const STUB_SEGMENTS = [
+  { id: 'all', name: 'All marketing', description: 'Accepts marketing, and is not suppressed or unsubscribed.', definition: 'Accepts marketing, and is not suppressed or unsubscribed.', count: 7, filterKey: 'all', builtin: true },
+  { id: 'whales', name: 'VIP Whales (Platinum)', description: 'Recorded spend is at least $500.', definition: 'Recorded spend is at least $500.', count: WHALES_COUNT, filterKey: 'whales', builtin: true },
+  { id: 'at_risk', name: 'At-Risk Inactive Clients', description: 'Inactive for 90+ days without a purchase.', definition: 'Inactive for 90+ days without a purchase.', count: 2, filterKey: 'at_risk', builtin: true }
+];
+const STUB_LISTS = [{ id: 'list_check', name: 'Studio check list', createdAt: '2026-10-01T00:00:00.000Z', count: 2 }];
 const STEPS_CHANGED = "These emails could not be saved, because the flow's steps changed. Reload it and try again.";
+/** Wave 6: the Flows list intro (EmailFlowsList.tsx), now that a starter flow can be turned off. */
+const FLOWS_INTRO = 'A starter flow takes every new lead or checkout until you turn it off.';
+/** Wave 6: HubEmailSuite.tsx's Open checkouts sentences (checkoutsFailure and the empty line). */
+const CHECKOUTS_EMPTY = 'No open checkouts yet. A checkout someone starts in your Shopify store and does not finish shows here.';
 
 const say = line => console.log(line);
 
@@ -268,6 +366,16 @@ function newState(seeds) {
     previewPosts: [],
     deletes: [],
     tickPosts: 0,
+    // Wave 5: the broadcast drafts the stub keeps, and every broadcast write.
+    drafts: [],
+    draftPosts: [],
+    draftDeletes: [],
+    campaignPosts: [],
+    // Fix round: 'abort' drops a campaign/send after recording it; 'fail' answers the segments read 500.
+    campaignMode: 'answer',
+    segmentsMode: 'answer',
+    testSends: [],
+    lintPosts: [],
     answered: []
   };
 }
@@ -426,7 +534,7 @@ function studioAnswer(req, u, state) {
     state.previewPosts.push(body);
     return json(200, {
       success: true, sample: true, label: 'Sample preview. The name and example product are samples.', subject: String(body.subject || ''),
-      html: `<!doctype html><html><body><h1>Sample for the studio check</h1><p>${String(body.subject || '')}</p></body></html>`, text: '', untranslated: [], hidden: 0
+      html: `<!doctype html><html><body><h1>Sample for the studio check</h1><p>${String(body.subject || '')}</p>${(Array.isArray(body.blocks) ? body.blocks : []).map(b => `<p>${String(b.text || b.label || '')}</p>`).join('')}</body></html>`, text: '', untranslated: [], hidden: 0
     });
   }
   // emailRoutes.mjs POST /api/email/programs/:id: Turn on and Turn off for a built-in flow or an order email.
@@ -436,7 +544,7 @@ function studioAnswer(req, u, state) {
     state.programPosts.push({ id: program[1], body });
     if (body.kind === 'automation' && seeds.automations.some(row => row.id === program[1])) state.automationEnabled[program[1]] = body.enabled === true;
     else if (body.kind !== 'automation' && state.orderEmails[program[1]]) state.orderEmails[program[1]].enabled = body.enabled === true;
-    else return json(404, { success: false, error: 'That automation is not in the suite.' });
+    else return json(404, { success: false, error: 'That built-in flow is not on this account.' });
     return json(200, { success: true, suite: {} });
   }
   if (method === 'GET' && p === '/api/email/suite') {
@@ -453,7 +561,7 @@ function studioAnswer(req, u, state) {
           id: row.id, name: row.name, shopifyNotification: row.shopifyNotification, shopifyTopic: row.shopifyTopic,
           enabled: false, subject: row.subject, blocks: row.blocks
         })),
-        library: []
+        library: [LIBRARY_ROW]
       }
     });
   }
@@ -506,8 +614,49 @@ function studioAnswer(req, u, state) {
       subscribers: []
     });
   }
-  if (method === 'GET' && p === '/api/email/segments') return json(200, { success: true, totalAudience: 0, segments: [] });
-  if (method === 'GET' && p === '/api/email/lists') return json(200, { success: true, lists: [] });
+  if (method === 'GET' && p === '/api/email/segments') {
+    if (state.segmentsMode === 'fail') return json(500, { success: false, error: 'The segments read failed in the studio check.' });
+    return json(200, { success: true, totalAudience: 7, segments: STUB_SEGMENTS });
+  }
+  if (method === 'GET' && p === '/api/email/lists') return json(200, { success: true, lists: STUB_LISTS });
+  // Wave 5: server/routes/broadcastDraftRoutes.mjs, kept in memory as the account's record keeps it.
+  if (method === 'GET' && p === '/api/email/broadcast-drafts') return json(200, { success: true, drafts: state.drafts, limit: 20 });
+  if (method === 'POST' && p === '/api/email/broadcast-drafts') {
+    const body = JSON.parse(req.postData() || '{}');
+    state.draftPosts.push(body);
+    if (body.id && !state.drafts.some(d => d.id === body.id)) return json(404, { success: false, error: 'That draft is not on this account.' });
+    const draft = {
+      id: body.id || `bd_check${state.draftPosts.length}`, userId: 'check', subject: body.subject, previewText: body.previewText,
+      blocks: body.blocks, settings: body.settings, updatedAt: '2026-10-08T12:00:00.000Z'
+    };
+    state.drafts = [draft, ...state.drafts.filter(d => d.id !== draft.id)];
+    return json(200, { success: true, draft, drafts: state.drafts, limit: 20 });
+  }
+  const draftDelete = /^\/api\/email\/broadcast-drafts\/([^/]+)$/.exec(p);
+  if (method === 'DELETE' && draftDelete) {
+    state.draftDeletes.push(draftDelete[1]);
+    if (!state.drafts.some(d => d.id === draftDelete[1])) return json(404, { success: false, error: 'That draft is not on this account.' });
+    state.drafts = state.drafts.filter(d => d.id !== draftDelete[1]);
+    return json(200, { success: true, drafts: state.drafts, limit: 20 });
+  }
+  // emailRoutes.mjs POST /api/email/campaign/send: a scheduled send is saved and nothing goes out.
+  if (method === 'POST' && p === '/api/email/campaign/send') {
+    const body = JSON.parse(req.postData() || '{}');
+    state.campaignPosts.push(body);
+    if (state.campaignMode === 'abort') return 'abort';
+    return json(200, body.when === 'now'
+      ? { success: true, recipientCount: WHALES_COUNT, message: `Sent to ${WHALES_COUNT} recipients.` }
+      : { success: true, recipientCount: 0, message: 'Scheduled. Nothing was sent.' });
+  }
+  // server.mjs POST /api/email/send (a test), and POST /api/email/lint (hub.email.lint's { score, warnings, checks }).
+  if (method === 'POST' && p === '/api/email/send') {
+    state.testSends.push(JSON.parse(req.postData() || '{}'));
+    return json(200, { success: true, sent: { success: true } });
+  }
+  if (method === 'POST' && p === '/api/email/lint') {
+    state.lintPosts.push(JSON.parse(req.postData() || '{}'));
+    return json(200, { success: true, score: 92, warnings: ['Add a plain text version.'], checks: [{ id: 'unsub', label: 'Unsubscribe link', level: 'pass' }] });
+  }
   // One open checkout (shopifyRoutes.mjs, loadCheckouts' shape), so Audience, Open checkouts draws its table.
   if (method === 'GET' && /^\/api\/workspace\/[^/]+\/shopify\/abandoned-checkouts$/.test(p)) {
     return json(200, {
@@ -535,6 +684,66 @@ function studioAnswer(req, u, state) {
   if (method === 'GET' && p === '/api/klaviyo') return json(200, { success: true, klaviyo: { connected: false, keyOnFile: false, sendWith: 'jourvance', flows: [] } });
   state.answered.pop();
   return false;
+}
+
+// ---- Wave 6: the studio's reads answered one way, for the states steps ----
+
+/** The studio's own GETs. The app shell's reads (the journey, the workspaces) and every write stay as studioAnswer answers them. */
+const STATE_READS = [/^\/api\/email\//, /^\/api\/drips\//, /^\/api\/sms\//, /^\/api\/klaviyo$/, /^\/api\/workspace\/[^/]+\/shopify\/abandoned-checkouts$/];
+
+/** What each studio list answers in the states-empty step: a list the server read, holding nothing. */
+const EMPTY_ANSWERS = {
+  '/api/email/flows': { success: true, flows: [] },
+  '/api/email/broadcasts': { success: true, broadcasts: [], followUpNote: '' },
+  '/api/email/analytics': {
+    success: true,
+    analytics: {
+      totalSent: 0, sent: 0, delivered: null, opened: null, clicked: null, unsubscribed: null, revenue: null, prefetchOpens: null,
+      avgOpenRate: null, avgClickRate: null, deliveryRate: null, activeSubscribers: 0,
+      windows: { emailClickDays: 5, emailOpenDays: 5, smsClickDays: 5 }, opensStored: true, windowNote: ''
+    }
+  },
+  '/api/email/audience': {
+    success: true,
+    rfmConfig: { atRiskDays: 90, lapsedDays: 180, vipSilver: 100, vipGold: 250, vipPlatinum: 500, coolingDays: 60, autoWinbackEnabled: false, allowUnlimitedDiscountUse: false },
+    rfmSummary: { whales: 0, gold: 0, silver: 0, atRisk: 0, lapsed: 0, repeatBuyers: 0, totalBuyers: 0, leads: 0, totalContacts: 0 },
+    subscribers: []
+  },
+  '/api/email/segments': { success: true, totalAudience: 0, segments: [] },
+  '/api/email/lists': { success: true, lists: [] },
+  '/api/drips/sequences': { success: true, sequences: [], revenueNote: '' },
+  '/api/drips/enrollments': { success: true, enrollments: [] },
+  '/api/email/inbox': { success: true, messages: [], counts: {} },
+  '/api/email/inbox/policy': { success: true, policy: { autopilot: 'off' } },
+  '/api/sms/status': { success: true, configured: false, live: false },
+  '/api/email/forms': { success: true, forms: [], hubForms: [], hubError: '', hubConnected: true },
+  '/api/klaviyo': { success: true, klaviyo: { connected: false, keyOnFile: false, sendWith: 'jourvance', flows: [] } },
+  '/api/email/senders': { success: true, senders: [] },
+  '/api/email/inbound': { success: true, receiving: false },
+  '/api/email/events-webhook': { success: true },
+  '/api/email/live': { success: true, blocks: [] },
+  '/api/email/broadcast-drafts': { success: true, drafts: [], limit: 20 }
+};
+
+/**
+ * One studio GET, answered as `mode` says: '401' as requireUser answers a signed-out reader, '500' a
+ * server error, 'unanswered' aborted (fetch rejects), 'empty' each list read and empty. The flow map's
+ * empty answer is the real one for an account with no flow of its own: the starter, built-in and
+ * order flows every account has.
+ */
+function statesAnswer(mode, req, u, state) {
+  const p = u.pathname;
+  if (req.method() !== 'GET' || !STATE_READS.some(re => re.test(p))) return studioAnswer(req, u, state);
+  const json = (status, body) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  state.answered.push(`GET ${p} (${mode})`);
+  if (mode === 'unanswered') return 'abort';
+  if (mode === '401') return json(401, { success: false, error: 'Sign in to continue.' });
+  if (mode === '500') return json(500, { success: false, error: 'The studio check answered 500.' });
+  // states-mixed: only these reads fail (while state.mixedFails still holds them); the rest answer as empty.
+  if (mode === 'mixed' && (state.mixedFails || []).includes(p)) return json(500, { success: false, error: 'The studio check answered 500.' });
+  if (Object.prototype.hasOwnProperty.call(EMPTY_ANSWERS, p)) return json(200, EMPTY_ANSWERS[p]);
+  if (/\/shopify\/abandoned-checkouts$/.test(p)) return json(200, { success: true, checkouts: [] });
+  return studioAnswer(req, u, state) || json(200, { success: true });
 }
 
 // ---- Plumbing (as builder-browser-check.mjs) ----
@@ -707,6 +916,8 @@ const studioPastEdge = page => page.evaluate(() => {
 // ---- The run ----
 
 async function runChecks(browser, origin, shots, blocked, seeds) {
+  // The Welcome starter flow's name as server.mjs seeds it ("Welcome flow"; "Welcome sequence" until D2).
+  const WELCOME_NAME = seeds.sequences.find(s => s.id === WELCOME).name;
   const results = [];
   const state = newState(seeds);
   const texts = [];
@@ -767,6 +978,11 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     } catch (err) {
       results.push({ name, ok: false, notes: String(err?.message || err) });
       say(`FAIL  ${name}: ${String(err?.message || err).split('\n')[0]}`);
+      // A Playwright timeout's first line names no target: print the end of its call log, which says what
+      // was waited on and why it never became clickable.
+      if (/Timeout \d+ms exceeded/.test(String(err?.message || ''))) {
+        for (const line of String(err.message).split('\n').map(l => l.trim()).filter(Boolean).slice(1).slice(-4)) say(`      ${line.slice(0, 240)}`);
+      }
       await shot(`failed-${name}`).catch(() => {});
       return false;
     }
@@ -792,7 +1008,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
   const toFlowList = async () => {
     await tab('Flows').click();
     await tab('All flows').click();
-    await page.getByText('Starter flows run for every new lead or checkout.', { exact: false }).first().waitFor({ state: 'visible' });
+    await page.getByText(FLOWS_INTRO, { exact: false }).first().waitFor({ state: 'visible' });
     // Wave 4: the rows come from the list's own read, after its intro is drawn.
     await page.locator('[data-flow-row]').first().waitFor({ state: 'visible' });
     const settled = (await isSelected('Flows')) && (await isSelected('All flows')) && !(await isSelected('Flow map'));
@@ -833,7 +1049,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     await studio.click();
     const heading = page.getByRole('heading', { level: 1, name: /Email Studio/ });
     await heading.waitFor({ state: 'visible', timeout: 15000 });
-    await page.getByText('Starter flows run for every new lead or checkout.', { exact: false }).first().waitFor({ state: 'visible' });
+    await page.getByText(FLOWS_INTRO, { exact: false }).first().waitFor({ state: 'visible' });
     await keepText('All flows');
     await shot('1-studio-open');
     return `"${(await heading.textContent()).trim()}" is visible and All flows is showing`;
@@ -892,7 +1108,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     // One of each kind says its tag, its start in TRIGGER_META's words, On or Off, and its counted emails.
     const label = id => TRIGGER_META.find(t => t.id === id).label;
     const checks = [
-      ['Welcome sequence', ['Starter', `Starts when: ${label('lead_capture')}`, ' On ', '3 emails', ` ${WELCOME_DRAFTS} `, 'Enrolled Unavailable', 'Last-touch revenue Unavailable']],
+      [WELCOME_NAME, ['Starter', `Starts when: ${label('lead_capture')}`, ' On ', '3 emails', ` ${WELCOME_DRAFTS} `, 'Enrolled Unavailable', 'Last-touch revenue Unavailable']],
       ['After the order', ['Built in', `Starts when: ${label('order_paid')}`, ' Off ', '2 emails', 'Enrolled Unavailable']],
       ['Order confirmation', ['Order email', `Starts when: ${label('order_paid')}`, ' Off ', '1 email']],
       ['Viewed a product', [`Starts when: ${label('product_viewed')}`, ' Off ', '1 email', 'Enrolled Unavailable']]
@@ -905,7 +1121,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     expect(!rows.find(r => r.name === 'Viewed a product').meta.includes('|'), 'an account flow carries a tag');
     // Wave 2 fix: only Welcome's emails are still the starter drafts, so no other row says so.
     const saysDrafts = rows.filter(r => /starter draft/.test(r.meta)).map(r => r.name);
-    expect(JSON.stringify(saysDrafts) === JSON.stringify(['Welcome sequence']), `rows that say they hold starter drafts: ${JSON.stringify(saysDrafts)}`);
+    expect(JSON.stringify(saysDrafts) === JSON.stringify([WELCOME_NAME]), `rows that say they hold starter drafts: ${JSON.stringify(saysDrafts)}`);
     expect(!rows.find(r => r.name === 'Order confirmation').meta.includes('Enrolled'), 'an order email says Enrolled');
     // The hub flows: a closed group at the foot, export only, its flow not a row and not shown.
     const hub = await page.evaluate(() => {
@@ -922,10 +1138,10 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
   });
 
   await go('starter-open', async () => {
-    // Wave 4: the Welcome sequence row (it was "Edit emails" on a row and on a card).
-    const edit = flowRow('Welcome sequence');
+    // Wave 4: the Welcome flow row (it was "Edit emails" on a row and on a card).
+    const edit = flowRow(WELCOME_NAME);
     const count = await edit.count();
-    expect(count === 1, `${count} buttons named "Welcome sequence" on All flows`);
+    expect(count === 1, `${count} buttons named "${WELCOME_NAME}" on All flows`);
     await edit.click();
     const f = await stepHeading('Email 1 of 3');
     expect(f, `focus is on ${JSON.stringify(await focused(page))}, not the "Email 1 of 3" step heading`);
@@ -933,7 +1149,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     const active = (await isSelected('Flows')) && (await isSelected('Flow map'));
     expect(active, `Flows selected ${await isSelected('Flows')}, Flow map selected ${await isSelected('Flow map')}`);
     const chosen = await chosenFlow(page);
-    expect(chosen === 'Welcome sequence', `the chosen flow is "${chosen}"`);
+    expect(chosen === WELCOME_NAME, `the chosen flow is "${chosen}"`);
     const border = await waitUntil(async () => {
       const b = await nodeBorder(page, `${WELCOME}_email_0`);
       return b && b.color === PINK ? b : null;
@@ -949,7 +1165,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     expect(said === STARTER_FLOW_NOTE, `under the step heading: "${said}"`);
     await keepText('Flow map, Welcome email 1');
     await shot('2-starter-open');
-    return `1 "Welcome sequence" row; Flows, Flow map selected, Welcome chosen, email 1 drawn ${border.width} ${border.color}, focus on h3 "${f.text}"`;
+    return `1 "${WELCOME_NAME}" row; Flows, Flow map selected, Welcome chosen, email 1 drawn ${border.width} ${border.color}, focus on h3 "${f.text}"`;
   });
 
   await go('starter-draft-note', async () => {
@@ -992,7 +1208,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
   await go('email-open', async () => {
     // Wave 4: the email tiles went with the starter cards. The row opens email 1; email 2 is chosen on the map.
     await toFlowList();
-    await flowRow('Welcome sequence').click();
+    await flowRow(WELCOME_NAME).click();
     expect(await stepHeading('Email 1 of 3'), 'the Welcome row did not open on email 1');
     await page.click(`.react-flow__node[data-id="${WELCOME}_email_1"]`);
     const f = await stepHeading('Email 2 of 3');
@@ -1105,7 +1321,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     // Wave 4: there are no cards to show a subject. The saved edit is what Welcome opens with when it
     // is opened again from All flows (the editor reads the flow map afresh).
     await toFlowList();
-    await flowRow('Welcome sequence').click();
+    await flowRow(WELCOME_NAME).click();
     expect(await stepHeading('Email 1 of 3'), 'the Welcome row did not open on email 1');
     const shown = await waitUntil(async () => ((await page.locator('#flow-step-subject').inputValue()) === NEW_SUBJECT ? true : null), 5000);
     expect(shown, `Welcome's email 1 opens with "${await page.locator('#flow-step-subject').inputValue()}", not the saved "${NEW_SUBJECT}"`);
@@ -1177,7 +1393,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
   await go('save-unanswered', async () => {
     state.contentMode = 'abort';
     try {
-      await pickFlow('Welcome sequence');
+      await pickFlow(WELCOME_NAME);
       // Email 1: the map keeps the last flow's view when another flow is chosen in the picker, and
       // email 1 sits near the top of every chain, so it is on screen.
       await page.click(`.react-flow__node[data-id="${WELCOME}_email_0"]`);
@@ -1204,15 +1420,15 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     // The check answers Cancel: the flow and the edit stay.
     await page.waitForTimeout(300);
     const chosen = await chosenFlow(page);
-    expect(chosen === 'Welcome sequence', `after Cancel the chosen flow is "${chosen}"`);
+    expect(chosen === WELCOME_NAME, `after Cancel the chosen flow is "${chosen}"`);
     const subject = await page.locator('#flow-step-subject').inputValue();
     expect(subject === UNHEARD_SUBJECT, `after Cancel the Subject field reads "${subject}"`);
-    return `asked "${asked}"; Cancel kept Welcome sequence and its unsaved subject`;
+    return `asked "${asked}"; Cancel kept ${WELCOME_NAME} and its unsaved subject`;
   });
 
   await go('strip-clears', async () => {
     await toFlowList();
-    await flowRow('Welcome sequence').click();
+    await flowRow(WELCOME_NAME).click();
     expect(await stepHeading('Email 1 of 3'), 'the Welcome row did not open Welcome on email 1');
     await toFlowList();
     await tab('Flow map').click();
@@ -1231,13 +1447,13 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     await tab('All flows').focus();
     let reached = null;
     let presses = 0;
-    // Wave 4: the Welcome sequence row (it was the first "Edit emails" button).
+    // Wave 4: the Welcome flow row (it was the first "Edit emails" button).
     for (; presses < 80 && !reached; presses++) {
       await page.keyboard.press('Tab');
       const f = await focused(page);
-      if (f && f.tag === 'button' && f.row === WELCOME) reached = { ...f, label: 'Welcome sequence row' };
+      if (f && f.tag === 'button' && f.row === WELCOME) reached = { ...f, label: `${WELCOME_NAME} row` };
     }
-    expect(reached, `Tab did not reach the Welcome sequence row in ${presses} presses from the All flows tab`);
+    expect(reached, `Tab did not reach the ${WELCOME_NAME} row in ${presses} presses from the All flows tab`);
     await page.keyboard.press('Enter');
     const f = await waitUntil(async () => {
       const now = await focused(page);
@@ -1517,7 +1733,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
 
   await go('starter-off', async () => {
     // Wave 2: a starter flow turns off for this account, from its row and from the editor's header.
-    const name = 'Welcome sequence';
+    const name = WELCOME_NAME;
     expect((await rowOf(name))?.meta.includes('· On ·'), `${name}'s row reads "${(await rowOf(name))?.meta}"`);
     expect(!(await studioText(page)).includes(STARTER_NO_SWITCH), `the list still says "${STARTER_NO_SWITCH}"`);
     const posts = state.contentPosts.length;
@@ -1557,7 +1773,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
 
   await go('panel-beside', async () => {
     // From 900px wide the step panel sits beside the map: its left edge is right of the map's right edge.
-    await flowRow('Welcome sequence').click();
+    await flowRow(WELCOME_NAME).click();
     expect(await stepHeading('Email 1 of 3'), 'the Welcome row did not open on email 1');
     // The map is fitted once its steps are measured; let that settle, then measure once.
     await page.waitForTimeout(500);
@@ -1869,6 +2085,347 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     return `at 390: ${notes.join('; ')}; page scrollWidth 390 on each`;
   });
 
+  // ---- Wave 5: Broadcasts with the builder ----
+  const composerGroup = () => page.getByRole('group', { name: 'Email content' });
+  /** True when a beforeunload is cancelled, which is what makes the browser ask before a reload or a closed tab. */
+  const leaveAsks = () => page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  const focusedHeading = async text => waitUntil(async () => {
+    const f = await focused(page);
+    return f && f.tag === 'h2' && f.text === text ? f : null;
+  }, 5000);
+  const sawStatus = async text => waitUntil(async () => ((await statusTexts(page)).some(t => t.includes(text)) ? true : null), 5000);
+  /** The blocks the composer holds, as the draft it saved last carried them. */
+  let savedBlocks = null;
+  let savedDraftId = '';
+
+  await go('broadcast-new', async () => {
+    await tab('Broadcasts').click();
+    await page.getByRole('heading', { level: 2, name: 'All broadcasts', exact: true }).waitFor({ state: 'visible' });
+    const sections = await tablist(page, 'Broadcasts sections');
+    expect(sections && JSON.stringify(sections.names) === JSON.stringify(['All broadcasts', 'New broadcast']), `the Broadcasts sections are ${JSON.stringify(sections?.names)}`);
+    expect((await page.getByRole('tab', { name: 'Builder', exact: true }).count()) === 0, 'a Builder tab is still drawn');
+    await page.getByRole('button', { name: 'New broadcast', exact: true }).click();
+    const f = await focusedHeading('New broadcast');
+    expect(f, `New broadcast left focus on ${JSON.stringify(await focused(page))}`);
+    expect(await isSelected('New broadcast'), 'the New broadcast section is not the selected tab');
+    // The builder itself: the Add buttons and the two blocks a new broadcast starts with.
+    const group = composerGroup();
+    await group.getByRole('button', { name: 'Add image', exact: true }).waitFor({ state: 'visible' });
+    const adds = await group.getByRole('button', { name: /^Add (heading|text|button|divider|image|HTML|columns|split|table|spacer|social links|header|video|product|coupon)$/ }).count();
+    expect(adds === 15, `${adds} Add buttons in the builder, not the 15 block kinds`);
+    expect(await group.getByLabel('Heading', { exact: true }).isVisible() && await group.getByLabel('Text', { exact: true }).isVisible(), 'a new broadcast does not start with a heading and a paragraph');
+    // The saved-block library, read from the suite, is offered and inserts a copy.
+    await group.getByText(LIBRARY_ROW.name, { exact: true }).waitFor({ state: 'visible' });
+    await group.getByRole('button', { name: 'Insert copy', exact: true }).click();
+    const inserted = await waitUntil(async () => {
+      const values = await group.getByLabel('Text', { exact: true }).evaluateAll(els => els.map(el => el.value));
+      return values.includes(LIBRARY_ROW.block.text) ? values : null;
+    }, 3000);
+    expect(inserted, `Insert copy did not add the saved block "${LIBRARY_ROW.block.text}"`);
+    // Send to: the server's own counts, and no count nobody measured.
+    const options = await page.getByLabel('Send to').locator('option').allTextContents();
+    expect(options.some(t => t.startsWith(`VIP Whales (Platinum) (${WHALES_COUNT} contacts)`)), `Send to offers ${JSON.stringify(options)}`);
+    expect(options.some(t => t === `List · ${STUB_LISTS[0].name} (${STUB_LISTS[0].count} contacts)`), `Send to offers no list: ${JSON.stringify(options)}`);
+    expect(!options.some(t => /\(0\)|\(0 contacts\)/.test(t)), `Send to offers an unmeasured 0: ${JSON.stringify(options)}`);
+    expect((await page.locator('[role="dialog"], [aria-modal="true"]').count()) === 0, 'a modal is open');
+    await keepText('Broadcasts, New broadcast');
+    await shot('broadcast-new');
+    // At phone width the composer fits: nothing past an edge, no sideways scroll.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(300);
+    try {
+      const edge = await studioPastEdge(page);
+      expect(edge.bad.length === 0, `past an edge at 390: ${edge.bad.slice(0, 4).join(' | ')}`);
+      expect(edge.pageScroll === 390 && edge.studioScroll <= edge.studioClient, `at 390 the page is ${edge.pageScroll} wide, the studio ${edge.studioScroll} of ${edge.studioClient}`);
+      await keepText('Broadcasts, New broadcast at 390');
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.waitForTimeout(300);
+    }
+    return `All broadcasts' New broadcast opened the New broadcast section with focus on its heading; the builder shows ${adds} Add buttons and starts with a heading and a paragraph; the library's "${LIBRARY_ROW.name}" inserted a copy; Send to offers "VIP Whales (Platinum) (${WHALES_COUNT} contacts)" and no unmeasured 0; at 390 nothing is past an edge`;
+  });
+
+  await go('broadcast-draft', async () => {
+    const group = composerGroup();
+    await page.getByLabel('Subject', { exact: true }).fill(BC_SUBJECT);
+    await group.getByLabel('Heading', { exact: true }).fill(BC_HEADING);
+    await group.getByLabel('Text', { exact: true }).first().fill(BC_WORDS);
+    expect(await page.getByText('Unsaved changes', { exact: true }).isVisible(), 'the composer does not say it has unsaved changes');
+    // Fix round: a reload or a closed tab would drop these words, so the browser is told to ask first.
+    expect(await leaveAsks(), 'with unsaved words a beforeunload is not cancelled, so a reload drops them without asking');
+    const before = state.draftPosts.length;
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    expect(await sawStatus(DRAFT_SAVED), `after Save draft the status says ${JSON.stringify(await statusTexts(page))}`);
+    const posts = state.draftPosts.slice(before);
+    expect(posts.length === 1 && !posts[0].id, `Save draft posted ${JSON.stringify(posts.map(b => ({ id: b.id, subject: b.subject })))}`);
+    const words = (posts[0].blocks || []).map(b => b.text);
+    expect(posts[0].subject === BC_SUBJECT && words.includes(BC_HEADING) && words.includes(BC_WORDS) && words.includes(LIBRARY_ROW.block.text), `the draft carried ${JSON.stringify({ subject: posts[0].subject, words })}`);
+    expect(posts[0].settings && posts[0].settings.include === 'all' && posts[0].settings.sendWhen === 'now', `the draft's settings are ${JSON.stringify(posts[0].settings)}`);
+    expect((await page.getByText('Unsaved changes', { exact: true }).count()) === 0, '"Unsaved changes" stays after the save');
+    expect(!(await leaveAsks()), 'after the save a beforeunload is still cancelled, so a reload asks over nothing unsaved');
+    savedBlocks = posts[0].blocks;
+    savedDraftId = state.drafts[0]?.id || '';
+    // Leave: a new broadcast (nothing unsaved, so it does not ask), then Flows, then back.
+    await tab('All broadcasts').click();
+    const dialogsBefore = dialogs.length;
+    await page.getByRole('button', { name: 'New broadcast', exact: true }).click();
+    await focusedHeading('New broadcast');
+    expect(dialogs.length === dialogsBefore, `New broadcast asked "${dialogs[dialogs.length - 1]}" with nothing unsaved`);
+    expect((await page.getByLabel('Subject', { exact: true }).inputValue()) === '', 'New broadcast kept the saved subject');
+    await tab('Flows').click();
+    await page.getByRole('heading', { level: 2, name: 'All flows', exact: true }).waitFor({ state: 'visible' });
+    const reads = state.answered.filter(a => a === 'GET /api/email/broadcast-drafts').length;
+    await tab('Broadcasts').click();
+    const open = page.getByRole('button', { name: `Open draft ${BC_SUBJECT}`, exact: true });
+    await open.waitFor({ state: 'visible' });
+    expect(state.answered.filter(a => a === 'GET /api/email/broadcast-drafts').length > reads, 'the Drafts list was not read again from the server');
+    await keepText('Broadcasts, All broadcasts with a draft');
+    await open.click();
+    expect(await focusedHeading('Edit broadcast draft'), `Open draft left focus on ${JSON.stringify(await focused(page))}`);
+    const subject = await page.getByLabel('Subject', { exact: true }).inputValue();
+    const heading = await composerGroup().getByLabel('Heading', { exact: true }).inputValue();
+    const texts = await composerGroup().getByLabel('Text', { exact: true }).evaluateAll(els => els.map(el => el.value));
+    expect(subject === BC_SUBJECT && heading === BC_HEADING && texts.includes(BC_WORDS), `the reopened draft reads ${JSON.stringify({ subject, heading, texts })}`);
+    await keepText('Broadcasts, a draft opened');
+    return `Save draft posted one new draft with the subject, the heading, the words and the library's block; a reload would have asked before the save and not after it; after New broadcast, Flows and back, Drafts (read again) listed it, and Open draft put back "${subject}", its heading and its words`;
+  });
+
+  await go('broadcast-test-send', async () => {
+    const previews = state.previewPosts.length;
+    const tests = state.testSends.length;
+    await page.getByLabel('Your address for tests', { exact: true }).fill(TEST_ADDRESS);
+    await page.getByRole('button', { name: 'Send a test to me', exact: true }).click();
+    expect(await sawStatus(`The email service accepted a test to ${TEST_ADDRESS}.`), `after Send a test to me the status says ${JSON.stringify(await statusTexts(page))}`);
+    const asked = state.previewPosts.slice(previews);
+    expect(asked.length === 1 && JSON.stringify(asked[0].blocks) === JSON.stringify(savedBlocks), `the test was rendered from ${JSON.stringify(asked.map(a => (a.blocks || []).map(b => b.kind)))}, not the draft's blocks`);
+    const sent = state.testSends.slice(tests);
+    expect(sent.length === 1, `${sent.length} POSTs reached /api/email/send`);
+    expect(JSON.stringify(sent[0].recipients) === JSON.stringify([{ email: TEST_ADDRESS, name: 'Test' }]), `the test went to ${JSON.stringify(sent[0].recipients)}`);
+    expect(String(sent[0].subject).startsWith('Test: ') && String(sent[0].html).includes(BC_WORDS) && String(sent[0].html).includes(BC_HEADING), `the test carried ${JSON.stringify({ subject: sent[0].subject, html: String(sent[0].html).slice(0, 160) })}`);
+    return `one preview of the draft's ${savedBlocks.length} blocks, then one POST /api/email/send to ${TEST_ADDRESS} whose html carries the heading and the words`;
+  });
+
+  await go('broadcast-preview-check', async () => {
+    await page.getByRole('button', { name: 'Preview', exact: true }).click();
+    const desktop = page.locator('iframe[title="Broadcast preview at desktop width"]');
+    await desktop.waitFor({ state: 'visible' });
+    expect(await sawStatus(PREVIEW_LABEL), `the preview's label is not said in a status region: ${JSON.stringify(await statusTexts(page))}`);
+    const wide = Math.round((await desktop.boundingBox()).width);
+    await page.getByRole('button', { name: 'Mobile width', exact: true }).click();
+    const mobile = page.locator('iframe[title="Broadcast preview at mobile width"]');
+    await mobile.waitFor({ state: 'visible' });
+    const narrow = Math.round((await mobile.boundingBox()).width);
+    expect(wide > 600 && narrow === 375, `the preview is ${wide}px at desktop width and ${narrow}px at mobile width`);
+    expect((await page.getByRole('button', { name: 'Mobile width', exact: true }).getAttribute('aria-pressed')) === 'true', 'Mobile width is not marked pressed');
+    const inside = await mobile.contentFrame().locator('body').innerText();
+    expect(inside.includes(BC_WORDS), `the preview shows "${inside.slice(0, 120)}"`);
+    await page.getByRole('button', { name: 'Desktop width', exact: true }).click();
+    const lints = state.lintPosts.length;
+    await page.getByRole('button', { name: 'Check this email', exact: true }).click();
+    expect(await sawStatus('Check score 92. Add a plain text version.'), `after Check this email the status says ${JSON.stringify(await statusTexts(page))}`);
+    expect(state.lintPosts.length === lints + 1 && state.lintPosts[lints].subject === BC_SUBJECT && String(state.lintPosts[lints].html).includes(BC_WORDS), `the check posted ${JSON.stringify(state.lintPosts.slice(lints).map(l => l.subject))}`);
+    await keepText('Broadcasts, preview and check');
+    await shot('broadcast-preview');
+    // Fix round: an edit after the preview hides it and says so; the words put back show it again.
+    const words = composerGroup().getByLabel('Text', { exact: true }).first();
+    expect((await words.inputValue()) === BC_WORDS, `the first Text block reads ${JSON.stringify(await words.inputValue())}`);
+    await words.fill(`${BC_WORDS} Edited after the preview.`);
+    expect(await sawStatus(PREVIEW_STALE), `after an edit the status says ${JSON.stringify(await statusTexts(page))}`);
+    expect((await page.locator('iframe[title^="Broadcast preview"]').count()) === 0, 'the preview of the old email is still drawn after an edit');
+    await words.fill(BC_WORDS);
+    await desktop.waitFor({ state: 'visible' });
+    expect(!(await statusTexts(page)).some(t => t.includes(PREVIEW_STALE)), 'with the words put back the preview still says it changed');
+    // Left at Mobile width with every group open, for the 390 check in broadcast-confirm.
+    await page.getByRole('button', { name: 'Mobile width', exact: true }).click();
+    await mobile.waitFor({ state: 'visible' });
+    for (const name of ['A/B test and holdout', 'A text message with it', 'Link tracking']) {
+      const summary = page.locator('summary', { hasText: name });
+      if (!(await summary.evaluate(el => el.parentElement.open))) await summary.click();
+      expect(await summary.evaluate(el => el.parentElement.open), `the "${name}" group did not open`);
+    }
+    return `Preview drew the draft at ${wide}px and at ${narrow}px with its words and said "${PREVIEW_LABEL}" in a status region; Check this email posted the rendered html once and said the score and the warning; an edit hid the preview and said it changed, and the words put back showed it again`;
+  });
+
+  await go('broadcast-confirm', async () => {
+    await page.getByLabel('Send to').selectOption('whales');
+    const posts = state.campaignPosts.length;
+    const asked = dialogs.length;
+    await page.getByRole('button', { name: 'Send now', exact: true }).click();
+    const msg = await waitUntil(async () => (dialogs.length > asked ? dialogs[dialogs.length - 1] : null), 5000);
+    expect(msg, 'Send now did not ask first');
+    expect(msg.startsWith(`Send "${BC_SUBJECT}" now to VIP Whales (Platinum)?`) && msg.includes(`The server counted ${WHALES_COUNT} contacts in this segment who accept marketing.`), `Send now asked "${msg}"`);
+    expect(!/—| – /.test(msg), `the question has a dash: ${msg}`);
+    expect(await sawStatus('Nothing was sent.'), `after Cancel the status says ${JSON.stringify(await statusTexts(page))}`);
+    expect(state.campaignPosts.length === posts, `Cancel still posted ${state.campaignPosts.length - posts} sends`);
+    // Fix round: at 390 with the 375px preview, every group open and that sentence in the sticky bar.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(300);
+    let edgeNote = '';
+    try {
+      const mobile = page.locator('iframe[title="Broadcast preview at mobile width"]');
+      expect(await mobile.isVisible(), 'the mobile preview is not drawn for the 390 check');
+      const frame = await mobile.boundingBox();
+      expect(frame.x >= -0.5 && frame.x + frame.width <= 390.5, `at 390 the preview runs ${Math.round(frame.x)}..${Math.round(frame.x + frame.width)}`);
+      const sticky = await page.evaluate(() => {
+        const p = [...document.querySelectorAll('[role="status"]')].find(el => (el.textContent || '').trim() === 'Nothing was sent.');
+        const r = p ? p.parentElement.getBoundingClientRect() : null;
+        return r ? { left: r.left, right: r.right } : null;
+      });
+      expect(sticky && sticky.left >= -0.5 && sticky.right <= 390.5, `at 390 the sticky bar with its status runs ${JSON.stringify(sticky)}`);
+      const edge = await studioPastEdge(page);
+      expect(edge.bad.length === 0, `past an edge at 390: ${edge.bad.slice(0, 4).join(' | ')}`);
+      expect(edge.pageScroll === 390 && edge.studioScroll <= edge.studioClient, `at 390 the page is ${edge.pageScroll} wide, the studio ${edge.studioScroll} of ${edge.studioClient}`);
+      await keepText('Broadcasts, the composer at 390 with every group open');
+      edgeNote = `; at 390 the ${Math.round(frame.width)}px preview, the open groups and the sticky bar are inside the screen (${edge.seen} controls measured)`;
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.waitForTimeout(300);
+    }
+    return `Send now asked "${msg}"; Cancel sent nothing${edgeNote}`;
+  });
+
+  await go('broadcast-payload', async () => {
+    await page.getByLabel('When to send', { exact: true }).selectOption('clock');
+    await page.getByLabel(/^Date and time, in the account timezone/).fill(SCHEDULE_AT);
+    const schedule = page.getByRole('button', { name: 'Schedule', exact: true });
+    await schedule.waitFor({ state: 'visible' });
+    const posts = state.campaignPosts.length;
+    const asked = dialogs.length;
+    acceptNextDialog = true;
+    await schedule.click();
+    const sent = await waitUntil(async () => (state.campaignPosts.length > posts ? state.campaignPosts.slice(posts) : null), 5000);
+    expect(sent && sent.length === 1, `Schedule posted ${sent ? sent.length : 0} sends`);
+    const msg = dialogs[asked] || '';
+    expect(msg.startsWith(`Schedule "${BC_SUBJECT}" for VIP Whales (Platinum) on 2030-01-15 at 09:30`) && msg.includes(`${WHALES_COUNT} contacts`), `Schedule asked "${msg}"`);
+    const body = sent[0];
+    expect(Array.isArray(body.blocks) && JSON.stringify(body.blocks) === JSON.stringify(savedBlocks), `the send carried blocks ${JSON.stringify((body.blocks || []).map(b => b.kind))}, not the draft's`);
+    expect(!('body' in body) && !('bodyText' in body), `the send also carried a flattened body: ${Object.keys(body).join(', ')}`);
+    expect(body.when === 'clock' && body.sendAt === SCHEDULE_AT, `the send's schedule is ${JSON.stringify({ when: body.when, sendAt: body.sendAt })}`);
+    expect(JSON.stringify(body.include) === JSON.stringify([{ type: 'segment', id: 'whales' }]) && body.subject === BC_SUBJECT, `the send named ${JSON.stringify({ include: body.include, subject: body.subject })}`);
+    expect(JSON.stringify(body.holdout) === JSON.stringify({ enabled: false }) && JSON.stringify(body.ab) === JSON.stringify({ variable: 'off' }), `A/B and holdout read ${JSON.stringify({ ab: body.ab, holdout: body.holdout })}`);
+    expect(typeof body.requestId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.requestId), `the send carried requestId ${JSON.stringify(body.requestId)}`);
+    // The answer: All broadcasts, its sentence, focus on its heading, and the sent draft gone from Drafts.
+    expect(await focusedHeading('All broadcasts'), `after the schedule focus is on ${JSON.stringify(await focused(page))}`);
+    expect(await sawStatus('Scheduled. Nothing was sent. Its draft was removed from Drafts.'), `after the schedule the status says ${JSON.stringify(await statusTexts(page))}`);
+    expect(state.draftDeletes.includes(savedDraftId), `the scheduled draft ${savedDraftId} was not deleted: ${JSON.stringify(state.draftDeletes)}`);
+    expect((await page.getByRole('button', { name: `Open draft ${BC_SUBJECT}`, exact: true }).count()) === 0, 'the scheduled draft is still listed under Drafts');
+    await keepText('Broadcasts, after a schedule');
+    return `Schedule asked "${msg.slice(0, 90)}..." and posted one send with the draft's ${body.blocks.length} blocks, when clock at ${body.sendAt}, to whales; All broadcasts says it was scheduled and its draft removed`;
+  });
+
+  // ---- Fix round: what Send refuses, a retry, a failed audience, the replace question, Delete ----
+  /** Waits for a dialog after `asked`, or answers null. */
+  const nextDialog = async asked => waitUntil(async () => (dialogs.length > asked ? dialogs[dialogs.length - 1] : null), 3000);
+
+  await go('broadcast-send-guards', async () => {
+    await page.getByRole('button', { name: 'New broadcast', exact: true }).click();
+    await focusedHeading('New broadcast');
+    const subject = 'Guard check, from the studio check';
+    await page.getByLabel('Subject', { exact: true }).fill(subject);
+    let posts = state.campaignPosts.length;
+    let asked = dialogs.length;
+    await page.getByRole('button', { name: 'Send now', exact: true }).click();
+    expect(await sawStatus(BLANK_EMAIL), `Send now with blank blocks says ${JSON.stringify(await statusTexts(page))}`);
+    expect(dialogs.length === asked, `Send now with blank blocks asked "${dialogs[dialogs.length - 1]}"`);
+    expect(state.campaignPosts.length === posts, 'Send now with blank blocks posted a send');
+    // With words: a send the server never answers, then Send now again for the same email.
+    await composerGroup().getByLabel('Text', { exact: true }).first().fill('Guard check words.');
+    state.campaignMode = 'abort';
+    acceptNextDialog = true;
+    await page.getByRole('button', { name: 'Send now', exact: true }).click();
+    const lost = await waitUntil(async () => (state.campaignPosts.length > posts ? state.campaignPosts[posts] : null), 5000);
+    expect(lost, 'the first Send now posted nothing');
+    expect(await sawStatus('The server did not answer, so this broadcast may or may not have gone out.'), `after an unanswered send the status says ${JSON.stringify(await statusTexts(page))}`);
+    state.campaignMode = 'answer';
+    posts = state.campaignPosts.length;
+    asked = dialogs.length;
+    acceptNextDialog = true;
+    await page.getByRole('button', { name: 'Send now', exact: true }).click();
+    const retry = await waitUntil(async () => (state.campaignPosts.length > posts ? state.campaignPosts[posts] : null), 5000);
+    expect(retry, 'Send now again posted nothing');
+    expect(dialogs.length > asked, 'Send now again did not ask first');
+    expect(typeof lost.requestId === 'string' && lost.requestId.length >= 8 && retry.requestId === lost.requestId, `the retry carried requestId ${JSON.stringify(retry.requestId)}, the unanswered send ${JSON.stringify(lost.requestId)}`);
+    expect(await focusedHeading('All broadcasts'), `after the send focus is on ${JSON.stringify(await focused(page))}`);
+    expect(await sawStatus(`Sent to ${WHALES_COUNT} recipients.`), `after the send the status says ${JSON.stringify(await statusTexts(page))}`);
+    return `blank blocks: "${BLANK_EMAIL}" and nothing asked or posted; an unanswered send and Send now again carried one requestId (${lost.requestId.slice(0, 8)}...), and the answered one landed on All broadcasts`;
+  });
+
+  await go('broadcast-audience-failed', async () => {
+    state.segmentsMode = 'fail';
+    try {
+      await page.getByRole('button', { name: 'New broadcast', exact: true }).click();
+      await focusedHeading('New broadcast');
+      await page.getByText('The segments could not be loaded. Try again in a minute.', { exact: true }).waitFor({ state: 'visible' });
+      expect((await page.getByLabel('Send to').count()) === 0, 'Send to is offered with the segments not loaded');
+      await page.getByLabel('Subject', { exact: true }).fill('Audience check, from the studio check');
+      await composerGroup().getByLabel('Text', { exact: true }).first().fill('Audience check words.');
+      const posts = state.campaignPosts.length;
+      const asked = dialogs.length;
+      await page.getByRole('button', { name: 'Send now', exact: true }).click();
+      expect(await sawStatus(AUDIENCE_UNLOADED), `Send now with no audience loaded says ${JSON.stringify(await statusTexts(page))}`);
+      expect(dialogs.length === asked, `Send now with no audience loaded asked "${dialogs[dialogs.length - 1]}"`);
+      expect(state.campaignPosts.length === posts, 'Send now with no audience loaded posted a send');
+    } finally {
+      state.segmentsMode = 'answer';
+    }
+    // Fix round: Retry is named for what failed (retryLabel), so it is told from any other Retry.
+    await page.getByRole('button', { name: retryLabel('The segments could not be loaded. Try again in a minute.'), exact: true }).click();
+    await page.getByLabel('Send to').waitFor({ state: 'visible' });
+    return `the failed read said so with Retry and no Send to; Send now said "${AUDIENCE_UNLOADED}" and asked and posted nothing; Retry loaded Send to`;
+  });
+
+  await go('broadcast-replace-delete', async () => {
+    // The work from broadcast-audience-failed is unsaved, and the sticky bar says so in a status region.
+    const unsavedStatus = page.locator('[role="status"]', { hasText: /^Unsaved changes$/ });
+    expect((await unsavedStatus.count()) === 1, `"Unsaved changes" is in ${await unsavedStatus.count()} status regions`);
+    const subjectField = page.getByLabel('Subject', { exact: true });
+    const before = await subjectField.inputValue();
+    await page.locator('summary', { hasText: 'Start from a written draft' }).click();
+    const vip = page.getByRole('button', { name: 'VIP thank-you', exact: true });
+    let asked = dialogs.length;
+    await vip.click();
+    const question = await nextDialog(asked);
+    expect(question === COMPOSER_REPLACE, `a written draft over unsaved work asked ${JSON.stringify(question)}`);
+    expect((await subjectField.inputValue()) === before, 'Cancel on the replace question still replaced the email');
+    acceptNextDialog = true;
+    asked = dialogs.length;
+    await vip.click();
+    expect((await nextDialog(asked)) === COMPOSER_REPLACE, 'the second VIP thank-you did not ask');
+    await waitUntil(async () => ((await subjectField.inputValue()) === VIP_SUBJECT ? true : null), 3000);
+    const preheader = await page.getByLabel('Preview text', { exact: true }).inputValue();
+    const words = await composerGroup().getByLabel('Text', { exact: true }).first().inputValue();
+    expect(words.includes('Replace this text with your real message'), `the written draft reads ${JSON.stringify(words.slice(0, 120))}`);
+    const noted = [VIP_SUBJECT, preheader, words].filter(text => /\bnotes?\b/i.test(text));
+    expect(noted.length === 0, `the written draft calls the email a note: ${JSON.stringify(noted)}`);
+    await keepText('Broadcasts, a written draft');
+    // Save it, then delete it from All broadcasts.
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    expect(await sawStatus(DRAFT_SAVED), `after Save draft the status says ${JSON.stringify(await statusTexts(page))}`);
+    await tab('All broadcasts').click();
+    const remove = page.getByRole('button', { name: `Delete draft ${VIP_SUBJECT}`, exact: true });
+    await remove.waitFor({ state: 'visible' });
+    const deletes = state.draftDeletes.length;
+    asked = dialogs.length;
+    acceptNextDialog = true;
+    await remove.click();
+    const confirmDelete = await nextDialog(asked);
+    expect(confirmDelete === `Delete the draft "${VIP_SUBJECT}"? This cannot be undone.`, `Delete asked ${JSON.stringify(confirmDelete)}`);
+    await waitUntil(async () => (state.draftDeletes.length > deletes ? true : null), 5000);
+    expect(state.draftDeletes.length === deletes + 1, `Delete sent ${state.draftDeletes.length - deletes} DELETEs`);
+    expect(await sawStatus(`Deleted the draft "${VIP_SUBJECT}".`), `after Delete the status says ${JSON.stringify(await statusTexts(page))}`);
+    const f = await waitUntil(async () => {
+      const now = await focused(page);
+      return now && now.tag === 'h3' && now.text === 'Drafts' ? now : null;
+    }, 3000);
+    expect(f, `after Delete focus is on ${JSON.stringify(await focused(page))}`);
+    expect((await remove.count()) === 0, 'the deleted draft is still listed');
+    return `"Unsaved changes" is a status region; VIP thank-you over unsaved work asked "${COMPOSER_REPLACE}", Cancel kept it, OK wrote "${VIP_SUBJECT}" with no "note"; Delete asked, sent one DELETE, said so, and focus is on the Drafts heading`;
+  });
+
   await go('nav-from-step', async () => {
     // The canvas entry, as an owner takes it. Signed out, the journey saves to this browser, and only
     // a save that landed opens the studio (openAfterSave).
@@ -1903,6 +2460,234 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     return `step ${SEQ_STEP} with "${want}" chosen opened Flows, Flow map on "${chosen}" under the Back to funnel banner; Back to funnel selected ${SEQ_STEP} with focus on "${f.text}"`;
   });
 
+  // ---- Wave 6: honest states (D6). Each step opens the studio in a fresh context whose studio reads
+  // all answer one way, and walks every destination. They share nothing with the page above, so each one
+  // runs whatever an earlier step did. ----
+  const unansweredSays = failed => `${failed} ${UNANSWERED_TAIL}`;
+  const saysFor = (read, list) => ({ 401: read.signIn, 500: read.failed, unanswered: unansweredSays(read.failed), empty: list ? list.empty : null });
+  const STATE_SCREENS = [
+    { where: 'All flows', path: ['Flows', 'All flows'], says: { 401: FLOWS_SIGN_IN, 500: FLOWS_FAILED, unanswered: FLOW_MAP_UNREACHABLE, empty: FLOWS_EMPTY }, empty: FLOWS_EMPTY },
+    { where: 'People in starter flows', path: ['Flows', 'All flows'], disclose: 'People in starter flows', says: saysFor(STARTER_PEOPLE_READ, STARTER_PEOPLE_LIST), empty: STARTER_PEOPLE_LIST.empty },
+    { where: 'Flow map', path: ['Flows', 'Flow map'], says: { 401: FLOWS_SIGN_IN, 500: FLOWS_FAILED, unanswered: FLOW_MAP_UNREACHABLE, empty: null }, empty: null },
+    { where: 'All broadcasts', path: ['Broadcasts', 'All broadcasts'], says: saysFor(BROADCASTS_READ, BROADCASTS_LIST), empty: BROADCASTS_LIST.empty },
+    { where: 'People', path: ['Audience', 'People'], says: saysFor(PEOPLE_READ, PEOPLE_LIST), empty: PEOPLE_LIST.empty },
+    { where: 'Sign-up forms', path: ['Audience', 'Sign-up forms'], says: saysFor(FORMS_READ, FORMS_LIST), empty: FORMS_LIST.empty },
+    // oneAlert (fix round): two reads fail together here, and one cause is said in one alert.
+    { where: 'Replies', path: ['Audience', 'Replies'], says: saysFor(REPLIES_READ, REPLIES_LIST), empty: REPLIES_LIST.empty, oneAlert: true },
+    {
+      where: 'Open checkouts', path: ['Audience', 'Open checkouts'], empty: CHECKOUTS_EMPTY,
+      says: { 401: "Sign in to see this account's open checkouts.", 500: 'Open checkouts could not be loaded.', unanswered: 'Open checkouts could not be loaded. The server did not answer.', empty: CHECKOUTS_EMPTY }
+    },
+    { where: 'Results', path: ['Results'], says: saysFor(RESULTS_READ, RESULTS_LIST), empty: RESULTS_LIST.empty },
+    { where: 'Sending', path: ['Settings', 'Sending'], says: saysFor(SENDING_READ, null), empty: null, oneAlert: true },
+    // "Not connected." is a claim about the Klaviyo connection, so only an answer may say it.
+    { where: 'Klaviyo', path: ['Settings', 'Klaviyo'], says: { ...saysFor(KLAVIYO_READ, null), empty: 'Not connected.' }, empty: 'Not connected.' },
+    { where: 'Texts', path: ['Settings', /^Texts/], says: saysFor(TEXTS_READ, null), empty: null, oneAlert: true }
+  ];
+  const statesStep = mode => async () => {
+    const aRead = mode === 'unanswered' ? 'an unanswered read' : `a ${mode} read`;
+    const sstate = newState(seeds);
+    // An account with no flow of its own: the flow map holds only the starter, built-in and order flows.
+    sstate.flows = [];
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    try {
+      await ctx.route('**/*', async route => {
+        const req = route.request();
+        if (routeVerdict(req.url(), origin) === 'continue') return route.continue();
+        try {
+          const u = new URL(req.url());
+          if (u.origin === origin) {
+            const answer = statesAnswer(mode, req, u, sstate);
+            if (answer === 'abort') return route.abort();
+            if (answer) return route.fulfill(answer);
+          }
+        } catch {}
+        blocked.push(`${req.method()} ${req.url().slice(0, 100)}`);
+        return route.abort();
+      });
+      await ctx.addInitScript(([key, value]) => {
+        if (window.top !== window) return;
+        if (sessionStorage.getItem('jv-studio-check-seeded')) return;
+        sessionStorage.setItem('jv-studio-check-seeded', '1');
+        localStorage.setItem(key, value);
+      }, [STORAGE_KEY, JSON.stringify(DEFAULT_LEAD_CAPTURE_PROJECT)]);
+      const sp = await ctx.newPage();
+      sp.setDefaultTimeout(8000);
+      const pageErrors = [];
+      sp.on('pageerror', err => pageErrors.push(String(err?.message || err)));
+      sp.on('dialog', d => d.dismiss().catch(() => {}));
+      await sp.goto(`${origin}/canvas`);
+      const studio = sp.getByRole('button', { name: 'Switch to Email Studio view' });
+      await studio.waitFor({ state: 'visible', timeout: 20000 });
+      await studio.click();
+      await sp.getByRole('heading', { level: 1, name: /Email Studio/ }).waitFor({ state: 'visible', timeout: 15000 });
+      const stab = name => sp.getByRole('tab', typeof name === 'string' ? { name, exact: true } : { name });
+      const seen = [];
+      for (const screen of STATE_SCREENS) {
+        // A click that times out names its screen, its target and Playwright's last reasons, so a failure
+        // says which tab or disclosure could not be reached and why.
+        const named = (what, err) => new Error(`${screen.where}: ${what} could not be clicked: ${String(err?.message || err).split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 400)}`);
+        for (const name of screen.path) await stab(name).click().catch(err => { throw named(`the ${name} tab`, err); });
+        if (screen.disclose) {
+          const summary = sp.locator('summary', { hasText: screen.disclose });
+          if (!(await summary.evaluate(el => el.parentElement?.open === true))) await summary.click().catch(err => { throw named(`"${screen.disclose}"`, err); });
+        }
+        const want = screen.says[mode];
+        if (want) {
+          const shown = await waitUntil(async () => ((await studioText(sp)).includes(want) ? true : null), 6000);
+          expect(shown, `${screen.where}: "${want}" is not on screen`);
+        }
+        const text = await studioText(sp);
+        if (mode === 'empty') {
+          const failures = await sp.locator('[role="alert"]').evaluateAll(els => els.filter(el => el.getBoundingClientRect().height > 0).map(el => (el.textContent || '').trim().slice(0, 80)));
+          expect(failures.length === 0, `${screen.where}: lists that answered empty drew a failure: ${JSON.stringify(failures)}`);
+        } else {
+          if (screen.empty) expect(!text.includes(screen.empty), `${screen.where}: ${aRead} says "${screen.empty}"`);
+          const alert = sp.locator('[role="alert"]', { hasText: want });
+          expect((await alert.count()) >= 1, `${screen.where}: "${want}" is not said in an alert`);
+          const buttons = await alert.first().getByRole('button').count();
+          if (mode === '401') expect(buttons === 0, `${screen.where}: a signed-out read offers ${buttons} button(s) to try again`);
+          else {
+            expect(buttons >= 1, `${screen.where}: ${aRead} offers no Retry`);
+            // Fix round: the Retry is named for the read it tries again, and no button is only "Retry".
+            // The failure may carry the server's own words after the screen's sentence (Open checkouts does).
+            const nameRe = new RegExp(`^${retryLabel(want).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+            const named = await alert.first().getByRole('button', { name: nameRe }).count();
+            const bare = await sp.getByRole('button', { name: /^(Retry|Retrying|Try again|Loading)$/ }).count();
+            expect(named >= 1, `${screen.where}: no Retry is named "${retryLabel(want)}..."`);
+            expect(bare === 0, `${screen.where}: ${bare} button(s) named only Retry, Try again or Loading`);
+          }
+          if (mode === '500' && screen.where === 'Replies') {
+            // Fix round: a Retry that fails again with the same words draws the failure as a new node (so a
+            // screen reader says it again), and keyboard focus stays on Retry.
+            const box = alert.first();
+            await box.locator('span').first().evaluate(el => { el.setAttribute('data-check-round', 'before'); });
+            await box.getByRole('button', { name: retryLabel(want), exact: true }).click();
+            const redrawn = await waitUntil(async () => ((await sp.locator('[role="alert"] [data-check-round="before"]').count()) === 0
+              && (await sp.locator('[role="alert"]', { hasText: want }).count()) >= 1 ? true : null), 5000);
+            expect(redrawn, `${screen.where}: a Retry that failed again left the same failure node, so it is not said again`);
+            const f = await waitUntil(async () => {
+              const now = await focused(sp);
+              return now && now.tag === 'button' && now.label === retryLabel(want) ? now : null;
+            }, 3000);
+            expect(f, `${screen.where}: after the Retry failed again focus is on ${JSON.stringify(await focused(sp))}`);
+          }
+          if (screen.oneAlert) {
+            const shown = await sp.locator('[role="alert"]').evaluateAll(els => els.filter(el => el.getBoundingClientRect().height > 0).map(el => (el.textContent || '').trim().slice(0, 80)));
+            expect(shown.length === 1, `${screen.where}: one cause raised ${shown.length} alerts: ${JSON.stringify(shown)}`);
+          }
+        }
+        texts.push({ where: `states-${mode}: ${screen.where}`, text });
+        if (shots) await sp.screenshot({ path: path.join(shots, `states-${mode}-${screen.where.replace(/\W+/g, '-')}.png`) });
+        seen.push(screen.where);
+      }
+      expect(pageErrors.length === 0, `page errors: ${pageErrors.slice(0, 3).join(' | ')}`);
+      return mode === 'empty'
+        ? `every list answered empty: ${seen.length} screens each said their empty sentence where they have one, and none drew a failure (${seen.join(', ')})`
+        : `every studio read ${mode === 'unanswered' ? 'aborted' : `answered ${mode}`}: ${seen.length} screens each said their failure in an alert, ${mode === '401' ? 'with no button to try again' : 'with a Retry named for it and no button named only Retry'}, Replies, Sending and Texts with one alert each, and none said its empty sentence (${seen.join(', ')})${mode === '500' ? '; on Replies a Retry that failed again redrew its failure and kept focus' : ''}`;
+    } finally {
+      await ctx.close();
+    }
+  };
+  // Fix round: two reads fail while every other read answers, a case the four steps below cannot draw
+  // because each answers every read one way. Sending's postal address (GET /api/email/suite) and Texts'
+  // phone count (GET /api/email/audience). Like them, it shares nothing with the page above.
+  ran.push(await step('states-mixed', async () => {
+    const sstate = newState(seeds);
+    sstate.flows = [];
+    sstate.mixedFails = ['/api/email/suite', '/api/email/audience'];
+    const postal = [];
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    try {
+      await ctx.route('**/*', async route => {
+        const req = route.request();
+        if (routeVerdict(req.url(), origin) === 'continue') return route.continue();
+        try {
+          const u = new URL(req.url());
+          if (u.origin === origin) {
+            // emailRoutes.mjs POST /api/email/postal: { success: true, physicalAddress }.
+            if (req.method() === 'POST' && u.pathname === '/api/email/postal') {
+              postal.push(req.postDataJSON());
+              sstate.answered.push('POST /api/email/postal (mixed)');
+              return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, physicalAddress: '' }) });
+            }
+            const answer = statesAnswer('mixed', req, u, sstate);
+            if (answer === 'abort') return route.abort();
+            if (answer) return route.fulfill(answer);
+          }
+        } catch {}
+        blocked.push(`${req.method()} ${req.url().slice(0, 100)}`);
+        return route.abort();
+      });
+      await ctx.addInitScript(([key, value]) => {
+        if (window.top !== window) return;
+        if (sessionStorage.getItem('jv-studio-check-seeded')) return;
+        sessionStorage.setItem('jv-studio-check-seeded', '1');
+        localStorage.setItem(key, value);
+      }, [STORAGE_KEY, JSON.stringify(DEFAULT_LEAD_CAPTURE_PROJECT)]);
+      const sp = await ctx.newPage();
+      sp.setDefaultTimeout(8000);
+      const pageErrors = [];
+      sp.on('pageerror', err => pageErrors.push(String(err?.message || err)));
+      sp.on('dialog', d => d.dismiss().catch(() => {}));
+      await sp.goto(`${origin}/canvas`);
+      const studio = sp.getByRole('button', { name: 'Switch to Email Studio view' });
+      await studio.waitFor({ state: 'visible', timeout: 20000 });
+      await studio.click();
+      await sp.getByRole('heading', { level: 1, name: /Email Studio/ }).waitFor({ state: 'visible', timeout: 15000 });
+      const stab = name => sp.getByRole('tab', typeof name === 'string' ? { name, exact: true } : { name });
+      const visibleAlerts = () => sp.locator('[role="alert"]').evaluateAll(els => els.filter(el => el.getBoundingClientRect().height > 0).map(el => (el.textContent || '').trim().slice(0, 80)));
+      const onScreen = async want => waitUntil(async () => ((await studioText(sp)).includes(want) ? true : null), 6000);
+
+      // Sending: the senders loaded and the postal address did not.
+      await stab('Settings').click();
+      await stab('Sending').click();
+      expect(await onScreen(POSTAL_READ.failed), `Sending: "${POSTAL_READ.failed}" is not on screen`);
+      expect(!(await studioText(sp)).includes(SENDING_READ.failed), `Sending: the senders read loaded, yet "${SENDING_READ.failed}" is said`);
+      const sendingAlerts = await visibleAlerts();
+      expect(sendingAlerts.length === 1 && sendingAlerts[0].includes(POSTAL_READ.failed), `Sending: alerts ${JSON.stringify(sendingAlerts)}`);
+      texts.push({ where: 'states-mixed: Sending', text: await studioText(sp) });
+      // Save Postal Footer from the empty field saves nothing while the stored address is unread. It is
+      // aria-disabled, which Playwright treats as disabled, but a person can still press it, so the
+      // click is forced to reach the guard the way their click does.
+      const save = sp.getByRole('button', { name: 'Save Postal Footer', exact: true });
+      expect((await save.getAttribute('aria-disabled')) === 'true', `Save Postal Footer is not marked unavailable while the address is unread (aria-disabled ${await save.getAttribute('aria-disabled')})`);
+      await save.click({ force: true });
+      expect(await onScreen(POSTAL_NOT_SAVED), `Save Postal Footer with the address unread does not say "${POSTAL_NOT_SAVED}"`);
+      await new Promise(r => setTimeout(r, 300));
+      expect(postal.length === 0, `Save Postal Footer with the address unread posted ${JSON.stringify(postal)}`);
+      const retry = sp.getByRole('button', { name: retryLabel(POSTAL_READ.failed), exact: true });
+      expect((await retry.count()) === 1, `Sending: ${await retry.count()} Retry button(s) named "${retryLabel(POSTAL_READ.failed)}"`);
+      // Positive control: once the read answers, Retry loads it and the same button saves.
+      sstate.mixedFails = ['/api/email/audience'];
+      await retry.click();
+      const loaded = await waitUntil(async () => ((await studioText(sp)).includes(POSTAL_READ.failed) ? null : true), 6000);
+      expect(loaded, 'Sending: Retry with the address read answering did not clear its failure');
+      expect(!(await studioText(sp)).includes(POSTAL_NOT_SAVED), `Sending: the address loaded, yet "${POSTAL_NOT_SAVED}" is still said`);
+      expect((await save.getAttribute('aria-disabled')) === null, 'Save Postal Footer is still marked unavailable once the address loaded');
+      await save.click();
+      expect(await waitUntil(async () => (postal.length === 1 ? true : null), 4000), `Save Postal Footer after the address loaded posted ${postal.length} time(s)`);
+
+      // Texts: the status loaded and the phone count did not.
+      await stab(/^Texts/).click();
+      expect(await onScreen(PHONES_READ.failed), `Texts: "${PHONES_READ.failed}" is not on screen`);
+      expect(!(await studioText(sp)).includes(TEXTS_READ.failed), `Texts: the status read loaded, yet "${TEXTS_READ.failed}" is said`);
+      const textsAlerts = await visibleAlerts();
+      expect(textsAlerts.length === 1 && textsAlerts[0].includes(PHONES_READ.failed), `Texts: alerts ${JSON.stringify(textsAlerts)}`);
+      const phoneRetry = sp.getByRole('button', { name: retryLabel(PHONES_READ.failed), exact: true });
+      expect((await phoneRetry.count()) === 1, `Texts: ${await phoneRetry.count()} Retry button(s) named "${retryLabel(PHONES_READ.failed)}"`);
+      texts.push({ where: 'states-mixed: Texts', text: await studioText(sp) });
+      sstate.mixedFails = [];
+      await phoneRetry.click();
+      expect(await onScreen('contacts have phones on file'), 'Texts: Retry with the audience answering did not count the phones');
+      expect(pageErrors.length === 0, `page errors: ${pageErrors.slice(0, 3).join(' | ')}`);
+      return `Sending said "${POSTAL_READ.failed}" in its one alert, Save Postal Footer said "${POSTAL_NOT_SAVED}" and posted nothing, then Retry loaded it and Save posted once; Texts said "${PHONES_READ.failed}" in its one alert with a named Retry, which counted the phones`;
+    } finally {
+      await ctx.close();
+    }
+  }));
+  for (const mode of ['401', '500', 'unanswered', 'empty']) ran.push(await step(`states-${mode}`, statesStep(mode)));
+
   await go('no-dash', async () => {
     expect(texts.length >= 6, `only ${texts.length} screens were read`);
     const dashed = [];
@@ -1917,7 +2702,19 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     const onFlows = lettered.filter(row => flowsScreen(row.where));
     expect(onFlows.length === 0, `the Flows screens say "letter": ${onFlows.slice(0, 4).map(r => `${r.where}: ${r.line}`).join(' | ')}`);
     const flowScreens = texts.filter(t => flowsScreen(t.where)).length;
-    return `${texts.length} screens read with their aria-label, placeholder and title values (${texts.map(t => t.where).join('; ')}), no em dash and no spaced en dash; "letter" on none of the ${flowScreens} Flows screens, and on ${lettered.length - onFlows.length} lines of the others (not judged here)`;
+    // Wave 6 (D2): on every states screen, none of the retired words, once the subjects and preview
+    // texts of the server's seeded flows (an email's own words, which the owner edits) are taken out.
+    // A seeded flow's NAME is not taken out: no owner can rename a starter, built-in or order flow, so
+    // its name is the studio's own copy ("Welcome sequence" passed here while it was exempt).
+    const seeded = [...seeds.sequences, ...seeds.automations, ...seeds.transactional]
+      .flatMap(row => [row.subject, ...(row.steps || []).flatMap(step => [step.subject, step.previewText])])
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+    const stateScreens = texts.filter(t => t.where.startsWith('states-'));
+    expect(stateScreens.length >= 40, `only ${stateScreens.length} states screens were read`);
+    const retired = stateScreens.flatMap(({ where, text }) => text.split('\n').flatMap(line => retiredIn(line, seeded).map(word => `${where}: "${word}" in ${line.trim().slice(0, 80)}`)));
+    expect(retired.length === 0, `retired words (D2): ${retired.slice(0, 4).join(' | ')}`);
+    return `${texts.length} screens read with their aria-label, placeholder and title values, no em dash and no spaced en dash; "letter" on none of the ${flowScreens} Flows screens, and on ${lettered.length - onFlows.length} lines of the others (not judged here); none of D2's retired words on the ${stateScreens.length} states screens`;
   });
 
   await go('runtime', async () => {

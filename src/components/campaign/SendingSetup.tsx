@@ -17,6 +17,8 @@ import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
 import { checkEmailDeliverabilityDns, type EmailDeliverabilityReport } from '../../lib/shopifyClient';
 import { OPENS_UNSTORED } from '../../lib/emailStats';
+import { LIST_LOADING, POSTAL_NOT_SAVED, POSTAL_READ, SENDING_READ, readOutcome, studioRead, type ListState, type StudioRead } from '../../lib/studioLoad';
+import { StudioListLine } from './StudioListLine';
 
 type Sender = { id: string; fromEmail?: string; domain?: string; verified?: boolean; dns?: unknown };
 
@@ -54,7 +56,14 @@ export const SendingSetup: React.FC = () => {
   const [deadline, setDeadline] = useState('');
   const [notice, setNotice] = useState('');
   const [dnsNote, setDnsNote] = useState('');
-  const [opensStored, setOpensStored] = useState(false);
+  // Null until a Results read answers: a failed read says nothing about opens (D6, Wave 6).
+  const [opensStored, setOpensStored] = useState<boolean | null>(null);
+  // D6: the senders read has its own state, so a failure is said on screen with Retry where it can help.
+  const [setupLoad, setSetupLoad] = useState<ListState>(LIST_LOADING);
+  // The postal address read too: an empty field after a failed read is not "no address saved", and a
+  // save from it would replace the stored one.
+  const [postalLoad, setPostalLoad] = useState<ListState>(LIST_LOADING);
+  const [reading, setReading] = useState(false);
 
   // Live DNS Deliverability Audit State
   const [auditDomain, setAuditDomain] = useState('');
@@ -63,25 +72,38 @@ export const SendingSetup: React.FC = () => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const load = async () => {
+    setReading(true);
     try {
       const headers = await authHeaders();
-      const [senderRes, inboundRes, eventRes, liveRes] = await Promise.all([
-        readJson(await fetch('/api/email/senders', { headers })),
-        readJson(await fetch('/api/email/inbound', { headers })),
-        readJson(await fetch('/api/email/events-webhook', { headers })),
-        readJson(await fetch('/api/email/live', { headers }))
+      // Every read settles (studioRead never rejects), so one that fails does not stop the others.
+      const [senderRead, inboundRead, eventRead, liveRead] = await Promise.all([
+        studioRead('/api/email/senders', headers),
+        studioRead('/api/email/inbound', headers),
+        studioRead('/api/email/events-webhook', headers),
+        studioRead('/api/email/live', headers)
       ]);
-      const senderList = Array.isArray(senderRes?.senders) ? senderRes.senders : [];
-      setSenders(senderList);
-      setInbound(inboundRes?.success === false ? { error: inboundRes.error } : inboundRes);
-      setEvents(eventRes?.success === false ? { error: eventRes.error } : eventRes);
-      setBlocks(Array.isArray(liveRes?.blocks) ? liveRes.blocks : []);
-      if (senderRes?.success === false) setNotice(senderRes.error);
+      const body = (read: StudioRead): any => (read.answered && read.data && typeof read.data === 'object' ? read.data : null);
+      const senderOutcome = readOutcome(senderRead, SENDING_READ, (data) => Array.isArray(data.senders));
+      setSetupLoad(senderOutcome);
+      const senderList: Sender[] = senderOutcome.state === 'loaded' ? body(senderRead).senders : [];
+      if (senderOutcome.state === 'loaded') setSenders(senderList);
+      const inboundRes = body(inboundRead);
+      const eventRes = body(eventRead);
+      const liveRes = body(liveRead);
+      setInbound(!inboundRes ? { error: 'Receiving could not be checked. The server did not answer.' } : inboundRes.success === false ? { error: inboundRes.error } : inboundRes);
+      setEvents(!eventRes ? null : eventRes.success === false ? { error: eventRes.error } : eventRes);
+      if (liveRes && Array.isArray(liveRes.blocks)) setBlocks(liveRes.blocks);
 
-      const analyticsRes = await readJson(await fetch('/api/email/analytics', { headers }));
-      setOpensStored(analyticsRes?.analytics?.opensStored === true);
-      const suiteRes = await readJson(await fetch('/api/email/suite', { headers }));
-      if (typeof suiteRes?.suite?.postalAddress === 'string') setAddress(suiteRes.suite.postalAddress);
+      const analyticsRes = body(await studioRead('/api/email/analytics', headers));
+      if (analyticsRes?.analytics && typeof analyticsRes.analytics === 'object') setOpensStored(analyticsRes.analytics.opensStored === true);
+      const suiteRead = await studioRead('/api/email/suite', headers);
+      const postalOutcome = readOutcome(suiteRead, POSTAL_READ, (data) => typeof data.suite?.postalAddress === 'string');
+      setPostalLoad(postalOutcome);
+      if (postalOutcome.state === 'loaded') {
+        setAddress(body(suiteRead).suite.postalAddress);
+        // "has not loaded" is no longer true once it has.
+        setNotice((said) => (said === POSTAL_NOT_SAVED ? '' : said));
+      }
 
       // Initial audit domain default
       if (senderList.length > 0 && senderList[0].domain) {
@@ -89,8 +111,8 @@ export const SendingSetup: React.FC = () => {
         setAuditDomain(senderList[0].domain);
         runAudit(senderList[0].domain);
       }
-    } catch {
-      setNotice('Email configuration could not be loaded.');
+    } finally {
+      setReading(false);
     }
   };
 
@@ -137,16 +159,18 @@ export const SendingSetup: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ShieldCheck size={22} color="#10B981" />
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#f3f4f6' }}>
-            Email Deliverability & DNS Verification
+            Sending
           </h2>
         </div>
         <p style={{ margin: '6px 0 0', fontSize: 13, color: '#9ca3af', lineHeight: 1.5 }}>
-          Authenticate your sending domain with <strong>SPF</strong>, <strong>DKIM</strong>, <strong>DMARC</strong>, and <strong>MX</strong> records. Google and Yahoo strictly enforce these authentication protocols to prevent automated store emails from landing in customer Spam folders.
+          Authenticate your sending domain with <strong>SPF</strong>, <strong>DKIM</strong>, <strong>DMARC</strong>, and <strong>MX</strong> records. Google and Yahoo strictly enforce these authentication protocols, and they keep store emails out of customer Spam folders.
         </p>
-        {opensStored !== true && (
+        {opensStored === false && (
           <p style={{ margin: '8px 0 0', fontSize: 13, color: '#9ca3af' }}>{OPENS_UNSTORED}</p>
         )}
       </div>
+
+      {setupLoad.state === 'failed' && <StudioListLine line={{ kind: 'failed', text: setupLoad.text, retry: setupLoad.retry }} onRetry={load} busy={reading} />}
 
       {/* 1. Live DNS Deliverability Audit Tool */}
       <div style={{ ...card, border: '1px solid rgba(16, 185, 129, 0.25)', background: 'rgba(15, 23, 42, 0.8)' }}>
@@ -446,12 +470,23 @@ export const SendingSetup: React.FC = () => {
             value={address}
             onChange={(e) => setAddress(e.target.value)}
           />
+          {/* One cause, one alert: when the senders read failed too, its alert above says so. */}
+          {postalLoad.state === 'failed' && setupLoad.state !== 'failed' && (
+            <StudioListLine line={{ kind: 'failed', text: postalLoad.text, retry: postalLoad.retry }} onRetry={load} busy={reading} />
+          )}
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
             <button
               type="button"
               style={solidBtn}
-              onClick={() => post('/api/email/postal', { physicalAddress: address })}
+              aria-disabled={postalLoad.state !== 'loaded' || undefined}
+              onClick={() => {
+                if (postalLoad.state !== 'loaded') {
+                  setNotice(POSTAL_NOT_SAVED);
+                  return;
+                }
+                post('/api/email/postal', { physicalAddress: address });
+              }}
             >
               Save Postal Footer
             </button>

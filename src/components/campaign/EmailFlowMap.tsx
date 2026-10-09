@@ -6,7 +6,8 @@ import { chooseFlowId, LINKED_FLOW_MISSING } from '../../lib/editorReturn';
 import { moneyText, statText, withNote } from '../../lib/emailStats';
 import { BlockEditor, type MailBlock } from './EmailBlocks';
 import { FLOW_MAP_UNREACHABLE, FLOW_MAP_WRITE_UNREACHABLE, retryFlowMapArgs, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
-import { STARTER_DRAFT_NOTE, starterOffNotice, startsWhenText } from '../../lib/emailFlowsList';
+import { FLOWS_NOT_CONNECTED, STARTER_DRAFT_NOTE, flowsListLoad, starterOffNotice, startsWhenText } from '../../lib/emailFlowsList';
+import { retryLabel } from '../../lib/studioLoad';
 import { EmailStepPreview } from './EmailStepPreview';
 
 type FlowPath = { id: string; label?: string; else?: boolean; clauses?: { kind: string; field?: string; op?: string; value?: string; event?: string; since?: string; done?: boolean; note?: string }[]; note?: string };
@@ -187,7 +188,7 @@ function detailOf(node: FlowNode) {
   if (node.type === 'alert') return node.to || 'No address yet';
   if (node.type === 'webhook') return node.url || 'No address yet';
   if (node.type === 'restock') return node.variantId ? `Variant ${node.variantId}` : 'Wait for stock';
-  return 'When the trigger happens';
+  return 'When the flow starts';
 }
 
 /** The step panel's heading: "Email 2 of 3", "Wait before email 2", or the step's name. */
@@ -309,6 +310,10 @@ export const EmailFlowMap: React.FC<{
   const [switched, setSwitched] = useState<Record<string, boolean>>({});
   const [switchingFlow, setSwitchingFlow] = useState(false);
   const [loadError, setLoadError] = useState('');
+  // D6: Retry only where retrying can help (never for a signed-out reader).
+  const [loadRetry, setLoadRetry] = useState(true);
+  // D6: the flow-map read says whether email sending is connected on this server.
+  const [hubConnected, setHubConnected] = useState(true);
   const retried = useRef(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   // The step panel's heading takes focus each time a step is selected, so the fields that follow
@@ -336,16 +341,29 @@ export const EmailFlowMap: React.FC<{
   // only when a step on the funnel asked for it (fromStep), never for a button inside Email
   // Studio, and only when the list really loaded.
   const load = async (prefer?: string, asked = false) => {
-    const read = await settleRead(async () => readJson(await fetch('/api/email/flow-map', { headers: await authHeaders() })));
+    // The status is kept beside the body, so a signed-out read says so (D6, Wave 6).
+    let status = 0;
+    const read = await settleRead(async () => readJson(await fetch('/api/email/flow-map', { headers: await authHeaders() }).then((res) => { status = res.status; return res; })));
     // No answer is not an empty account: keep the last list and say so, with Retry.
     if (!read.answered) {
       // Retry is still on screen and still holds focus, so there is nothing to hand on.
       retried.current = false;
+      setLoadRetry(true);
       setLoadError(FLOW_MAP_UNREACHABLE);
+      return;
+    }
+    // D6: an answer that holds no list (a 401, a 500, a body without flows) is not an account with no
+    // flows either: keep the last list and say which it was, the way the Flows list does.
+    const outcome = flowsListLoad({ answered: true, status, data: read.data });
+    if (outcome.state === 'failed') {
+      retried.current = false;
+      setLoadRetry(outcome.retry);
+      setLoadError(outcome.text);
       return;
     }
     setLoadError('');
     const data = read.data;
+    setHubConnected(data?.hubConnected !== false);
     const loaded = Array.isArray(data?.flows);
     const list: FlowView[] = loaded ? data.flows : [];
     setFlows(list);
@@ -461,7 +479,7 @@ export const EmailFlowMap: React.FC<{
       setNotice(data?.error || 'That flow was not saved.');
       return;
     }
-    setNotice('Saved. It sends only after you turn it on and the queue reaches a due step.');
+    setNotice('Saved. It sends only after you turn it on, and each email only once it comes due.');
     await load(next.id);
   };
 
@@ -708,7 +726,7 @@ export const EmailFlowMap: React.FC<{
     setNotice(data?.error || (data?.viaKlaviyo && data?.enrolled
       ? 'Handed to the linked Klaviyo flow. Klaviyo sends only if that flow is live. They were not subscribed.'
       : data?.enrolled
-        ? 'Enrolled. The queue sends the first due step.'
+        ? 'Enrolled. Their first email sends once it comes due.'
         : 'They are already in this flow, or it is off.'));
     if (data?.enrolled) setEnrollEmail('');
   };
@@ -722,17 +740,18 @@ export const EmailFlowMap: React.FC<{
         <div>
           <h2 ref={headingRef} tabIndex={-1} style={{ margin: 0, fontSize: 18, color: '#f3f4f6' }}>Flow map</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#9ca3af', maxWidth: 760 }}>
-            Each account can build its own flow. A step runs only when the queue is run and the flow is on. A new flow stays off. A text goes only to a number that has already opted in. When Klaviyo is the sender, an email step linked to a Klaviyo flow is handed there instead.
+            Each account can build its own flow. A step runs only when the flow is on and the step comes due. A new flow stays off. A text goes only to a number that has already opted in. When Klaviyo is the sender, an email step linked to a Klaviyo flow is handed there instead.
           </p>
         </div>
         <button type="button" style={solidBtn} onClick={create}>New flow</button>
       </div>
       {loadError && (
-        <div role="alert" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div role="alert" data-studio-state="failed" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <p style={{ margin: 0, fontSize: 13, color: '#fca5a5' }}>{loadError}</p>
-          <button type="button" style={ghostBtn} onClick={() => { retried.current = true; load(...retryFlowMapArgs(currentId, initialFlowId)); }}>Retry</button>
+          {loadRetry && <button type="button" aria-label={retryLabel(loadError)} style={ghostBtn} onClick={() => { retried.current = true; load(...retryFlowMapArgs(currentId, initialFlowId)); }}>Retry</button>}
         </div>
       )}
+      {!loadError && !hubConnected && <p role="status" style={{ margin: 0, fontSize: 13, color: '#fbbf24' }}>{FLOWS_NOT_CONNECTED}</p>}
       {/* Wave 4: one editor. The list of every flow is All flows; here a picker switches flows (and asks
           first when the flow on screen has unsaved edits), then the map, with the step panel beside it
           from 900px wide and below it on a narrower screen. */}
@@ -883,7 +902,7 @@ export const EmailFlowMap: React.FC<{
                     <option value="yearly">Yearly</option>
                     <option value="monthly">Monthly</option>
                   </select>
-                  <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>The queue starts them at 8:00 in the account timezone. A predicted next order is not used. Yearly and monthly start again only when re-entry allows it.</p>
+                  <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>They start at 8:00 in the account timezone. A predicted next order is not used. Yearly and monthly start again only when re-entry allows it.</p>
                 </>
               )}
               {(current.trigger === 'price_drop' || current.trigger === 'low_inventory') && (
@@ -961,7 +980,7 @@ export const EmailFlowMap: React.FC<{
               </div>
               {current.klaviyoFlowId && (
                 <p style={{ margin: 0, fontSize: 12, color: '#d1d5db' }}>
-                  Copied from Klaviyo flow {current.klaviyoFlowId}. It stays off until you turn it on. While Klaviyo is the sender and this flow is on, the trigger hands the person to that Klaviyo flow once. The copied emails are not sent from here.
+                  Copied from Klaviyo flow {current.klaviyoFlowId}. It stays off until you turn it on. While Klaviyo is the sender and this flow is on, its start hands the person to that Klaviyo flow once. The copied emails are not sent from here.
                 </p>
               )}
               </>

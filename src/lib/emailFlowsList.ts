@@ -196,11 +196,18 @@ export function switchText(row: Pick<FlowRow, 'name' | 'on'>, busy: boolean): { 
 
 export const FLOWS_SIGN_IN = "Sign in to see this account's flows.";
 export const FLOWS_FAILED = 'The flows could not be loaded. Try again in a minute.';
+/** D6: a list that loaded with no flow of the account's own (starter, built-in and order rows do not count). */
+export const FLOWS_EMPTY = 'No flows of your own yet. New flow starts one that stays off until you turn it on.';
 export const FLOWS_NOT_CONNECTED = 'Email sending is not connected on this server, so nothing in these flows sends yet. Your changes still save.';
 
 export type FlowsListLoad =
   | { state: 'loaded' }
   | { state: 'failed'; text: string; retry: boolean };
+
+/** True when a loaded list holds no flow of the account's own, so the D6 empty sentence is said. */
+export function noOwnFlows(rows: readonly Pick<FlowRow, 'kind'>[]): boolean {
+  return !rows.some((row) => row.kind === 'flow');
+}
 
 /**
  * The outcome of one flow-map read: unanswered (`answered: false`), or answered with an HTTP status

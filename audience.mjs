@@ -279,6 +279,14 @@ function zonedToUtc(year, month, day, hour, minute, timeZone) {
   return utc;
 }
 
+/**
+ * How far in the past a clock or gradual time may be and still go out at once: the minute a person
+ * picks has begun by the time they confirm it. Further back is refused, because a send that asked to
+ * be scheduled must never go to the whole audience at once over a stale or mistyped date.
+ */
+export const SCHEDULE_PAST_GRACE_MS = 5 * 60 * 1000;
+export const SCHEDULE_PASSED = 'That time has already passed in the account timezone (UTC when none is saved), so nothing was sent. Choose a later time, or Send now.';
+
 export function campaignSchedule({ when, sendAt, timezone, gradual, now = Date.now() }) {
   if (when === 'smart') {
     let batch = null;
@@ -300,6 +308,7 @@ export function campaignSchedule({ when, sendAt, timezone, gradual, now = Date.n
     const zone = isIanaTimezone(timezone) ? timezone : 'UTC';
     at = zonedToUtc(Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4]), Number(match[5]), zone);
     if (!Number.isFinite(at)) return { ok: false, error: 'Choose a date and time.' };
+    if (at < now - SCHEDULE_PAST_GRACE_MS) return { ok: false, error: SCHEDULE_PASSED };
   }
   let batch = null;
   if (mode === 'gradual') {

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
+import { INBOX_HOLDS, LIST_LOADING, REPLIES_LIST, REPLIES_READ, REPLY_POLICY_HOLDS, REPLY_POLICY_READ, listLine, readOutcome, studioRead, type ListState } from '../../lib/studioLoad';
+import { StudioListLine } from './StudioListLine';
 
 type InboxMessage = {
   id: string;
@@ -20,22 +22,33 @@ export const EmailInbox: React.FC = () => {
   const [notice, setNotice] = useState('');
   const [reply, setReply] = useState<Record<string, string>>({});
   const [open, setOpen] = useState('');
+  // D6 (Wave 6): each read has its own state. "No replies have arrived" is said only of an inbox the
+  // server answered with; a failed read says it failed, with Retry where retrying can help.
+  const [boxLoad, setBoxLoad] = useState<ListState>(LIST_LOADING);
+  const [policyLoad, setPolicyLoad] = useState<ListState>(LIST_LOADING);
+  const [reading, setReading] = useState(false);
 
   const load = async () => {
+    setReading(true);
     try {
       const headers = await authHeaders();
       const [box, pol] = await Promise.all([
-        readJson(await fetch('/api/email/inbox', { headers })),
-        readJson(await fetch('/api/email/inbox/policy', { headers }))
+        studioRead('/api/email/inbox', headers),
+        studioRead('/api/email/inbox/policy', headers)
       ]);
-      if (box?.success === false) setNotice(box.error || 'The inbox could not be loaded.');
-      setMessages(Array.isArray(box?.messages) ? box.messages : []);
-      setCounts(box?.counts && typeof box.counts === 'object' ? box.counts : {});
-      const mode = pol?.policy?.autopilot;
+      // Only a body that says success: one with no messages field is an inbox with none, as before (INBOX_HOLDS).
+      const boxOutcome = readOutcome(box, REPLIES_READ, INBOX_HOLDS);
+      setBoxLoad(boxOutcome);
+      if (boxOutcome.state === 'loaded' && box.answered) {
+        setMessages(Array.isArray(box.data.messages) ? box.data.messages : []);
+        setCounts(box.data.counts && typeof box.data.counts === 'object' ? box.data.counts : {});
+      }
+      const policyOutcome = readOutcome(pol, REPLY_POLICY_READ, REPLY_POLICY_HOLDS);
+      setPolicyLoad(policyOutcome);
+      const mode = policyOutcome.state === 'loaded' && pol.answered ? pol.data.policy?.autopilot : undefined;
       if (mode === 'off' || mode === 'draft' || mode === 'auto') setPolicy(mode);
-      if (pol?.success === false && !box?.error) setNotice(pol.error || '');
-    } catch {
-      setNotice('The inbox could not be loaded.');
+    } finally {
+      setReading(false);
     }
   };
 
@@ -49,7 +62,11 @@ export const EmailInbox: React.FC = () => {
     });
     const data = await readJson(res);
     setNotice(data?.error || 'Reply policy saved.');
-    if (!data?.error) setPolicy(next);
+    if (!data?.error) {
+      setPolicy(next);
+      // The server took this policy, so it is known even when the first read of it failed.
+      setPolicyLoad({ state: 'loaded' });
+    }
   };
 
   const act = async (id: string, path: string, body?: Record<string, unknown>) => {
@@ -81,15 +98,18 @@ export const EmailInbox: React.FC = () => {
             ['draft', 'Draft only'],
             ['auto', 'Send when confident']
           ].map(([id, name]) => (
-            <button key={id} type="button" style={policy === id ? solidBtn : ghostBtn} onClick={() => setAutopilot(id)}>{name}</button>
+            // Marked only from a policy the server answered with: a failed read chooses nothing.
+            <button key={id} type="button" style={policyLoad.state === 'loaded' && policy === id ? solidBtn : ghostBtn} onClick={() => setAutopilot(id)}>{name}</button>
           ))}
         </div>
+        {/* One cause, one alert: when the replies read failed too, its alert below says so (as AudienceDesk does). */}
+        {policyLoad.state === 'failed' && boxLoad.state !== 'failed' && <p role="alert" data-studio-state="failed" style={{ margin: '8px 0 0', fontSize: 13, color: '#fecaca' }}>{policyLoad.text}</p>}
         <p style={{ margin: '8px 0 0', fontSize: 12, color: '#9ca3af' }}>
           Off does not draft or send. Draft only prepares a reply for you. Send when confident lets the email service reply on its own when it clears its own bar.
         </p>
       </div>
       {countLine && <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>{countLine}</p>}
-      {!messages.length && <p style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>No replies have arrived for this account.</p>}
+      <StudioListLine line={listLine(boxLoad, messages.length, REPLIES_LIST)} onRetry={load} busy={reading} />
       {messages.map((message) => (
         <article key={message.id} style={card}>
           <button type="button" onClick={() => setOpen(open === message.id ? '' : message.id)} style={{ ...ghostBtn, width: '100%', textAlign: 'left' }}>

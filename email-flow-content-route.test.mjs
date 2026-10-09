@@ -13,6 +13,8 @@ import { cleanLists, cleanSegments } from './audience.mjs';
 import { cleanAttributionWindows } from './email-feeds.mjs';
 import { ACCOUNT_SEQUENCE_LIMIT, cleanAccountSequences, emailHasContent, isStarterDraft, mergeAccountSteps, starterFlowOn, storedWaitHours } from './email-flow-content.mjs';
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
+// Wave 5: userProgramBag and writeUserPrograms keep the account's broadcast drafts through this cleaner.
+import { cleanBroadcastDrafts } from './server/routes/broadcastDraftRoutes.mjs';
 import {
   FLOW_CONTENT_EMPTY, FLOW_CONTENT_NO_SUBJECT, FLOW_CONTENT_NOT_FOUND, FLOW_CONTENT_SHAPE, FLOW_CONTENT_WAIT, FLOW_SWITCH_ALONE, FLOW_SWITCH_FULL,
   FLOW_SWITCH_NOT_BOOLEAN, FLOW_SWITCH_STARTER_ONLY, ORDER_EMAIL_NO_WAIT, firstWaitFixed, setupEmailFlowContentRoutes
@@ -36,7 +38,7 @@ function loadServer(initialStore) {
   const build = new Function(
     'state', 'cleanBlockList', 'FLOW_LIMIT', 'cleanFlowGraph', 'isIanaTimezone', 'isPredictionKey',
     'cleanLists', 'cleanSegments', 'cleanAttributionWindows', 'cleanAccountSequences', 'mergeAccountSteps',
-    'isStarterDraft', 'starterFlowOn',
+    'isStarterDraft', 'starterFlowOn', 'cleanBroadcastDrafts',
     `
     function loadProgramStore() { return state.store; }
     function saveProgramStore(store) { state.saves += 1; state.store = JSON.parse(JSON.stringify(store)); }
@@ -67,7 +69,7 @@ function loadServer(initialStore) {
   );
   const server = build(state, cleanBlockList, FLOW_LIMIT, cleanFlowGraph, isIanaTimezone, isPredictionKey,
     cleanLists, cleanSegments, cleanAttributionWindows, cleanAccountSequences, mergeAccountSteps,
-    isStarterDraft, starterFlowOn);
+    isStarterDraft, starterFlowOn, cleanBroadcastDrafts);
   return { server, state };
 }
 

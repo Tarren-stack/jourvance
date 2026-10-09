@@ -3,9 +3,10 @@ import { RefreshCw } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
 import { ghostBtn, readJson, solidBtn } from './emailChrome';
 import { FLOW_MAP_WRITE_UNREACHABLE, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
+import { retryLabel } from '../../lib/studioLoad';
 import { statText } from '../../lib/emailStats';
 import {
-  FLOWS_NOT_CONNECTED, SENDS_AN_EMAIL, draftCountText, emailCountText, flowRows, flowsListLoad, starterOffNotice, switchRequest, switchText, type FlowRow, type FlowsListLoad
+  FLOWS_EMPTY, FLOWS_NOT_CONNECTED, SENDS_AN_EMAIL, draftCountText, emailCountText, flowRows, flowsListLoad, noOwnFlows, starterOffNotice, switchRequest, switchText, type FlowRow, type FlowsListLoad
 } from '../../lib/emailFlowsList';
 import type { DripSequence } from '../../types/journey';
 
@@ -206,7 +207,8 @@ export const EmailFlowsList: React.FC<{
         <div style={{ minWidth: 0, flex: '1 1 260px' }}>
           <h2 id={`${ids}-heading`} style={{ margin: 0, fontSize: 18, color: '#f3f4f6' }}>All flows</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#9ca3af', maxWidth: 720 }}>
-            Starter flows run for every new lead or checkout. Built-in flows stay off until you turn them on. Choose a flow to open it in the editor with its first email.
+            {/* Wave 6: a starter flow can be turned off for one account (Wave 2), so this no longer says they always run. */}
+            A starter flow takes every new lead or checkout until you turn it off. Built-in flows stay off until you turn them on. Choose a flow to open it in the editor with its first email.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -225,15 +227,19 @@ export const EmailFlowsList: React.FC<{
         </div>
       </div>
 
-      {load.state === 'loading' && <p role="status" style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>Loading the flows.</p>}
+      {load.state === 'loading' && <p role="status" data-studio-state="loading" style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>Loading the flows.</p>}
       {load.state === 'failed' && (
-        <div role="alert" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div role="alert" data-studio-state="failed" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <p style={{ margin: 0, fontSize: 13, color: '#fca5a5' }}>{load.text}</p>
-          {load.retry && <button type="button" style={{ ...ghostBtn, minHeight: 44 }} onClick={read}>Retry</button>}
+          {load.retry && <button type="button" aria-label={retryLabel(load.text)} style={{ ...ghostBtn, minHeight: 44 }} onClick={read}>Retry</button>}
         </div>
       )}
       {load.state === 'loaded' && !hubConnected && (
-        <p style={{ margin: 0, fontSize: 13, color: '#fbbf24' }}>{FLOWS_NOT_CONNECTED}</p>
+        <p role="status" style={{ margin: 0, fontSize: 13, color: '#fbbf24' }}>{FLOWS_NOT_CONNECTED}</p>
+      )}
+      {/* D6: said only of a list that loaded; a failed read says its failure above and never this. */}
+      {load.state === 'loaded' && noOwnFlows(rows) && (
+        <p data-studio-state="empty" style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>{FLOWS_EMPTY}</p>
       )}
 
       {flowList.length > 0 && <ul aria-label="Flows" style={listStyle}>{flowList.map(renderRow)}</ul>}

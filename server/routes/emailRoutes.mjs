@@ -12,6 +12,7 @@ import {
   SMART_EMAIL_HOURS, SMART_SMS_HOURS, isIanaTimezone
 } from '../../email-flows.mjs';
 import { emailTouchFields } from '../../email-map.mjs';
+import { emailHasContent } from '../../email-flow-content.mjs';
 import {
   mailSecretOk, normalizeProviderEvent, readProviderEvents, secretsMatch
 } from '../mail-events.mjs';
@@ -25,7 +26,13 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+/** campaign/send's refusals for an email with nothing in it, and for a send it already took. */
+export const CAMPAIGN_EMAIL_EMPTY = 'This email has no words, picture or button yet, so nothing was sent. Add them in the builder first.';
+export const CAMPAIGN_DUPLICATE = 'This broadcast was already sent or scheduled, so it was not sent again. Look in All broadcasts.';
+
 export function setupEmailRoutes(app, ctx) {
+  // The requestIds of sends still being answered, so a second copy of one is refused before the first is saved.
+  const campaignRequestsInFlight = new Set();
   const {
     hub,
     hubReady,
@@ -358,12 +365,12 @@ app.post('/api/email/programs/:id', requireUser, (req, res) => {
   const bag = userProgramBag(req.user.uid);
   if (kind === 'automation') {
     const row = bag.automations.find((item) => item.id === id);
-    if (!row) return res.status(404).json({ success: false, error: 'That automation is not in the suite.' });
+    if (!row) return res.status(404).json({ success: false, error: 'That built-in flow is not on this account.' });
     if (req.body?.enabled !== undefined) row.enabled = Boolean(req.body.enabled);
     if (req.body?.steps) row.steps = cleanSteps(req.body.steps, row.steps);
   } else {
     const row = bag.transactional.find((item) => item.id === id);
-    if (!row) return res.status(404).json({ success: false, error: 'That letter is not in the suite.' });
+    if (!row) return res.status(404).json({ success: false, error: 'That order email is not on this account.' });
     if (req.body?.enabled !== undefined) row.enabled = Boolean(req.body.enabled);
     if (typeof req.body?.subject === 'string' && req.body.subject.trim()) row.subject = req.body.subject.trim().slice(0, 200);
     if (req.body?.blocks) row.blocks = cleanBlocks(req.body.blocks, row.blocks);
@@ -570,7 +577,7 @@ app.get('/api/email/contact-details', requireUser, async (req, res) => {
     timeline.push({
       kind: 'touch',
       title: `${red.channel === 'sms' ? 'SMS' : 'Email'} Delivered`,
-      description: red.campaignId ? `Campaign: ${red.campaignId}` : 'Automation link touch',
+      description: red.campaignId ? `Broadcast: ${red.campaignId}` : 'Flow link touch',
       at: red.sentAt
     });
   }
@@ -621,7 +628,7 @@ app.get('/api/email/contact-details', requireUser, async (req, res) => {
       title: 'Top-of-Funnel Lead (0 Orders)',
       actionText: 'Draft First-Order Welcome',
       suggestedTemplate: 'lead_welcome',
-      body: 'Lead has subscribed but has not yet placed their first order. Send a welcome note.'
+      body: 'Lead has subscribed but has not yet placed their first order. Send a welcome email.'
     };
   } else if (rfm.ordersCount === 1) {
     strategicAdvice = {
@@ -1233,9 +1240,9 @@ app.delete('/api/email/segments/:id', requireUser, (req, res) => {
 app.delete('/api/email/campaigns/:id', requireUser, (req, res) => {
   const campaigns = loadCampaigns();
   const row = campaigns.find((item) => item.id === req.params.id && item.userId === req.user.uid);
-  if (!row) return res.status(404).json({ success: false, error: 'That campaign is not on this account.' });
+  if (!row) return res.status(404).json({ success: false, error: 'That broadcast is not on this account.' });
   if (row.sentAt || (row.sentTo || []).length || (row.smsSentTo || []).length) {
-    return res.status(400).json({ success: false, error: 'That campaign already sent, so it was left in place.' });
+    return res.status(400).json({ success: false, error: 'That broadcast already sent, so it was left in place.' });
   }
   saveCampaigns(campaigns.filter((item) => item.id !== row.id));
   res.json({ success: true });
@@ -1246,7 +1253,7 @@ app.post('/api/email/campaigns/:id/winner', requireUser, (req, res) => {
   if (!winner) return res.status(400).json({ success: false, error: 'Choose version A or version B.' });
   const campaigns = loadCampaigns();
   const row = campaigns.find((item) => item.id === req.params.id && item.userId === req.user.uid);
-  if (!row?.ab) return res.status(400).json({ success: false, error: 'This campaign has no A/B test.' });
+  if (!row?.ab) return res.status(400).json({ success: false, error: 'This broadcast has no A/B test.' });
   row.ab.winner = winner;
   saveCampaigns(campaigns);
   res.json({ success: true, campaign: presentCampaign(row), message: 'Winner saved. Nothing was sent.' });
@@ -1259,9 +1266,26 @@ app.post('/api/email/campaign/send', requireUser, async (req, res) => {
   const emailBody = body || bodyText || '';
   const emailHtml = typeof html === 'string' ? html : '';
   const smsMessage = String(req.body?.smsMessage || '').trim().slice(0, 480);
-  const hasEmail = Boolean(subject && (emailBody || emailHtml.trim() || blocks.length));
+  // Blocks with nothing in them (a blank heading and paragraph) are not an email: they used to count by
+  // their number, so a subject over an empty composer went to the whole audience.
+  const blocksWritten = emailHasContent(blocks);
+  if (subject && blocks.length && !blocksWritten && !emailBody && !emailHtml.trim()) {
+    return res.status(400).json({ success: false, error: CAMPAIGN_EMAIL_EMPTY });
+  }
+  const hasEmail = Boolean(subject && (emailBody || emailHtml.trim() || blocksWritten));
   const hasSms = Boolean(smsMessage);
   if (!hasEmail && !hasSms) return res.status(400).json({ success: false, error: 'Subject and email body are required.' });
+  // One send per requestId (the composer keeps it across a retry of an unanswered send), so a double
+  // submit or a retry of a send that did land is refused rather than mailing the audience twice.
+  const requestId = String(req.body?.requestId ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  const requestKey = requestId ? `${req.user.uid}\u0000${requestId}` : '';
+  if (requestKey) {
+    if (campaignRequestsInFlight.has(requestKey) || loadCampaigns().some((row) => row.userId === req.user.uid && row.requestId === requestId)) {
+      return res.status(409).json({ success: false, duplicate: true, error: CAMPAIGN_DUPLICATE });
+    }
+    campaignRequestsInFlight.add(requestKey);
+    res.on('close', () => campaignRequestsInFlight.delete(requestKey));
+  }
   const holdout = cleanHoldout(req.body?.holdout);
   if (!holdout.ok) return res.status(400).json({ success: false, error: holdout.error });
   const mode = sendMode === 'shopify_push' ? 'shopify_push' : 'direct';
@@ -1311,6 +1335,7 @@ app.post('/api/email/campaign/send', requireUser, async (req, res) => {
     saveContacts(all);
     const campaignRecord = {
       id: `camp_${Date.now()}`,
+      ...(requestId ? { requestId } : {}),
       subject,
       previewText: previewText || '',
       body: emailBody,
@@ -1343,7 +1368,9 @@ app.post('/api/email/campaign/send', requireUser, async (req, res) => {
     });
   }
   const record = {
-    id: `camp_${Date.now().toString(36)}`,
+    // A random tail: two sends in one millisecond shared an id.
+    id: `camp_${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`,
+    ...(requestId ? { requestId } : {}),
     userId: req.user.uid,
     subject: String(subject || 'Text message').slice(0, 200),
     previewText: String(previewText || '').slice(0, 140),
@@ -1514,7 +1541,7 @@ app.post('/api/drips/enroll', requireUser, async (req, res) => {
   const dripsData = loadDrips();
   const seq = dripsData.sequences.find(s => s.id === (sequenceId || 'drip_seq_default')) || dripsData.sequences[0];
   if (!seq) {
-    return res.status(404).json({ success: false, error: 'Drip sequence not found.' });
+    return res.status(404).json({ success: false, error: 'That flow was not found.' });
   }
   // Wave 2: a starter flow this account turned off takes nobody, by hand either.
   if (!starterFlowOnFor(req.user.uid, seq.id)) {
@@ -1523,7 +1550,7 @@ app.post('/api/drips/enroll', requireUser, async (req, res) => {
 
   const alreadyActive = dripsData.enrollments.find(e => e.customerEmail === customerEmail.toLowerCase().trim() && e.sequenceId === seq.id && e.status === 'active');
   if (alreadyActive) {
-    return res.json({ success: true, message: 'Contact is already active in this sequence.', enrollment: alreadyActive });
+    return res.json({ success: true, message: 'This contact is already in this flow.', enrollment: alreadyActive });
   }
 
   const enrollment = {

@@ -86,6 +86,7 @@ import {
 } from './server/webhookHealth.mjs';
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 import { setupEmailFlowContentRoutes } from './server/routes/emailFlowContentRoutes.mjs';
+import { cleanBroadcastDrafts, setupBroadcastDraftRoutes } from './server/routes/broadcastDraftRoutes.mjs';
 import { cleanAccountSequences, emailHasContent, isStarterDraft, mergeAccountSteps, starterFlowOn, storedWaitHours } from './email-flow-content.mjs';
 import { mailCallbackPlan } from './server/mail-events.mjs';
 
@@ -899,8 +900,8 @@ const dripsFilePath = path.join(__dirname, 'drips.json');
 const INITIAL_DRIP_SEQUENCES = [
   {
     id: 'drip_seq_default',
-    name: 'Welcome sequence',
-    description: 'Starts when someone joins the list. Replace each note before anyone receives it.',
+    name: 'Welcome flow',
+    description: 'Starts when someone joins the list. Replace each email before anyone receives it.',
     triggerType: 'lead_capture',
     smartExitOnPurchase: true,
     steps: [
@@ -1102,8 +1103,14 @@ function loadDrips() {
 function recomputeDripCounters(data) {
   for (const seq of data.sequences) {
     if (seq.id === 'drip_seq_default' && /social proof|High-Converting|urgency deadline/i.test(`${seq.name || ''} ${seq.description || ''}`)) {
-      seq.name = 'Welcome sequence';
-      seq.description = 'Starts when someone joins the list. Replace each note before anyone receives it.';
+      seq.name = 'Welcome flow';
+      seq.description = 'Starts when someone joins the list. Replace each email before anyone receives it.';
+    }
+    // EMAIL_STUDIO_PLAN.md D2: a store seeded before the rename still holds the old name and description
+    // word for word. Only those exact words change; nothing else on the row does.
+    if (seq.id === 'drip_seq_default' && seq.name === 'Welcome sequence') seq.name = 'Welcome flow';
+    if (seq.id === 'drip_seq_default' && seq.description === 'Starts when someone joins the list. Replace each note before anyone receives it.') {
+      seq.description = 'Starts when someone joins the list. Replace each email before anyone receives it.';
     }
     for (const step of seq.steps || []) {
       if (typeof step.subject === 'string' && step.subject.includes('1,400+')) {
@@ -1592,7 +1599,7 @@ const AUTOMATION_DEFAULTS = [
     id: 'post_purchase',
     name: 'After the order',
     trigger: 'order_paid',
-    description: 'A thank-you the day after an order, then a note asking how it went.',
+    description: 'A thank-you the day after an order, then an email asking how it went.',
     steps: [
       { id: 'pp1', delayHours: 24, subject: 'Thank you for order {{order_number}}', blocks: [block('pp1b', 'text', 'Hi {{first_name}},\n\nThank you for order {{order_number}}. Reply if you need anything about it.')] },
       { id: 'pp2', delayHours: 72, subject: 'How was order {{order_number}}?', blocks: [block('pp2b', 'text', 'Hi {{first_name}},\n\nIf you have a minute, reply and tell us how order {{order_number}} went.')] }
@@ -1603,7 +1610,7 @@ const AUTOMATION_DEFAULTS = [
     name: 'Quiet buyers',
     trigger: 'quiet_buyer',
     quietAfterDays: 45,
-    description: 'One note to someone whose last recorded order is at least 45 days old. The queue tick enrolls them.',
+    description: 'One email to someone whose last recorded order is at least 45 days old. They join when due emails are next sent.',
     steps: [
       { id: 'wb1', delayHours: 0, subject: 'It has been a while since your last order', blocks: [block('wb1b', 'text', 'Hi {{first_name}},\n\nYour last order with us was a while ago. Reply if you want help with the next one.')] }
     ]
@@ -1715,7 +1722,9 @@ function userProgramBag(uid) {
   // This account's own subjects, preview texts, blocks and waits for the shared starter flows
   // (email-flow-content.mjs). The shared sequence stays one copy; the sender merges this over it.
   const sequences = cleanAccountSequences(saved.sequences, cleanSteps);
-  return { transactional, automations, sequences, enrollments, sentKeys, flows, flowEnrollments, postalAddress, suppressions, timezone, profiles, library, couponCodes, lists, segments, segmentState, signalStartersSeeded: saved.signalStartersSeeded === true, predictionCheckedAt, attributionWindows };
+  // Broadcasts saved as drafts (server/routes/broadcastDraftRoutes.mjs), only rows this account wrote.
+  const broadcastDrafts = cleanBroadcastDrafts(saved.broadcastDrafts, uid, cleanBlocks);
+  return { transactional, automations, sequences, broadcastDrafts, enrollments, sentKeys, flows, flowEnrollments, postalAddress, suppressions, timezone, profiles, library, couponCodes, lists, segments, segmentState, signalStartersSeeded: saved.signalStartersSeeded === true, predictionCheckedAt, attributionWindows };
 }
 
 // A starter flow's steps as this account sends them: the shared steps with the account's own
@@ -1798,10 +1807,11 @@ function cleanProfiles(input) {
 }
 
 // `edits` names the email content this caller changed: `sequences` (a starter flow's emails),
-// `steps` (a built-in flow's emails) or `transactional` (an order email's subject, blocks and
-// whether it is on). Every other caller keeps what is stored for those, read here just before the
-// write. A tick or an order send reads the bag, awaits several sends, then writes it back; without
-// this, an edit saved during those awaits was replaced by the copy it read before it.
+// `steps` (a built-in flow's emails), `transactional` (an order email's subject, blocks and
+// whether it is on) or `broadcastDrafts` (the broadcasts saved as drafts). Every other caller keeps
+// what is stored for those, read here just before the write. A tick or an order send reads the bag,
+// awaits several sends, then writes it back; without this, an edit saved during those awaits was
+// replaced by the copy it read before it.
 function writeUserPrograms(uid, bag, edits = {}) {
   const store = loadProgramStore();
   const previous = store[uid] && typeof store[uid] === 'object' ? store[uid] : {};
@@ -1824,6 +1834,8 @@ function writeUserPrograms(uid, bag, edits = {}) {
     // the next unrelated save. Only the flow-content route writes sequences; every other save keeps
     // the stored ones, whatever its bag carries.
     sequences: cleanAccountSequences(edits.sequences ? bag.sequences : previous.sequences, cleanSteps),
+    // Only the drafts route writes drafts; every other save keeps the stored ones, whatever its bag carries.
+    broadcastDrafts: cleanBroadcastDrafts(edits.broadcastDrafts ? bag.broadcastDrafts : previous.broadcastDrafts, uid, cleanBlocks),
     enrollments: (bag.enrollments || []).slice(0, 2000),
     sentKeys: (bag.sentKeys || []).slice(-4000),
     flows: (bag.flows || []).map(cleanFlow).filter(Boolean).slice(0, FLOW_LIMIT),
@@ -2717,7 +2729,7 @@ async function deliverLetter({ to, name, subject, text, html, userId, visitorId,
     return { ok: false, status: 'failed', error: sent?.error || 'The email service rejected the send.' };
   }
   if (sent.sandbox === true || sent.broadcast?.status === 'sandbox') {
-    return { ok: false, status: 'sandbox', error: 'The email service is in sandbox, so this letter was not delivered.' };
+    return { ok: false, status: 'sandbox', error: 'The email service is in sandbox, so this email was not delivered.' };
   }
   recordEvent({
     type: 'email_sent',
@@ -3797,6 +3809,15 @@ const emailFlowContentCtx = {
 };
 setupEmailFlowContentRoutes(app, emailFlowContentCtx);
 
+// Broadcasts saved as drafts, in the account's own program record (server/routes/broadcastDraftRoutes.mjs).
+const broadcastDraftCtx = {
+  requireUser,
+  userProgramBag,
+  writeUserPrograms,
+  cleanBlocks
+};
+setupBroadcastDraftRoutes(app, broadcastDraftCtx);
+
 app.post('/api/email/flows', requireUser, (req, res) => {
   const id = `flow_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
   const flow = cleanFlow({
@@ -3851,7 +3872,7 @@ app.post('/api/email/flows/:id/enroll', requireUser, async (req, res) => {
   if (!flow) return res.status(404).json({ success: false, error: 'That flow is not on this account.' });
   if (flow.sunset) return res.status(400).json({ success: false, error: 'This flow sends nothing. Set the quiet period, then use the suppress button for people already marked unengaged.' });
   if (!flow.enabled) return res.status(400).json({ success: false, error: 'Turn the flow on before enrolling someone.' });
-  if (flow.trigger !== 'manual') return res.status(400).json({ success: false, error: 'This flow enrolls from its trigger.' });
+  if (flow.trigger !== 'manual') return res.status(400).json({ success: false, error: 'This flow starts on its own, so nobody can be added to it by hand.' });
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!email.includes('@')) return res.status(400).json({ success: false, error: 'A valid email is required.' });
   const result = await enrollFlowsForTrigger(req.user.uid, 'manual', {
@@ -4685,6 +4706,10 @@ app.post('/api/email/send', requireUser, async (req, res) => {
     try {
       const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
       if (String(body.sendTime || '').toLowerCase() === 'optimal') delete body.sendTime;
+      // The caller's own account, never one named in the body: the hub sends from this merchant's
+      // verified sender, as deliverLetter does for a real send, so a test comes from the sender the
+      // broadcast will use.
+      body.accountId = req.user.uid;
       const sent = await hub.email.send(body);
       if (sent && sent.success === false) {
         return res.status(sent.status || 502).json({ success: false, error: sent.error || 'Email was not sent.', sent });

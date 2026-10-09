@@ -178,7 +178,7 @@ export const BlockEditor: React.FC<{
               {onDeleteCopy && <button type="button" style={ghostBtn} onClick={() => onDeleteCopy(row.id)}>Delete saved copy</button>}
             </div>
           ))}
-          <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Inserting a saved block copies it into this letter. Later edits to the saved copy do not change letters that already used it.</p>
+          <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Inserting a saved block copies it into this email. Later edits to the saved copy do not change emails that already used it.</p>
         </div>
       )}
     </div>
@@ -341,7 +341,7 @@ const BlockFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<MailBl
         {block.discountType !== 'free_shipping' && <input style={field} type="number" aria-label="Coupon amount" value={block.value || 0} onChange={(e) => onChange({ value: Number(e.target.value) })} />}
         <input style={field} aria-label="Coupon prefix" value={block.prefix || ''} placeholder="Prefix" onChange={(e) => onChange({ prefix: e.target.value })} />
         <PageLink ariaLabel="Coupon page link" slug={block.pageSlug || ''} onChange={(pageSlug) => onChange({ pageSlug })} />
-        <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Preview shows the word Code. A code is created for each person when the letter sends, and a retry uses that same code. A Jourvance page link includes this person’s visitor id when one is stored.</p>
+        <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Preview shows the word Code. A code is created for each person when the email sends, and a retry uses that same code. A Jourvance page link includes this person’s visitor id when one is stored.</p>
       </div>
     );
   }
@@ -428,7 +428,7 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
       return;
     }
     if (products.length >= 9) {
-      setNotice('A letter can show up to 9 products.');
+      setNotice('An email can show up to 9 products.');
       return;
     }
     const row: NonNullable<MailBlock['products']>[number] = {
@@ -633,7 +633,7 @@ const ProductFields: React.FC<{ block: MailBlock; onChange: (patch: Partial<Mail
       {block.mode !== 'feed' && catalog && catalog.map((product) => (
         <button key={product.id} type="button" style={{ ...ghostBtn, textAlign: 'left' }} onClick={() => {
           if (products.length >= 9) {
-            setNotice('A letter can show 9 products.');
+            setNotice('An email can show 9 products.');
             return;
           }
           const row: NonNullable<MailBlock['products']>[number] = {};

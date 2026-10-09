@@ -11,7 +11,9 @@ import fs from 'node:fs';
 // email-flow-content-route.test.mjs.
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
-const programs = read('./src/components/campaign/EmailPrograms.tsx');
+// Wave 5: EmailPrograms.tsx held only the Builder mode, which BroadcastComposer.tsx replaced; it is gone.
+const programsGone = !fs.existsSync(new URL('./src/components/campaign/EmailPrograms.tsx', import.meta.url));
+const programs = read('./src/components/campaign/BroadcastComposer.tsx');
 const suite = read('./src/components/campaign/HubEmailSuite.tsx');
 // Wave 4: the starter rows, starter cards and built-in cards became one Flows list in this file.
 const list = read('./src/components/campaign/EmailFlowsList.tsx');
@@ -38,15 +40,16 @@ test('every row on All flows is one real button that opens the flow on its first
   assert.match(list, /\{flowList\.length > 0 && <ul aria-label="Flows" style=\{listStyle\}>\{flowList\.map\(renderRow\)\}<\/ul>\}/);
   assert.match(list, /<ul aria-labelledby=\{orderHeadingId\} style=\{listStyle\}>\{orderList\.map\(renderRow\)\}<\/ul>/);
   // The intro no longer says the two built-ins are what the queue below sends.
-  assert.ok(list.includes('Starter flows run for every new lead or checkout. Built-in flows stay off until you turn them on.'));
+  assert.ok(list.includes('A starter flow takes every new lead or checkout until you turn it off. Built-in flows stay off until you turn them on.'));
   assert.ok(!list.includes('Welcome and abandoned checkout already run from the queue below.'));
 });
 
 test('the Flows list edits no email itself, and Turn on or off sends no steps', () => {
   // Wave 4 removed AutomationCard (and the order letter cards): a flow's emails are edited in the
   // builder on the Flow map, so nothing on the list can flatten or overwrite one.
-  assert.ok(!programs.includes('const AutomationCard'), 'AutomationCard is still in EmailPrograms.tsx');
-  assert.ok(!programs.includes('const LetterCard'), 'the order letter cards are still in EmailPrograms.tsx');
+  assert.ok(programsGone, 'EmailPrograms.tsx is back');
+  assert.ok(!programs.includes('const AutomationCard'), 'AutomationCard is in BroadcastComposer.tsx');
+  assert.ok(!programs.includes('const LetterCard'), 'the order letter cards are in BroadcastComposer.tsx');
   assert.doesNotMatch(programs, /mode === 'automations'|mode === 'transactional'/);
   assert.doesNotMatch(list, /<textarea/, 'the Flows list edits a body in a textarea');
   assert.doesNotMatch(list, /<input/, 'the Flows list edits a field in an input');
@@ -160,7 +163,7 @@ test('server: the account content survives an unrelated save, and the map keeps 
 
 test('the new copy has no em dash and no spaced en dash', () => {
   const added = [['EmailFlowsList.tsx', list], ['EmailStepPreview.tsx', read('./src/components/campaign/EmailStepPreview.tsx')], ['emailFlowsList.ts', read('./src/lib/emailFlowsList.ts')]];
-  for (const [name, src] of [['EmailPrograms.tsx', programs], ['HubEmailSuite.tsx', suite], ['EmailFlowMap.tsx', map], ...added]) {
+  for (const [name, src] of [['BroadcastComposer.tsx', programs], ['HubEmailSuite.tsx', suite], ['EmailFlowMap.tsx', map], ...added]) {
     const lines = src.split('\n').map((line, i) => `${i + 1}: ${line.trim()}`).filter((line) => /—| – /.test(line));
     assert.deepEqual(lines, [], `${name} has a dash`);
   }

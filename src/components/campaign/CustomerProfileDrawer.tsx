@@ -466,7 +466,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
           {loading ? (
             <div style={{ textAlign: 'center', padding: '60px 0', color: '#94a3b8' }}>
               <div style={{ fontSize: '14px', fontWeight: 600 }}>Loading customer 360 profile…</div>
-              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '6px' }}>Fetching Shopify order history and automation timeline</div>
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '6px' }}>Reading Shopify order history and flow timeline</div>
             </div>
           ) : error ? (
             <div style={{ padding: '20px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5' }}>
@@ -710,7 +710,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
                   }}
                 >
                   <Clock size={14} />
-                  <span>Automations ({enrollments.length})</span>
+                  <span>Flows ({enrollments.length})</span>
                 </button>
 
                 <button
@@ -891,7 +891,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
                   {enrollments.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '30px 0', color: '#64748b' }}>
                       <Clock size={28} style={{ margin: '0 auto 8px', opacity: 0.5 }} />
-                      <div style={{ fontSize: '13px' }}>Not actively enrolled in any automated sequences</div>
+                      <div style={{ fontSize: '13px' }}>Not in any flow right now</div>
                       <div style={{ fontSize: '11px', marginTop: '2px' }}>Use the dropdown above to enroll in a welcome or winback flow</div>
                     </div>
                   ) : (
@@ -948,7 +948,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
                                   alignItems: 'center',
                                   gap: '4px'
                                 }}
-                                title="Pause automation"
+                                title="Pause this flow for this customer"
                               >
                                 <Pause size={10} />
                                 <span>Pause</span>
@@ -969,7 +969,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
                                   alignItems: 'center',
                                   gap: '4px'
                                 }}
-                                title="Resume automation"
+                                title="Resume this flow for this customer"
                               >
                                 <Play size={10} />
                                 <span>Resume</span>

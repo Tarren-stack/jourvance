@@ -241,12 +241,17 @@ test('a fulfillment enrols the review request with the merchant code, or none', 
 
 test('Email Studio drafts and labels name no code, amount or gift the merchant did not set', () => {
   const src = read('./src/components/campaign/HubEmailSuite.tsx');
+  // D9, Wave 5: the written broadcast drafts moved with the composer, so both files are read.
+  const composer = read('./src/components/campaign/BroadcastComposer.tsx');
   // A placeholder that says "e.g." is a hint, never sent.
-  const offers = src.split('\n').filter(l => !/placeholder="e\.g\./.test(l)).filter(l => /WELCOMEBACK15|SAVE10|SANCTUARY|REVIEW10|\d+% (off|courtesy|reconnect|winback)|15% Winback|complimentary|courtesy gift/i.test(l));
+  const offers = `${src}\n${composer}`.split('\n').filter(l => !/placeholder="e\.g\./.test(l)).filter(l => /WELCOMEBACK15|SAVE10|SANCTUARY|REVIEW10|\d+% (off|courtesy|reconnect|winback)|15% Winback|complimentary|courtesy gift/i.test(l));
   assert.deepEqual(offers, []);
   // The single-use safeguard only steered the codes the server made on its own.
   assert.doesNotMatch(src, /unlimitedDiscountToggle|Auto-Synced|Shopify Voucher:/);
-  for (const draft of src.match(/setBroadcast(Subject|PreviewText|Body)\([^;]*\);/g) || []) {
+  // At least one match, so a moved draft is a failure here and never a scan that checks nothing.
+  const drafts = composer.match(/setBroadcast(Subject|PreviewText|Body)\([^;]*\);/g) || [];
+  assert.ok(drafts.length > 0, 'BroadcastComposer.tsx holds no setBroadcastSubject, setBroadcastPreviewText or setBroadcastBody call');
+  for (const draft of drafts) {
     assert.doesNotMatch(draft, /—|\s–\s/, draft);
   }
 });

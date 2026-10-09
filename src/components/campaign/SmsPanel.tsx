@@ -4,8 +4,10 @@ import {
   CheckCircle2, AlertTriangle, ArrowRight, Lock, Bell, Check, Users
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
-import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
+import { card, field, ghostBtn, label, solidBtn } from './emailChrome';
 import { SMS_STARTERS, smsStarterText, type SmsStarterId } from '../../lib/offerPresets';
+import { LIST_LOADING, PHONES_READ, TEXTS_HOLDS, TEXTS_READ, readOutcome, studioRead, type ListState } from '../../lib/studioLoad';
+import { StudioListLine } from './StudioListLine';
 
 type SmsStatus = {
   configured?: boolean;
@@ -27,27 +29,36 @@ export const SmsPanel: React.FC = () => {
   const [starterCode, setStarterCode] = useState<string>('');
   const [notifyMe, setNotifyMe] = useState(false);
   const [notifiedMsg, setNotifiedMsg] = useState(false);
+  // D6 (Wave 6): a failed status read says so on screen (it was a console warning only), and the phone
+  // count is shown only from an audience the server answered with, never a 0 nobody measured.
+  const [statusLoad, setStatusLoad] = useState<ListState>(LIST_LOADING);
+  const [audienceLoad, setAudienceLoad] = useState<ListState>(LIST_LOADING);
+  const [reading, setReading] = useState(false);
+
+  const load = async () => {
+    setReading(true);
+    try {
+      const headers = await authHeaders();
+      const [stateRead, audRead] = await Promise.all([
+        studioRead('/api/sms/status', headers),
+        studioRead('/api/email/audience', headers)
+      ]);
+      const statusOutcome = readOutcome(stateRead, TEXTS_READ, TEXTS_HOLDS);
+      setStatusLoad(statusOutcome);
+      if (statusOutcome.state === 'loaded' && stateRead.answered) setStatus(stateRead.data);
+      const audienceOutcome = readOutcome(audRead, PHONES_READ, (data) => Array.isArray(data.subscribers));
+      setAudienceLoad(audienceOutcome);
+      if (audienceOutcome.state === 'loaded' && audRead.answered) {
+        const subscribers: any[] = audRead.data.subscribers;
+        setTotalContacts(subscribers.length);
+        setPhoneCount(subscribers.filter((s: any) => Boolean(s.phone && String(s.phone).trim())).length);
+      }
+    } finally {
+      setReading(false);
+    }
+  };
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const headers = await authHeaders();
-        const [stateRes, audRes] = await Promise.all([
-          readJson(await fetch('/api/sms/status', { headers })),
-          readJson(await fetch('/api/email/audience', { headers }))
-        ]);
-        if (stateRes && stateRes.success !== false) {
-          setStatus(stateRes);
-        }
-        if (audRes && Array.isArray(audRes.subscribers)) {
-          setTotalContacts(audRes.subscribers.length);
-          const withPhone = audRes.subscribers.filter((s: any) => Boolean(s.phone && String(s.phone).trim())).length;
-          setPhoneCount(withPhone);
-        }
-      } catch (err) {
-        console.warn('Failed to load SMS status:', err);
-      }
-    };
     load();
   }, []);
 
@@ -95,8 +106,13 @@ export const SmsPanel: React.FC = () => {
             </span>
           </div>
           <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#9ca3af', lineHeight: 1.5, maxWidth: '640px' }}>
-            Send announcements, VIP notes and winback check-ins directly to your clients' mobile phones with industry-leading 98% open rates.
+            Send announcements, VIP texts and winback check-ins directly to your clients' mobile phones with industry-leading 98% open rates.
           </p>
+          {statusLoad.state === 'failed' && (
+            <div style={{ marginTop: '10px' }}>
+              <StudioListLine line={{ kind: 'failed', text: statusLoad.text, retry: statusLoad.retry }} onRetry={load} busy={reading} />
+            </div>
+          )}
         </div>
 
         <button
@@ -174,7 +190,7 @@ export const SmsPanel: React.FC = () => {
               <Clock size={16} /> 2. Carrier Vetting in Review
             </div>
             <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af', lineHeight: 1.4 }}>
-              Twilio 10DLC A2P campaign registration is submitted to US mobile carriers (AT&T, Verizon, T-Mobile) for telecom routing approval.
+              Twilio 10DLC A2P registration is submitted to US mobile carriers (AT&T, Verizon, T-Mobile) for telecom routing approval.
             </p>
           </div>
 
@@ -211,7 +227,7 @@ export const SmsPanel: React.FC = () => {
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Interactive Campaign Sandbox
+              Text Sandbox
             </div>
             <span style={{ fontSize: '11px', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Smartphone size={12} /> Live Preview
@@ -433,10 +449,18 @@ export const SmsPanel: React.FC = () => {
 
           {/* CRM Readiness Callout */}
           <div style={{ marginTop: '14px', textAlign: 'center' }}>
-            <span style={{ fontSize: '11px', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}>
-              <Users size={12} style={{ color: '#c084fc' }} />
-              <strong>{phoneCount}</strong> of {totalContacts} contacts have phones on file
-            </span>
+            {/* A failed count says so with Retry where it can help, even when the status read loaded. When
+                the status read failed too, its alert above (whose Retry reads both) is the one alert. */}
+            {audienceLoad.state === 'failed' && statusLoad.state !== 'failed' ? (
+              <StudioListLine line={{ kind: 'failed', text: audienceLoad.text, retry: audienceLoad.retry }} onRetry={load} busy={reading} />
+            ) : (
+              <span style={{ fontSize: '11px', color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}>
+                <Users size={12} style={{ color: '#c084fc' }} />
+                {audienceLoad.state === 'loaded'
+                  ? <><strong>{phoneCount}</strong> of {totalContacts} contacts have phones on file</>
+                  : audienceLoad.state === 'failed' ? audienceLoad.text : 'Counting contacts with a phone.'}
+              </span>
+            )}
           </div>
         </div>
       </div>

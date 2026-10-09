@@ -44,9 +44,11 @@ export const STUDIO_DESTINATIONS: readonly StudioDestination[] = [
   {
     key: 'broadcasts',
     label: 'Broadcasts',
+    // Wave 5: the Builder tab is retired. Its key opens the composer, New broadcast: the builder plus
+    // who gets it, when, A/B and holdout (BroadcastComposer.tsx). D2: the builder is never a tab.
     sections: [
       { key: 'campaigns', label: 'All broadcasts' },
-      { key: 'builder', label: 'Builder' }
+      { key: 'builder', label: 'New broadcast' }
     ]
   },
   {
@@ -83,7 +85,8 @@ export interface StudioPlace {
 
 /**
  * Where each tab key from before Wave 3 opens. 'map' is the Flow map, the flow editor. 'transactional'
- * (the order letters) opens All flows, where the order emails are listed since Wave 4.
+ * (the order letters) opens All flows, where the order emails are listed since Wave 4. 'builder' (the
+ * retired Builder tab) opens Broadcasts, New broadcast, since Wave 5.
  */
 export const LEGACY_TAB: Readonly<Record<EmailStudioTab, StudioPlace>> = {
   flows: { destination: 'flows', section: 'flows' },

@@ -7,7 +7,7 @@ import {
   ShieldCheck, Play, SlidersHorizontal, Crown, AlertTriangle, ChevronRight
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
-import { EmailPrograms } from './EmailPrograms';
+import { BroadcastComposer, BroadcastDraftList, COMPOSER_REPLACE, useBroadcastDraft, type BroadcastPerson, type BroadcastPreset } from './BroadcastComposer';
 import { EmailFlowMap } from './EmailFlowMap';
 import { EmailFlowsList } from './EmailFlowsList';
 import { SignupForms } from './SignupForms';
@@ -19,6 +19,11 @@ import { KlaviyoSync } from './KlaviyoSync';
 import { CustomerProfileDrawer } from './CustomerProfileDrawer';
 import { moneyText, OPENS_UNSTORED, STAT_UNAVAILABLE, statText, withNote } from '../../lib/emailStats';
 import { STUDIO_DESTINATIONS, destinationOf, firstSectionOf, nextTabIndex, placeFor, type StudioDestinationKey, type StudioSectionKey } from '../../lib/emailStudioNav';
+import {
+  BROADCASTS_LIST, BROADCASTS_READ, LIST_LOADING, PEOPLE_LIST, PEOPLE_READ, RESULTS_READ, STARTER_PEOPLE_LIST, STARTER_PEOPLE_READ,
+  listLine, nothingSent, readOutcome, resultsLine, studioRead, type ListState, type StudioRead
+} from '../../lib/studioLoad';
+import { StudioListLine } from './StudioListLine';
 import type { Workspace, AudienceSegment, DripSequence, DripEnrollment, ShopifyAbandonedCheckout } from '../../types/journey';
 
 interface FlowStep {
@@ -212,6 +217,13 @@ function checkoutsFailure(httpStatus: number, error?: unknown): CheckoutsLoad {
   return { state: 'failed', text: `Open checkouts could not be loaded.${said}`, retry: httpStatus >= 500 };
 }
 
+/**
+ * D6 (Wave 6): the lists loadData reads that the studio draws, each with its own read state, so a
+ * failed read says so and is never drawn as an empty list or a 0. Open checkouts keeps its own.
+ */
+type StudioLoads = Record<'broadcasts' | 'analytics' | 'audience' | 'enrollments', ListState>;
+const LOADS_AT_MOUNT: StudioLoads = { broadcasts: LIST_LOADING, analytics: LIST_LOADING, audience: LIST_LOADING, enrollments: LIST_LOADING };
+
 export type EmailStudioTab = 'campaigns' | 'flows' | 'map' | 'transactional' | 'builder' | 'forms' | 'inbox' | 'sms' | 'audience' | 'analytics' | 'sending' | 'klaviyo';
 
 export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect, onReturnToCanvas, initialTab, openFlowId }) => {
@@ -263,6 +275,7 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   const [segments, setSegments] = useState<AudienceSegment[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loads, setLoads] = useState<StudioLoads>(LOADS_AT_MOUNT);
   const [copiedFlowId, setCopiedFlowId] = useState<string | null>(null);
 
   // Wave 7: Automated Drips state
@@ -276,37 +289,17 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
   // Open checkouts says "none yet" only of a list that was read.
   const [checkoutsLoad, setCheckoutsLoad] = useState<CheckoutsLoad>({ state: 'loading' });
 
-  // New Broadcast state
-  const [showBroadcastModal, setShowBroadcastModal] = useState(false);
-  const [broadcastSubject, setBroadcastSubject] = useState('');
-  const [broadcastPreviewText, setBroadcastPreviewText] = useState('');
-  const [broadcastBody, setBroadcastBody] = useState('');
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string>('all');
-  const [sendMode, setSendMode] = useState<'direct' | 'shopify_push'>('direct');
-  const [sendingBroadcast, setSendingBroadcast] = useState(false);
-  const [broadcastSuccess, setBroadcastSuccess] = useState(false);
-  const [broadcastFeedback, setBroadcastFeedback] = useState<string>('');
-  const [sendWhen, setSendWhen] = useState<'now' | 'clock' | 'gradual' | 'smart'>('now');
-  const [sendAt, setSendAt] = useState('');
-  const [gradualPercent, setGradualPercent] = useState(10);
-  const [gradualEvery, setGradualEvery] = useState<'minute' | 'hour'>('hour');
-  const [smartSkip, setSmartSkip] = useState(false);
-  const [utmSource, setUtmSource] = useState('');
-  const [utmCampaignName, setUtmCampaignName] = useState('');
-  const [abVariable, setAbVariable] = useState('');
-  const [abSubject, setAbSubject] = useState('');
-  const [abBody, setAbBody] = useState('');
-  const [abHours, setAbHours] = useState(4);
-  const [smsMessage, setSmsMessage] = useState('');
-  const [smsConfirm, setSmsConfirm] = useState(false);
-  const [excludeId, setExcludeId] = useState('');
-  const [holdoutOn, setHoldoutOn] = useState(false);
-  const [holdoutPercent, setHoldoutPercent] = useState(10);
+  // Broadcasts (EMAIL_STUDIO_PLAN.md Wave 5): the composer's draft lives here, so leaving Broadcasts
+  // for another section and coming back finds it as it was. focusComposer is set by a button that
+  // opens the composer (New broadcast, a draft, a written draft), never by the tab strip.
+  const composer = useBroadcastDraft();
+  const [focusComposer, setFocusComposer] = useState(false);
+  // What the last send, schedule or A/B winner said, shown on All broadcasts.
+  const [broadcastNotice, setBroadcastNotice] = useState('');
+  const broadcastsHeading = useRef<HTMLHeadingElement>(null);
+  const [focusBroadcasts, setFocusBroadcasts] = useState(false);
   const [lists, setLists] = useState<{ id: string; name: string; count: number }[]>([]);
   const [followUpNote, setFollowUpNote] = useState('');
-  const [fallbackHour, setFallbackHour] = useState('');
-  const [exploreSend, setExploreSend] = useState(false);
-  const [smartGradual, setSmartGradual] = useState(false);
   const [predictionNote, setPredictionNote] = useState('');
 
   // Audience Sync & Filtering state
@@ -377,24 +370,43 @@ ${unsub}`;
     try {
       const headers = await authHeaders();
       const wsId = workspace?.id || 'default';
-      const [fRes, bRes, aRes, sRes, segRes, listRes, dSeqRes, dEnrRes, chkRes, predRes] = await Promise.all([
-        fetch('/api/email/flows', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/email/broadcasts', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/email/analytics', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/email/audience', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/email/segments', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/email/lists', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/drips/sequences', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/drips/enrollments', { headers }).then(r => r.json()).catch(() => ({})),
+      // D6: every read settles (studioRead never rejects), and each list keeps its own loading, loaded or
+      // failed state, so a read that failed is never shown as an empty list or a 0.
+      const [fRead, bRead, aRead, sRead, segRead, listRead, dSeqRead, dEnrRead, chkRes, predRead] = await Promise.all([
+        studioRead('/api/email/flows', headers),
+        studioRead('/api/email/broadcasts', headers),
+        studioRead('/api/email/analytics', headers),
+        studioRead('/api/email/audience', headers),
+        studioRead('/api/email/segments', headers),
+        studioRead('/api/email/lists', headers),
+        studioRead('/api/drips/sequences', headers),
+        studioRead('/api/drips/enrollments', headers),
         fetch(`/api/workspace/${wsId}/shopify/abandoned-checkouts`, { headers }).then(async r => ({ ...(await r.json().catch(() => ({}))), httpStatus: r.status })).catch(() => ({ httpStatus: 0 })),
-        fetch('/api/email/predictions', { headers }).then(r => r.json()).catch(() => ({}))
+        studioRead('/api/email/predictions', headers)
       ]);
+      const body = (read: StudioRead): any => (read.answered && read.data && typeof read.data === 'object' ? read.data : {});
+      const fRes = body(fRead);
+      const bRes = body(bRead);
+      const aRes = body(aRead);
+      const sRes = body(sRead);
+      const segRes = body(segRead);
+      const listRes = body(listRead);
+      const dSeqRes = body(dSeqRead);
+      const dEnrRes = body(dEnrRead);
+      const predRes = body(predRead);
+      const outcomes: StudioLoads = {
+        broadcasts: readOutcome(bRead, BROADCASTS_READ, (data) => Array.isArray(data.broadcasts)),
+        analytics: readOutcome(aRead, RESULTS_READ, (data) => Boolean(data.analytics && typeof data.analytics === 'object')),
+        audience: readOutcome(sRead, PEOPLE_READ, (data) => Array.isArray(data.subscribers)),
+        enrollments: readOutcome(dEnrRead, STARTER_PEOPLE_READ, (data) => Array.isArray(data.enrollments))
+      };
+      setLoads(outcomes);
 
       if (fRes?.success && Array.isArray(fRes.flows)) setFlows(fRes.flows);
-      if (bRes?.success && Array.isArray(bRes.broadcasts)) setBroadcasts(bRes.broadcasts);
-      if (aRes?.success && aRes.analytics) setAnalytics(aRes.analytics);
-      if (sRes?.success) {
-        if (Array.isArray(sRes.subscribers)) setSubscribers(sRes.subscribers);
+      if (outcomes.broadcasts.state === 'loaded') setBroadcasts(bRes.broadcasts);
+      if (outcomes.analytics.state === 'loaded') setAnalytics(aRes.analytics);
+      if (outcomes.audience.state === 'loaded') {
+        setSubscribers(sRes.subscribers);
         if (sRes.rfmConfig) {
           setRfmConfig(sRes.rfmConfig);
           setCustomAtRiskDays(sRes.rfmConfig.atRiskDays ?? 90);
@@ -411,7 +423,7 @@ ${unsub}`;
       if (listRes?.success && Array.isArray(listRes.lists)) setLists(listRes.lists);
       if (segRes?.followUpNote || bRes?.followUpNote) setFollowUpNote(segRes?.followUpNote || bRes?.followUpNote || '');
       if (dSeqRes?.success && Array.isArray(dSeqRes.sequences)) setDripSequences(dSeqRes.sequences);
-      if (dEnrRes?.success && Array.isArray(dEnrRes.enrollments)) setDripEnrollments(dEnrRes.enrollments);
+      if (outcomes.enrollments.state === 'loaded') setDripEnrollments(dEnrRes.enrollments);
       if (chkRes?.success && Array.isArray(chkRes.checkouts)) {
         setAbandonedCheckouts(chkRes.checkouts);
         setCheckoutsLoad({ state: 'loaded' });
@@ -541,98 +553,50 @@ ${unsub}`;
       body: JSON.stringify({ winner })
     });
     const data = await res.json().catch(() => ({}));
-    setBroadcastFeedback(data?.message || data?.error || '');
+    setBroadcastNotice(data?.message || data?.error || '');
     if (data?.success) await loadData();
   };
 
-  const handleSendBroadcast = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!broadcastSubject.trim() || !broadcastBody.trim()) return;
-    setSendingBroadcast(true);
-    setBroadcastFeedback('');
-    try {
-      const res = await fetch('/api/email/campaign/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-        body: JSON.stringify({
-          subject: broadcastSubject,
-          previewText: broadcastPreviewText,
-          body: broadcastBody,
-          segmentId: selectedSegmentId,
-          include: [{ type: selectedSegmentId.startsWith('list_') ? 'list' : 'segment', id: selectedSegmentId }],
-          exclude: excludeId ? [{ type: excludeId.startsWith('list_') ? 'list' : 'segment', id: excludeId }] : [],
-          sendMode,
-          when: sendMode === 'shopify_push' ? 'now' : sendWhen,
-          sendAt,
-          gradual: sendWhen === 'gradual' || (sendWhen === 'smart' && smartGradual)
-            ? { percent: gradualPercent, every: gradualEvery, ...(sendWhen === 'smart' ? { wrap: true } : {}) }
-            : undefined,
-          fallbackHour: sendWhen === 'smart' && fallbackHour !== '' ? Number(fallbackHour) : '',
-          explore: sendWhen === 'smart' && exploreSend,
-          smartSkip,
-          utm: { source: utmSource, medium: 'email', campaign: utmCampaignName },
-          ab: abVariable ? { variable: abVariable, subjectB: abSubject, bodyB: abBody, offsetHours: abHours } : { variable: 'off' },
-          smsMessage,
-          smsConfirm: smsConfirm ? 'opted-in' : '',
-          holdout: holdoutOn ? { enabled: true, percent: holdoutPercent } : { enabled: false },
-          workspaceId: workspace?.id
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!data?.success) {
-        setBroadcastFeedback(data?.error || 'That campaign was not saved.');
-        return;
-      }
-      if (data?.success) {
-        setBroadcastSuccess(true);
-        setBroadcastFeedback([data.message, data.smartReport].filter(Boolean).join(' '));
-        setTimeout(() => {
-          setShowBroadcastModal(false);
-          setBroadcastSuccess(false);
-          setBroadcastFeedback('');
-          setBroadcastSubject('');
-          setBroadcastPreviewText('');
-          setBroadcastBody('');
-          loadData();
-        }, 1800);
-      }
-    } finally {
-      setSendingBroadcast(false);
-    }
+  /**
+   * Opens Broadcasts, New broadcast. `begin` starts the draft it opens on (a new one, a stored draft or
+   * a written one); when the composer holds unsaved changes it asks before replacing them, and Cancel
+   * changes nothing. Answers whether it opened.
+   */
+  const openComposer = (begin: () => void): boolean => {
+    if (composer.dirty && !window.confirm(COMPOSER_REPLACE)) return false;
+    begin();
+    setMapFlowId('');
+    setMapNodeId('');
+    setFocusComposer(true);
+    setActiveTab('builder');
+    return true;
   };
+  const openPreset = (kind: BroadcastPreset, person?: BroadcastPerson) => openComposer(() => composer.startPreset(kind, person));
 
-  const handleDraftWhaleBroadcast = () => {
-    setSelectedSegmentId('whales');
-    // Drafts name no gift, code or percentage: an offer is the merchant's to write, and only if it exists (R24).
-    setBroadcastSubject('A thank-you to our most loyal clients');
-    setBroadcastPreviewText('A personal note from us');
-    setBroadcastBody('Hello lovely,\n\nAs one of our most valued clients, we wanted to say thank you.\n\nReplace this note with your real message before anyone receives it. Mention a gift or discount only if it exists in your store.');
-    setBroadcastSuccess(false);
-    setBroadcastFeedback('');
-    setShowBroadcastModal(true);
-  };
+  const handleDraftWhaleBroadcast = () => { openPreset('whales'); };
+  const handleDraftWinbackBroadcast = () => { openPreset('at_risk'); };
 
-  const handleDraftWinbackBroadcast = () => {
-    setSelectedSegmentId('at_risk');
-    setBroadcastSubject('It has been a little while');
-    setBroadcastPreviewText("We'd love to welcome you back");
-    setBroadcastBody('Hello lovely,\n\nWe noticed it’s been a little while since your last visit, and we wanted to check in.\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.');
-    setBroadcastSuccess(false);
-    setBroadcastFeedback('');
-    setShowBroadcastModal(true);
+  // A send or a schedule answered: All broadcasts, its sentence, focus on its heading, the list read again.
+  const handleBroadcastSent = (message: string) => {
+    setBroadcastNotice(message);
+    setFocusBroadcasts(true);
+    setActiveTab('campaigns');
+    loadData();
   };
-
-  const handleDraftLapsedBroadcast = () => {
-    setSelectedSegmentId('lapsed');
-    setBroadcastSubject('A warm invitation back');
-    setBroadcastPreviewText("A warm note whenever you're ready");
-    setBroadcastBody('Hello lovely,\n\nIt’s been some time since your last order, and we wanted to send a warm note your way.\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.');
-    setBroadcastSuccess(false);
-    setBroadcastFeedback('');
-    setShowBroadcastModal(true);
-  };
+  useEffect(() => {
+    if (!focusBroadcasts || activeTab !== 'campaigns') return;
+    broadcastsHeading.current?.focus();
+    setFocusBroadcasts(false);
+  }, [focusBroadcasts, activeTab]);
 
   const isConnected = workspace?.shopifyConfig?.status === 'connected' && !!workspace?.shopifyConfig?.storeDomain;
+
+  // D6: what Broadcasts and People say above their rows (studioLoad.ts listLine).
+  const broadcastsLine = listLine(loads.broadcasts, broadcasts.length, BROADCASTS_LIST);
+  const peopleLine = listLine(loads.audience, subscribers.length, PEOPLE_LIST);
+  // The People figures and table, only once the audience was read: before that, or after a first read
+  // failed, every count would be a 0 nobody measured.
+  const peopleShown = loads.audience.state === 'loaded' || subscribers.length > 0;
 
   // How many emails the enrollment's own sequence has, or 0 when that sequence is not loaded.
   const stepCountOf = (sequenceId: string) => dripSequences.find((seq) => seq.id === sequenceId)?.steps.length || 0;
@@ -867,7 +831,11 @@ ${unsub}`;
             {/* The people in the starter flows: one table for all of them, each row naming its flow. */}
             <details style={STUDIO_GROUP}>
               <summary style={STUDIO_GROUP_SUMMARY}>People in starter flows</summary>
-              <div style={{ marginTop: '12px', maxHeight: '240px', overflow: 'auto', backgroundColor: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.04)' }}>
+              {/* D6: "nobody yet" only of a list that was read; a failed read says so. */}
+              <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <StudioListLine line={listLine(loads.enrollments, dripEnrollments.length, STARTER_PEOPLE_LIST)} onRetry={loadData} busy={loading} />
+              {dripEnrollments.length > 0 && (
+              <div style={{ maxHeight: '240px', overflow: 'auto', backgroundColor: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.04)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
                     <tr style={{ color: '#9ca3af', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
@@ -896,6 +864,8 @@ ${unsub}`;
                     ))}
                   </tbody>
                 </table>
+              </div>
+              )}
               </div>
             </details>
 
@@ -938,7 +908,7 @@ ${unsub}`;
                           </span>
                         </div>
                         <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '3px' }}>
-                          Trigger: Lead captured via Landing Page | {flow.steps.length} Automated Steps
+                          {flow.steps.length === 1 ? '1 step' : `${flow.steps.length} steps`} · Export only. What starts it is set where you import it.
                         </div>
                       </div>
 
@@ -1074,7 +1044,16 @@ ${unsub}`;
 
         {/* TAB 2: CAMPAIGNS (BROADCASTS) */}
         {activeTab === 'map' && <EmailFlowMap initialFlowId={mapFlowId || openFlowId} initialNodeId={mapNodeId || undefined} fromStep={!mapFlowId} onContentSaved={refreshSequences} />}
-        {activeTab === 'builder' && <EmailPrograms mode="builder" />}
+        {/* BROADCASTS, NEW BROADCAST (Wave 5): the composer, the builder plus who gets it and when. */}
+        {activeTab === 'builder' && (
+          <BroadcastComposer
+            composer={composer}
+            workspaceId={workspace?.id}
+            focusHeading={focusComposer}
+            onHeadingFocused={() => setFocusComposer(false)}
+            onSent={handleBroadcastSent}
+          />
+        )}
         {activeTab === 'forms' && <SignupForms />}
         {activeTab === 'inbox' && <EmailInbox />}
         {activeTab === 'sms' && <SmsPanel />}
@@ -1087,20 +1066,9 @@ ${unsub}`;
             {checkoutsLoad.state === 'loading' && (
               <p role="status" style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Loading open checkouts.</p>
             )}
+            {/* The one failure line every studio list uses, so its button is Retry, named for this read. */}
             {checkoutsLoad.state === 'failed' && (
-              <div role="alert" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(248, 113, 113, 0.35)', backgroundColor: 'rgba(248, 113, 113, 0.08)', color: '#fecaca', fontSize: '13px' }}>
-                <span>{checkoutsLoad.text}</span>
-                {checkoutsLoad.retry && (
-                  <button
-                    type="button"
-                    aria-disabled={loading || undefined}
-                    onClick={() => { if (!loading) void loadData(); }}
-                    style={{ minHeight: '36px', padding: '0 12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.2)', backgroundColor: 'transparent', color: '#f3f4f6', fontSize: '12px', fontWeight: 600, cursor: loading ? 'wait' : 'pointer' }}
-                  >
-                    {loading ? 'Loading' : 'Try again'}
-                  </button>
-                )}
-              </div>
+              <StudioListLine line={{ kind: 'failed', text: checkoutsLoad.text, retry: checkoutsLoad.retry }} onRetry={() => { void loadData(); }} busy={loading} />
             )}
             {checkoutsLoad.state === 'loaded' && abandonedCheckouts.length === 0 && (
               <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>
@@ -1300,19 +1268,21 @@ ${unsub}`;
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
-                  Campaign Broadcasts & Offers
+                <h2 ref={broadcastsHeading} tabIndex={-1} style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
+                  All broadcasts
                 </h2>
                 <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                  Targeted product announcements, flash discounts, and replenishment emails with direct delivery or 1-click Shopify Email sync.
+                  A broadcast is one email sent once to a list or a segment. New broadcast opens the builder, with who gets it and when.
                 </p>
-                {analytics?.opensStored !== true && (
+                {/* Only from a Results read that answered: a failed read says nothing about opens. */}
+                {analytics && analytics.opensStored !== true && (
                   <p style={{ margin: '8px 0 0', fontSize: '13px', color: '#9ca3af' }}>{OPENS_UNSTORED}</p>
                 )}
               </div>
 
               <button
-                onClick={() => setShowBroadcastModal(true)}
+                type="button"
+                onClick={() => { openComposer(() => composer.start()); }}
                 style={{
                   padding: '9px 18px',
                   borderRadius: '10px',
@@ -1328,10 +1298,17 @@ ${unsub}`;
                   boxShadow: '0 4px 14px rgba(236, 72, 153, 0.35)'
                 }}
               >
-                <Plus size={16} />
-                <span>New Campaign</span>
+                <Plus size={16} aria-hidden="true" />
+                <span>New broadcast</span>
               </button>
             </div>
+
+            <p role="status" style={{ margin: 0, fontSize: '13px', color: '#d1d5db' }}>{broadcastNotice}</p>
+
+            <BroadcastDraftList
+              onOpen={(draft) => { openComposer(() => composer.start(draft)); }}
+              onDeleted={(id) => composer.forget(id)}
+            />
 
             {/* Broadcasts List. Six columns cannot share a phone's width, so the table scrolls
                 sideways inside its own card (the page never does) and takes keyboard focus to do it. */}
@@ -1360,7 +1337,7 @@ ${unsub}`;
                   textTransform: 'uppercase'
                 }}
               >
-                <div>Campaign & Segment</div>
+                <div>Broadcast & audience</div>
                 <div>Send Mode</div>
                 <div>Sent Date</div>
                 <div>Sent</div>
@@ -1368,12 +1345,13 @@ ${unsub}`;
                 <div>Revenue</div>
               </div>
 
-              {broadcasts.length === 0 ? (
-                <div style={{ padding: '36px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
-                  No broadcasts dispatched yet. Click "New Campaign" to send your first targeted broadcast.
+              {/* D6: "No broadcasts yet" only of a list that was read; a failed read says so, with Retry. */}
+              {broadcastsLine.kind !== 'none' && (
+                <div style={{ padding: '20px' }}>
+                  <StudioListLine line={broadcastsLine} onRetry={loadData} busy={loading} />
                 </div>
-              ) : (
-                broadcasts.map(b => (
+              )}
+              {broadcasts.map(b => (
                   <div
                     key={b.id}
                     style={{
@@ -1456,8 +1434,7 @@ ${unsub}`;
                       </div>
                     )}
                   </div>
-                ))
-              )}
+                ))}
             </div>
             {followUpNote && <p style={{ margin: '8px 0 0', fontSize: 12, color: '#9ca3af' }}>{followUpNote}</p>}
           </div>
@@ -1543,7 +1520,11 @@ ${unsub}`;
               </div>
             )}
 
+            {/* D6: loading, a failed read (with Retry where it can help), or "No people yet" of a list that was read. */}
+            <StudioListLine line={peopleLine} onRetry={loadData} busy={loading} />
+
             {/* Audience Stats Ribbon */}
+            {peopleShown && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
               <div style={{ backgroundColor: '#121217', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
                 <div style={{ fontSize: '11px', color: '#9ca3af', textTransform: 'uppercase', fontWeight: 600 }}>Total Contacts</div>
@@ -1589,7 +1570,7 @@ ${unsub}`;
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(168, 85, 247, 0.28)')}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(168, 85, 247, 0.15)')}
                 >
-                  <Send size={11} /> Draft VIP Note
+                  <Send size={11} /> Draft a VIP email
                 </button>
               </div>
 
@@ -1653,9 +1634,12 @@ ${unsub}`;
                 <div style={{ fontSize: '11px', color: '#34d399', marginTop: '2px' }}>Attributed customer spend</div>
               </div>
             </div>
+            )}
 
             <AudienceDesk />
 
+            {peopleShown && (
+            <>
             {/* Filter Pills & Search */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1939,6 +1923,8 @@ ${unsub}`;
                   </div>
                 ))}
             </div>
+            </>
+            )}
 
             {/* RFM Lifecycle & Inactivity Settings Modal */}
             {showRfmSettings && (
@@ -2048,7 +2034,7 @@ ${unsub}`;
                         </span>
                       </div>
                       <p style={{ margin: '4px 0 8px', fontSize: '12px', color: '#9ca3af' }}>
-                        Clients with no purchases after this many days are marked At-Risk for automated winback flows.
+                        Clients with no purchases after this many days are marked At-Risk, so the winback flow can reach them.
                       </p>
                       <input
                         type="range"
@@ -2177,14 +2163,14 @@ ${unsub}`;
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <label htmlFor="autoWinbackToggle" style={{ fontSize: '13px', fontWeight: 600, color: '#f3f4f6', cursor: 'pointer' }}>
-                              Automate Inactivity Winback
+                              Inactivity winback flow
                             </label>
                             <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', backgroundColor: autoWinbackEnabled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)', color: autoWinbackEnabled ? '#34d399' : '#9ca3af', fontWeight: 600 }}>
                               {autoWinbackEnabled ? 'Active' : 'Off'}
                             </span>
                           </div>
                           <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#9ca3af', lineHeight: 1.4 }}>
-                            Automatically enrolls clients into the winback sequence when they cross {customAtRiskDays} days inactive. The sequence names a code only if you add one.
+                            Adds a client to the winback flow when they cross {customAtRiskDays} days inactive. The flow names a code only if you add one.
                           </p>
                           <div style={{ marginTop: '6px', fontSize: '11px', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '5px' }}>
                             <ShieldCheck size={13} /> Option A Deliverability Guard: Only enrolls clients who cross {customAtRiskDays}d from today onward. Exits automatically on purchase.
@@ -2258,26 +2244,10 @@ ${unsub}`;
                 customerEmail={selectedCustomerEmail}
                 onClose={() => setSelectedCustomerEmail(null)}
                 onDraftCampaign={(contact, templateKey) => {
-                  setSelectedCustomerEmail(null);
-                  if (templateKey === 'whale_perk') {
-                    // No code, gift or percentage the merchant did not set (R24).
-                    setBroadcastSubject('A personal thank-you');
-                    setBroadcastPreviewText('A note for one of our most valued clients');
-                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nAs one of our most valued clients, we wanted to personally say thank you.\n\nReplace this note with your real message before anyone receives it. Mention a gift or discount only if it exists in your store.\n\nWith gratitude,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
-                  } else if (templateKey === 'at_risk_winback') {
-                    setBroadcastSubject('We would love to welcome you back');
-                    setBroadcastPreviewText('It has been a little while');
-                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nIt has been a while since your last order, and we would love to welcome you back.\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
-                  } else if (templateKey === 'lead_welcome') {
-                    setBroadcastSubject('Welcome, and thank you for joining');
-                    setBroadcastPreviewText('A note to say hello');
-                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nThank you for joining our community!\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
-                  } else {
-                    setBroadcastSubject(`Personal note for ${contact.name.split(' ')[0] || 'you'}`);
-                    setBroadcastPreviewText('Checking in on your latest order');
-                    setBroadcastBody(`Hi ${contact.name.split(' ')[0] || 'there'},\n\nWe wanted to follow up and see how you are enjoying your order.\n\nWarmly,\n${workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team'}`);
-                  }
-                  setShowBroadcastModal(true);
+                  // No code, gift or percentage the merchant did not set (R24): the written drafts are BroadcastComposer's.
+                  const kind: BroadcastPreset = templateKey === 'whale_perk' || templateKey === 'at_risk_winback' || templateKey === 'lead_welcome' ? templateKey : 'personal';
+                  const person = { firstName: contact.name.split(' ')[0] || '', signOff: workspace?.shopifyConfig?.storeDomain || workspace?.name || 'Your Care Team' };
+                  if (openPreset(kind, person)) setSelectedCustomerEmail(null);
                 }}
                 onTagsUpdated={(email, updatedTags) => {
                   setSubscribers(prev => prev.map(s => s.email === email ? { ...s, tags: updatedTags } : s));
@@ -2287,20 +2257,27 @@ ${unsub}`;
           </div>
         )}
 
-        {/* TAB 4: ANALYTICS */}
-        {activeTab === 'analytics' && analytics && (
+        {/* RESULTS (D1). Never a blank panel (D6): loading, a failed read with Retry, "Nothing has been sent
+            yet" of a read that counted no sends, or the figures. */}
+        {activeTab === 'analytics' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div>
               <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
-                Deliverability & Conversion Metrics
+                Results
               </h2>
-              <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                {analytics.opensStored === true
-                  ? 'Opens, clicks, and delivery show up only after a sent campaign reports them.'
-                  : OPENS_UNSTORED}
-              </p>
+              {analytics && (
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
+                  {analytics.opensStored === true
+                    ? 'Opens, clicks and delivery show up only after a sent email reports them.'
+                    : OPENS_UNSTORED}
+                </p>
+              )}
             </div>
 
+            <StudioListLine line={resultsLine(loads.analytics, analytics)} onRetry={loadData} busy={loading} />
+
+            {analytics && !nothingSent(analytics) && (
+            <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '16px' }}>
               {([
                 ['Sent', analytics.sent ?? analytics.totalSent],
@@ -2316,7 +2293,9 @@ ${unsub}`;
               ))}
             </div>
             <p style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>{analytics.windowNote || 'Last-touch revenue stays blank until a click or an open is stored.'}{analytics.prefetchOpens ? ` ${analytics.prefetchOpens} opens included an Apple Mail prefetch flag.` : ''}</p>
-            {analytics.windows && (
+            </>
+            )}
+            {analytics?.windows && (
               <form style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }} onSubmit={async (e) => {
                 e.preventDefault();
                 const form = e.currentTarget;
@@ -2343,518 +2322,6 @@ ${unsub}`;
       </div>
       </div>
 
-      {/* New Broadcast Modal */}
-      {showBroadcastModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            backdropFilter: 'blur(8px)',
-            zIndex: 9999,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px'
-          }}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: '620px',
-              backgroundColor: '#16161d',
-              borderRadius: '16px',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
-              boxShadow: '0 25px 50px rgba(0,0,0,0.6)',
-              padding: '24px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#f3f4f6' }}>
-                  Create Segmented Campaign Broadcast
-                </h3>
-                <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
-                  Send now, at a clock time, or in batches. An empty audience sends nothing. A follow-up to people who did not open waits until opens are stored.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowBroadcastModal(false)}
-                style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: '18px' }}
-              >
-                ✕
-              </button>
-            </div>
-
-            {broadcastSuccess && (
-              <div
-                style={{
-                  padding: '12px',
-                  borderRadius: '8px',
-                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
-                  color: '#34d399',
-                  fontSize: '13px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-              >
-                <CheckCircle2 size={16} /> <span>{broadcastFeedback || 'Campaign broadcast processed successfully!'}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSendBroadcast} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {/* Delivery Mode Tabs */}
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  Delivery Method
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setSendMode('direct')}
-                    style={{
-                      padding: '10px 12px',
-                      borderRadius: '8px',
-                      border: sendMode === 'direct' ? '1px solid #10b981' : '1px solid rgba(255, 255, 255, 0.08)',
-                      backgroundColor: sendMode === 'direct' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-                      color: sendMode === 'direct' ? '#ffffff' : '#9ca3af',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      textAlign: 'left'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: sendMode === 'direct' ? '#34d399' : '#9ca3af' }}>
-                      <Zap size={14} /> Direct Dispatch ($0 Cost)
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>Send via configured mail transport</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSendMode('shopify_push')}
-                    style={{
-                      padding: '10px 12px',
-                      borderRadius: '8px',
-                      border: sendMode === 'shopify_push' ? '1px solid #3b82f6' : '1px solid rgba(255, 255, 255, 0.08)',
-                      backgroundColor: sendMode === 'shopify_push' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-                      color: sendMode === 'shopify_push' ? '#ffffff' : '#9ca3af',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      textAlign: 'left'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: sendMode === 'shopify_push' ? '#60a5fa' : '#9ca3af' }}>
-                      <ShoppingBag size={14} /> Push to Shopify Email
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>Tags customer segment in Shopify Admin</div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Target Segment */}
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  Target Customer Segment
-                </label>
-                <select
-                  value={selectedSegmentId}
-                  onChange={e => setSelectedSegmentId(e.target.value)}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    outline: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {!segments.some(s => s.id === selectedSegmentId) && selectedSegmentId !== 'all' && (
-                    <option value={selectedSegmentId} style={{ backgroundColor: '#1a1a24', color: '#ffffff' }}>
-                      {selectedSegmentId === 'whales' ? 'VIP Whales (Platinum)' : selectedSegmentId === 'at_risk' ? 'At-Risk Inactive Clients' : selectedSegmentId === 'lapsed' ? 'Lapsed Clients' : selectedSegmentId}
-                    </option>
-                  )}
-                  {segments.map(seg => (
-                    <option key={seg.id} value={seg.id} style={{ backgroundColor: '#1a1a24', color: '#ffffff' }}>
-                      {withNote(`${seg.name} (${seg.count} contacts)`, seg.definition || seg.description)}
-                    </option>
-                  ))}
-                  {lists.map(list => (
-                    <option key={list.id} value={list.id} style={{ backgroundColor: '#1a1a24', color: '#ffffff' }}>
-                      List · {list.name} ({list.count})
-                    </option>
-                  ))}
-                  {segments.length === 0 && (
-                    <option value="all" style={{ backgroundColor: '#1a1a24' }}>
-                      All Active Subscribers ({subscribers.length} contacts)
-                    </option>
-                  )}
-                </select>
-              </div>
-
-              {/* 1-Click Beauty Campaign Presets */}
-              <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)', padding: '12px 14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#d1d5db', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <Sparkles size={13} style={{ color: '#ec4899' }} /> 1-Click Beauty Campaign Presets
-                  </span>
-                  <span style={{ fontSize: '11px', color: '#9ca3af' }}>Click to auto-fill beauty copy</span>
-                </div>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={handleDraftWhaleBroadcast}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '7px',
-                      border: selectedSegmentId === 'whales' ? '1px solid #c084fc' : '1px solid rgba(192, 132, 252, 0.3)',
-                      backgroundColor: selectedSegmentId === 'whales' ? 'rgba(168, 85, 247, 0.22)' : 'rgba(168, 85, 247, 0.08)',
-                      color: '#f3e8ff',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px'
-                    }}
-                  >
-                    <Crown size={12} style={{ color: '#c084fc' }} /> VIP Thank-You
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDraftWinbackBroadcast}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '7px',
-                      border: selectedSegmentId === 'at_risk' ? '1px solid #fbbf24' : '1px solid rgba(245, 158, 11, 0.3)',
-                      backgroundColor: selectedSegmentId === 'at_risk' ? 'rgba(245, 158, 11, 0.22)' : 'rgba(245, 158, 11, 0.08)',
-                      color: '#fef3c7',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px'
-                    }}
-                  >
-                    <AlertTriangle size={12} style={{ color: '#f59e0b' }} /> At-Risk Winback
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDraftLapsedBroadcast}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '7px',
-                      border: selectedSegmentId === 'lapsed' ? '1px solid #94a3b8' : '1px solid rgba(148, 163, 184, 0.3)',
-                      backgroundColor: selectedSegmentId === 'lapsed' ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.08)',
-                      color: '#f1f5f9',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px'
-                    }}
-                  >
-                    <Clock size={12} style={{ color: '#94a3b8' }} /> Lapsed Reconnect
-                  </button>
-                </div>
-              </div>
-
-              {sendMode === 'direct' && (
-                <div style={{ display: 'grid', gap: 8 }}>
-                  <label style={{ fontSize: 12, color: '#9ca3af' }}>When
-                    <select aria-label="When to send" value={sendWhen} onChange={(e) => {
-                      const next = e.target.value as 'now' | 'clock' | 'gradual' | 'smart';
-                      setSendWhen(next);
-                      if (next === 'smart' && abVariable === 'send_time') setAbVariable('');
-                    }} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }}>
-                      <option value="now">Send now</option>
-                      <option value="clock">At a clock time</option>
-                      <option value="gradual">Gradual</option>
-                      <option value="smart" disabled={abVariable === 'send_time'}>At each person’s hour</option>
-                    </select>
-                  </label>
-                  {sendWhen === 'smart' && (
-                    <div style={{ display: 'grid', gap: 8 }}>
-                      <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Their hour after 5 opens or clicks. Otherwise the store hour after 200 opens or clicks in 90 days. Otherwise the hour you set. Otherwise the next send. A stored timezone on the contact is used when there is one.</p>
-                      <label style={{ fontSize: 12, color: '#9ca3af' }}>Fallback hour, 0 through 23. Leave empty for the next send.
-                        <input aria-label="Fallback hour" type="number" min={0} max={23} value={fallbackHour} onChange={(e) => setFallbackHour(e.target.value)} style={{ display: 'block', width: 80, marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }} />
-                      </label>
-                      <label style={{ fontSize: 13, color: '#e5e7eb' }}>
-                        <input type="checkbox" checked={exploreSend} onChange={(e) => setExploreSend(e.target.checked)} /> Send 10% at another hour between 9:00 and 17:00
-                      </label>
-                      <label style={{ fontSize: 13, color: '#e5e7eb' }}>
-                        <input type="checkbox" checked={smartGradual} onChange={(e) => setSmartGradual(e.target.checked)} /> Send gradually. Each person’s hour is the batch time
-                      </label>
-                    </div>
-                  )}
-                  {(sendWhen === 'clock' || sendWhen === 'gradual') && (
-                    <label style={{ fontSize: 12, color: '#9ca3af' }}>Date and time in the account timezone, or UTC when none is saved
-                      <input aria-label="Send at" type="datetime-local" value={sendAt} onChange={(e) => setSendAt(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />
-                    </label>
-                  )}
-                  {(sendWhen === 'gradual' || (sendWhen === 'smart' && smartGradual)) && (
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <label style={{ fontSize: 12, color: '#9ca3af' }}>Percent per batch
-                        <input aria-label="Batch percent" type="number" min={1} max={50} value={gradualPercent} onChange={(e) => setGradualPercent(Number(e.target.value))} style={{ display: 'block', width: 80, marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }} />
-                      </label>
-                      <label style={{ fontSize: 12, color: '#9ca3af' }}>Every
-                        <select aria-label="Batch interval" value={gradualEvery} onChange={(e) => setGradualEvery(e.target.value as 'minute' | 'hour')} style={{ display: 'block', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }}>
-                          <option value="hour">Hour</option>
-                          <option value="minute">Minute</option>
-                        </select>
-                      </label>
-                    </div>
-                  )}
-                  <label style={{ fontSize: 12, color: '#9ca3af' }}>Exclude
-                    <select aria-label="Exclude" value={excludeId} onChange={(e) => setExcludeId(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }}>
-                      <option value="">Nobody</option>
-                      {segments.map((seg) => <option key={seg.id} value={seg.id}>{seg.name}</option>)}
-                      {lists.map((list) => <option key={list.id} value={list.id}>List · {list.name}</option>)}
-                    </select>
-                  </label>
-                  <label style={{ fontSize: 13, color: '#e5e7eb' }}>
-                    <input type="checkbox" checked={smartSkip} onChange={(e) => setSmartSkip(e.target.checked)} /> Skip someone who already got a marketing email in 16 hours, or a text in 24 hours
-                  </label>
-                  <label style={{ fontSize: 13, color: '#e5e7eb' }}>
-                    <input aria-label="Campaign holdout" type="checkbox" checked={holdoutOn} onChange={(e) => setHoldoutOn(e.target.checked)} /> Hold out a percent. They receive nothing.
-                  </label>
-                  {holdoutOn && (
-                    <label style={{ fontSize: 12, color: '#9ca3af' }}>Percent who receive nothing, 1 to 90
-                      <input aria-label="Campaign holdout percent" type="number" min={1} max={90} value={holdoutPercent} onChange={(e) => setHoldoutPercent(Number(e.target.value))} style={{ display: 'block', width: 80, marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }} />
-                    </label>
-                  )}
-                  <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Holdout stays off until you check it. The broadcast row then shows revenue per person for the sent group and the held-out group, with both sample sizes.</p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <input aria-label="UTM source" placeholder="UTM source" value={utmSource} onChange={(e) => setUtmSource(e.target.value)} style={{ padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />
-                    <input aria-label="UTM campaign" placeholder="UTM campaign" value={utmCampaignName} onChange={(e) => setUtmCampaignName(e.target.value)} style={{ padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />
-                  </div>
-                  <label style={{ fontSize: 12, color: '#9ca3af' }}>A/B one variable. You choose the winner.
-                    <select aria-label="A/B variable" value={abVariable} onChange={(e) => setAbVariable(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }}>
-                      <option value="">No A/B</option>
-                      <option value="subject">Subject</option>
-                      <option value="content">Content</option>
-                      <option value="send_time" disabled={sendWhen === 'smart'}>Send time</option>
-                    </select>
-                  </label>
-                  {abVariable === 'subject' && <input aria-label="Second subject" placeholder="Second subject" value={abSubject} onChange={(e) => setAbSubject(e.target.value)} style={{ padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />}
-                  {abVariable === 'content' && <textarea aria-label="Second version" placeholder="Second version" value={abBody} onChange={(e) => setAbBody(e.target.value)} style={{ padding: 8, borderRadius: 8, background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }} />}
-                  {abVariable === 'send_time' && <label style={{ fontSize: 12, color: '#9ca3af' }}>Hours later for version B<input aria-label="Hours later" type="number" min={1} max={168} value={abHours} onChange={(e) => setAbHours(Number(e.target.value))} style={{ display: 'block', width: 80, marginTop: 4, padding: 8 }} /></label>}
-                  <label style={{ fontSize: 12, color: '#9ca3af' }}>Text on the same campaign
-                    <textarea aria-label="Text message" value={smsMessage} onChange={(e) => setSmsMessage(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, borderRadius: 8, background: '#111', color: '#fff' }} />
-                  </label>
-                  <label style={{ fontSize: 13, color: '#e5e7eb' }}>
-                    <input type="checkbox" checked={smsConfirm} onChange={(e) => setSmsConfirm(e.target.checked)} /> This text goes only to numbers that already opted in
-                  </label>
-                </div>
-              )}
-
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  Email Subject Line
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. VIP Access: 20% Off Our New Serum"
-                  value={broadcastSubject}
-                  onChange={e => setBroadcastSubject(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                    border: '1px solid rgba(255, 255, 255, 0.12)',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  Preview Pre-header Text (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Small-batch private batch reserved for the next 24 hours"
-                  value={broadcastPreviewText}
-                  onChange={e => setBroadcastPreviewText(e.target.value)}
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                    border: '1px solid rgba(255, 255, 255, 0.12)',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              {/* Live Gmail & iPhone Inbox Snippet Simulation */}
-              <div
-                style={{
-                  padding: '12px 14px',
-                  borderRadius: '10px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#f472b6', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <Mail size={12} /> Live Gmail & iPhone Inbox Snippet
-                  </span>
-                  <span style={{ fontSize: '11px', color: '#6b7280' }}>How subscribers see your note before opening</span>
-                </div>
-                <div
-                  style={{
-                    backgroundColor: '#0a0a0f',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    border: '1px solid rgba(255, 255, 255, 0.06)',
-                    fontSize: '12px',
-                    lineHeight: 1.4
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
-                    <span style={{ fontWeight: 700, color: '#f3f4f6' }}>
-                      {workspace?.shopifyConfig?.shopName || workspace?.name || 'Jourvance Studio'}
-                    </span>
-                    <span style={{ fontSize: '11px', color: '#6b7280' }}>10:42 AM</span>
-                  </div>
-                  <div style={{ fontWeight: 600, color: '#ffffff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {broadcastSubject.trim() || 'Your subject line'}
-                  </div>
-                  <div style={{ color: '#9ca3af', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '1px' }}>
-                    {broadcastPreviewText.trim()
-                      ? broadcastPreviewText.trim()
-                      : (broadcastBody.trim().slice(0, 90) || 'Your preview text')}
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase' }}>
-                    Letter & Offer Content
-                  </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <span style={{ fontSize: '11px', color: '#6b7280' }}>Insert:</span>
-                    {[
-                      { label: '{{first_name}}', code: '{{first_name}}' },
-                      { label: '{{store_name}}', code: '{{store_name}}' },
-                      { label: '{{discount_code}}', code: '{{discount_code}}' },
-                      { label: '{{email}}', code: '{{email}}' }
-                    ].map(tok => (
-                      <button
-                        key={tok.code}
-                        type="button"
-                        onClick={() => setBroadcastBody(prev => `${prev} ${tok.code}`)}
-                        style={{
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          border: '1px solid rgba(236, 72, 153, 0.3)',
-                          backgroundColor: 'rgba(236, 72, 153, 0.08)',
-                          color: '#f9a8d4',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {tok.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <textarea
-                  rows={6}
-                  placeholder="Write your email announcement or special offer details..."
-                  value={broadcastBody}
-                  onChange={e => setBroadcastBody(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                    border: '1px solid rgba(255, 255, 255, 0.12)',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    outline: 'none',
-                    resize: 'vertical'
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowBroadcastModal(false)}
-                  style={{
-                    padding: '10px 16px',
-                    backgroundColor: 'transparent',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    color: '#9ca3af',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={sendingBroadcast}
-                  style={{
-                    padding: '10px 20px',
-                    backgroundColor: sendMode === 'shopify_push' ? '#2563eb' : '#ec4899',
-                    border: 'none',
-                    color: '#ffffff',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: sendingBroadcast ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: sendMode === 'shopify_push' ? '0 4px 14px rgba(37, 99, 235, 0.35)' : '0 4px 14px rgba(236, 72, 153, 0.35)'
-                  }}
-                >
-                  {sendingBroadcast ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
-                  <span>
-                    {sendingBroadcast
-                      ? 'Processing...'
-                      : sendMode === 'shopify_push'
-                      ? 'Tag contacts here'
-                      : sendWhen === 'now'
-                      ? 'Send now'
-                      : 'Schedule'}
-                  </span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
       {/* Export Flow to Klaviyo / Shopify Email Modal */}
       {exportModalFlow && (
         <div
@@ -2918,7 +2385,7 @@ ${unsub}`;
                     Export Flow: {exportModalFlow.name}
                   </h3>
                   <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#9ca3af' }}>
-                    Pre-formatted Liquid merge tags ready to paste into your ESP campaign builder.
+                    Liquid merge tags, ready to paste into an email in Klaviyo or Shopify Email.
                   </p>
                 </div>
               </div>
@@ -3002,7 +2469,7 @@ ${unsub}`;
                 }}
               >
                 {copiedExportKey === 'all' ? <Check size={12} /> : <Copy size={12} />}
-                <span>{copiedExportKey === 'all' ? 'All Steps Copied!' : `Copy Entire Sequence (${exportModalFlow.steps.length} Emails)`}</span>
+                <span>{copiedExportKey === 'all' ? 'All Steps Copied!' : `Copy the whole flow (${exportModalFlow.steps.length} emails)`}</span>
               </button>
             </div>
 
@@ -3102,7 +2569,7 @@ ${unsub}`;
               }}
             >
               <span style={{ fontSize: '11px', color: '#64748B' }}>
-                💡 Tip: Paste subject lines into your campaign settings and the body into the text block.
+                💡 Tip: Paste each subject line into that email's settings and the body into its text block.
               </span>
               <button
                 type="button"
@@ -3235,7 +2702,7 @@ ${unsub}`;
                   Where to configure your Webhook URL:
                 </span>
                 <span style={{ fontSize: '12px', color: '#94A3B8', lineHeight: 1.4 }}>
-                  In your Jourvance Funnel Canvas, click on any <strong>Landing Page Node</strong> &rarr; scroll to <strong>Outbound Webhook Relay</strong> &rarr; paste your Klaviyo Webhook Trigger, Zapier Catch Hook, or Make webhook URL.
+                  In your Jourvance Funnel Canvas, click on any <strong>Landing Page Node</strong> &rarr; scroll to <strong>Outbound Webhook Relay</strong> &rarr; paste the webhook address from Klaviyo, a Zapier Catch Hook, or Make.
                 </span>
               </div>
             </div>

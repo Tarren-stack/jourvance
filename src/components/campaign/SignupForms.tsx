@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
+import { FORMS_LIST, FORMS_READ, LIST_LOADING, readOutcome, studioRead, type ListState } from '../../lib/studioLoad';
+import { StudioListLine } from './StudioListLine';
 import { NEW_FORM_COPY, SIGNUP_PRESETS, type SignupPreset } from '../../lib/offerPresets';
 
 type FormType = 'popup' | 'bar' | 'embed' | 'flyout' | 'page';
@@ -80,16 +82,21 @@ export const SignupForms: React.FC = () => {
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const [previewForm, setPreviewForm] = useState<SignupForm | null>(null);
+  // D6 (Wave 6): "No sign-up forms yet" only of a list the server answered with; a failed read keeps
+  // the forms on screen and says so.
+  const [formsLoad, setFormsLoad] = useState<ListState>(LIST_LOADING);
 
   const load = async () => {
     setLoading(true);
     try {
-      const data = await readJson(await fetch('/api/email/forms', { headers: await authHeaders() }));
-      setForms(Array.isArray(data?.forms) ? data.forms : []);
-      setHubForms(Array.isArray(data?.hubForms) ? data.hubForms.length : 0);
-      setHubError(data?.hubError || '');
-    } catch {
-      setHubError('Failed to load signup forms. Please check your connection.');
+      const read = await studioRead('/api/email/forms', await authHeaders());
+      const outcome = readOutcome(read, FORMS_READ, (data) => Array.isArray(data.forms));
+      setFormsLoad(outcome);
+      if (outcome.state === 'loaded' && read.answered) {
+        setForms(read.data.forms);
+        setHubForms(Array.isArray(read.data.hubForms) ? read.data.hubForms.length : 0);
+        setHubError(read.data.hubError || '');
+      }
     } finally {
       setLoading(false);
     }
@@ -103,7 +110,7 @@ export const SignupForms: React.FC = () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({
-        name: `${typeLabel} Campaign`,
+        name: `${typeLabel} form`,
         type,
         ...NEW_FORM_COPY,
         coupon: null,
@@ -242,6 +249,8 @@ export const SignupForms: React.FC = () => {
 
       {/* Forms List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        {formsLoad.state === 'loading' && <StudioListLine line={{ kind: 'loading', text: FORMS_LIST.loading }} />}
+        {formsLoad.state === 'failed' && <StudioListLine line={{ kind: 'failed', text: formsLoad.text, retry: formsLoad.retry }} onRetry={load} busy={loading} />}
         {forms.map((form) => (
           <FormCard
             key={form.id}
@@ -252,10 +261,10 @@ export const SignupForms: React.FC = () => {
           />
         ))}
 
-        {!forms.length && !loading && (
-          <div style={{ textAlign: 'center', padding: '40px 0', backgroundColor: '#121217', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.06)', color: '#94a3b8' }}>
+        {!forms.length && formsLoad.state === 'loaded' && (
+          <div data-studio-state="empty" style={{ textAlign: 'center', padding: '40px 0', backgroundColor: '#121217', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.06)', color: '#94a3b8' }}>
             <Layers size={32} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
-            <div style={{ fontSize: '14px', fontWeight: 600, color: '#ffffff' }}>No signup forms active yet</div>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: '#ffffff' }}>{FORMS_LIST.empty}</div>
             <div style={{ fontSize: '12px', marginTop: '4px' }}>Choose a starter form above or click + Center Popup to build your first storefront form.</div>
           </div>
         )}
@@ -469,10 +478,10 @@ const FormCard: React.FC<{
             </div>
           </div>
 
-          {/* Behavioral Triggers */}
+          {/* Targeting and when it shows (D2: never "trigger") */}
           <div style={{ backgroundColor: '#1e293b', padding: '14px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', marginBottom: '10px' }}>
-              Targeting & Behavioral Triggers
+              Targeting & When It Shows
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
               <label style={{ fontSize: '12px', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>

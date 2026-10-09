@@ -698,7 +698,7 @@ before it merges, because it changes what live leads receive.
 | 2 | done 2026-10-08, owner said go | audit entry (Email Studio, Wave 2): drafts skipped, per-account switch at all seven enrolment writes plus the cart reminders; tsc exit 0, npm test 2612 (2609 pass, 0 fail, 3 skipped), studio browser check 34 of 34, builder check 40 of 40, vite build exit 0, all re-run by the main session |
 | 3 | done 2026-10-08, commit a90f6bb | audit entry (Email Studio, Waves 3 and 4): five destinations, keyboard tablist; browser steps nav-five, nav-moved, nav-keyboard, nav-active, nav-390, nav-from-step |
 | 4 | done 2026-10-08, commit a90f6bb | same audit entry: one Flows list, order emails as flows, editor beside the map; tsc exit 0, npm test 2586 (2583 pass, 0 fail, 3 skipped), studio browser check 32 of 32, builder check 40 of 40, check:canvas green, vite build exit 0, all re-run by the main session |
-| 5 | not started | |
-| 6 | not started | |
+| 5 | done 2026-10-09 | audit entry (Email Studio, Waves 5 and 6): one broadcast composer with the builder, drafts route, Builder tab retired; six browser steps |
+| 6 | done 2026-10-09 | same audit entry: studioLoad rules, one line per list, vocabulary pin; tsc exit 0, npm test 2666 (2663 pass, 0 fail, 3 skipped), studio browser check 48 of 48 three times, builder check 40 of 40, vite build exit 0, all re-run by the main session; the studio check flaked for the agents (cause unknown) |
 | 7 | not started | |
 | 8 | not started | |

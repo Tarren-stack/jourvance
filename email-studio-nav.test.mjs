@@ -181,7 +181,8 @@ test('studio copy names a place as "in <destination>, <section>", and never as "
   const files = {
     'HubEmailSuite.tsx': suite,
     'EmailFlowMap.tsx': read('./src/components/campaign/EmailFlowMap.tsx'),
-    'EmailPrograms.tsx': read('./src/components/campaign/EmailPrograms.tsx'),
+    // Wave 5: the composer took EmailPrograms.tsx's place (its Builder mode), and that file is gone.
+    'BroadcastComposer.tsx': read('./src/components/campaign/BroadcastComposer.tsx'),
     'EmailFlowsList.tsx': read('./src/components/campaign/EmailFlowsList.tsx'),
     'EmailStepPreview.tsx': read('./src/components/campaign/EmailStepPreview.tsx')
   };

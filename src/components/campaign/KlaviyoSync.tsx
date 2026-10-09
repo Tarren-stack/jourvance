@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
+import { KLAVIYO_READ, LIST_LOADING, readOutcome, studioRead, type ListState } from '../../lib/studioLoad';
+import { StudioListLine } from './StudioListLine';
 
 type KlaviyoFlow = {
   id: string;
@@ -48,12 +50,20 @@ export const KlaviyoSync: React.FC = () => {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // D6 (Wave 6): "Not connected" is said only of a connection the server answered about; a failed read
+  // says it failed, with Retry where retrying can help.
+  const [read, setRead] = useState<ListState>(LIST_LOADING);
+  const [reading, setReading] = useState(false);
+
   const load = async () => {
+    setReading(true);
     try {
-      const data = await readJson(await fetch('/api/klaviyo', { headers: await authHeaders() }));
-      if (data?.klaviyo) setState(data.klaviyo);
-    } catch {
-      setNotice('Klaviyo integration status could not be loaded.');
+      const answer = await studioRead('/api/klaviyo', await authHeaders());
+      const outcome = readOutcome(answer, KLAVIYO_READ, (data) => Boolean(data.klaviyo && typeof data.klaviyo === 'object'));
+      setRead(outcome);
+      if (outcome.state === 'loaded' && answer.answered) setState(answer.data.klaviyo);
+    } finally {
+      setReading(false);
     }
   };
 
@@ -116,7 +126,7 @@ export const KlaviyoSync: React.FC = () => {
       if (data?.klaviyo) setState(data.klaviyo);
       setNotice(data?.error || (sendWith === 'klaviyo'
         ? 'Klaviyo will send. Jourvance keeps the pages and the map.'
-        : 'Jourvance will send the letters you turn on here.'));
+        : 'Jourvance will send the emails you turn on here.'));
     } finally {
       setBusy(false);
     }
@@ -141,7 +151,7 @@ export const KlaviyoSync: React.FC = () => {
       <div>
         <h2 style={{ margin: 0, fontSize: 18, color: '#f3f4f6' }}>Klaviyo</h2>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: '#9ca3af', maxWidth: 680 }}>
-          Jourvance already has its own email suite. Klaviyo is optional. Connect a private key from Klaviyo → Settings → API keys when you want to copy that account in. Sync rebuilds each flow here and leaves it off. Waits stay waits. Both sides of a split are kept. A tag or a predictive split that could not be translated is named in the flow note. A profile push does not subscribe anyone, and the Klaviyo flow is left as it is.
+          Jourvance already has its own email suite. Klaviyo is optional. Connect a private key from Klaviyo → Settings → API keys when you want to copy that account in. Sync rebuilds each flow here and leaves it off. Waits stay waits. Both sides of a split are kept. A tag or a predictive split that could not be translated is named on the flow. A profile push does not subscribe anyone, and the Klaviyo flow is left as it is.
         </p>
       </div>
       <div style={card}>
@@ -158,10 +168,18 @@ export const KlaviyoSync: React.FC = () => {
           />
           <button type="button" style={solidBtn} disabled={busy} onClick={connect}>{busy ? 'Checking…' : 'Connect'}</button>
         </div>
+        {read.state === 'failed' && (
+          <div style={{ marginTop: 8 }}>
+            <StudioListLine line={{ kind: 'failed', text: read.text, retry: read.retry }} onRetry={load} busy={reading} />
+          </div>
+        )}
+        {read.state === 'loading' && !state && <StudioListLine line={{ kind: 'loading', text: 'Loading the Klaviyo connection.' }} />}
+        {state && (
         <p style={{ margin: '8px 0 0', fontSize: 13, color: '#e5e7eb' }}>
-          {state?.connected ? `Connected${state.accountName ? ` · ${state.accountName}` : ''}.` : 'Not connected.'}
-          {state?.lastSyncAt ? ` Last sync ${state.lastSyncAt}.` : ''}
+          {state.connected ? `Connected${state.accountName ? ` · ${state.accountName}` : ''}.` : 'Not connected.'}
+          {state.lastSyncAt ? ` Last sync ${state.lastSyncAt}.` : ''}
         </p>
+        )}
         {state?.connected && (
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
             <button type="button" style={solidBtn} disabled={busy} onClick={sync}>{state.moreProfiles ? 'Continue sync' : 'Sync and rebuild'}</button>
@@ -178,7 +196,7 @@ export const KlaviyoSync: React.FC = () => {
           </div>
           <p style={{ margin: '8px 0 0', fontSize: 13, color: '#9ca3af' }}>
             {state.sendWith === 'klaviyo'
-              ? 'This is the extra choice. An email node linked to a live Klaviyo flow adds the person to that flow’s list, or sends the event that starts it. Jourvance does not also send that sequence. Letters already waiting here stay waiting.'
+              ? 'This is the extra choice. An email node linked to a live Klaviyo flow adds the person to that flow’s list, or sends the event that starts it. Jourvance does not also send that flow. Emails already waiting here stay waiting.'
               : 'This is the normal choice. Jourvance sends the flows you turn on, including ones rebuilt from Klaviyo. People who start on a page can still be pushed to Klaviyo as profiles, without being subscribed.'}
           </p>
           {state.catalogError && <p style={{ margin: '8px 0 0', fontSize: 13, color: '#d1d5db' }}>{state.catalogError}</p>}

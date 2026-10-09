@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson } from './emailChrome';
+import { LISTS_LIST, LIST_LOADING, SEGMENTS_READ, listLine, readOutcome, studioRead, type ListState } from '../../lib/studioLoad';
+import { StudioListLine } from './StudioListLine';
 
 type Segment = { id: string; name: string; definition?: string; description?: string; count: number; builtin?: boolean };
 type List = { id: string; name: string; count: number };
@@ -15,17 +17,28 @@ export const AudienceDesk: React.FC = () => {
   const [segmentName, setSegmentName] = useState('');
   const [clauses, setClauses] = useState<Clause[]>([{ kind: 'profile', field: 'email', op: 'eq', value: '' }]);
 
+  // D6 (Wave 6): "No lists on this account yet" only of lists the server answered with; a failed read
+  // keeps what was shown and says so.
+  const [segmentsLoad, setSegmentsLoad] = useState<ListState>(LIST_LOADING);
+  const [listsLoad, setListsLoad] = useState<ListState>(LIST_LOADING);
+  const [reading, setReading] = useState(false);
+
   const load = async () => {
+    setReading(true);
     try {
       const headers = await authHeaders();
-      const [segmentData, listData] = await Promise.all([
-        readJson(await fetch('/api/email/segments', { headers })),
-        readJson(await fetch('/api/email/lists', { headers }))
+      const [segmentRead, listRead] = await Promise.all([
+        studioRead('/api/email/segments', headers),
+        studioRead('/api/email/lists', headers)
       ]);
-      setSegments(Array.isArray(segmentData?.segments) ? segmentData.segments : []);
-      setLists(Array.isArray(listData?.lists) ? listData.lists : []);
-    } catch {
-      setNotice('Audience data could not be loaded.');
+      const segmentOutcome = readOutcome(segmentRead, SEGMENTS_READ, (data) => Array.isArray(data.segments));
+      const listOutcome = readOutcome(listRead, SEGMENTS_READ, (data) => Array.isArray(data.lists));
+      setSegmentsLoad(segmentOutcome);
+      setListsLoad(listOutcome);
+      if (segmentOutcome.state === 'loaded' && segmentRead.answered) setSegments(segmentRead.data.segments);
+      if (listOutcome.state === 'loaded' && listRead.answered) setLists(listRead.data.lists);
+    } finally {
+      setReading(false);
     }
   };
 
@@ -96,6 +109,9 @@ export const AudienceDesk: React.FC = () => {
           Adding someone to a list can start a flow once. Removing them does not unsubscribe them. A segment records an entry when someone newly matches. Klaviyo list names already stored as tags are not turned into lists.
         </p>
       </div>
+      {/* One line for both reads: they fail together when signed out or when the server is down. */}
+      {segmentsLoad.state === 'failed' && <StudioListLine line={{ kind: 'failed', text: segmentsLoad.text, retry: segmentsLoad.retry }} onRetry={load} busy={reading} />}
+      {segmentsLoad.state !== 'failed' && listsLoad.state === 'failed' && <StudioListLine line={{ kind: 'failed', text: listsLoad.text, retry: listsLoad.retry }} onRetry={load} busy={reading} />}
       <div style={card}>
         <div style={label}>Built-in segments</div>
         {segments.filter((segment) => segment.builtin !== false && !segment.id.startsWith('seg_')).map((segment) => (
@@ -120,7 +136,10 @@ export const AudienceDesk: React.FC = () => {
             </div>
           </div>
         ))}
-        {!lists.length && <p style={{ margin: '8px 0 0', fontSize: 13, color: '#9ca3af' }}>No lists on this account yet.</p>}
+        {(() => {
+          const line = listLine(listsLoad, lists.length, LISTS_LIST);
+          return line.kind === 'empty' || line.kind === 'loading' ? <p data-studio-state={line.kind} style={{ margin: '8px 0 0', fontSize: 13, color: '#9ca3af' }}>{line.text}</p> : null;
+        })()}
       </div>
       <div style={card}>
         <div style={label}>New segment</div>

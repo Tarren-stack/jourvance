@@ -56,7 +56,8 @@ test('the flow map and the suite print their stats through the shared helper', (
   for (const needle of ['statText(b.sent', 'statText(b.opened)', 'statText(b.clicked)', 'moneyText(b.revenue)', 'statText(b.delivered)', 'statText(b.unsubscribed)', 'moneyText(b.holdoutReport.sent.perPerson)', 'moneyText(b.holdoutReport.held.perPerson)', 'statText(value,']) {
     assert.ok(suite.includes(needle), `suite uses ${needle}`);
   }
-  assert.match(suite, /withNote\(`\$\{seg\.name\} \(\$\{seg\.count\} contacts\)`, seg\.definition \|\| seg\.description\)/);
+  // Wave 5: the segment picker moved from the retired broadcast modal into the composer.
+  assert.match(read('./src/components/campaign/BroadcastComposer.tsx'), /withNote\(`\$\{seg\.name\} \(\$\{seg\.count\} contacts\)`, seg\.definition \|\| seg\.description\)/);
   // No hand-rolled null check left that prints a placeholder string of its own.
   for (const [name, src] of [['EmailFlowMap.tsx', map], ['HubEmailSuite.tsx', suite]]) {
     assert.doesNotMatch(src, /== null \? '[^']{0,3}' :/, `${name} has a hand-rolled placeholder`);

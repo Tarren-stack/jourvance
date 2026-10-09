@@ -4,6 +4,82 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-08. DEPLOYED: jourvance.com serves 4b1cf75 (the motion pass, the countdown dip removed, on top of the lead-capture fix, the Sentinel and the page builder Waves 0 to 3). Render reported it live and the two earlier deploys deactivated; the Sentinel, policy and lead probes answer as before. A bundle fingerprint for the motion code was inconclusive (no lazy chunk names found), not failed. Read the newest section first.
 
+## 2026-10-09: Email Studio, Waves 5 and 6: Broadcasts with the builder, honest states, one vocabulary
+
+**Not done first.** FLAKE. The studio browser check is not reliably green: the Wave 6 fix agent saw
+4 of 20 runs fail one step on a Playwright click timeout (a different step each time) and two
+runs hang in teardown with the Vite preview still listening; HEAD `6ac2c13`, extracted with `git
+archive`, failed 1 of 5 runs the same way, so the click flake is older than this wave. The cause
+is UNKNOWN. The check now prints the end of Playwright's call log on a timeout so the next red
+run can be read. The verifier's last run before the main session's own re-run reported the studio
+check at 45 of 48 (one click timeout) and the page builder check at 20 of 40 (`inline-escape`
+red, every later step skipped); the main session's own runs are in the table below and are the
+ones this entry stands on. No screen reader was used. `server.mjs` was never booted; every server
+change was driven by slicing its code into tests on a bare Express app. Moving away from Email
+Studio inside the app with an unsaved broadcast draft still does not ask (the `beforeunload`
+guard covers reload and tab close only; an in-app guard belongs in `App.tsx`). The seeded email
+subjects and bodies still say "note" and "sequence" (owner question below). "Automatic" and
+"automatically" are kept as plain words. Whether a loading line that mounts already filled is
+announced by a screen reader is UNKNOWN.
+
+**Wave 5, Broadcasts with the builder** (Opus builder, Sonnet verifier, two Sonnet lenses, Opus
+fix round): New broadcast opens one composer (`BroadcastComposer.tsx` over
+`src/lib/broadcastComposer.ts`): Subject, Preview text, the block builder with the saved-block
+library, Send to and Leave out with the counts the server reported, skip-recent, When (now, a
+clock time, gradual, each person's hour), A/B, Holdout, the text add-on, UTM, Preview at desktop
+and mobile width, Check this email, Send a test to me, Save draft, and Send now or Schedule behind
+a confirm that names the segment or list and the count the server reported, never an unmeasured
+number. It posts `blocks` to `POST /api/email/campaign/send`, never a flattened body. Drafts:
+`server/routes/broadcastDraftRoutes.mjs` (GET, POST, DELETE at `/api/email/broadcast-drafts`,
+`requireUser`, stored in the account's program record on both field lists with the
+`writeUserPrograms` opt-in, 20 drafts and 64 KB each, the same 404 for a missing and a foreign
+draft, a draft over a cap refused with 413 rather than clipped). The textarea modal and
+`EmailPrograms.tsx` are gone; the legacy `builder` key lands on New broadcast. From the review:
+`campaign/send` refuses an email whose subject and blocks are empty (also when a text is
+attached); `POST /api/email/send` always names the caller's own account so a test leaves from the
+merchant's sender and a body cannot name another account; a schedule more than five minutes in
+the past is refused (the five minutes is the agent's choice); a `requestId` makes a repeated send
+a refusal; Send waits until the audience count has loaded; the preview says when it is stale;
+reload and tab close ask about an unsaved draft.
+
+**Wave 6, honest states and one vocabulary** (Opus builder, Sonnet verifier, two Sonnet lenses,
+Opus fix round): `src/lib/studioLoad.ts` holds the one rule and the words: every read is loading,
+loaded or failed, a list says its empty sentence only from a list that loaded, Retry is offered
+only where it can help (never on a 401, never on "not connected"), and each Retry names what it
+retries. `StudioListLine.tsx` draws the one line each list shows. `loadData` in
+`HubEmailSuite.tsx` catches nothing into `{}` any more. Sign-in and failure sentences exist for
+every destination. Replies, Texts and Sending raise one alert per cause. The D2 vocabulary is
+applied across the studio's visible strings and the server sentences the studio shows (the
+starter flow is seeded "Welcome flow" and an existing "Welcome sequence" row is renamed by an
+exact-match migration; the built-in descriptions no longer say "note" or "queue tick"); a
+vocabulary test pins the retired words out of the studio files and the seeds, keeping the page
+title, "Follow-Up Sequence", "UTM campaign" and the two default new-email subjects.
+
+**Checks the main session re-ran** (VERIFIED, exit codes read directly, one after another):
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npm test` | 2666 tests, 2663 pass, 0 fail, 3 skipped (the live-server tests, `JOURVANCE_LIVE_TEST_URL` unset); exit 0 |
+| `node scripts/email-studio-browser-check.mjs` | 48 of 48 steps in each of three consecutive runs, exit 0 each time (no leftover preview or Chrome process was running; the verifier's red runs came after the fix agent's hung runs, which is INFERRED, not shown) |
+| `node scripts/builder-browser-check.mjs` | 40 of 40 steps, exit 0 |
+| `npx vite build` | exit 0 |
+
+**Reported by the agents, not re-run by the main session:** the planted reds (Wave 5: the
+drafts ownership filter, dropped `blocks`, the `setBroadcast` repoint, six browser steps, and 23
+fix-round plants; Wave 6: the Inbox "No replies" plant, a retired word put back, the states
+browser steps, and the fix round's plants; each restored and confirmed with `cmp`); the four
+review lenses (Wave 5: 5 majors and 7 minors, all majors fixed, six minors fixed and one in part;
+Wave 6: 3 majors and 9 minors, majors fixed for the flow name, the verb "automate" and the Retry
+names, the rest fixed, partly fixed or refuted as the audit's "not done" says).
+
+**Owner questions from these waves:** keep the five-minute grace on a scheduled time in the
+past; reword the seeded email subjects and bodies that still say "note" and "sequence" (they are
+merchant-visible defaults, and the drafts are skipped until edited anyway); retire "the queue" in
+the editor's four sentences as the agent did.
+
+---
+
 ## 2026-10-08: Email Studio, Wave 2: unedited starter drafts are skipped, a starter flow can be turned off
 
 **Owner decision (2026-10-08, "wave 2 go"):** plan question 1 answered yes. A starter email still in
