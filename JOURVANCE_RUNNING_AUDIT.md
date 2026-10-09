@@ -4,6 +4,78 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-08. DEPLOYED: jourvance.com serves 4b1cf75 (the motion pass, the countdown dip removed, on top of the lead-capture fix, the Sentinel and the page builder Waves 0 to 3). Render reported it live and the two earlier deploys deactivated; the Sentinel, policy and lead probes answer as before. A bundle fingerprint for the motion code was inconclusive (no lazy chunk names found), not failed. Read the newest section first.
 
+## 2026-10-08: Email Studio, Waves 3 and 4: five destinations, one Flows list, the editor beside the map
+
+**Not done first.** This entry was written in the commit after a90f6bb, not in it: the insert script stopped on another session's new section and the commit went ahead without it. No screen reader was used (DOM and Chrome only). The server changes were
+driven on a bare Express app with code sliced out of `server.mjs`, never in a booted server (by
+rule, see the Wave 1 section). Still open after these waves: a stale background tick can revert a
+built-in flow's Turn on or Turn off (INFERRED by the fix agent from `writeUserPrograms`; starter
+emails, built-in steps and order emails are protected, `enabled` on a built-in flow is not);
+switching a section tab with unsaved map edits still does not ask; `SequenceEditor.tsx` still says
+"on the Klaviyo tab" three times (D8 keeps that drawer for Wave 7); the D6 empty-list sentence is
+not written (Wave 6); the retired word "trigger" remains at one line of `EmailFlowMap.tsx`.
+
+**Wave 3, five destinations** (built by Opus, verified by Sonnet, two Sonnet review lenses, an
+Opus fix round): `src/lib/emailStudioNav.ts` holds the destinations (Flows, Broadcasts, Audience,
+Results, Settings), their sections, `LEGACY_TAB` for all twelve old keys, and the arrow-key rule.
+The strip in `HubEmailSuite.tsx` is a `role="tablist"` of five tabs with `aria-selected`,
+`aria-controls`, a roving tab index and Left, Right, Home and End, with a second tablist per
+destination; every old panel sits under it unchanged inside. The Hub Engine badge is gone. Run
+Queue Tick is "Send due emails now" under Settings, Advanced, with Webhooks; Abandoned checkouts
+is under Audience, Open checkouts. Measured in Chrome by the builder (reported, not re-measured):
+the selected tab reads 6.62 to 1, the strip takes two rows at 390 px with no horizontal scroll,
+and Tab from the All flows tab reaches "Edit emails" in one press where it took twelve.
+
+The verifier's one red on Wave 3 (the keyboard step, a step hidden at the moment of focus) was a
+race in the browser check against React Flow's first measurement, reproduced by the fix agent with
+a planted 400 ms ResizeObserver delay and fixed in the check with a bounded wait plus a
+MutationObserver that asserts a measured step is never drawn hidden. The product was not changed
+for it.
+
+**Wave 4, one Flows list** (same shape of agents): `GET /api/email/flow-map` now lists the four
+order emails last as one-email flows (`presentOrderEmailRow`, kind `order`), so the studio lists
+every flow from one read. `src/lib/emailFlowsList.ts` builds one row per flow: name, tag
+(Starter, Built in, Order email, or none), "Starts when" from `TRIGGER_META`, On or Off, the email
+count from the real steps, enrolled through `statText`. `EmailFlowsList.tsx` draws it with New
+flow, a switch for an account's own flow, and "Edit emails" on each row. The duplicate starter
+cards, the duplicate rows, `AutomationCard` and `LetterCard` are removed; `EmailPrograms.tsx`
+keeps only the Builder mode. The editor puts the step panel beside the map at 900 px and wider and
+below it narrower, folds flow settings under "Flow settings", and Delete asks first naming the
+flow, then moves focus to the map heading. The flow-content route saves an order email's subject
+and blocks the way `POST /api/email/programs/:id` does (blank subject keeps the stored one, blocks
+through `cleanBlocks`, `enabled` kept, a wait refused), with the same 404 for a bad or foreign id.
+`writeUserPrograms` keeps a stored order email unless the caller passes `edits.transactional`,
+and `sendTransactional` re-reads the record before writing its dedupe key, so an order send in
+flight no longer reverts a fresh edit (the tenancy reviewer's major finding; a test drives the
+real `sendTransactional` with delivery held while an edit lands).
+
+**Checks the main session re-ran** (VERIFIED, exit codes read directly, one after another):
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npm test` | 2586 tests, 2583 pass, 0 fail, 3 skipped (the live-server tests, `JOURVANCE_LIVE_TEST_URL` unset); exit 0 |
+| `node scripts/email-studio-browser-check.mjs` | 32 of 32 steps, exit 0 |
+| `node scripts/builder-browser-check.mjs` | 40 of 40 steps, exit 0 |
+| `npm run check:canvas` | overflow, drawers, save, a11y, runtime PASS; 24 of 24 keyboard checks; 62 contrast items unmeasured (not passes); exit 0 |
+| `npx vite build` | exit 0 |
+
+**Reported by the agents, not re-run by the main session:** the planted reds (Wave 3: the
+`sending` key, the focus call, the ArrowLeft rule, the badge size, and one plant per new browser
+step; Wave 4: a constant email count, the order-email tenancy filter, the stale write, the column
+layout at every width, and one per new browser step; each restored and confirmed with `cmp`
+except two the builder restored by re-inserting the line and checked with `diff`); the review
+findings (Wave 3: 8 minors, 5 fixed and 3 refuted as later waves' scope; Wave 4: 2 majors and 6
+minors, both majors and 5 minors fixed, the rest refuted or deferred as listed above).
+
+**Pins rewritten beyond D9's one-line changes,** because Wave 4 removes what they pinned:
+`email-studio-open.test.mjs` (four tests repointed from the removed cards to the list),
+`email-studio-nav.test.mjs` (the All flows heading now read from `EmailFlowsList.tsx`),
+`email-stats.test.mjs` (the `statText` needle now reads `EmailFlowsList.tsx` and asserts at least
+one match). Each rewritten pin was seen red (reported).
+
+---
+
 ## 2026-10-08: About page commit and push verification
 
 **Limits first:** 3 live-server tests were skipped because `JOURVANCE_LIVE_TEST_URL`

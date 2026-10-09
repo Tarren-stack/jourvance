@@ -696,8 +696,8 @@ before it merges, because it changes what live leads receive.
 | Plan | written 2026-10-08, reviewed by the main session; owner questions answered by default | this file |
 | 1 | done 2026-10-08 | audit entry (Email Studio, Wave 1): tsc exit 0, npm test 2553 (2550 pass, 0 fail, 3 skipped), email-studio browser check 17 of 17, builder check 40 of 40, vite build exit 0, all re-run by the main session; planted reds and three review lenses reported by the agents |
 | 2 | not started | |
-| 3 | not started | |
-| 4 | not started | |
+| 3 | done 2026-10-08, commit a90f6bb | audit entry (Email Studio, Waves 3 and 4): five destinations, keyboard tablist; browser steps nav-five, nav-moved, nav-keyboard, nav-active, nav-390, nav-from-step |
+| 4 | done 2026-10-08, commit a90f6bb | same audit entry: one Flows list, order emails as flows, editor beside the map; tsc exit 0, npm test 2586 (2583 pass, 0 fail, 3 skipped), studio browser check 32 of 32, builder check 40 of 40, check:canvas green, vite build exit 0, all re-run by the main session |
 | 5 | not started | |
 | 6 | not started | |
 | 7 | not started | |
