@@ -19,7 +19,10 @@ import {
 } from '../../lib/pageCopyProposal';
 import { CopyProposalCard } from './CopyProposalCard';
 import { authHeaders } from '../../lib/firebase';
-import { STUDIO_NOT_OPENED, emailStudioButtonLabel } from '../../lib/editorReturn';
+import {
+  STUDIO_NOT_OPENED, LINKED_FLOW_MISSING, LINKED_FLOW_UNREAD, FLOW_BUILDING, FLOW_NOT_BUILT_UNANSWERED, emailStudioButtonLabel, flowFromStepLetters,
+  flowNotBuilt, flowStartForStep, linkedFlowEmails, linkedLettersNote, stepLettersSource, type StepFlowLink
+} from '../../lib/editorReturn';
 import { useFieldIds } from '../../lib/a11yHooks';
 import { sequencePreset, fillVoucherCode, type SequencePresetType } from '../../lib/sequencePresets';
 
@@ -37,7 +40,15 @@ interface Props {
   openingEmailStudio?: boolean;
   /** True once, when the user came back from Email Studio to this step. */
   focusStudioButton?: boolean;
+  /**
+   * Build a flow (Wave 7): this editor has made the flow from the step's letters; App links the step
+   * to it, saves, then opens Email Studio on it. Resolves false when the save did not land.
+   */
+  onBuildEmailFlow?: (flow: StepFlowLink) => Promise<boolean>;
 }
+
+/** A row of GET /api/email/flow-map that the flow picker and the linked flow's summary read. */
+type FlowRow = { id: string; name: string; enabled: boolean; nodes?: unknown[]; edges?: unknown[] };
 
 type KlaviyoChoice = {
   id: string;
@@ -57,7 +68,8 @@ export const SequenceEditor: React.FC<Props> = ({
   nodeId,
   onOpenEmailStudio,
   openingEmailStudio,
-  focusStudioButton
+  focusStudioButton,
+  onBuildEmailFlow
 }) => {
   const [activeStepIdx, setActiveStepIdx] = useState(0);
   const [loadingAI, setLoadingAI] = useState(false);
@@ -75,19 +87,81 @@ export const SequenceEditor: React.FC<Props> = ({
   const [klaviyoSendWith, setKlaviyoSendWith] = useState<'jourvance' | 'klaviyo'>('jourvance');
   const [klaviyoConnected, setKlaviyoConnected] = useState(false);
   const [klaviyoNotice, setKlaviyoNotice] = useState('');
-  const [jourvanceFlows, setJourvanceFlows] = useState<{ id: string; name: string; enabled: boolean }[]>([]);
+  const [jourvanceFlows, setJourvanceFlows] = useState<FlowRow[]>([]);
+  // The flow list is read once per open step. A summary is drawn only from a list that loaded, and a
+  // linked flow is called missing only then (D7 rule 5).
+  const [flowsLoad, setFlowsLoad] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  const [buildingFlow, setBuildingFlow] = useState(false);
   const studioButtonRef = useRef<HTMLButtonElement>(null);
   const [studioNotice, setStudioNotice] = useState('');
+  // Which button's sentence it is: the one under the flow picker, or the one in the linked flow's summary.
+  const [noticeAt, setNoticeAt] = useState<'picker' | 'summary'>('picker');
+  // Set in the click itself, before any await, and held until the open settles: a second press, in the
+  // same tick or while the build, the link or the save is on its way, does nothing (Wave 7 fix round).
+  const busyRef = useRef(false);
+  // The flow this step built, so a press after a failed link or save links it again and never posts a
+  // second flow. App links the step before it saves, so the step normally reads Edit by then.
+  const builtRef = useRef<StepFlowLink | null>(null);
 
   // Coming back from Email Studio hands focus to the button that left, once.
   useEffect(() => { if (focusStudioButton) studioButtonRef.current?.focus(); }, [focusStudioButton]);
 
   // Email Studio opens only after the journey saved. When it did not, focus stays on the button
-  // and one sentence says why.
-  const openStudio = async () => {
-    if (!onOpenEmailStudio || openingEmailStudio) return;
+  // and one sentence says why. A step with no flow builds one first (Wave 7).
+  const openStudio = async (at: 'picker' | 'summary' = 'picker') => {
+    if (!onOpenEmailStudio || openingEmailStudio || busyRef.current) return;
+    busyRef.current = true;
+    setNoticeAt(at);
     setStudioNotice('');
-    if (!(await onOpenEmailStudio())) setStudioNotice(STUDIO_NOT_OPENED);
+    try {
+      if (!data.jourvanceFlowId && onBuildEmailFlow) await buildFlow(onBuildEmailFlow);
+      else if (!(await onOpenEmailStudio())) setStudioNotice(STUDIO_NOT_OPENED);
+    } finally {
+      busyRef.current = false;
+    }
+  };
+
+  // Build a flow in Email Studio: the step's letters become a flow on the account (created off),
+  // then App links the step, saves the journey and opens the flow, so nobody comes back to choose it.
+  // A build the server refused says why and changes nothing. A built flow is never posted twice.
+  const buildFlow = async (linkAndOpen: (flow: StepFlowLink) => Promise<boolean>) => {
+    let flow = builtRef.current;
+    if (!flow) {
+      const plan = flowFromStepLetters(data);
+      if (!plan.ok) {
+        setStudioNotice(plan.error);
+        return;
+      }
+      setBuildingFlow(true);
+      try {
+        const res = await fetch('/api/email/flows', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+          body: JSON.stringify(plan.flow)
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body?.success && typeof body.flow?.id === 'string') {
+          const row: FlowRow = { id: body.flow.id, name: String(body.flow.name || plan.flow.name), enabled: body.flow.enabled === true, nodes: body.flow.nodes, edges: body.flow.edges };
+          flow = { id: row.id, name: row.name };
+          builtRef.current = flow;
+          setJourvanceFlows(rows => [row, ...rows.filter(r => r.id !== row.id)]);
+        } else {
+          setStudioNotice(flowNotBuilt(res.status, body?.error));
+        }
+      } catch {
+        setStudioNotice(FLOW_NOT_BUILT_UNANSWERED);
+      }
+    }
+    if (!flow) {
+      setBuildingFlow(false);
+      return;
+    }
+    setBuildingFlow(true);
+    try {
+      if (!(await linkAndOpen(flow))) setStudioNotice(STUDIO_NOT_OPENED);
+    } finally {
+      setBuildingFlow(false);
+    }
   };
 
   useEffect(() => {
@@ -101,15 +175,23 @@ export const SequenceEditor: React.FC<Props> = ({
           setKlaviyoSendWith(body.klaviyo.sendWith === 'klaviyo' ? 'klaviyo' : 'jourvance');
           setKlaviyoFlows(Array.isArray(body.klaviyo.flows) ? body.klaviyo.flows : []);
         }
+      } catch { /* the Klaviyo picker stays empty */ }
+      // Read on its own, so a Klaviyo read that fails never leaves the flow picker unread.
+      try {
         const map = await fetch('/api/email/flow-map', { headers: await authHeaders() });
         const flows = await map.json().catch(() => ({}));
-        if (!cancelled) {
-          const rows = Array.isArray(flows?.flows) ? flows.flows : [];
-          setJourvanceFlows(rows.filter((flow: { kind?: string }) => flow.kind === 'flow').map((flow: { id: string; name: string; enabled: boolean }) => ({
-            id: flow.id, name: flow.name, enabled: flow.enabled === true
-          })));
+        if (cancelled) return;
+        if (!map.ok || !Array.isArray(flows?.flows)) {
+          setFlowsLoad('failed');
+          return;
         }
-      } catch { /* the picker stays empty */ }
+        setJourvanceFlows(flows.flows.filter((flow: { kind?: string }) => flow.kind === 'flow').map((flow: FlowRow) => ({
+          id: flow.id, name: flow.name, enabled: flow.enabled === true, nodes: flow.nodes, edges: flow.edges
+        })));
+        setFlowsLoad('loaded');
+      } catch {
+        if (!cancelled) setFlowsLoad('failed');
+      }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -297,6 +379,13 @@ export const SequenceEditor: React.FC<Props> = ({
 
   const linked = klaviyoFlows.find((flow) => flow.id === data.klaviyoFlowId);
 
+  // Wave 7: a step linked to a flow sends that flow's emails. Its own letters are kept, and only
+  // Build a flow reads them, so Flow Steps shows the linked flow's emails, read only.
+  const linkedFlowId = String(data.jourvanceFlowId || '');
+  const linkedRow = linkedFlowId ? jourvanceFlows.find((flow) => flow.id === linkedFlowId) : undefined;
+  const linkedName = linkedRow?.name || data.jourvanceFlowName || 'the linked flow';
+  const linkedSummary = linkedRow ? linkedFlowEmails(linkedRow) : null;
+
   const chooseJourvanceFlow = (flowId: string) => {
     const chosen = jourvanceFlows.find((flow) => flow.id === flowId);
     onChange({ ...data, jourvanceFlowId: flowId, jourvanceFlowName: chosen?.name || '' });
@@ -308,7 +397,7 @@ export const SequenceEditor: React.FC<Props> = ({
         <div style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6' }}>Jourvance flow</div>
         <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af', lineHeight: 1.45 }}>
           {klaviyoSendWith === 'klaviyo'
-            ? 'Klaviyo is the sender, so the handoff below runs. This flow link stays saved until you choose Jourvance on the Klaviyo tab.'
+            ? 'Klaviyo is the sender, so the handoff below runs. This flow link stays saved until you choose Jourvance in Email Studio, under Settings, Klaviyo.'
             : 'A lead from this map and a form on its page join this flow once. The flow’s own trigger joins the same run. One person, one visitor id, one run. The flow sends after you turn it on. Enrolled, sent, clicked, and last-touch revenue here match the flow map. Opens stay blank until an open is stored.'}
         </p>
         <label style={{ fontSize: '11px', color: '#d1d5db' }}>
@@ -329,8 +418,8 @@ export const SequenceEditor: React.FC<Props> = ({
           <button
             ref={studioButtonRef}
             type="button"
-            onClick={openStudio}
-            aria-disabled={openingEmailStudio || undefined}
+            onClick={() => openStudio('picker')}
+            aria-disabled={openingEmailStudio || buildingFlow || undefined}
             style={{
               alignSelf: 'flex-start',
               padding: '6px 10px',
@@ -340,13 +429,17 @@ export const SequenceEditor: React.FC<Props> = ({
               color: '#FDE68A',
               fontSize: '12px',
               fontWeight: 700,
-              cursor: openingEmailStudio ? 'wait' : 'pointer'
+              cursor: openingEmailStudio || buildingFlow ? 'wait' : 'pointer'
             }}
           >
-            {openingEmailStudio ? 'Saving\u2026' : emailStudioButtonLabel(Boolean(data.jourvanceFlowId))}
+            {openingEmailStudio ? 'Saving\u2026' : buildingFlow ? 'Building the flow\u2026' : emailStudioButtonLabel(Boolean(data.jourvanceFlowId))}
           </button>
         )}
-        {onOpenEmailStudio && <p role="status" style={{ margin: 0, fontSize: '12px', color: '#FCA5A5' }}>{studioNotice}</p>}
+        {onOpenEmailStudio && (
+          <p role="status" style={{ margin: 0, fontSize: '12px', color: buildingFlow ? '#d1d5db' : '#FCA5A5' }}>
+            {buildingFlow ? FLOW_BUILDING : noticeAt === 'picker' ? studioNotice : ''}
+          </p>
+        )}
         {jourvanceFlows.length === 0 && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>This step waits until a flow is chosen.</p>}
       </div>
       <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.28)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -355,8 +448,8 @@ export const SequenceEditor: React.FC<Props> = ({
           {klaviyoConnected
             ? (klaviyoSendWith === 'klaviyo'
               ? 'Klaviyo is the sender. When someone reaches this node, Jourvance adds them to that flow’s list or sends the event that starts it. It does not subscribe them, and it does not turn the flow on.'
-              : 'Jourvance is the sender. This link is saved and waits until you choose Klaviyo on the Klaviyo tab.')
-            : 'Connect Klaviyo on the Klaviyo tab, then choose the flow this node should start.'}
+              : 'Jourvance is the sender. This link is saved and waits until you choose Klaviyo in Email Studio, under Settings, Klaviyo.')
+            : 'Connect Klaviyo in Email Studio, under Settings, Klaviyo, then choose the flow this node should start.'}
         </p>
         <label style={{ fontSize: '11px', color: '#d1d5db' }}>
           Klaviyo flow
@@ -466,6 +559,7 @@ export const SequenceEditor: React.FC<Props> = ({
       {/* EXPORT TAB */}
       {editorTab === 'export' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {linkedFlowId && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db', lineHeight: 1.45 }}>{linkedLettersNote(linkedName)}</p>}
           <div
             style={{
               padding: '14px',
@@ -606,6 +700,7 @@ export const SequenceEditor: React.FC<Props> = ({
       {/* PREVIEW TAB */}
       {editorTab === 'preview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {linkedFlowId && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db', lineHeight: 1.45 }}>{linkedLettersNote(linkedName)}</p>}
           {/* Step Selector for Preview */}
           <div role="group" aria-label="Letter to preview" style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
             {steps.map((step, idx) => (
@@ -689,7 +784,67 @@ export const SequenceEditor: React.FC<Props> = ({
       {/* SETTINGS TAB */}
       {editorTab === 'settings' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {/* E-Commerce Flow Presets Grid */}
+          {/* Wave 7: a linked step's Flow Steps are its flow's emails, read only, edited in Email Studio. */}
+          {linkedFlowId && (
+            <section
+              aria-labelledby={fid('linked-flow')}
+              style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.1)', display: 'flex', flexDirection: 'column', gap: '8px' }}
+            >
+              <div id={fid('linked-flow')} style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6', overflowWrap: 'anywhere' }}>
+                Emails in {linkedName}
+              </div>
+              <p style={{ margin: 0, fontSize: '11px', fontWeight: 600, color: '#CBD5E1' }}>Read only here. Edit these emails in Email Studio.</p>
+              {flowsLoad === 'loading' && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>{'Loading this flow’s emails.'}</p>}
+              {flowsLoad === 'failed' && <p style={{ margin: 0, fontSize: '12px', color: '#FCA5A5' }}>{LINKED_FLOW_UNREAD}</p>}
+              {flowsLoad === 'loaded' && !linkedRow && <p style={{ margin: 0, fontSize: '12px', color: '#FCA5A5' }}>{LINKED_FLOW_MISSING}</p>}
+              {linkedRow && linkedSummary && (
+                <>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db', lineHeight: 1.45, overflowWrap: 'anywhere' }}>
+                    {linkedRow.enabled
+                      ? `${linkedRow.name} is on. People who join from a page on this map get these emails. This step’s own letters are kept, but nothing sends them.`
+                      : `${linkedRow.name} is off, so nothing sends yet. Once it is on, people who join from a page on this map get these emails. This step’s own letters are kept, but nothing sends them.`}
+                  </p>
+                  {linkedSummary.lines.length > 0 ? (
+                    <ol aria-labelledby={fid('linked-flow')} style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {linkedSummary.lines.map(line => (
+                        <li key={line.label} style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: '#CBD5E1' }}>{line.label}, {line.wait}</div>
+                          <div style={{ fontSize: '12px', color: '#F8FAFC', overflowWrap: 'anywhere' }}>{line.words}</div>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>This flow has no emails yet.</p>
+                  )}
+                  {linkedSummary.branches && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>This flow has more than one path. Email Studio shows each one.</p>}
+                </>
+              )}
+              {onOpenEmailStudio && (
+                <button
+                  type="button"
+                  onClick={() => openStudio('summary')}
+                  aria-disabled={openingEmailStudio || buildingFlow || undefined}
+                  style={{
+                    alignSelf: 'flex-start',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    background: 'rgba(245, 158, 11, 0.16)',
+                    border: '1px solid rgba(245, 158, 11, 0.45)',
+                    color: '#FDE68A',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: openingEmailStudio ? 'wait' : 'pointer'
+                  }}
+                >
+                  {openingEmailStudio ? 'Saving\u2026' : 'Edit in Email Studio'}
+                </button>
+              )}
+              {onOpenEmailStudio && <p role="status" style={{ margin: 0, fontSize: '12px', color: '#FCA5A5' }}>{noticeAt === 'summary' ? studioNotice : ''}</p>}
+            </section>
+          )}
+
+          {/* E-Commerce Flow Presets Grid: they write letters, so a linked step, whose letters nothing sends, does not offer them. */}
+          {!linkedFlowId && (
           <div>
             <div id={fid('blueprints')} style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8', marginBottom: '6px' }}>
               Pre-built Sequence Blueprints
@@ -783,6 +938,7 @@ export const SequenceEditor: React.FC<Props> = ({
               </button>
             </div>
           </div>
+          )}
 
           {/* Retention & Recovery Controls Card */}
           <div
@@ -925,6 +1081,15 @@ export const SequenceEditor: React.FC<Props> = ({
               Clients automatically exit this sequence the moment Shopify records an order.
             </p>
           </div>
+
+          {/* Wave 7 fix round: what Build does with these letters, and what starts the flow it makes. */}
+          {!linkedFlowId && onOpenEmailStudio && onBuildEmailFlow && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {stepLettersSource(flowStartForStep(data.sequenceType).label).map(line => (
+                <p key={line} style={{ margin: 0, fontSize: '12px', color: '#d1d5db', lineHeight: 1.45 }}>{line}</p>
+              ))}
+            </div>
+          )}
 
           {/* Sequence Steps Bar */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

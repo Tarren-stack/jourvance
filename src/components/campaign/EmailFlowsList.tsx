@@ -3,7 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { authHeaders } from '../../lib/firebase';
 import { ghostBtn, readJson, solidBtn } from './emailChrome';
 import { FLOW_MAP_WRITE_UNREACHABLE, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
-import { retryLabel } from '../../lib/studioLoad';
+import { StudioListLine } from './StudioListLine';
 import { statText } from '../../lib/emailStats';
 import {
   FLOWS_EMPTY, FLOWS_NOT_CONNECTED, SENDS_AN_EMAIL, draftCountText, emailCountText, flowRows, flowsListLoad, noOwnFlows, starterOffNotice, switchRequest, switchText, type FlowRow, type FlowsListLoad
@@ -189,7 +189,9 @@ export const EmailFlowsList: React.FC<{
           // aria-disabled, not disabled: a disabled button drops keyboard focus to the page.
           aria-disabled={switching === row.id}
           onClick={() => toggle(row)}
-          style={{ ...(row.on ? solidBtn : ghostBtn), minHeight: 44, alignSelf: 'center', opacity: switching === row.id ? 0.6 : 1 }}
+          // Wave 8: an outline in every state. The filled button is New flow's alone (D1), and On or Off is
+          // said in words in the row beside it.
+          style={{ ...ghostBtn, minHeight: 44, alignSelf: 'center', opacity: switching === row.id ? 0.6 : 1 }}
         >
           {label.text}
         </button>
@@ -227,13 +229,17 @@ export const EmailFlowsList: React.FC<{
         </div>
       </div>
 
-      {load.state === 'loading' && <p role="status" data-studio-state="loading" style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>Loading the flows.</p>}
-      {load.state === 'failed' && (
-        <div role="alert" data-studio-state="failed" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <p style={{ margin: 0, fontSize: 13, color: '#fca5a5' }}>{load.text}</p>
-          {load.retry && <button type="button" aria-label={retryLabel(load.text)} style={{ ...ghostBtn, minHeight: 44 }} onClick={read}>Retry</button>}
-        </div>
-      )}
+      {/* Wave 8: under the heading, where the row just switched is, never at the foot of a 16-row list.
+          Always mounted, so the outcome of Turn on and Turn off is heard as well as seen. */}
+      <p role="status" data-flows-notice="" style={{ margin: 0, fontSize: 13, color: '#d1d5db' }}>{notice}</p>
+
+      {/* Wave 8: the line every other studio list draws (StudioListLine): a bordered alert, Retrying while
+          the read runs, and a failure said again when Retry fails again. */}
+      <StudioListLine
+        line={load.state === 'loading' ? { kind: 'loading', text: 'Loading the flows.' } : load.state === 'failed' ? { kind: 'failed', text: load.text, retry: load.retry } : { kind: 'none', text: '' }}
+        onRetry={read}
+        busy={reading}
+      />
       {load.state === 'loaded' && !hubConnected && (
         <p role="status" style={{ margin: 0, fontSize: 13, color: '#fbbf24' }}>{FLOWS_NOT_CONNECTED}</p>
       )}
@@ -254,8 +260,6 @@ export const EmailFlowsList: React.FC<{
         </div>
       )}
 
-      {/* Always mounted, so the outcome of Turn on and Turn off is heard as well as seen. */}
-      <p role="status" style={{ margin: 0, fontSize: 13, color: '#d1d5db' }}>{notice}</p>
     </section>
   );
 };

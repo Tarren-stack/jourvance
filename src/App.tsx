@@ -44,7 +44,8 @@ import { makeStep, newStamp } from './lib/stepDefaults';
 import { linesWithBothEnds } from './lib/lineEnds';
 import { slotForNewStep, defaultExit, type CanvasView, type AddRequest } from './lib/addStep';
 import { SIGN_OUT_QUESTION } from './lib/journeyAutosave';
-import { funnelReturnFor, returnStepId, returnBannerText, openAfterSave, type FunnelReturn } from './lib/editorReturn';
+import { funnelReturnFor, returnStepId, returnBannerText, openAfterSave, linkStepToFlow, type FunnelReturn, type StepFlowLink } from './lib/editorReturn';
+import { leaveFlowEditorOk } from './lib/studioLeave';
 import { FunnelReturnBanner } from './components/campaign/FunnelReturnBanner';
 
 // Code-split heavy interior app and modal bundles to ensure sub-second public page loads
@@ -141,7 +142,13 @@ export const App: React.FC = () => {
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
   const [showShopifyModal, setShowShopifyModal] = useState(false);
   const [showShopifySyncModal, setShowShopifySyncModal] = useState(false);
-  const [activeView, setActiveView] = useState<ActiveAppView>('canvas');
+  const [activeView, setActiveViewNow] = useState<ActiveAppView>('canvas');
+  // Email Studio Wave 8: every way out of Email Studio asks before it drops a flow edit that is not
+  // saved (src/lib/studioLeave.ts). Cancel keeps the studio and the edit.
+  const setActiveView = (view: ActiveAppView) => {
+    if (view !== 'email-studio' && !leaveFlowEditorOk()) return;
+    setActiveViewNow(view);
+  };
   // The editor round trip (#21): the step Email Studio was opened from, and the step whose Email
   // Studio button takes focus on the way back. A return belongs to one trip into Email Studio, and
   // a focus hand-back to one landing on the map.
@@ -621,6 +628,8 @@ export const App: React.FC = () => {
   // Every way back to the map (the banner, Email Studio's own button, the header's switch) lands
   // on the step Email Studio was opened from, through the one step chooser, which also pans to it.
   const showCanvas = () => {
+    // Asked before the return is spent, so Cancel leaves the banner and the studio as they were.
+    if (!leaveFlowEditorOk()) return;
     const stepId = returnStepId(project, funnelReturn);
     if (stepId) selectStep(stepId);
     setReturnFocusNodeId(stepId);
@@ -636,6 +645,32 @@ export const App: React.FC = () => {
     const { saveNow } = editing;
     return openAfterSave(saveNow, () => { setFunnelReturn(ret); setActiveView('email-studio'); });
   };
+
+  // Build a flow (Wave 7): the step's editor made the flow, and the step links it here, before any
+  // save, so a failed save leaves it linked and a second press opens it rather than building again.
+  // Email Studio then opens through handleOpenEmailStudio once the linked journey is on screen: this
+  // effect sits below the editing hook's, which hands that journey to the save first (D7 rule 1).
+  const buildOpenRef = useRef<{ nodeId: string; flowId: string; done: (opened: boolean) => void } | null>(null);
+  const handleBuildEmailFlow = (nodeId: string, flow: StepFlowLink): Promise<boolean> => {
+    const stamp = new Date().toISOString();
+    if (!linkStepToFlow(projectRef.current, nodeId, flow, stamp)) return Promise.resolve(false);
+    buildOpenRef.current?.done(false);
+    return new Promise<boolean>(done => {
+      buildOpenRef.current = { nodeId, flowId: flow.id, done };
+      setProject(cur => linkStepToFlow(cur, nodeId, flow, stamp) ?? cur);
+    });
+  };
+  useEffect(() => {
+    const want = buildOpenRef.current;
+    if (!want) return;
+    const ret = funnelReturnFor(project, want.nodeId);
+    if (ret && ret.flowId !== want.flowId) return;
+    buildOpenRef.current = null;
+    if (!ret) want.done(false);
+    else void handleOpenEmailStudio(want.nodeId).then(want.done);
+    // handleOpenEmailStudio is this render's, so it reads the linked journey.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project]);
 
   // An undo can take away the selected step or line, so let go of an id that no longer exists.
   useEffect(() => {
@@ -1022,6 +1057,7 @@ export const App: React.FC = () => {
                       onOpenShopifyConnect={() => setShowShopifyModal(true)}
                       metrics={metrics}
                       onOpenEmailStudio={handleOpenEmailStudio}
+                      onBuildEmailFlow={handleBuildEmailFlow}
                       openingEmailStudio={saving}
                       returnFocusNodeId={returnFocusNodeId}
                       onAddStepBefore={handleAddStepBefore}

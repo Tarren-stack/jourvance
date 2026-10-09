@@ -43,6 +43,7 @@
  * the record before this save and writes after it cannot put the old emails back.
  */
 import { ACCOUNT_SEQUENCE_LIMIT, WAIT_HOURS_MAX, emailHasContent, stepsFromChain } from '../../email-flow-content.mjs';
+import { blocksWouldClip } from '../../email-doc.mjs';
 
 export const FLOW_CONTENT_NOT_FOUND = 'That flow is not on this account.';
 export const FLOW_CONTENT_SHAPE = "These emails could not be saved, because the flow's steps changed. Reload it and try again.";
@@ -52,6 +53,9 @@ export const FLOW_CONTENT_NO_SUBJECT = 'An email in this flow has no subject, so
 export const FLOW_CONTENT_NOT_KEPT = "These emails could not be saved, because this flow's steps cannot be kept as they are.";
 export const FLOW_CONTENT_FULL = `This account already keeps its own emails for ${ACCOUNT_SEQUENCE_LIMIT} starter flows, so this one could not be saved.`;
 export const FLOW_CONTENT_FAILED = 'These emails were not saved. Try again in a minute.';
+export const FLOW_EMAIL_MAX_BYTES = 64 * 1024;
+export const FLOW_CONTENT_TOO_LARGE = `An email in this flow is larger than ${FLOW_EMAIL_MAX_BYTES / 1024} KB, so these emails were not saved. Remove a block or shorten its HTML and save again.`;
+export const FLOW_CONTENT_CLIPPED = 'Part of an email in this flow is longer than an email keeps (24 blocks, 4000 characters in a block, 60000 in an HTML block, 500 in a link, 200 in the subject, 140 in the preview text), so these emails were not saved. Shorten it and save again.';
 export const ORDER_EMAIL_NO_WAIT = 'An order email sends as soon as Shopify reports the order event, so it cannot have a wait before it. This email was not saved.';
 export const FLOW_SWITCH_NOT_BOOLEAN = 'This flow was not turned on or off, because enabled must be true or false.';
 export const FLOW_SWITCH_ALONE = 'This flow was not changed, because turning it on or off is sent on its own, without its emails or anything else.';
@@ -68,6 +72,15 @@ export function firstWaitFixed(hours) {
 }
 
 const REFUSALS = { shape: FLOW_CONTENT_SHAPE, wait: FLOW_CONTENT_WAIT, empty_email: FLOW_CONTENT_EMPTY, no_subject: FLOW_CONTENT_NO_SUBJECT };
+
+// Wave 8: an email that cleanSteps or cleanBlocks would cut is refused whole (413), never stored shorter
+// under a Saved, the way the broadcast drafts route refuses one (broadcastDraftRoutes.mjs draftWouldClip).
+// The subject and preview text caps are cleanSteps'; an order email's subject is trimmed first.
+const longer = (value, max) => typeof value === 'string' && value.length > max;
+const emailWouldClip = (step) => longer(step?.subject, 200) || longer(step?.previewText, 140) || blocksWouldClip(step?.blocks);
+// Wave 8: one email at most FLOW_EMAIL_MAX_BYTES of JSON as sent, the cap a broadcast draft has
+// (BROADCAST_DRAFT_MAX_BYTES), so one save cannot put about a megabyte into the account's record.
+const emailTooLarge = (step) => Buffer.byteLength(JSON.stringify({ subject: step?.subject, previewText: step?.previewText, blocks: step?.blocks }), 'utf8') > FLOW_EMAIL_MAX_BYTES;
 
 // What a reader of one email gets: its subject, preview text, wait and blocks. Block ids are left
 // out, because the map names a shared email's one text block differently from cleanSteps.
@@ -115,6 +128,10 @@ export function setupEmailFlowContentRoutes(app, ctx) {
     if (!read.ok) return res.status(400).json({ success: false, error: REFUSALS[read.error] || FLOW_CONTENT_SHAPE });
     const [mail] = read.steps;
     if (mail.delayHours !== 0) return res.status(400).json({ success: false, error: ORDER_EMAIL_NO_WAIT });
+    if (emailTooLarge(mail)) return res.status(413).json({ success: false, error: FLOW_CONTENT_TOO_LARGE });
+    if (emailWouldClip({ ...mail, subject: typeof mail.subject === 'string' ? mail.subject.trim() : mail.subject })) {
+      return res.status(413).json({ success: false, error: FLOW_CONTENT_CLIPPED });
+    }
     const blocks = cleanBlocks(mail.blocks, letter.blocks);
     if (!emailHasContent(blocks)) return res.status(400).json({ success: false, error: FLOW_CONTENT_EMPTY });
     const row = bag.transactional.find((item) => item && item.id === letter.id);
@@ -164,6 +181,9 @@ export function setupEmailFlowContentRoutes(app, ctx) {
           return res.status(400).json({ success: false, error: firstWaitFixed(fixed) });
         }
       }
+
+      if (read.steps.some(emailTooLarge)) return res.status(413).json({ success: false, error: FLOW_CONTENT_TOO_LARGE });
+      if (read.steps.some(emailWouldClip)) return res.status(413).json({ success: false, error: FLOW_CONTENT_CLIPPED });
 
       // The stored row is what cleanSteps keeps. It must keep every step under its own id, or the
       // sender would merge nothing for the step it lost; and an email it emptied (blocks that clean

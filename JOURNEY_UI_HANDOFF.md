@@ -89,6 +89,74 @@ What it is: a full-screen visual editor for a landing page step, opened from "Op
 - `node scripts/builder-browser-check.mjs`: 28 steps in Chrome, including templates, saved section, clipboard, history, global style and AI rewrite. It answers the library, revisions and rewrite routes with recorded JSON in the routes' own shapes, so it does not prove the real server routes.
 - The unit tests send saves one at a time; they do not cover concurrent saves or a refused publish-log write (see the audit, 2026-10-08 Wave 3).
 
+## Email Studio
+
+What it is: the account's email workspace, opened from the sidebar's Email Studio or from a sequence step's "Edit this flow in Email Studio". Five destinations, each with one primary action (D1): Flows (it opens here; New flow), Broadcasts (New broadcast), Audience (New segment), Results (read only) and Settings (the section's own). A flow opens in the flow editor, the map with the step panel beside it, and every email is edited in the block builder inside that panel. Design and status: `EMAIL_STUDIO_PLAN.md` (decisions D1 to D10, Waves 1 to 8). What shipped, wave by wave: the "Email Studio" entries at the top of `JOURVANCE_RUNNING_AUDIT.md`.
+
+### Files
+
+- `src/components/campaign/HubEmailSuite.tsx`: the shell. The two WAI-ARIA tablists (destinations, then the open destination's sections, words in `src/lib/emailStudioNav.ts`), the Broadcasts list, People, Results, Settings, and the broadcast composer's draft (`useBroadcastDraft`), kept here so leaving Broadcasts for another section and coming back finds it.
+- `EmailFlowsList.tsx`: Flows, All flows. One list from one read of `GET /api/email/flow-map`: the account's own flows, the built-in flows and the starter flows, then the four order emails as their own group. Each row is one button that opens the editor on its first email, with Turn on or Turn off beside it. What a row says: `src/lib/emailFlowsList.ts`.
+- `EmailFlowMap.tsx`: the flow editor. The React Flow map, the step panel beside it from 900px and below it on narrower screens, the "Flow to edit" picker, and a header with the state in words, the switch, Save and (an account flow only) Delete. `EmailBlocks.tsx` is the builder (`BlockEditor`); `EmailStepPreview.tsx` previews one email.
+- `BroadcastComposer.tsx` over `src/lib/broadcastComposer.ts`: New broadcast. Subject, preview text, the builder with the saved-block library, Send to and Leave out with the counts the server reported, When, A/B, holdout, the text add-on, UTM, Preview at desktop and mobile width, Check this email, Send a test to me, Save draft, and Send now or Schedule behind a confirm.
+- `StudioListLine.tsx` over `src/lib/studioLoad.ts`: the one loading, empty or failed line every studio list draws (D6). `src/lib/studioVocabulary.ts`: the retired words (D2). `src/lib/flowMapLoad.ts`: the map's settled reads and writes. `src/lib/editorReturn.ts`: the round trip. `src/lib/studioLeave.ts`: the one question every way out of the editor asks before it drops an unsaved edit.
+- `emailChrome.ts`: shared styles. `solidBtn` is the one filled button a screen has (New flow, New broadcast, Save); `ghostBtn` is everything else, Turn on and Turn off included.
+- The rest of the destinations: `AudienceDesk.tsx`, `SignupForms.tsx`, `EmailInbox.tsx`, `SmsPanel.tsx`, `SendingSetup.tsx`, `KlaviyoSync.tsx`, `CustomerProfileDrawer.tsx`. `FunnelReturnBanner.tsx` is the Back to funnel banner App draws above the studio.
+- Server: `server/routes/emailRoutes.mjs` (suite, programs, segments, lists, broadcasts), `server/routes/emailFlowContentRoutes.mjs` (the emails of a starter flow, a built-in flow or an order email), `server/routes/broadcastDraftRoutes.mjs` (drafts), `server/routes/emailFlowCreateRoutes.mjs` (create a flow, Wave 7), and in `server.mjs` the account's program record (`userProgramBag`, `writeUserPrograms`), the flow-map presenters and the senders. Pure rules: `email-flow-content.mjs`, `email-doc.mjs` (`cleanBlockList`, `blocksWouldClip`), `email-flows.mjs`, `audience.mjs`.
+
+### Routes the studio calls
+
+All behind `requireUser`, all on the caller's own account; nothing in a body names whose record it is.
+
+- `GET /api/email/flow-map`: every flow as a map row (nodes, edges, on or off, the triggers, `hubConnected`).
+- `POST /api/email/flow-content/:id`: the emails of a starter flow, a built-in flow or an order email, or `{ enabled }` alone to turn a starter flow on or off for this account. A changed chain is a 400; an email the cleaners would cut is a 413 (`FLOW_CONTENT_CLIPPED`, links included); an email over 64 KB as sent is a 413 (`FLOW_CONTENT_TOO_LARGE`). Another account's id gets the same 404 as a missing one. A starter flow's emails are stored per account and laid over the shared sequence, so the one sender sends them (D5).
+- `POST /api/email/flows` (create), `POST /api/email/flows/:id` (save an account flow), `DELETE /api/email/flows/:id`.
+- `POST /api/email/programs/:id`: turn a built-in flow or an order email on or off.
+- `GET`, `POST` and `DELETE /api/email/broadcast-drafts`: 20 drafts, 64 KB each, refused (413) rather than clipped.
+- `POST /api/email/campaign/send`: a broadcast's blocks with its audience, schedule, A/B, holdout and text. A `requestId` of up to 64 letters, digits, dashes or underscores makes a repeat a 409; any other `requestId` is a 400. Every save of the broadcast list reads it again first (`putCampaigns`), so a send that finishes after another never erases it.
+- Also read: `GET /api/email/suite`, `GET /api/drips/sequences`, the segments, lists and results; `POST /api/drips/process-tick` is Settings, Advanced, Send due emails now.
+
+### The editor round trip
+
+The six rules (D7):
+
+1. A step opens Email Studio only after the journey saved (`openAfterSave` in `src/lib/editorReturn.ts`). A failed save keeps the user on the step and says `STUDIO_NOT_OPENED`.
+2. The return lives in App state only (`funnelReturn`). A reload lands on the map with no banner.
+3. One return per trip. Leaving Email Studio clears it.
+4. Every way back goes through `showCanvas` in `App.tsx`. While the banner shows, its Back to funnel is the only way back (the studio's Back to Canvas is hidden).
+5. A missing linked flow is reported only when the list really loaded and a step asked for it (`fromStep`). A button inside the studio passes `fromStep={false}`.
+6. The canvas frames the returned step at no more than 100% zoom (the plan's rule; not re-checked in Wave 8).
+
+Build a flow in Email Studio (Wave 7): a step with no flow turns its own letters into an account flow (`flowFromStepLetters`, then `POST /api/email/flows`). App links the step to the new flow before any save, then opens the studio through the same `openAfterSave`. A second press while the build is out posts nothing.
+
+Leaving with an unsaved edit (Wave 8): the editor's draft lives in `EmailFlowMap`'s own state, and every way out unmounts it. Every way out now asks `FLOW_UNSAVED_LEAVE` first: the studio's tab strips (click and arrow keys), Back to Canvas, Back to funnel, and the sidebar's and the header's view switches. App wraps `setActiveView`, and `showCanvas` asks before it spends the return, so Cancel changes nothing, the banner included. Not covered: a reload or a closed tab (flow edits have no `beforeunload`), and leaving the studio with an unsaved broadcast draft (the composer asks on a reload and a closed tab only).
+
+### Vocabulary (D2)
+
+One word per concept, in every visible string of the studio and the server sentences it shows: **Flow** (not automation, sequence, drip or series), **Starter flow**, **Built-in flow**, **Order email**, **Email** (not letter or note; "step" is any box on a map), **Broadcast** (not campaign, which means ads elsewhere in Jourvance), **Builder**, **Block**, **Starts when** (not trigger), **Send due emails now** (not Run Queue Tick), **Results** (the numbers) and **Sending** (domain, DNS and sender). Kept on purpose: the page title "Email Studio & E-Commerce Flows" and the canvas node "Follow-Up Sequence". Code identifiers (`drips`, `programs`) are not renamed. `email-studio-vocabulary.test.mjs` holds the retired words out of the studio files and the seeds; the browser check's no-dash step reads every screen for them.
+
+### Tests and the browser check
+
+- Unit and route suites at the repo root: `email-flow-content-route.test.mjs` (the flow-content route and the program record, sliced out of `server.mjs` onto a bare Express app), `broadcast-drafts-route.test.mjs`, `broadcast-composer.test.mjs` (the real `campaign/send` handler), `email-doc-clip.test.mjs` (`blocksWouldClip` held to `cleanBlock` field by field), `studio-leave.test.mjs`, and the `email-studio-*`, `email-flows-list`, `flow-map-load`, `editor-return*` and `build-flow-wiring` source pins. Run with `node --test <file>`.
+- `node scripts/email-studio-browser-check.mjs [--shots <dir>]`: 51 steps in real Chrome at 1440x900 (and 390 where a step says so). Exit 0 pass, 1 a step failed, 2 could not run. Env: `PLAYWRIGHT_MODULE`, `CHROME_PATH`, `CHECK_STUDIO_PORT`. The step list and what each proves is the comment at the top of the file.
+- How it works: it builds the app with Vite into a temp dir with an empty `envDir` (so `.env` is never read), serves it with `vite preview` with the proxy off, and answers every studio `/api` request in the page with recorded JSON in the real routes' shapes (the seeds and presenters read out of `server.mjs` as text). It never starts `server.mjs`. It proves the client; the route suites above prove the routes.
+- A failed step skips every later step that runs through `go()`; the four states steps run anyway. Every dialog is answered Cancel unless the step sets `acceptNextDialog`. Never run it beside a `node --test` run or beside another browser check.
+- Last runs, Wave 8 fix round (2026-10-09, not yet re-run by the main session): 51 of 51, exit 0, in each of the three runs after the last code change (one of them slow, see Known flake).
+
+### Known flake
+
+- From Waves 5 and 6: a Playwright click timeout on a different step each time (one agent saw 4 of 20 runs fail that way; HEAD `6ac2c13` failed 1 of 5), and runs that hang in teardown with the Vite preview still listening. The cause is UNKNOWN.
+- On a timeout the check prints the step's FAIL line and then the last four lines of Playwright's call log, which say what it waited on and why the element never became clickable; with `--shots` it also saves `failed-<step>.png`.
+- A run that prints "N of 51 steps passed." and then does not exit is the teardown hang. Kill it (and any `vite preview` or headless Chrome it left behind) and say so in the report.
+- In the Wave 8 fix round one green run took 373 s from start to exit where the other timed runs took 34 to 48 s. Where the time went is UNKNOWN: the check prints no timings.
+
+### Still open
+
+- From the Wave 8 review, not fixed: All flows is one list of 16 rows (no Your flows, Starter flows and Built-in flows headings, no On rows first); a keyboard user chooses an email of a flow only through the map's steps, which are named "Email" plus the subject and show selection by border colour; a starter row reads On while every email in it is still a draft (the map now marks each draft "starter draft"); "Enrolled Unavailable" and "Last-touch revenue Unavailable" repeat on every row; the composer's confirm says "The server counted", its When option and its button both say "Send now", and Send now comes last in the Tab order.
+- Server: the custom flow sender (`processCustomFlows` in `server.mjs`) still reads the account's record, awaits its sends and writes the whole record back, the stale-write class Wave 8 fixed in the built-in sender (read, not tested). An account's program record has no total size cap (each email saved through flow-content is capped at 64 KB). A broadcast's record is saved only after its audience was mailed, so a crash mid-send loses the record and its `requestId`.
+- From Wave 7: the blueprint fields `hubFlowId` and `exportFormat` are still read by nothing; the linked step summary has had no 390px check.
+- No screen reader has been used on the studio.
+
 ## Operator step for the owner
 
 Set `REVIEW_SECRET` in the deployed environment. Review links sent before this change stop working.

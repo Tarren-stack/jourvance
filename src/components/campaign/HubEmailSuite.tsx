@@ -24,6 +24,7 @@ import {
   listLine, nothingSent, readOutcome, resultsLine, studioRead, type ListState, type StudioRead
 } from '../../lib/studioLoad';
 import { StudioListLine } from './StudioListLine';
+import { leaveFlowEditorOk } from '../../lib/studioLeave';
 import type { Workspace, AudienceSegment, DripSequence, DripEnrollment, ShopifyAbandonedCheckout } from '../../types/journey';
 
 interface FlowStep {
@@ -243,20 +244,32 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
     setActiveTab('map');
   };
   // A destination opens on its first section, plainly: like a click on the old strip, it clears a
-  // flow a button inside the studio asked for.
-  const selectDestination = (key: StudioDestinationKey) => {
-    if (key === destination.key) return;
+  // flow a button inside the studio asked for. Wave 8: leaving the flow editor with an unsaved edit asks
+  // first (studioLeave.ts), and Cancel changes nothing. Answers whether the destination is now open.
+  const selectDestination = (key: StudioDestinationKey): boolean => {
+    if (key === destination.key) return true;
+    if (!leaveFlowEditorOk()) return false;
     setMapFlowId('');
     setMapNodeId('');
     setActiveTab(firstSectionOf(key));
+    return true;
+  };
+  // A section of the open destination, by a click or a key. The section already open changes nothing.
+  const selectSection = (key: StudioSectionKey): boolean => {
+    if (key !== activeTab && !leaveFlowEditorOk()) return false;
+    setMapFlowId('');
+    setMapNodeId('');
+    setActiveTab(key);
+    return true;
   };
   // WAI-ARIA tabs, automatic activation: an arrow, Home or End selects the tab and moves focus to it.
+  // When the move is refused (Cancel on an unsaved flow), focus stays on the tab that is still selected.
   const onDestinationKey = (e: React.KeyboardEvent, index: number) => {
     const next = nextTabIndex(e.key, index, STUDIO_DESTINATIONS.length);
     if (next === null) return;
     e.preventDefault();
     const target = STUDIO_DESTINATIONS[next];
-    selectDestination(target.key);
+    if (!selectDestination(target.key)) return;
     destinationTabs.current[target.key]?.focus();
   };
   const onSectionKey = (e: React.KeyboardEvent, index: number) => {
@@ -264,9 +277,7 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
     if (next === null) return;
     e.preventDefault();
     const target = destination.sections[next];
-    setMapFlowId('');
-    setMapNodeId('');
-    setActiveTab(target.key);
+    if (!selectSection(target.key)) return;
     sectionTabs.current[target.key]?.focus();
   };
   const [flows, setFlows] = useState<HubFlow[]>([]);
@@ -781,7 +792,7 @@ ${unsub}`;
                 aria-selected={active}
                 aria-controls={`email-studio-section-${tab.key}`}
                 tabIndex={active ? 0 : -1}
-                onClick={() => { setMapFlowId(''); setMapNodeId(''); setActiveTab(tab.key as any); }}
+                onClick={() => { selectSection(tab.key); }}
                 onKeyDown={(e) => onSectionKey(e, index)}
                 style={studioTabStyle(active, 'section')}
               >

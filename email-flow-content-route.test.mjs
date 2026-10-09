@@ -16,7 +16,7 @@ import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 // Wave 5: userProgramBag and writeUserPrograms keep the account's broadcast drafts through this cleaner.
 import { cleanBroadcastDrafts } from './server/routes/broadcastDraftRoutes.mjs';
 import {
-  FLOW_CONTENT_EMPTY, FLOW_CONTENT_NO_SUBJECT, FLOW_CONTENT_NOT_FOUND, FLOW_CONTENT_SHAPE, FLOW_CONTENT_WAIT, FLOW_SWITCH_ALONE, FLOW_SWITCH_FULL,
+  FLOW_CONTENT_CLIPPED, FLOW_CONTENT_TOO_LARGE, FLOW_EMAIL_MAX_BYTES, FLOW_CONTENT_EMPTY, FLOW_CONTENT_NO_SUBJECT, FLOW_CONTENT_NOT_FOUND, FLOW_CONTENT_SHAPE, FLOW_CONTENT_WAIT, FLOW_SWITCH_ALONE, FLOW_SWITCH_FULL,
   FLOW_SWITCH_NOT_BOOLEAN, FLOW_SWITCH_STARTER_ONLY, ORDER_EMAIL_NO_WAIT, firstWaitFixed, setupEmailFlowContentRoutes
 } from './server/routes/emailFlowContentRoutes.mjs';
 
@@ -1192,4 +1192,137 @@ test('the built-in flows\' sender reads a stored 0 between emails as 0 hours too
   const row = server.userProgramBag('u1').enrollments[0];
   assert.equal(row.stepIndex, 1);
   assert.equal(row.nextDueAt, new Date(now).toISOString(), 'a stored 0 was read as 24 hours');
+});
+
+// Wave 8 (adversarial review): the built-in flows' sender read the whole record, awaited every send, and
+// wrote that copy back, so a save made meanwhile (a built-in flow turned on, a list, the postal address,
+// the timezone, the saved blocks) was put back to what it read. It writes only the enrolments it moved.
+test('the built-in flows\' sender writes back only the enrolments it moved, so a save made while it was sending stands', async () => {
+  const { server } = loadServer({
+    u1: {
+      automations: { post_purchase: { enabled: true, steps: [
+        { id: 'pp1', delayHours: 24, subject: 'Thanks', blocks: [{ id: 'a', kind: 'text', text: 'Thanks for the order.' }] },
+        { id: 'pp2', delayHours: 48, subject: 'And one more', blocks: [{ id: 'b', kind: 'text', text: 'One more note.' }] }
+      ] } },
+      enrollments: [{ id: 'penr_1', automationId: 'post_purchase', email: 'buyer@example.test', name: 'Buyer', stepIndex: 0, status: 'active', nextDueAt: '2020-01-01T00:00:00.000Z', vars: {} }]
+    }
+  });
+  let editedDuringSend = false;
+  const deps = {
+    Date,
+    composeForSend: async () => ({ text: 't', html: '<p>t</p>', vars: {} }),
+    contactsForUser: () => [],
+    deliverLetter: async () => {
+      // A merchant's save lands while this email is out: what POST /api/email/programs/:id, the lists,
+      // postal address, timezone and saved-block routes do, through the same writer.
+      const bag = server.userProgramBag('u1');
+      bag.automations.find((row) => row.id === 'winback').enabled = true;
+      bag.lists = [{ id: 'list_wave8', name: 'Saved during the send' }];
+      bag.postalAddress = '1 Main St, Springfield';
+      bag.timezone = 'America/New_York';
+      bag.library = [{ id: 'lib_wave8', name: 'Footer', block: { id: 'f', kind: 'text', text: 'A saved footer' } }];
+      bag.enrollments.unshift({ id: 'penr_2', automationId: 'post_purchase', email: 'new@example.test', name: 'New', stepIndex: 0, status: 'active', nextDueAt: '2099-01-01T00:00:00.000Z', vars: {} });
+      server.writeUserPrograms('u1', bag);
+      const stored = server.userProgramBag('u1');
+      editedDuringSend = stored.lists.length === 1 && stored.library.length === 1 && stored.timezone === 'America/New_York';
+      return { ok: true, status: 'sent' };
+    },
+    fillMailTokens: (text) => text,
+    isDemoRecord: () => false,
+    klaviyoIsSender: () => false,
+    loadOrders: () => [],
+    orderMailVars: () => ({}),
+    processCustomFlows: async () => ({ sent: 0, failed: 0, active: 0 }),
+    storedWaitHours,
+    userProgramBag: server.userProgramBag,
+    writeUserPrograms: server.writeUserPrograms
+  };
+  const names = Object.keys(deps);
+  const run = new Function(...names, `${slice('async function processAccountAutomations(uid) {', '\n}\n')}\nreturn processAccountAutomations;`)(...names.map((n) => deps[n]));
+  const result = await run('u1');
+  assert.ok(editedDuringSend, 'the save during the send was not stored, so this proves nothing');
+  assert.equal(result.sent, 1);
+  const bag = server.userProgramBag('u1');
+  assert.equal(bag.automations.find((row) => row.id === 'winback').enabled, true, 'a built-in flow turned on during the send was turned off again');
+  assert.deepEqual(bag.lists.map((row) => row.id), ['list_wave8'], 'a list saved during the send was lost');
+  assert.equal(bag.postalAddress, '1 Main St, Springfield', 'the postal address saved during the send was lost');
+  assert.equal(bag.timezone, 'America/New_York', 'the timezone saved during the send was lost');
+  assert.deepEqual(bag.library.map((row) => row.id), ['lib_wave8'], 'a saved block from during the send was lost');
+  const moved = bag.enrollments.find((row) => row.id === 'penr_1');
+  assert.equal(moved.stepIndex, 1, 'the enrolment this pass sent was not moved on');
+  assert.ok(bag.enrollments.some((row) => row.id === 'penr_2'), 'an enrolment made during the send was dropped');
+});
+
+// Wave 8 (adversarial review): a save the cleaners would cut answered 200 and stored the shorter copy (a
+// 5000-character block kept at 4000, 40 blocks kept at 24, a 300-character subject at 200, a link cut at
+// 500 characters into a different, broken link), while the studio said Saved. It is refused whole now, as
+// the drafts route refuses a draft (broadcastDraftRoutes.mjs DRAFT_CLIPPED), and nothing is written.
+test('an email the cleaners would cut is refused 413 and nothing is written, on a starter, a built-in and an order email', async () => {
+  const s = await serve({ store: { u1: { automations: { post_purchase: { enabled: true } } } } });
+  try {
+    const link = `https://shop.example.test/p?${'utm_x='.padEnd(600, 'a')}`;
+    const cases = {
+      'a 5000-character text block': (mail) => { mail.blocks = [{ id: 'k1', kind: 'text', text: 'x'.repeat(5000) }]; },
+      '40 blocks': (mail) => { mail.blocks = Array.from({ length: 40 }, (_, i) => ({ id: `q${i}`, kind: 'text', text: `para ${i}` })); },
+      'a 300-character subject': (mail) => { mail.subject = 's'.repeat(300); },
+      'a 400-character preview text': (mail) => { mail.previewText = 'p'.repeat(400); },
+      'a 606-character button link': (mail) => { mail.blocks = [{ id: 'bt', kind: 'button', label: 'Buy', url: link }]; },
+      'a 141-character image description': (mail) => { mail.blocks = [{ id: 'im', kind: 'image', url: 'https://images.example.test/a.png', alt: 'a'.repeat(141) }]; }
+    };
+    for (const id of ['drip_seq_default', 'post_purchase', 'order_confirmation']) {
+      for (const [name, change] of Object.entries(cases)) {
+        if (id === 'order_confirmation' && name.includes('preview')) continue;
+        const before = JSON.stringify(s.state.store);
+        const flow = mapRow(s.server, id);
+        change(emails(flow)[0]);
+        const res = await s.post(id, { nodes: flow.nodes, edges: flow.edges });
+        assert.equal(res.status, 413, `${id}, ${name}: ${res.status} ${JSON.stringify(res.body).slice(0, 160)}`);
+        assert.deepEqual(res.body, { success: false, error: FLOW_CONTENT_CLIPPED }, `${id}, ${name}`);
+        assert.equal(JSON.stringify(s.state.store), before, `${id}, ${name}: something was written`);
+      }
+      // At every limit, met and not passed, the email is kept whole.
+      const flow = mapRow(s.server, id);
+      const mail = emails(flow)[0];
+      mail.subject = 's'.repeat(200);
+      if (id !== 'order_confirmation') mail.previewText = 'p'.repeat(140);
+      mail.blocks = [
+        { id: 'long', kind: 'text', text: 'a'.repeat(4000) },
+        { id: 'btn', kind: 'button', label: 'Buy', url: `https://shop.example.test/${'b'.repeat(474)}` },
+        ...Array.from({ length: 22 }, (_, i) => ({ id: `l${i}`, kind: 'text', text: `Line ${i}` }))
+      ];
+      const kept = await s.post(id, { nodes: flow.nodes, edges: flow.edges });
+      assert.equal(kept.status, 200, `${id} at the limits: ${JSON.stringify(kept.body).slice(0, 200)}`);
+      const stored = emails(kept.body.flow)[0];
+      assert.equal(stored.subject.length, 200, id);
+      assert.equal(stored.blocks.length, 24, id);
+      assert.equal(stored.blocks[0].text.length, 4000, id);
+      assert.equal(stored.blocks[1].url.length, 500, id);
+    }
+    assert.match(FLOW_CONTENT_CLIPPED, /not saved/);
+    assert.doesNotMatch(FLOW_CONTENT_CLIPPED, /—| – /);
+  } finally { await s.close(); }
+});
+
+// Wave 8 (adversarial review, minor): three flow-content saves under the 1 MB body limit left one account's
+// record near a megabyte. One email is held to the broadcast draft's 64 KB, measured as sent.
+test('an email larger than 64 KB as sent is refused 413 and nothing is written; one just under it is kept', async () => {
+  const s = await serve({ store: { u1: { automations: { post_purchase: { enabled: true } } } } });
+  try {
+    for (const id of ['drip_seq_default', 'post_purchase', 'order_confirmation']) {
+      const before = JSON.stringify(s.state.store);
+      const flow = mapRow(s.server, id);
+      // Three HTML blocks of 30000 characters: each is under its own 60000 cap, together over 64 KB.
+      emails(flow)[0].blocks = Array.from({ length: 3 }, (_, i) => ({ id: `h${i}`, kind: 'html', text: '<p>' + 'y'.repeat(29993) + '</p>' }));
+      const res = await s.post(id, { nodes: flow.nodes, edges: flow.edges });
+      assert.equal(res.status, 413, `${id}: ${res.status} ${JSON.stringify(res.body).slice(0, 160)}`);
+      assert.deepEqual(res.body, { success: false, error: FLOW_CONTENT_TOO_LARGE }, id);
+      assert.equal(JSON.stringify(s.state.store), before, `${id}: something was written`);
+      const fits = mapRow(s.server, id);
+      emails(fits)[0].blocks = Array.from({ length: 2 }, (_, i) => ({ id: `h${i}`, kind: 'html', text: '<p>' + 'y'.repeat(29993) + '</p>' }));
+      const kept = await s.post(id, { nodes: fits.nodes, edges: fits.edges });
+      assert.equal(kept.status, 200, `${id} under the cap: ${JSON.stringify(kept.body).slice(0, 160)}`);
+    }
+    assert.equal(FLOW_EMAIL_MAX_BYTES, 64 * 1024);
+    assert.doesNotMatch(FLOW_CONTENT_TOO_LARGE, /—| – /);
+  } finally { await s.close(); }
 });

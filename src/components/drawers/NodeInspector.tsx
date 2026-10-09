@@ -34,6 +34,8 @@ interface Props {
   navigation?: React.ReactNode;
   /** A sequence step's Email Studio button (#21): App saves first, then opens it. Resolves false when it did not open. */
   onOpenEmailStudio?: (nodeId: string) => Promise<boolean>;
+  /** Build a flow (Wave 7): App links the flow the step built, saves, then opens it. Resolves false when it did not open. */
+  onBuildEmailFlow?: (nodeId: string, flow: { id: string; name: string }) => Promise<boolean>;
   /** True while that save is in flight. */
   openingEmailStudio?: boolean;
   /** The step just returned to from Email Studio; its button takes focus once. */
@@ -56,6 +58,7 @@ export const NodeInspector: React.FC<Props> = ({
   headingRef,
   navigation,
   onOpenEmailStudio,
+  onBuildEmailFlow,
   openingEmailStudio,
   returnFocusNodeId,
   onPreviewStep
@@ -231,6 +234,7 @@ export const NodeInspector: React.FC<Props> = ({
             journeyId={journeyId}
             nodeId={node.id}
             onOpenEmailStudio={onOpenEmailStudio ? () => onOpenEmailStudio(node.id) : undefined}
+            onBuildEmailFlow={onBuildEmailFlow ? flow => onBuildEmailFlow(node.id, flow) : undefined}
             openingEmailStudio={openingEmailStudio}
             focusStudioButton={returnFocusNodeId === node.id}
           />

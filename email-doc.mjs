@@ -339,6 +339,49 @@ export function cleanBlockList(input) {
   return source.slice(0, 24).map((block, index) => cleanBlock(block, 0, index)).filter(Boolean);
 }
 
+// The lengths cleanBlock cuts a string to (its .slice(0, N) caps), and the count each list keeps. Wave 8:
+// email-doc-clip.test.mjs holds both to cleanBlock, so a new cap there that is missing here fails a test.
+const CLIP_LENGTHS = new Set([8, 12, 40, 80, 120, 140, 200, 500, 4000, 60000]);
+const LIST_CAPS = { columns: 4, cells: 2, headers: 8, products: 9, clauses: 8 };
+function listCap(key, owner, depth) {
+  if (key === 'blocks') return depth > 0 ? 8 : 24;
+  if (key === 'rows') return owner?.repeat === 'event.line_items' ? 1 : 20;
+  if (key === 'links') return owner?.kind === 'header' ? 6 : 7;
+  return LIST_CAPS[key];
+}
+function cutBy(sent, kept, key, owner, depth) {
+  if (typeof sent === 'string') {
+    // Cut, not cleaned: what was kept is the start of what was sent (or of it trimmed), at one of the
+    // cleaner's lengths. A field that only drops characters it does not keep (a coupon prefix's dashes)
+    // ends at some other length.
+    if (typeof kept !== 'string' || kept.length >= sent.length || !CLIP_LENGTHS.has(kept.length)) return false;
+    return sent.startsWith(kept) || sent.trim().startsWith(kept);
+  }
+  if (Array.isArray(sent)) {
+    const cap = key === 'rows-line' ? 8 : listCap(key, owner, depth);
+    if (cap !== undefined && sent.length > cap) return true;
+    const nextKey = key === 'rows' ? 'rows-line' : key;
+    return sent.some((item, i) => cutBy(item, Array.isArray(kept) ? kept[i] : undefined, nextKey, owner, depth));
+  }
+  if (!sent || typeof sent !== 'object' || !kept || typeof kept !== 'object') return false;
+  // A columns or split block inside a column is kept as an empty text block.
+  if ((sent.kind === 'columns' || sent.kind === 'split') && kept.kind === 'text') return true;
+  // A block's id is the client's own name for it, never content; the blocks inside a column are one level down.
+  return Object.keys(sent).some((name) => name !== 'id' && cutBy(sent[name], kept[name], name, sent, name === 'columns' ? depth + 1 : depth));
+}
+
+/**
+ * True when cleanBlockList would cut something the caller sent (Wave 8): more blocks than a list keeps, or
+ * a string past the length cleanBlock keeps, a link's address included. A save the cleaner cut used to
+ * answer 200, and the studio said Saved over a stored copy that had lost words or the tail of a link.
+ * The broadcast drafts and flow-content routes refuse a save this answers true for.
+ */
+export function blocksWouldClip(blocks) {
+  if (!Array.isArray(blocks)) return false;
+  if (blocks.length > 24) return true;
+  return blocks.some((block, index) => cutBy(block, cleanBlock(block, 0, index), 'block', null, 0));
+}
+
 function cleanSection(section, index) {
   const visibility = section?.visibility === 'desktop' || section?.visibility === 'mobile' ? section.visibility : 'both';
   const columns = (Array.isArray(section?.columns) ? section.columns : [{ blocks: section?.blocks }]).slice(0, 4).map((column) => ({

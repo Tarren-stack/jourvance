@@ -21,7 +21,8 @@
 //                    starter note; it stays while the email's text is edited and not saved; Save posts the new
 //                    text and the sentence is gone from email 1 while email 2, still the draft, keeps it. The
 //                    server marks a draft (starterDraft on the email node), the client never reads the words.
-//                    The step puts the stub's account back as it found it, so the steps after it start from the seeds
+//                    The step puts the stub's account back as it found it, so the steps after it start from the seeds.
+//                    (Wave 8) On the map, emails 2 and 3 read "starter draft" in their box and email 1, saved, does not
 //   email-open       back on All flows, the Welcome row opens email 1, and a click on email 2 on the map
 //                    selects it: on screen, drawn selected, and its subject is in the Subject field
 //   node-selected    a click on the Wait node draws it with a border colour an unselected node does not
@@ -36,7 +37,8 @@
 //                    SCREEN beside a Save that is on screen, stays, and "Unsaved changes" is gone; an edit
 //                    after it takes the Saved sentence away and brings "Unsaved changes" back
 //   cards-show-edit  (Wave 4: no cards) Welcome, opened again from All flows, shows the saved subject and
-//                    preview text
+//                    preview text; (Wave 8) leaving with the edit made after Saved asks FLOW_UNSAVED_LEAVE first,
+//                    and the check answers OK
 //   built-in         the All flows list holds no textarea or input; After the order's row reads Built in and
 //                    Off, its Turn on posts { kind: 'automation', enabled: true } once and the row reads On,
 //                    Turn off puts it back; the row opens it on the map with the builder in the step panel
@@ -46,6 +48,11 @@
 //                    FLOW_MAP_WRITE_UNREACHABLE.content
 //   unsaved-kept     with that edit still unsaved, choosing another flow in the editor's picker asks first;
 //                    Cancel keeps the flow and the edit
+//   unsaved-leave    (Wave 8) with that edit still unsaved, every way out of the editor asks FLOW_UNSAVED_LEAVE
+//                    first and Cancel keeps Flows, Flow map and the edit: the All flows section tab, the Broadcasts
+//                    destination, ArrowRight on the Flows tab (focus stays on Flows), Back to Canvas, and the
+//                    sidebar's Funnel Canvas and Attribution switches (App); OK on All flows leaves, asked once, and
+//                    Welcome opens again with its saved subject, not the dropped one
 //   strip-clears     after a row opened Welcome, the section strip's All flows then Flow map opens the plain map:
 //                    the first flow, nothing selected, not the flow the button asked for
 //   keyboard         Tab from the All flows tab reaches the Welcome row, Enter opens the map, and focus
@@ -76,6 +83,12 @@
 //                    header says "Off for this account" beside a switch that reads Turn on and posts
 //                    { enabled: true }, then says "On for this account" beside Turn off, and back on All flows
 //                    the row reads On; no "Always on" sentence is left on the list
+//   weights-and-notice (Wave 8) on All flows exactly one button has the pink fill, New flow, and none of the 16
+//                    row switches has it, a row that reads On included; Turn off Welcome flow says its sentence in a
+//                    status region that is ON SCREEN with the studio scrolled to its top, and Turn on puts it back
+//                    the same way; in the editor's header, on Welcome (a starter flow, On) and on Viewed a product
+//                    (an account flow), Save is the one filled button, the switch is an outline, and every header
+//                    button is at least 44px tall
 //   panel-beside     (Wave 4) at 1440 the step panel's left edge is right of the map's right edge, and every
 //                    step on the map is drawn inside the map's box
 //   panel-below      (Wave 4) at 390 the step panel is below the map, the map's steps inside its box, nothing
@@ -144,8 +157,9 @@
 //   nav-from-step    the canvas entry: Back to Canvas, the follow-up step on the map, its flow picker set to
 //                    Viewed a product, then "Edit this flow in Email Studio" (signed out, the journey saves to
 //                    this browser first). The studio lands on Flows, Flow map, with that flow chosen and the
-//                    Back to funnel banner; Back to funnel lands on the canvas with the step selected and
-//                    focus on the button that left
+//                    Back to funnel banner; (Wave 8) with an unsaved subject Back to funnel asks
+//                    FLOW_UNSAVED_LEAVE and Cancel keeps the banner, the editor and the edit; OK, and Back to
+//                    funnel lands on the canvas with the step selected and focus on the button that left
 //   states-mixed     (fix round) only the postal address read and the audience read fail: Sending says
 //                    the postal address failure in its one alert with a Retry named for it, Save Postal
 //                    Footer says POSTAL_NOT_SAVED and posts nothing, and once the read answers Retry loads it
@@ -176,6 +190,16 @@
 //                    they say none of D2's retired words (studioVocabulary.ts), once the subjects and preview
 //                    texts of the server's seeded flows are taken out (fix round: never their names)
 //   runtime          no uncaught page error
+//
+//   canvas-build-flow (Wave 7 fix round) after nav-from-step, the same step set to no flow reads "Build a flow
+//                    in Email Studio" and says above its letters what Build does (stepLettersSource). With the
+//                    browser refusing the journey and the create held, Build posts once (the step's own subjects
+//                    in order, and a wait of 24 and 72 hours before emails 2 and 3), the status region says
+//                    FLOW_BUILDING, and a click and an Enter on the busy button post nothing more. Released, the
+//                    save fails: STUDIO_NOT_OPENED, the studio stays shut, the step is linked to the built flow
+//                    (its picker and Edit), and Edit again posts nothing. Once the browser keeps the journey,
+//                    Edit opens Flows, Flow map on the built flow with each subject on the map under the Back to
+//                    funnel banner; Back to funnel lands on the step with focus on Edit and the built flow chosen
 //
 // Usage: node scripts/email-studio-browser-check.mjs [--shots <dir>]
 // Exit 0 pass, 1 a step failed, 2 could not run (Playwright or Chrome missing, the seeds could not be
@@ -214,6 +238,8 @@ import {
   retryLabel
 } from '../src/lib/studioLoad.ts';
 import { retiredIn } from '../src/lib/studioVocabulary.ts';
+import { FLOW_BUILDING, STUDIO_NOT_OPENED, flowStartForStep, stepLettersSource } from '../src/lib/editorReturn.ts';
+import { FLOW_UNSAVED_LEAVE } from '../src/lib/studioLeave.ts';
 import { TRIGGER_META } from '../email-flows.mjs';
 import { isStarterDraft, mergeAccountSteps, starterFlowOn } from '../email-flow-content.mjs';
 import { signalStarterFlows } from '../shopify-signals.mjs';
@@ -361,6 +387,8 @@ function newState(seeds) {
     flowPosts: [],
     // A promise an account flow's save waits on (POST /api/email/flows/:id), and each New flow's body.
     flowHold: null,
+    // Wave 7 fix round: a promise POST /api/email/flows waits on, so a step can press again while a build is out.
+    createHold: null,
     creates: [],
     programPosts: [],
     previewPosts: [],
@@ -500,14 +528,17 @@ function studioAnswer(req, u, state) {
     state.automationSteps[auto.id] = steps;
     return json(200, { success: true, flow: automationRow(state, auto) });
   }
-  // server.mjs POST /api/email/flows: a new flow, off, made with one email, first in the account's list.
+  // POST /api/email/flows (server/routes/emailFlowCreateRoutes.mjs since Wave 7): a new flow, off, first in the
+  // account's list. With no graph it is New flow's one email; a body with nodes and edges (Build a flow, from a
+  // canvas step's letters) is that graph. The route's shape check and cleaner are email-flow-create-route.test.mjs's.
   if (method === 'POST' && p === '/api/email/flows') {
     const body = JSON.parse(req.postData() || '{}');
     state.creates.push(body);
+    const graph = Array.isArray(body.nodes) && Array.isArray(body.edges);
     const flow = {
       id: `flow_check${state.creates.length}`, name: String(body.name || 'New flow'), enabled: false, trigger: body.trigger || 'manual',
-      nodes: [{ id: 'n_start', type: 'trigger' }, { id: 'n_mail', type: 'email', subject: 'A note from the store', blocks: [{ id: 'n_mail_b', kind: 'text', text: '' }] }],
-      edges: [{ id: 'e_start', source: 'n_start', target: 'n_mail', branch: '' }]
+      nodes: graph ? body.nodes : [{ id: 'n_start', type: 'trigger' }, { id: 'n_mail', type: 'email', subject: 'A note from the store', blocks: [{ id: 'n_mail_b', kind: 'text', text: '' }] }],
+      edges: graph ? body.edges : [{ id: 'e_start', source: 'n_start', target: 'n_mail', branch: '' }]
     };
     state.flows.unshift(flow);
     return json(200, { success: true, flow: customRow(flow) });
@@ -933,6 +964,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
         // A held flow-content answer: the body is recorded already, the reply waits for the step.
         if (answer && state.contentHold && req.method() === 'POST' && u.pathname.startsWith('/api/email/flow-content/')) await state.contentHold;
         if (answer && state.flowHold && req.method() === 'POST' && /^\/api\/email\/flows\/[^/]+$/.test(u.pathname)) await state.flowHold;
+        if (answer && state.createHold && req.method() === 'POST' && u.pathname === '/api/email/flows') await state.createHold;
         if (answer) return route.fulfill(answer);
       }
     } catch {}
@@ -1198,11 +1230,14 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     expect(await stepHeading('Email 2 of 3'), 'email 2 did not take the step heading');
     const second = await waitUntil(async () => ((await note.isVisible()) ? true : null), 3000);
     expect(second, 'email 2, still the draft, does not say so');
+    // Wave 8: the map itself says which emails are still drafts, so they are seen without opening each.
+    const marks = await page.evaluate(ids => ids.map(id => (document.querySelector(`.react-flow__node[data-id="${id}"]`)?.textContent || '').includes('starter draft')), [`${WELCOME}_email_0`, `${WELCOME}_email_1`, `${WELCOME}_email_2`]);
+    expect(JSON.stringify(marks) === JSON.stringify([false, true, true]), `the map marks emails 1, 2 and 3 as starter drafts: ${JSON.stringify(marks)}`);
     await shot('starter-draft-note');
     // The steps after this one start from the seeds, as they did before this step existed.
     state.accountSequences = {};
     state.contentPosts = [];
-    return `email 1 said "${STARTER_DRAFT_NOTE}" under the starter note, kept it while edited, and lost it once Save posted the new text; email 2 still says it`;
+    return `email 1 said "${STARTER_DRAFT_NOTE}" under the starter note, kept it while edited, and lost it once Save posted the new text; email 2 still says it; on the map only emails 2 and 3 read "starter draft"`;
   });
 
   await go('email-open', async () => {
@@ -1319,8 +1354,12 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
 
   await go('cards-show-edit', async () => {
     // Wave 4: there are no cards to show a subject. The saved edit is what Welcome opens with when it
-    // is opened again from All flows (the editor reads the flow map afresh).
+    // is opened again from All flows (the editor reads the flow map afresh). Wave 8: save-content ended
+    // with an edit made after Saved, so leaving asks first; the check answers OK.
+    const asked = dialogs.length;
+    acceptNextDialog = true;
     await toFlowList();
+    expect(dialogs.length === asked + 1 && dialogs[asked] === FLOW_UNSAVED_LEAVE, `leaving with an unsaved edit asked ${JSON.stringify(dialogs.slice(asked))}`);
     await flowRow(WELCOME_NAME).click();
     expect(await stepHeading('Email 1 of 3'), 'the Welcome row did not open on email 1');
     const shown = await waitUntil(async () => ((await page.locator('#flow-step-subject').inputValue()) === NEW_SUBJECT ? true : null), 5000);
@@ -1424,6 +1463,43 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     const subject = await page.locator('#flow-step-subject').inputValue();
     expect(subject === UNHEARD_SUBJECT, `after Cancel the Subject field reads "${subject}"`);
     return `asked "${asked}"; Cancel kept ${WELCOME_NAME} and its unsaved subject`;
+  });
+
+  await go('unsaved-leave', async () => {
+    // Wave 8: every way out of the editor asks before it drops the unsaved edit (src/lib/studioLeave.ts),
+    // not only the picker. Each is answered Cancel: the editor, the flow and the edit stay.
+    expect(await page.getByText(UNSAVED, { exact: true }).isVisible(), `"${UNSAVED}" is not shown before the ways out are tried`);
+    const ways = [];
+    const asks = async (how, act) => {
+      const before = dialogs.length;
+      await act();
+      const asked = await waitUntil(() => (dialogs.length > before ? dialogs[dialogs.length - 1] : null), 3000);
+      expect(asked === FLOW_UNSAVED_LEAVE, `${how} with an unsaved edit asked ${JSON.stringify(asked)}`);
+      await page.waitForTimeout(300);
+      expect((await isSelected('Flows')) && (await isSelected('Flow map')), `after Cancel on ${how} Flows reads ${await isSelected('Flows')} and Flow map ${await isSelected('Flow map')}`);
+      const subject = await page.locator('#flow-step-subject').inputValue();
+      expect(subject === UNHEARD_SUBJECT, `after Cancel on ${how} the Subject field reads "${subject}"`);
+      ways.push(how);
+    };
+    await asks('the All flows section tab', () => tab('All flows').click());
+    await asks('the Broadcasts destination', () => tab('Broadcasts').click());
+    await asks('ArrowRight on the Flows tab', async () => { await tab('Flows').focus(); await page.keyboard.press('ArrowRight'); });
+    const f = await focusedTab(page);
+    expect(f.focus === 'Flows', `after Cancel on ArrowRight focus is on ${JSON.stringify(f)}`);
+    await asks('Back to Canvas', () => page.getByRole('button', { name: 'Back to Canvas', exact: true }).click());
+    await asks("the sidebar's Funnel Canvas", () => page.getByRole('button', { name: 'Switch to Funnel Canvas view', exact: true }).click());
+    await asks("the sidebar's Attribution", () => page.getByRole('button', { name: 'Switch to Attribution view', exact: true }).click());
+    // OK leaves, asked once, and the edit goes with the editor.
+    const before = dialogs.length;
+    acceptNextDialog = true;
+    await tab('All flows').click();
+    await page.getByText(FLOWS_INTRO, { exact: false }).first().waitFor({ state: 'visible' });
+    expect(dialogs.length === before + 1, `OK on All flows asked ${dialogs.length - before} times`);
+    await flowRow(WELCOME_NAME).click();
+    expect(await stepHeading('Email 1 of 3'), 'the Welcome row did not open on email 1');
+    const subject = await waitUntil(async () => ((await page.locator('#flow-step-subject').inputValue()) === NEW_SUBJECT ? NEW_SUBJECT : null), 5000);
+    expect(subject, `Welcome opens again with "${await page.locator('#flow-step-subject').inputValue()}", not its saved "${NEW_SUBJECT}"`);
+    return `asked "${FLOW_UNSAVED_LEAVE}" on ${ways.length} ways out (${ways.join(', ')}), Cancel kept the editor and the edit each time with focus on Flows after the arrow; OK on All flows left, asked once, and Welcome opened again with its saved subject`;
   });
 
   await go('strip-clears', async () => {
@@ -1769,6 +1845,82 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     const on = await waitUntil(async () => ((await rowOf(name))?.meta.includes('· On ·') ? true : null), 5000);
     expect(on, `back on All flows the row reads "${(await rowOf(name))?.meta}"`);
     return `Turn off ${name} sent ${JSON.stringify(sentOff[0].body)}, the row read Off and its switch Turn on, and the status said what happens to the people in it; the editor header said Off for this account beside Turn on, sent ${JSON.stringify(sentOn[0].body)} and said On for this account beside Turn off; the row reads On again`;
+  });
+
+  await go('weights-and-notice', async () => {
+    // Wave 8 (design review): one filled button per screen (D1). On All flows it is New flow, and every
+    // row's switch is an outline whatever the row's state; the row says On or Off in words.
+    const fills = await page.evaluate(() => {
+      const section = [...document.querySelectorAll('section')].find(el => el.querySelector('h2')?.textContent?.trim() === 'All flows');
+      if (!section) return null;
+      const bg = el => getComputedStyle(el).backgroundColor;
+      const buttons = [...section.querySelectorAll('button')];
+      const newFlow = buttons.find(b => (b.textContent || '').trim() === 'New flow');
+      const refresh = buttons.find(b => (b.textContent || '').trim() === 'Refresh');
+      return {
+        fill: newFlow ? bg(newFlow) : null,
+        refresh: refresh ? bg(refresh) : null,
+        switches: [...section.querySelectorAll('[data-flow-switch]')].map(b => ({ name: b.getAttribute('aria-label') || '', bg: bg(b) })),
+        filled: newFlow ? buttons.filter(b => bg(b) === bg(newFlow)).map(b => (b.getAttribute('aria-label') || b.textContent || '').trim()) : []
+      };
+    });
+    expect(fills && fills.fill && fills.fill !== fills.refresh, `New flow's fill ${fills?.fill} is not told from Refresh's ${fills?.refresh}`);
+    expect(fills.switches.length === 16, `${fills.switches.length} row switches, not 16`);
+    expect(fills.switches.some(s => s.name.startsWith('Turn off')), 'no row reads On, so a switch beside an On row was never looked at');
+    expect(fills.filled.length === 1 && fills.filled[0] === 'New flow', `the filled buttons on All flows are ${JSON.stringify(fills.filled)}`);
+    // The outcome of Turn off is said where the row is, under the heading: on screen, not at the foot of the list.
+    await page.evaluate(() => {
+      const h1 = [...document.querySelectorAll('h1')].find(h => /Email Studio/.test(h.textContent || ''));
+      let root = h1;
+      while (root && root.parentElement && getComputedStyle(root).overflowY !== 'auto') root = root.parentElement;
+      if (root) root.scrollTop = 0;
+      window.scrollTo(0, 0);
+    });
+    await page.getByRole('button', { name: `Turn off ${WELCOME_NAME}`, exact: true }).click();
+    const offSaid = await waitUntil(async () => ((await statusTexts(page)).includes(starterOffSaid(WELCOME_NAME)) ? starterOffSaid(WELCOME_NAME) : null), 5000);
+    expect(offSaid, `the status says ${JSON.stringify(await statusTexts(page))}`);
+    const offBox = await boxOf(page, '[role="status"]', offSaid);
+    const rowBox = await boxOf(page, `[data-flow-row="${WELCOME}"]`);
+    expect(offBox?.onScreen, `the Turn off sentence is off screen at ${JSON.stringify(offBox)}, with Welcome's row at ${rowBox?.top}`);
+    await page.getByRole('button', { name: `Turn on ${WELCOME_NAME}`, exact: true }).click();
+    const onSaid = await waitUntil(async () => (await statusTexts(page)).find(t => t.startsWith(`${WELCOME_NAME} is on.`)) || null, 5000);
+    expect(onSaid, `after Turn on the status says ${JSON.stringify(await statusTexts(page))}`);
+    const onBox = await boxOf(page, '[role="status"]', onSaid);
+    expect(onBox?.onScreen, `the Turn on sentence is off screen at ${JSON.stringify(onBox)}`);
+    const back = await waitUntil(async () => ((await rowOf(WELCOME_NAME))?.meta.includes('· On ·') ? true : null), 5000);
+    expect(back, `Welcome's row reads "${(await rowOf(WELCOME_NAME))?.meta}" after Turn on`);
+    // The editor's header, both kinds: Save is the one fill, the switch an outline, every button 44px tall.
+    const header = id => page.evaluate(([flowId, fill]) => {
+      const save = document.querySelector(`[data-flow-header-save="${flowId}"]`);
+      const sw = document.querySelector(`[data-flow-header-switch="${flowId}"]`);
+      if (!save || !sw) return null;
+      const bg = el => getComputedStyle(el).backgroundColor;
+      const buttons = [...save.parentElement.querySelectorAll('button')];
+      return {
+        save: bg(save) === fill,
+        switchText: (sw.textContent || '').trim(),
+        switchFilled: bg(sw) === fill,
+        filled: buttons.filter(b => bg(b) === fill).map(b => (b.textContent || '').trim()),
+        short: buttons.map(b => [(b.textContent || '').trim(), Math.round(b.getBoundingClientRect().height)]).filter(([, h]) => h < 44)
+      };
+    }, [id, fills.fill]);
+    await flowRow(WELCOME_NAME).click();
+    expect(await stepHeading('Email 1 of 3'), 'the Welcome row did not open on email 1');
+    const starter = await header(WELCOME);
+    expect(starter, "Welcome's header has no Save or no switch");
+    expect(starter.switchText === 'Turn off', `Welcome's header switch reads "${starter.switchText}", so the On state was not looked at`);
+    expect(starter.save && !starter.switchFilled && starter.filled.length === 1, `Welcome's header: Save filled ${starter.save}, switch filled ${starter.switchFilled}, filled ${JSON.stringify(starter.filled)}`);
+    expect(starter.short.length === 0, `Welcome's header buttons under 44px: ${JSON.stringify(starter.short)}`);
+    await pickFlow('Viewed a product');
+    await page.locator('[data-flow-header-save="flow_viewedproduct"]').waitFor({ state: 'visible' });
+    const own = await header('flow_viewedproduct');
+    expect(own, "Viewed a product's header has no Save or no switch");
+    expect(own.save && !own.switchFilled && own.filled.length === 1, `Viewed a product's header: Save filled ${own.save}, switch filled ${own.switchFilled}, filled ${JSON.stringify(own.filled)}`);
+    expect(own.short.length === 0, `Viewed a product's header buttons under 44px: ${JSON.stringify(own.short)}`);
+    const ownState = (await page.locator('[data-flow-header-state="flow_viewedproduct"]').textContent()).trim();
+    expect((ownState === 'On') === (own.switchText === 'Turn off') && ['On', 'Off'].includes(ownState), `Viewed a product's header says "${ownState}" beside "${own.switchText}"`);
+    await toFlowList();
+    return `All flows: only New flow is filled, none of ${fills.switches.length} switches; the Turn off and Turn on sentences were on screen at ${offBox.top} and ${onBox.top} (Welcome's row at ${rowBox?.top}); Welcome's and Viewed a product's headers fill Save alone, switches outlined ("${starter.switchText}", "${own.switchText}" beside "${ownState}"), no button under 44px`;
   });
 
   await go('panel-beside', async () => {
@@ -2449,6 +2601,20 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     expect(await back.isVisible(), 'the Back to funnel banner is not shown');
     expect((await page.getByRole('button', { name: 'Back to Canvas', exact: true }).count()) === 0, 'Back to Canvas shows while the banner is the way back');
     await shot('nav-from-step');
+    // Wave 8: with an edit on screen that is not saved, Back to funnel asks first (FLOW_UNSAVED_LEAVE) and
+    // Cancel keeps the studio, the edit AND the banner; OK then goes back as below.
+    await page.click('.react-flow__node[data-id="n_mail"]');
+    expect(await stepHeading('Email 1 of 1'), `the email on ${want} did not take the step heading`);
+    const unheard = 'An edit Back to funnel must ask about';
+    await page.locator('#flow-step-subject').fill(unheard);
+    const asked = dialogs.length;
+    await back.click();
+    const question = await waitUntil(() => (dialogs.length > asked ? dialogs[dialogs.length - 1] : null), 3000);
+    expect(question === FLOW_UNSAVED_LEAVE, `Back to funnel with an unsaved edit asked ${JSON.stringify(question)}`);
+    await page.waitForTimeout(300);
+    expect(await back.isVisible(), 'after Cancel on Back to funnel the banner is gone');
+    expect((await isSelected('Flow map')) && (await page.locator('#flow-step-subject').inputValue()) === unheard, 'after Cancel on Back to funnel the editor or the edit is gone');
+    acceptNextDialog = true;
     await back.click();
     await page.waitForSelector(`.react-flow__node[data-id="${SEQ_STEP}"].selected`, { timeout: 8000 });
     const f = await waitUntil(async () => {
@@ -2457,7 +2623,102 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     }, 5000);
     expect(f, `after Back to funnel focus is on ${JSON.stringify(await focused(page))}`);
     expect((await page.getByRole('heading', { level: 1, name: /Email Studio/ }).count()) === 0, 'the studio is still showing');
-    return `step ${SEQ_STEP} with "${want}" chosen opened Flows, Flow map on "${chosen}" under the Back to funnel banner; Back to funnel selected ${SEQ_STEP} with focus on "${f.text}"`;
+    expect(acceptNextDialog === false, 'the second Back to funnel did not ask');
+    return `step ${SEQ_STEP} with "${want}" chosen opened Flows, Flow map on "${chosen}" under the Back to funnel banner; with an unsaved edit Back to funnel asked first and Cancel kept the banner and the edit; OK, then Back to funnel selected ${SEQ_STEP} with focus on "${f.text}"`;
+  });
+
+  await go('canvas-build-flow', async () => {
+    // Wave 7: a step with no flow builds one from its own letters. nav-from-step left SEQ_STEP selected and
+    // linked to STEP_FLOW; choosing no flow puts it back to unlinked.
+    const seqData = DEFAULT_LEAD_CAPTURE_PROJECT.nodes.find(n => n.id === SEQ_STEP)?.data;
+    expect(seqData && Array.isArray(seqData.steps) && seqData.steps.length === 3, `the default journey's ${SEQ_STEP} is not the three-letter step this step reads`);
+    const node = page.locator(`.react-flow__node[data-id="${SEQ_STEP}"]`);
+    await node.waitFor({ state: 'visible', timeout: 15000 });
+    if (!(await page.locator(`.react-flow__node[data-id="${SEQ_STEP}"].selected`).count())) await node.click();
+    const picker = page.getByLabel('Jourvance flow for this follow-up', { exact: true });
+    await picker.waitFor({ state: 'visible' });
+    await picker.selectOption('');
+    const build = page.getByRole('button', { name: 'Build a flow in Email Studio', exact: true });
+    await build.waitFor({ state: 'visible' });
+    for (const line of stepLettersSource(flowStartForStep(seqData.sequenceType).label)) {
+      expect(await page.getByText(line, { exact: true }).isVisible(), `the unlinked step does not say "${line}"`);
+    }
+    // The browser refuses the journey (its two keys only), so the save after the build fails.
+    await page.evaluate(() => {
+      const own = Storage.prototype.setItem;
+      window.__jvRefuseJourney = true;
+      Storage.prototype.setItem = function (key, value) {
+        if (window.__jvRefuseJourney && /^jourvance_(active_project$|journey:)/.test(String(key))) throw new DOMException('refused by the check', 'SecurityError');
+        return own.call(this, key, value);
+      };
+    });
+    const before = state.creates.length;
+    let release = () => {};
+    state.createHold = new Promise(resolve => { release = resolve; });
+    try {
+      await build.click();
+      const building = await waitUntil(async () => ((await statusTexts(page)).includes(FLOW_BUILDING) ? true : null), 3000);
+      expect(building, `while the build is out the status says ${JSON.stringify(await statusTexts(page))}`);
+      const busy = page.getByRole('button', { name: 'Building the flow\u2026', exact: true });
+      // aria-disabled, not disabled: the button stays focusable and clickable, so the guard is the code's.
+      // force skips Playwright's own wait for an enabled button, which would otherwise hold the click back.
+      await busy.click({ force: true });
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      expect(state.creates.length === before + 1, `a held build and two more presses posted ${state.creates.length - before} flows`);
+    } finally {
+      release();
+      state.createHold = null;
+    }
+    const body = state.creates[before];
+    const subjects = (body.nodes || []).filter(n => n.type === 'email').map(n => n.subject);
+    const waits = (body.nodes || []).filter(n => n.type === 'delay').map(n => n.delayMinutes);
+    const own = seqData.steps.map(s => s.subject);
+    expect(JSON.stringify(subjects) === JSON.stringify(own), `the build carried subjects ${JSON.stringify(subjects)}, not the step's ${JSON.stringify(own)}`);
+    expect(JSON.stringify(waits) === JSON.stringify([24 * 60, 72 * 60]), `the build carried waits ${JSON.stringify(waits)} minutes, not 24 and 72 hours`);
+    expect(body.name === seqData.label && body.trigger === flowStartForStep(seqData.sequenceType).trigger, `the build was named "${body.name}" and started by ${body.trigger}`);
+    const built = `flow_check${before + 1}`;
+    // The save was refused: the studio stays shut and says why, and the step is linked to what it built.
+    const refused = await waitUntil(async () => ((await statusTexts(page)).includes(STUDIO_NOT_OPENED) ? true : null), 5000);
+    expect(refused, `after a refused save the status says ${JSON.stringify(await statusTexts(page))}`);
+    expect((await page.getByRole('heading', { level: 1, name: /Email Studio/ }).count()) === 0, 'Email Studio opened although the journey was not saved');
+    const edit = page.getByRole('button', { name: 'Edit this flow in Email Studio', exact: true });
+    expect(await waitUntil(async () => ((await edit.count()) ? true : null), 3000), 'after a refused save the step does not read Edit: it was not linked to the flow it built');
+    expect((await picker.inputValue()) === built, `after a refused save the step's picker reads "${await picker.inputValue()}", not the built ${built}`);
+    await edit.click();
+    await page.waitForTimeout(500);
+    expect(state.creates.length === before + 1, `Edit after a refused save posted ${state.creates.length - before - 1} more flows`);
+    expect((await statusTexts(page)).includes(STUDIO_NOT_OPENED), `a second refused save says ${JSON.stringify(await statusTexts(page))}`);
+    // The browser keeps the journey again. Signed out, App writes it on the next change, so the step
+    // changes one field and puts it back, as a person editing before trying again would.
+    await page.evaluate(() => { window.__jvRefuseJourney = false; });
+    const smartExit = page.getByLabel('Smart Exit on Purchase', { exact: true });
+    await smartExit.click();
+    await smartExit.click();
+    await edit.click();
+    await page.getByRole('heading', { level: 2, name: 'Flow map', exact: true }).waitFor({ state: 'visible', timeout: 10000 });
+    const chosen = await waitUntil(async () => (await chosenFlow(page)) || null, 5000);
+    expect((await isSelected('Flows')) && (await isSelected('Flow map')), `Flows selected ${await isSelected('Flows')}, Flow map selected ${await isSelected('Flow map')}`);
+    expect(chosen === seqData.label, `the studio chose "${chosen}", not the built "${seqData.label}"`);
+    const onMap = await waitUntil(async () => {
+      const text = (await page.locator('[data-flow-map="map"] .react-flow__node').allTextContents()).join(' | ');
+      return own.every(s => text.includes(s)) ? text : null;
+    }, 5000);
+    expect(onMap, `the map of the built flow does not show the step's subjects ${JSON.stringify(own)}`);
+    const back = page.getByRole('button', { name: 'Back to funnel', exact: true });
+    expect(await back.isVisible(), 'the Back to funnel banner is not shown');
+    await shot('canvas-build-flow');
+    await back.click();
+    await page.waitForSelector(`.react-flow__node[data-id="${SEQ_STEP}"].selected`, { timeout: 8000 });
+    const f = await waitUntil(async () => {
+      const now = await focused(page);
+      return now && now.tag === 'button' && now.text === 'Edit this flow in Email Studio' ? now : null;
+    }, 5000);
+    expect(f, `after Back to funnel focus is on ${JSON.stringify(await focused(page))}`);
+    const pickerBack = page.getByLabel('Jourvance flow for this follow-up', { exact: true });
+    expect((await pickerBack.inputValue()) === built, `after Back to funnel the step's picker reads "${await pickerBack.inputValue()}", not ${built}`);
+    expect(state.creates.length === before + 1, `the whole trip posted ${state.creates.length - before} flows`);
+    return `Build posted one flow "${body.name}" (${subjects.length} emails, waits ${waits.join(' and ')} minutes) while held, with two more presses posting nothing; the refused save said STUDIO_NOT_OPENED with the step linked to ${built}, and Edit again posted nothing; once kept, Edit opened Flows, Flow map on "${chosen}" with every subject on the map, and Back to funnel focused "${f.text}" with ${built} chosen`;
   });
 
   // ---- Wave 6: honest states (D6). Each step opens the studio in a fresh context whose studio reads

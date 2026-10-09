@@ -23,6 +23,7 @@
  */
 import crypto from 'node:crypto';
 import { emailHasContent } from '../../email-flow-content.mjs';
+import { blocksWouldClip } from '../../email-doc.mjs';
 
 export const BROADCAST_DRAFT_LIMIT = 20;
 export const BROADCAST_DRAFT_MAX_BYTES = 64 * 1024;
@@ -30,7 +31,7 @@ export const DRAFT_NOT_FOUND = 'That draft is not on this account.';
 export const DRAFT_FULL = `This account already keeps ${BROADCAST_DRAFT_LIMIT} broadcast drafts, so this one was not saved. Delete a draft and save again.`;
 export const DRAFT_TOO_LARGE = `This draft is larger than ${BROADCAST_DRAFT_MAX_BYTES / 1024} KB, so it was not saved. Remove a block or shorten its HTML and save again.`;
 export const DRAFT_EMPTY = 'There is nothing in this draft yet, so it was not saved. Add a subject or a block first.';
-export const DRAFT_CLIPPED = 'Part of this draft is longer than a broadcast keeps (24 blocks, 4000 characters in a block, 60000 in an HTML block, 200 in the subject, 140 in the preview text), so it was not saved. Shorten it and save again.';
+export const DRAFT_CLIPPED = 'Part of this draft is longer than a broadcast keeps (24 blocks, 4000 characters in a block, 60000 in an HTML block, 500 in a link, 200 in the subject, 140 in the preview text), so it was not saved. Shorten it and save again.';
 
 const DRAFT_ID = /^bd_[a-z0-9]{6,40}$/;
 const WHEN = ['now', 'clock', 'gradual', 'smart'];
@@ -111,25 +112,14 @@ export function cleanBroadcastDrafts(input, uid, cleanBlocks) {
 
 /**
  * True when cleaning would cut something the caller sent: more blocks than cleanBlockList keeps (24,
- * and 8 in a column), or a subject, preview text or block text past the length it keeps
- * (email-doc.mjs cleanBlock). A draft clipped on the way in used to answer 200, and the composer said
- * "Draft saved" over a stored copy that had lost blocks or text.
+ * and 8 in a column), or a subject, preview text or any string in a block past the length it keeps,
+ * a link's address included (email-doc.mjs blocksWouldClip, Wave 8). A draft clipped on the way in used
+ * to answer 200, and the composer said "Draft saved" over a stored copy that had lost blocks, text or
+ * the tail of a link.
  */
-const TEXT_CAP = { heading: 4000, text: 4000, html: 60000 };
 const longer = (value, max) => typeof value === 'string' && value.length > max;
-function blocksClip(list, max) {
-  if (!Array.isArray(list)) return false;
-  if (list.length > max) return true;
-  return list.some((block) => {
-    if (!block || typeof block !== 'object') return false;
-    if (TEXT_CAP[block.kind] && longer(block.text, TEXT_CAP[block.kind])) return true;
-    if (block.kind === 'columns' && Array.isArray(block.columns)) return block.columns.length > 4 || block.columns.some((column) => blocksClip(column?.blocks, 8));
-    if (block.kind === 'split' && Array.isArray(block.cells)) return block.cells.some((cell) => longer(cell?.text, 4000));
-    return false;
-  });
-}
 export function draftWouldClip(body) {
-  return longer(body.subject, 200) || longer(body.previewText, 140) || blocksClip(body.blocks, 24);
+  return longer(body.subject, 200) || longer(body.previewText, 140) || blocksWouldClip(body.blocks);
 }
 
 /** Bytes of a draft as it is stored. */

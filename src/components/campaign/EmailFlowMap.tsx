@@ -8,6 +8,7 @@ import { BlockEditor, type MailBlock } from './EmailBlocks';
 import { FLOW_MAP_UNREACHABLE, FLOW_MAP_WRITE_UNREACHABLE, retryFlowMapArgs, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
 import { FLOWS_NOT_CONNECTED, STARTER_DRAFT_NOTE, flowsListLoad, starterOffNotice, startsWhenText } from '../../lib/emailFlowsList';
 import { retryLabel } from '../../lib/studioLoad';
+import { FLOW_UNSAVED_LEAVE, noteFlowUnsaved } from '../../lib/studioLeave';
 import { EmailStepPreview } from './EmailStepPreview';
 
 type FlowPath = { id: string; label?: string; else?: boolean; clauses?: { kind: string; field?: string; op?: string; value?: string; event?: string; since?: string; done?: boolean; note?: string }[]; note?: string };
@@ -179,7 +180,9 @@ function detailOf(node: FlowNode) {
     const minutes = node.delayMinutes ?? (node.delayHours || 0) * 60;
     return minutes % 60 === 0 ? `${minutes / 60} hours` : `${minutes} minutes`;
   }
-  if (node.type === 'email') return `${node.subject || 'No subject yet'}${node.status && node.status !== 'live' ? ` · ${node.status}` : ''}${node.klaviyoFlowId ? ' · Klaviyo' : ''}`;
+  // Wave 8: a starter email still in its seeded words says so on the map, so the ones left to replace are
+  // seen without opening each (the server marks it, emailFlowsList.ts STARTER_DRAFT_NOTE says why).
+  if (node.type === 'email') return `${node.subject || 'No subject yet'}${node.status && node.status !== 'live' ? ` · ${node.status}` : ''}${node.klaviyoFlowId ? ' · Klaviyo' : ''}${node.starterDraft === true ? ' · starter draft' : ''}`;
   if (node.type === 'sms') return node.message || 'No message yet';
   if (node.type === 'condition') return (node.paths || []).map((path) => path.label || path.id).join(' · ') || 'Check';
   if (node.type === 'ab') return `${node.variations?.length || 0} variations`;
@@ -433,10 +436,14 @@ export const EmailFlowMap: React.FC<{
   // The flow on screen is not the one last loaded: an edit that is not saved yet. Every load and
   // every choice puts the loaded object itself back in draft.
   const unsaved = Boolean(draft && draft.id === currentId && flows.find((flow) => flow.id === draft.id) !== draft);
+  // Wave 8: every way out of the editor asks before it drops this edit, not only the picker below
+  // (src/lib/studioLeave.ts: Email Studio's tabs and App's view switch read it). Cleared on unmount.
+  useEffect(() => { noteFlowUnsaved(unsaved); }, [unsaved]);
+  useEffect(() => () => noteFlowUnsaved(false), []);
 
   const choose = (id: string) => {
     // Choosing another flow drops the edits on screen, so it asks first.
-    if (unsaved && id !== currentId && !window.confirm('This flow has changes that are not saved. Leave it and lose them?')) return;
+    if (unsaved && id !== currentId && !window.confirm(FLOW_UNSAVED_LEAVE)) return;
     setCurrentId(id);
     setSelected('');
     setNotice('');
@@ -784,12 +791,15 @@ export const EmailFlowMap: React.FC<{
                   </p>
                 )}
               </div>
+              {/* Wave 8: one rule in both headers. Save is the one filled button; Turn on or Turn off is an
+                  outline beside the state said in words; Delete is an outline, set apart. Each is 44px tall. */}
               {current.editable && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   {unsaved && <span style={{ fontSize: 12, color: '#fbbf24' }}>Unsaved changes</span>}
-                  <button type="button" style={current.enabled ? solidBtn : ghostBtn} onClick={() => save({ ...current, enabled: !current.enabled })}>{current.enabled ? 'Turn off' : 'Turn on'}</button>
-                  <button type="button" style={ghostBtn} onClick={() => save(current)}>Save</button>
-                  <button type="button" style={ghostBtn} onClick={remove}>Delete</button>
+                  <span data-flow-header-state={current.id} style={{ fontSize: 12, fontWeight: 700, color: current.enabled ? '#6ee7b7' : '#d1d5db' }}>{current.enabled ? 'On' : 'Off'}</span>
+                  <button type="button" data-flow-header-switch={current.id} style={{ ...ghostBtn, minHeight: 44 }} onClick={() => save({ ...current, enabled: !current.enabled })}>{current.enabled ? 'Turn off' : 'Turn on'}</button>
+                  <button type="button" data-flow-header-save={current.id} style={{ ...solidBtn, minHeight: 44 }} onClick={() => save(current)}>Save</button>
+                  <button type="button" style={{ ...ghostBtn, minHeight: 44, marginLeft: 12 }} onClick={remove}>Delete</button>
                 </div>
               )}
               {!current.editable && current.contentEditable && (
@@ -803,12 +813,12 @@ export const EmailFlowMap: React.FC<{
                     return (
                       <>
                         <span data-flow-header-state={current.id} style={{ fontSize: 12, fontWeight: 700, color: on ? '#6ee7b7' : '#d1d5db' }}>{on ? 'On for this account' : 'Off for this account'}</span>
-                        <button type="button" data-flow-header-switch={current.id} style={{ ...(on ? solidBtn : ghostBtn), opacity: switchingFlow ? 0.6 : 1 }} aria-disabled={switchingFlow} onClick={() => switchStarter(current, on)}>{text}</button>
+                        <button type="button" data-flow-header-switch={current.id} style={{ ...ghostBtn, minHeight: 44, opacity: switchingFlow ? 0.6 : 1 }} aria-disabled={switchingFlow} onClick={() => switchStarter(current, on)}>{text}</button>
                       </>
                     );
                   })()}
                   {/* aria-disabled, not disabled: a disabled button drops keyboard focus to the page. */}
-                  <button type="button" style={{ ...solidBtn, opacity: saving ? 0.6 : 1 }} aria-disabled={saving} onClick={() => saveContent(current)}>{saving ? 'Saving' : 'Save'}</button>
+                  <button type="button" data-flow-header-save={current.id} style={{ ...solidBtn, minHeight: 44, opacity: saving ? 0.6 : 1 }} aria-disabled={saving} onClick={() => saveContent(current)}>{saving ? 'Saving' : 'Save'}</button>
                 </div>
               )}
             </div>

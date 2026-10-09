@@ -17,7 +17,7 @@ import { cleanHoldout } from './email-map.mjs';
 import { smartSendConflict } from './email-predict.mjs';
 import { SMART_EMAIL_HOURS, SMART_SMS_HOURS } from './email-flows.mjs';
 import { emailHasContent } from './email-flow-content.mjs';
-import { CAMPAIGN_DUPLICATE, CAMPAIGN_EMAIL_EMPTY, setupEmailRoutes } from './server/routes/emailRoutes.mjs';
+import { CAMPAIGN_DUPLICATE, CAMPAIGN_EMAIL_EMPTY, CAMPAIGN_REQUEST_ID, setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 import { cleanDraftSettings } from './server/routes/broadcastDraftRoutes.mjs';
 
 const {
@@ -120,7 +120,8 @@ async function serveSend(extra = {}) {
   const saved = [];
   const app = express();
   app.use(express.json({ limit: '1mb' }));
-  setupEmailRoutes(app, {
+  // Wave 8: the handlers it hands back (processDueCampaigns, the scheduled sender) are kept for the tick test.
+  const handlers = setupEmailRoutes(app, {
     requireUser: (req, _res, next) => { req.user = { uid: 'u1' }; next(); },
     hubReady: false,
     cleanBlocks: (input, fallback) => cleanBlockList(Array.isArray(input) ? input : fallback),
@@ -151,7 +152,12 @@ async function serveSend(extra = {}) {
     });
     return { status: res.status, body: await res.json() };
   };
-  return { saved, post, close: () => new Promise((r) => { listener.closeAllConnections(); listener.close(r); }) };
+  // Any method and path on the same app (Wave 8: DELETE /api/email/campaigns/:id during a send).
+  const call = async (method, route) => {
+    const res = await fetch(`http://127.0.0.1:${listener.address().port}${route}`, { method, signal: AbortSignal.timeout(5000) });
+    return { status: res.status, body: await res.json() };
+  };
+  return { saved, post, call, handlers, close: () => new Promise((r) => { listener.closeAllConnections(); listener.close(r); }) };
 }
 
 test('campaign/send stores what the composer sends: its blocks, the clock time, A/B, holdout, the picks and the text', async () => {
@@ -434,6 +440,111 @@ test('two copies of one send at once: the second is refused while the first is s
     assert.equal((await s.post(body)).status, 409, 'once saved, the same send is not refused');
   } finally {
     release();
+    await s.close();
+  }
+});
+
+// Wave 8 (adversarial review): a send's record is saved after its whole audience was mailed, and the list
+// it was saved into used to be the one read BEFORE those awaits. A second send saved in between was
+// erased, and with it the requestId that refuses the second send's retry.
+const nowSendContext = (delivered, gateFirst) => {
+  let calls = 0;
+  return {
+    hubReady: true,
+    smartSkipReason,
+    applyUtm,
+    fillMailTokens,
+    SMART_EMAIL_HOURS,
+    SMART_SMS_HOURS,
+    workspaceCache: {},
+    rememberRedirectsBatch: () => {},
+    recordEvent: () => {},
+    composeForSend: async () => ({ html: '<p>Back in stock</p>', text: 'Back in stock', vars: {} }),
+    deliverLetter: async (letter) => {
+      delivered.push(letter.to);
+      calls += 1;
+      if (calls === 1) await gateFirst;
+      return { ok: true, status: 'sent', messageId: `msg_${calls}` };
+    }
+  };
+};
+const waitFor = async (ready, what) => {
+  for (let i = 0; i < 300 && !ready(); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(ready(), `${what} never happened, so this proves nothing`);
+};
+
+test('a send saved while another is still mailing is kept, and its retry is still refused', async () => {
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  const delivered = [];
+  const s = await serveSend(nowSendContext(delivered, gate));
+  try {
+    const a = campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip' }), undefined, 'req-held-a');
+    const b = campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip' }), undefined, 'req-quick-b');
+    const first = s.post(a);
+    await waitFor(() => delivered.length === 1, 'the first send reaching delivery');
+    const second = await s.post(b);
+    assert.equal(second.status, 200, JSON.stringify(second.body));
+    assert.deepEqual(s.saved.map((row) => row.requestId), ['req-quick-b']);
+    release();
+    assert.equal((await first).status, 200);
+    assert.deepEqual(s.saved.map((row) => row.requestId).sort(), ['req-held-a', 'req-quick-b'], 'the first send, saved last, erased the second send\'s record');
+    const retry = await s.post(b);
+    assert.equal(retry.status, 409, `a retry of the second send was ${retry.status}: ${JSON.stringify(retry.body)}`);
+    assert.deepEqual(retry.body, { success: false, duplicate: true, error: CAMPAIGN_DUPLICATE });
+    assert.equal(delivered.length, 2, `${delivered.length} emails went out for two sends to one person each`);
+  } finally {
+    release();
+    await s.close();
+  }
+});
+
+test('the scheduled sender saves only the broadcasts it sent: a broadcast deleted and one sent meanwhile stay as they were left', async () => {
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  const delivered = [];
+  const s = await serveSend(nowSendContext(delivered, gate));
+  try {
+    const due = await s.post(campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip', sendWhen: 'clock', sendAt: '2030-01-15T09:30' }), undefined, 'req-due'));
+    assert.equal(due.status, 200, JSON.stringify(due.body));
+    const later = await s.post(campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip', sendWhen: 'clock', sendAt: '2030-01-16T09:30' }), undefined, 'req-later'));
+    assert.equal(later.status, 200, JSON.stringify(later.body));
+    const dueRow = s.saved.find((row) => row.requestId === 'req-due');
+    const laterId = s.saved.find((row) => row.requestId === 'req-later').id;
+    // Its time has come: the sender picks it up on its next pass.
+    dueRow.sendAt = '2020-01-01T00:00:00.000Z';
+    const tick = s.handlers.processDueCampaigns('u1');
+    await waitFor(() => delivered.length === 1, 'the scheduled send reaching delivery');
+    const removed = await s.call('DELETE', `/api/email/campaigns/${laterId}`);
+    assert.equal(removed.status, 200, JSON.stringify(removed.body));
+    const meanwhile = await s.post(campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip' }), undefined, 'req-meanwhile'));
+    assert.equal(meanwhile.status, 200, JSON.stringify(meanwhile.body));
+    release();
+    assert.equal((await tick).sent, 1);
+    const ids = s.saved.map((row) => row.requestId).sort();
+    assert.deepEqual(ids, ['req-due', 'req-meanwhile'], `after the scheduled pass the list holds ${JSON.stringify(ids)}`);
+    assert.equal(s.saved.find((row) => row.requestId === 'req-due').status, 'sent');
+  } finally {
+    release();
+    await s.close();
+  }
+});
+
+test('a requestId the route cannot keep whole is refused, never cut or coerced into another send\'s id', async () => {
+  const s = await serveSend();
+  try {
+    const body = campaignSendBody(draftWith({ include: 'whales', sendWhen: 'clock', sendAt: '2030-01-15T09:30' }));
+    const long = 'x'.repeat(64);
+    assert.equal((await s.post({ ...body, requestId: long })).status, 200, 'a 64-character id is kept');
+    for (const requestId of [`${long}A`, `${long}B`, { a: 1 }, ['x'], 12345, 'has space', 'ümlaut']) {
+      const res = await s.post({ ...body, requestId });
+      assert.equal(res.status, 400, `${JSON.stringify(requestId)} answered ${res.status}: ${JSON.stringify(res.body)}`);
+      assert.deepEqual(res.body, { success: false, error: CAMPAIGN_REQUEST_ID });
+    }
+    assert.equal(s.saved.length, 1, 'a refused id stored a broadcast');
+    assert.equal((await s.post({ ...body, requestId: crypto.randomUUID() })).status, 200, 'the composer\'s own id (a UUID) is refused');
+    assert.equal((await s.post({ ...body, requestId: '' })).status, 200, 'an empty id is no id');
+  } finally {
     await s.close();
   }
 });

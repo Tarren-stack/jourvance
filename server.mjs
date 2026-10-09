@@ -87,6 +87,7 @@ import {
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 import { setupEmailFlowContentRoutes } from './server/routes/emailFlowContentRoutes.mjs';
 import { cleanBroadcastDrafts, setupBroadcastDraftRoutes } from './server/routes/broadcastDraftRoutes.mjs';
+import { setupEmailFlowCreateRoutes } from './server/routes/emailFlowCreateRoutes.mjs';
 import { cleanAccountSequences, emailHasContent, isStarterDraft, mergeAccountSteps, starterFlowOn, storedWaitHours } from './email-flow-content.mjs';
 import { mailCallbackPlan } from './server/mail-events.mjs';
 
@@ -2841,11 +2842,18 @@ async function processAccountAutomations(uid) {
   let sent = 0;
   let failed = 0;
   const now = Date.now();
+  // The enrolments this pass changed, by id (Wave 8). Only they are written back, onto the record as it
+  // reads after the sends (below). Both writers of an enrolment give it an id; a row without one keeps
+  // the old whole-record write, so its change is never dropped and the email never sent twice.
+  const touched = new Map();
+  let untracked = false;
   for (const enr of fresh.enrollments) {
     if (enr.status !== 'active') continue;
     if (new Date(enr.nextDueAt || 0).getTime() > now) continue;
     const auto = fresh.automations.find((row) => row.id === enr.automationId);
     const step = auto?.steps?.[enr.stepIndex];
+    if (typeof enr.id === 'string' && enr.id) touched.set(enr.id, enr);
+    else untracked = true;
     if (!auto?.enabled || !step) {
       enr.status = 'stopped';
       continue;
@@ -2883,7 +2891,16 @@ async function processAccountAutomations(uid) {
     // A stored 0 is 0 hours; only a wait that is absent or not a number reads as 24 (storedWaitHours).
     else enr.nextDueAt = new Date(now + storedWaitHours(auto.steps[enr.stepIndex]?.delayHours) * 3600000).toISOString();
   }
-  writeUserPrograms(uid, fresh);
+  // Only this pass's own changes, onto the record as it reads now (Wave 8), the way sendTransactional
+  // writes its sentKey. The sends above were awaited, and writing `fresh` back put the copy read before
+  // them over every save made meanwhile: a built-in flow turned on or off, a list, the postal address,
+  // the timezone, the saved blocks. An enrolment removed meanwhile is not put back.
+  if (untracked) writeUserPrograms(uid, fresh);
+  else {
+    const latest = userProgramBag(uid);
+    latest.enrollments = latest.enrollments.map((row) => (row && touched.has(row.id) ? touched.get(row.id) : row));
+    writeUserPrograms(uid, latest);
+  }
   const flowTick = await processCustomFlows(uid);
   return {
     sent: sent + flowTick.sent,
@@ -3818,27 +3835,19 @@ const broadcastDraftCtx = {
 };
 setupBroadcastDraftRoutes(app, broadcastDraftCtx);
 
-app.post('/api/email/flows', requireUser, (req, res) => {
-  const id = `flow_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-  const flow = cleanFlow({
-    id,
-    name: req.body?.name || 'New flow',
-    enabled: false,
-    trigger: req.body?.trigger || 'manual',
-    quietAfterDays: req.body?.quietAfterDays,
-    nodes: [
-      { id: 'n_start', type: 'trigger' },
-      { id: 'n_mail', type: 'email', subject: 'A note from the store', blocks: [{ id: 'n_mail_b', kind: 'text', text: '' }] }
-    ],
-    edges: [{ id: 'e_start', source: 'n_start', target: 'n_mail', branch: '' }]
-  });
-  if (!flow) return res.status(400).json({ success: false, error: 'That flow could not be created.' });
-  flow.enabled = false;
-  const bag = userProgramBag(req.user.uid);
-  bag.flows.unshift(flow);
-  writeUserPrograms(req.user.uid, bag);
-  res.json({ success: true, flow: presentCustomFlow(flow, bag, req.user.uid) });
-});
+// A new flow: New flow's one empty email, or a whole graph from a funnel step's letters (Wave 7,
+// server/routes/emailFlowCreateRoutes.mjs).
+const emailFlowCreateCtx = {
+  requireUser,
+  userProgramBag,
+  writeUserPrograms,
+  cleanFlow,
+  flowShapeError,
+  validateFlow,
+  rememberUntranslated,
+  presentCustomFlow
+};
+setupEmailFlowCreateRoutes(app, emailFlowCreateCtx);
 
 app.post('/api/email/flows/:id', requireUser, (req, res) => {
   const bag = userProgramBag(req.user.uid);

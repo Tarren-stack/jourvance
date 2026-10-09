@@ -29,6 +29,7 @@ function escapeHtml(str) {
 /** campaign/send's refusals for an email with nothing in it, and for a send it already took. */
 export const CAMPAIGN_EMAIL_EMPTY = 'This email has no words, picture or button yet, so nothing was sent. Add them in the builder first.';
 export const CAMPAIGN_DUPLICATE = 'This broadcast was already sent or scheduled, so it was not sent again. Look in All broadcasts.';
+export const CAMPAIGN_REQUEST_ID = 'This send was refused, because its request id is not up to 64 letters, digits, dashes or underscores. Nothing was sent.';
 
 export function setupEmailRoutes(app, ctx) {
   // The requestIds of sends still being answered, so a second copy of one is refused before the first is saved.
@@ -1076,11 +1077,25 @@ function finishCampaign(record, now) {
   } else record.nextAt = record.when === 'gradual' ? nextBatchAt(record, now) : (record.sendAt || new Date(now).toISOString());
 }
 
+// Every write of the campaign list re-reads it and changes only the rows this caller holds, in one
+// synchronous step (Wave 8). A list read before an await and written after it erased every row saved in
+// between: a second send's record, and with it the requestId that refuses its retry, or a deleted
+// broadcast put back. A row is replaced by its id, or added at the top when the list no longer has it.
+function putCampaigns(rows) {
+  const campaigns = loadCampaigns();
+  for (const row of rows) {
+    const at = campaigns.findIndex((item) => item.id === row.id);
+    if (at >= 0) campaigns[at] = row;
+    else campaigns.unshift(row);
+  }
+  saveCampaigns(campaigns);
+}
+
 async function processDueCampaigns(uid) {
   const now = Date.now();
   const campaigns = loadCampaigns();
   let sent = 0;
-  let changed = false;
+  const changed = [];
   for (const record of campaigns) {
     if (record.userId !== uid || record.sendMode === 'shopify_push') continue;
     if (record.status !== 'scheduled' && record.status !== 'sending') continue;
@@ -1092,9 +1107,9 @@ async function processDueCampaigns(uid) {
     const result = await deliverCampaignParts(uid, record, emailDue.due, smsDue.due, now);
     finishCampaign(record, now);
     sent += result.sent;
-    changed = true;
+    changed.push(record);
   }
-  if (changed) saveCampaigns(campaigns);
+  if (changed.length) putCampaigns(changed);
   return { sent };
 }
 
@@ -1277,7 +1292,13 @@ app.post('/api/email/campaign/send', requireUser, async (req, res) => {
   if (!hasEmail && !hasSms) return res.status(400).json({ success: false, error: 'Subject and email body are required.' });
   // One send per requestId (the composer keeps it across a retry of an unanswered send), so a double
   // submit or a retry of a send that did land is refused rather than mailing the audience twice.
-  const requestId = String(req.body?.requestId ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  // Refused, never cut or coerced (Wave 8): two ids that differed only after the 64th character, or an
+  // object read as "objectObject", were the same id, and the second send was told it already went.
+  const askedId = req.body?.requestId;
+  if (askedId != null && askedId !== '' && (typeof askedId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(askedId))) {
+    return res.status(400).json({ success: false, error: CAMPAIGN_REQUEST_ID });
+  }
+  const requestId = typeof askedId === 'string' ? askedId : '';
   const requestKey = requestId ? `${req.user.uid}\u0000${requestId}` : '';
   if (requestKey) {
     if (campaignRequestsInFlight.has(requestKey) || loadCampaigns().some((row) => row.userId === req.user.uid && row.requestId === requestId)) {
@@ -1434,10 +1455,8 @@ app.post('/api/email/campaign/send', requireUser, async (req, res) => {
     record.smsAudience = smsPeople.map((person) => ({ ...person, smart: byEmail.get(person.email) || null }));
     record.smart = { fallbackHour: fallback.hour, explore: req.body?.explore === true, batches: plan.batches, report: plan.report };
   }
-  const campaigns = loadCampaigns();
   if (schedule.waiting) {
-    campaigns.unshift(record);
-    saveCampaigns(campaigns);
+    putCampaigns([record]);
     return res.json({
       success: true,
       campaign: presentCampaign(record),
@@ -1458,8 +1477,8 @@ app.post('/api/email/campaign/send', requireUser, async (req, res) => {
     return res.status(502).json({ success: false, error: result.lastError || 'The email service rejected the send.', failed: result.failed, followUp: null, followUpNote: FOLLOW_UP_NOTE });
   }
   finishCampaign(record, now);
-  campaigns.unshift(record);
-  saveCampaigns(campaigns);
+  // Read again here, after the sends were awaited (putCampaigns), never the list read before them.
+  putCampaigns([record]);
   res.json({
     success: true,
     campaign: presentCampaign(record),

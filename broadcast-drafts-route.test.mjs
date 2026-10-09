@@ -314,7 +314,10 @@ test('a draft that cleaning would cut is refused 413 and nothing is written; at 
       'a subject over 200': [{ ...DRAFT, subject: 's'.repeat(201) }, DRAFT_CLIPPED],
       'preview text over 140': [{ ...DRAFT, previewText: 'p'.repeat(141) }, DRAFT_CLIPPED],
       '9 blocks in a column': [{ ...DRAFT, blocks: [{ id: 'c', kind: 'columns', columns: [{ blocks: lines(9) }] }] }, DRAFT_CLIPPED],
-      'a split cell over 4000': [{ ...DRAFT, blocks: [{ id: 'p', kind: 'split', cells: [{ kind: 'text', text: 'a'.repeat(4001) }, { kind: 'text', text: '' }] }] }, DRAFT_CLIPPED]
+      'a split cell over 4000': [{ ...DRAFT, blocks: [{ id: 'p', kind: 'split', cells: [{ kind: 'text', text: 'a'.repeat(4001) }, { kind: 'text', text: '' }] }] }, DRAFT_CLIPPED],
+      // Wave 8: a link cut at 500 characters is a different, broken link (email-doc.mjs blocksWouldClip).
+      'a button link over 500': [{ ...DRAFT, blocks: [{ id: 'b', kind: 'button', label: 'Buy', url: `https://shop.example.test/p?${'utm_x='.padEnd(600, 'a')}` }] }, DRAFT_CLIPPED],
+      'an image link over 500': [{ ...DRAFT, blocks: [{ id: 'i', kind: 'image', url: 'https://images.example.test/a.png', href: `https://shop.example.test/${'h'.repeat(480)}` }] }, DRAFT_CLIPPED]
     };
     for (const [name, [body, error]] of Object.entries(cases)) {
       const res = await s.post(body);

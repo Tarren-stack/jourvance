@@ -80,7 +80,10 @@ test('the duplicate starter cards are gone, and every count reads the real numbe
 test('Email Studio opens the Flow map on a flow from inside, and the tab strip clears it', () => {
   const open = between(suite, 'const openFlowInMap', '};', 'openFlowInMap');
   assert.match(open, /setMapFlowId\(flowId\);\s*setMapNodeId\(nodeId \|\| ''\);\s*setActiveTab\('map'\);/);
-  assert.match(suite, /onClick=\{\(\) => \{ setMapFlowId\(''\); setMapNodeId\(''\); setActiveTab\(tab\.key as any\); \}\}/);
+  // Wave 8: a section tab goes through selectSection, which asks before it drops an unsaved flow edit
+  // and still clears the flow a button asked for.
+  assert.ok(suite.includes('onClick={() => { selectSection(tab.key); }}'), 'a section tab does not go through selectSection');
+  assert.match(between(suite, 'const selectSection', '};', 'selectSection'), /setMapFlowId\(''\);\s*setMapNodeId\(''\);\s*setActiveTab\(key\);/);
   assert.ok(suite.includes("<EmailFlowMap initialFlowId={mapFlowId || openFlowId} initialNodeId={mapNodeId || undefined} fromStep={!mapFlowId} onContentSaved={refreshSequences} />"));
   // The starter cards read the sequences again once their emails are saved on the map.
   assert.match(between(suite, 'const refreshSequences', '};', 'refreshSequences'), /fetch\('\/api\/drips\/sequences'/);

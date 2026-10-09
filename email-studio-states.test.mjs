@@ -270,7 +270,9 @@ test('every Retry is named for the read it tries again, with the word on the but
     }
     assert.doesNotMatch(code(src), /'Try again'|>\s*Try again\s*</, `${name}: a button says Try again`);
   }
-  assert.ok(named >= 4, `only ${named} one-line Retry buttons were read`);
+  // Wave 8: All flows draws the shared line now (its Retry is named above), so three one-line buttons remain.
+  assert.ok(named >= 3, `only ${named} one-line Retry buttons were read`);
+  assert.ok(list.includes('<StudioListLine') && list.includes('onRetry={read}') && list.includes('busy={reading}'), 'All flows does not draw its failure through StudioListLine');
   // Open checkouts uses the shared line instead of its own Try again button.
   assert.ok(suite.includes("<StudioListLine line={{ kind: 'failed', text: checkoutsLoad.text, retry: checkoutsLoad.retry }} onRetry={() => { void loadData(); }} busy={loading} />"));
 });

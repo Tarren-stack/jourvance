@@ -4,6 +4,74 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-08. DEPLOYED: jourvance.com serves 4b1cf75 (the motion pass, the countdown dip removed, on top of the lead-capture fix, the Sentinel and the page builder Waves 0 to 3). Render reported it live and the two earlier deploys deactivated; the Sentinel, policy and lead probes answer as before. A bundle fingerprint for the motion code was inconclusive (no lazy chunk names found), not failed. Read the newest section first.
 
+## 2026-10-09: Email Studio, Waves 7 and 8: the canvas step and its flow are one thing; review, fixes, handoff
+
+**Not done first.** The Wave 7 builder (Opus) was cut off mid-run ("your computer went to sleep")
+and left an unclosed JSX expression in `SequenceEditor.tsx` and the Build path unwired; the two
+Wave 7 reviewers caught both as blockers and the fix round repaired and wired it, so the build
+report for Wave 7 is the fix round's. Still open after Wave 8 (the agents' notes in the session
+scratchpad `waves78/`): the blueprint fields `hubFlowId` and `exportFormat` were neither mapped
+nor dropped; the All flows list has no grouping; a keyboard user reaches a flow's emails only
+through the map's steps; a starter row still reads On while every email in it is a draft (each
+draft email is marked on the map now); the composer's confirm wording is unchanged;
+`processCustomFlows` has the same stale whole-record write the built-in sender had (read, not
+tested); a broadcast's record is saved only after its audience was mailed, so a crash mid-send
+loses it and its `requestId` (INFERRED); an account's program record has no total size cap;
+leaving the studio with an unsaved broadcast draft does not ask, and a reload with an unsaved
+flow edit does not ask. One green studio check run took 373 s for the fix agent (cause UNKNOWN);
+the main session's runs are in the table. No screen reader was used. `server.mjs` was never
+booted.
+
+**Wave 7, the canvas step and its flow** (Opus builder cut off, Sonnet verifier, two Sonnet
+lenses, Opus fix round): "Build a flow in Email Studio" on an unlinked sequence step now creates
+an account flow from the step's own emails (`flowFromStepLetters` in `src/lib/editorReturn.ts`:
+subject, preview text, body as text blocks, delays as waits, a start from the step's context or By
+hand) through a new `server/routes/emailFlowCreateRoutes.mjs`, links the step (`linkStepToFlow`,
+in `App.tsx` through a functional `setProject` before any save), saves the journey through
+`openAfterSave` (D7 rule 1 holds, pinned by `build-flow-wiring.test.mjs`) and opens Flows with
+the new flow selected. A `busyRef` and a `builtRef` in `SequenceEditor.tsx` mean a second press
+never posts again and a failed save leaves the step linked. The linked step's drawer shows a
+read-only summary of the flow's emails with "Edit in Email Studio"; an unlinked step shows its
+own letters as the source Build will use. Browser step `canvas-build-flow`.
+
+**Wave 8, review and fixes** (three Sonnet lenses: design review, synthetic users, adversary;
+Opus fix and docs round): seven majors fixed, each with a test seen red. New flow is the one
+filled button on All flows and Save the one in the editor headers (the switch is an outline beside
+On or Off in words, Delete set apart, every header button 44 px); the Turn on and Turn off sentence
+sits under the heading (it measured at 1617 px in a 900 px viewport before); every way out of the
+flow editor asks before dropping an unsaved edit (`src/lib/studioLeave.ts`; both tab strips, Back
+to Canvas, Back to funnel, the sidebar and header view switches; Cancel changes nothing); broadcast
+sends save through `putCampaigns`, which reads the list again and replaces by id, so a concurrent
+send keeps both records and a retry gets 409; the built-in sender writes only its own change onto
+the record as it reads after its awaits; a flow-content save that would clip text is refused with
+413 instead of stored shorter. `JOURNEY_UI_HANDOFF.md` has an "Email Studio" section (files,
+routes, the round trip, vocabulary, the browser check, the known flake, what is open).
+
+**Checks the main session re-ran** (VERIFIED, exit codes read directly, one after another):
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npm test` | 2702 tests, 2699 pass, 0 fail, 3 skipped (the live-server tests, `JOURVANCE_LIVE_TEST_URL` unset); exit 0 |
+| `node scripts/email-studio-browser-check.mjs` | 51 of 51 steps in each of two consecutive runs, exit 0 |
+| `node scripts/builder-browser-check.mjs` | 40 of 40 steps, exit 0 |
+| `npm run check:canvas` | overflow, drawers, save, a11y, runtime PASS; 24 of 24 keyboard checks; 62 contrast items unmeasured (not passes); exit 0 |
+| `npm run check:a11y` | 22 PASS, 0 FAIL; exit 0 |
+| `npx vite build` | exit 0 |
+
+**Reported by the agents, not re-run by the main session:** every planted red (the Wave 7 fix
+round's and the Wave 8 fix round's, listed in `waves78/audit-notes-wave7-fix.md` and
+`waves78/audit-notes-wave8.md` in the session scratchpad, each restored and confirmed with
+`cmp`; two of the fix agent's first planted runs were invalid because of shell quoting and were
+rerun); the five review lenses and their verdicts.
+
+**The whole Email Studio pass, 2026-10-08 to 2026-10-09:** eight waves, each built by Opus or
+Sonnet agents, verified, reviewed by adversarial lenses, fixed, then re-run by the main session
+and committed (89b6441, a90f6bb, 6ac2c13, ebf75c1, and this commit). The suite grew from 2513
+to 2702 tests; the studio browser check from 0 to 51 steps.
+
+---
+
 ## 2026-10-09: Email Studio, Waves 5 and 6: Broadcasts with the builder, honest states, one vocabulary
 
 **Not done first.** FLAKE. The studio browser check is not reliably green: the Wave 6 fix agent saw

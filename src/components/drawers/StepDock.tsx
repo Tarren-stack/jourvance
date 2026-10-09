@@ -61,6 +61,8 @@ interface Props {
   metrics?: MetricsView;
   /** Passed to the step panel: a sequence step's save-then-open Email Studio button (#21). */
   onOpenEmailStudio?: (nodeId: string) => Promise<boolean>;
+  /** Passed to the step panel: link the flow a step just built, save, then open it (Wave 7). */
+  onBuildEmailFlow?: (nodeId: string, flow: { id: string; name: string }) => Promise<boolean>;
   openingEmailStudio?: boolean;
   returnFocusNodeId?: string | null;
   onAddStepBefore?: (nodeId: string) => void;
@@ -102,6 +104,7 @@ export const StepDock: React.FC<Props> = ({
   onOpenShopifyConnect,
   metrics,
   onOpenEmailStudio,
+  onBuildEmailFlow,
   openingEmailStudio,
   returnFocusNodeId,
   onAddStepBefore,
@@ -254,6 +257,7 @@ export const StepDock: React.FC<Props> = ({
             onOpenShopifyConnect={onOpenShopifyConnect}
             metrics={metrics}
             onOpenEmailStudio={onOpenEmailStudio}
+            onBuildEmailFlow={onBuildEmailFlow}
             openingEmailStudio={openingEmailStudio}
             returnFocusNodeId={returnFocusNodeId}
           />
