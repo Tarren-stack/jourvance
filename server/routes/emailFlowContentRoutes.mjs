@@ -1,5 +1,5 @@
 /**
- * Saving the emails of a starter or built-in flow: POST /api/email/flow-content/:id
+ * Saving the emails of a starter or built-in flow, or an order email: POST /api/email/flow-content/:id
  * (EMAIL_STUDIO_PLAN.md, Wave 1, decisions D3 and D5).
  *
  * A starter flow is a shared drip sequence, one copy for every account. Its emails are saved per
@@ -8,10 +8,18 @@
  * nobody is enrolled twice. A built-in flow (an account automation) already lives in the caller's
  * record; its steps are replaced and its `enabled` is kept.
  *
+ * An order email (Wave 4: order confirmation, shipping, cancelled, refund) is a one-email flow on the
+ * map. It lives in the caller's own record too; its subject and blocks are saved the way
+ * POST /api/email/programs/:id saves them for the transactional kind (a blank subject keeps the
+ * stored one, the blocks through cleanBlocks), its `enabled` is kept, it has no preview text, and
+ * it can never wait: it sends when Shopify reports the order event.
+ *
  * TENANCY: `:id` resolves only against the sequences the caller can see (a shared one, or one whose
- * `userId` is the caller) and the built-in automations. Any other id, including another account's
- * sequence and an account flow (those save through /api/email/flows/:id), gets the same 404 body
- * and nothing is written, so the answer never tells a caller that someone else's sequence exists.
+ * `userId` is the caller), the built-in automations and the four order emails in the caller's own
+ * record. Any other id, including another account's sequence and an account flow (those save
+ * through /api/email/flows/:id), gets the same 404 body and nothing is written, so the answer never
+ * tells a caller that someone else's sequence exists. The record written is always the signed-in
+ * caller's; nothing in the body names whose it is.
  *
  * SHAPE: the body is the flow map's `{ nodes, edges }`. It must be exactly the chain the map drew
  * (`stepsFromChain`): the same number of emails, waits only before an email, no other step. An
@@ -22,9 +30,10 @@
  * following the shared sequence, so a later fix to the shared copy still reaches it; saving every
  * email would freeze all of them at the moment of the first edit.
  *
- * WRITE: `writeUserPrograms(uid, bag, { sequences: true })` or `{ steps: true }`. Every other save
- * keeps the stored starter-flow emails and built-in steps, so a background tick that read the record
- * before this save and writes after it cannot put the old emails back.
+ * WRITE: `writeUserPrograms(uid, bag, { sequences: true })`, `{ steps: true }` or
+ * `{ transactional: true }`. Every other save keeps the stored starter-flow emails, built-in steps and
+ * order emails (subject, blocks and whether it is on), so a background tick or an order send that read
+ * the record before this save and writes after it cannot put the old emails back.
  */
 import { ACCOUNT_SEQUENCE_LIMIT, WAIT_HOURS_MAX, emailHasContent, stepsFromChain } from '../../email-flow-content.mjs';
 
@@ -36,6 +45,7 @@ export const FLOW_CONTENT_NO_SUBJECT = 'An email in this flow has no subject, so
 export const FLOW_CONTENT_NOT_KEPT = "These emails could not be saved, because this flow's steps cannot be kept as they are.";
 export const FLOW_CONTENT_FULL = `This account already keeps its own emails for ${ACCOUNT_SEQUENCE_LIMIT} starter flows, so this one could not be saved.`;
 export const FLOW_CONTENT_FAILED = 'These emails were not saved. Try again in a minute.';
+export const ORDER_EMAIL_NO_WAIT = 'An order email sends as soon as Shopify reports the order event, so it cannot have a wait before it. This email was not saved.';
 
 // A starter flow's first email is timed when someone joins it, from the shared sequence (the
 // enrollment points in publicRoutes.mjs and shopifyRoutes.mjs), and the sender reads only the waits
@@ -65,12 +75,15 @@ export function setupEmailFlowContentRoutes(app, ctx) {
     userProgramBag,
     writeUserPrograms,
     cleanSteps,
+    cleanBlocks,
     sequenceStepsFor,
     presentSequenceRow,
-    presentAutomationRow
+    presentAutomationRow,
+    presentOrderEmailRow
   } = ctx;
 
-  // The flows this caller may edit the emails of: a visible sequence first, then a built-in flow.
+  // The flows this caller may edit the emails of: a visible sequence first, then a built-in flow,
+  // then one of the caller's own order emails.
   const resolveFlow = (uid, id, bag) => {
     const sequences = loadDrips()?.sequences;
     const sequence = (Array.isArray(sequences) ? sequences : [])
@@ -78,7 +91,28 @@ export function setupEmailFlowContentRoutes(app, ctx) {
     if (sequence) return { sequence };
     const automation = (bag.automations || []).find((row) => row && row.id === id);
     if (automation) return { automation };
+    const letter = (bag.transactional || []).find((row) => row && row.id === id);
+    if (letter) return { letter };
     return null;
+  };
+
+  // An order email: its one email read back from the chain the map drew, then saved the way
+  // POST /api/email/programs/:id saves the transactional kind (emailRoutes.mjs).
+  const saveOrderEmail = (req, res, uid, bag, letter, body) => {
+    const base = [{ id: letter.id, subject: letter.subject, previewText: '', blocks: letter.blocks, delayHours: 0 }];
+    const read = stepsFromChain({ nodes: body.nodes, edges: body.edges }, base);
+    if (!read.ok) return res.status(400).json({ success: false, error: REFUSALS[read.error] || FLOW_CONTENT_SHAPE });
+    const [mail] = read.steps;
+    if (mail.delayHours !== 0) return res.status(400).json({ success: false, error: ORDER_EMAIL_NO_WAIT });
+    const blocks = cleanBlocks(mail.blocks, letter.blocks);
+    if (!emailHasContent(blocks)) return res.status(400).json({ success: false, error: FLOW_CONTENT_EMPTY });
+    const row = bag.transactional.find((item) => item && item.id === letter.id);
+    if (typeof mail.subject === 'string' && mail.subject.trim()) row.subject = mail.subject.trim().slice(0, 200);
+    row.blocks = blocks;
+    writeUserPrograms(uid, bag, { transactional: true });
+    const fresh = userProgramBag(uid);
+    const saved = (fresh.transactional || []).find((item) => item && item.id === letter.id) || row;
+    return res.json({ success: true, flow: presentOrderEmailRow(saved) });
   };
 
   app.post('/api/email/flow-content/:id', requireUser, (req, res) => {
@@ -88,9 +122,10 @@ export function setupEmailFlowContentRoutes(app, ctx) {
       const bag = userProgramBag(uid);
       const found = resolveFlow(uid, id, bag);
       if (!found) return res.status(404).json({ success: false, error: FLOW_CONTENT_NOT_FOUND });
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+      if (found.letter) return saveOrderEmail(req, res, uid, bag, found.letter, body);
 
       const base = found.sequence ? sequenceStepsFor(found.sequence, bag) : (found.automation.steps || []);
-      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
       const read = stepsFromChain({ nodes: body.nodes, edges: body.edges }, base);
       if (!read.ok) return res.status(400).json({ success: false, error: REFUSALS[read.error] || FLOW_CONTENT_SHAPE });
       if (found.sequence) {

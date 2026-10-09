@@ -6,6 +6,8 @@ import { chooseFlowId, LINKED_FLOW_MISSING } from '../../lib/editorReturn';
 import { moneyText, statText, withNote } from '../../lib/emailStats';
 import { BlockEditor, type MailBlock } from './EmailBlocks';
 import { FLOW_MAP_UNREACHABLE, FLOW_MAP_WRITE_UNREACHABLE, retryFlowMapArgs, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
+import { startsWhenText } from '../../lib/emailFlowsList';
+import { EmailStepPreview } from './EmailStepPreview';
 
 type FlowPath = { id: string; label?: string; else?: boolean; clauses?: { kind: string; field?: string; op?: string; value?: string; event?: string; since?: string; done?: boolean; note?: string }[]; note?: string };
 type FlowNode = {
@@ -53,7 +55,8 @@ type TriggerChoice = { id: string; label: string; help: string; events?: boolean
 type FlowView = {
   id: string;
   name: string;
-  kind: 'flow' | 'automation' | 'sequence';
+  /** 'order' is an order email, a one-email flow (Wave 4): its subject and blocks are edited here. */
+  kind: 'flow' | 'automation' | 'sequence' | 'order';
   editable: boolean;
   /** A starter or built-in flow: its emails and waits can be edited, its steps and its start cannot. */
   contentEditable?: boolean;
@@ -94,6 +97,41 @@ const FALLBACK_TRIGGERS: TriggerChoice[] = [
 ];
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// The flow picker's groups, in the Flows list's order. A kind the map does not know is the account's own.
+const FLOW_PICKER_GROUPS: { kind: FlowView['kind']; label: string }[] = [
+  { kind: 'flow', label: 'Your flows' },
+  { kind: 'automation', label: 'Built-in flows' },
+  { kind: 'sequence', label: 'Starter flows' },
+  { kind: 'order', label: 'Order emails' }
+];
+const pickerKind = (flow: FlowView): FlowView['kind'] => (FLOW_PICKER_GROUPS.some((group) => group.kind === flow.kind) ? flow.kind : 'flow');
+
+// D3: the step panel sits beside the map from 900px wide, below it on a narrower screen.
+const BESIDE_QUERY = '(min-width: 900px)';
+const matchesBeside = () => {
+  try {
+    return window.matchMedia(BESIDE_QUERY).matches;
+  } catch {
+    return true;
+  }
+};
+function usePanelBeside() {
+  const [beside, setBeside] = useState(matchesBeside);
+  useEffect(() => {
+    let query: MediaQueryList;
+    try {
+      query = window.matchMedia(BESIDE_QUERY);
+    } catch {
+      return;
+    }
+    const update = () => setBeside(query.matches);
+    update();
+    query.addEventListener?.('change', update);
+    return () => query.removeEventListener?.('change', update);
+  }, []);
+  return beside;
+}
 
 // The selected step draws a 2px pink border; the padding gives back the extra pixel so nothing moves.
 const MailNode = ({ data, selected }: { data: { title: string; detail: string; kind: string; paths?: FlowPath[] }; selected?: boolean }) => (
@@ -286,6 +324,7 @@ export const EmailFlowMap: React.FC<{
   const [klaviyoOn, setKlaviyoOn] = useState(false);
   const [klaviyoSends, setKlaviyoSends] = useState(false);
   const [klaviyoFlows, setKlaviyoFlows] = useState<{ id: string; name: string; status: string; handoff: string }[]>([]);
+  const beside = usePanelBeside();
 
   // `asked` is true when this read is for the flow the map was opened on. A missing flow is said
   // only when a step on the funnel asked for it (fromStep), never for a button inside Email
@@ -431,7 +470,7 @@ export const EmailFlowMap: React.FC<{
     // Saved is said only once the server has answered; until then Save reads Saving and the status
     // region says so.
     setSaving(true);
-    setNotice('Saving these emails.');
+    setNotice(next.kind === 'order' ? 'Saving this email.' : 'Saving these emails.');
     try {
       const sent = await sendFlowWrite(async () => fetch(`/api/email/flow-content/${next.id}`, {
         method: 'POST',
@@ -447,7 +486,11 @@ export const EmailFlowMap: React.FC<{
         setNotice(data?.error || 'These emails were not saved.');
         return;
       }
-      setNotice('Saved. Every email sent from now on uses this version, including for people already in this flow.');
+      // An order email is read when Shopify reports the order event (server.mjs sendTransactional), so
+      // nobody is part way through it.
+      setNotice(next.kind === 'order'
+        ? 'Saved. Every order email sent from now on uses this version.'
+        : 'Saved. Every email sent from now on uses this version, including for people already in this flow.');
       onContentSaved?.(next.id);
       await load(next.id);
     } finally {
@@ -487,10 +530,17 @@ export const EmailFlowMap: React.FC<{
       return;
     }
     await load(data.flow.id);
+    // A new flow is made with one email (server.mjs POST /api/email/flows), so it opens on that email in
+    // the builder: designing an email from scratch is New flow and nothing else.
+    const first = Array.isArray(data.flow.nodes) ? data.flow.nodes.find((node: FlowNode) => node?.type === 'email') : undefined;
+    if (first) selectNode(first.id);
   };
 
+  // Delete asks first, naming the flow as it is saved (an unsaved new name is not the one being deleted).
   const remove = async () => {
     if (!current?.editable) return;
+    const savedName = flows.find((flow) => flow.id === current.id)?.name || current.name;
+    if (!window.confirm(`Delete the flow "${savedName}"? It is removed for good, and anyone still in it stops getting its emails.`)) return;
     setNotice('');
     const sent = await sendFlowWrite(async () => fetch(`/api/email/flows/${current.id}`, { method: 'DELETE', headers: await authHeaders() }));
     if (!sent.answered) {
@@ -503,6 +553,10 @@ export const EmailFlowMap: React.FC<{
     }
     setSelected('');
     await load();
+    // The Delete button went with the flow, so focus goes to the Flow map heading rather than the page,
+    // and the status region says what happened.
+    headingRef.current?.focus();
+    setNotice(`The flow "${savedName}" was deleted.`);
   };
 
   const patchNode = (id: string, patch: Partial<FlowNode>) => {
@@ -641,16 +695,26 @@ export const EmailFlowMap: React.FC<{
           <button type="button" style={ghostBtn} onClick={() => { retried.current = true; load(...retryFlowMapArgs(currentId, initialFlowId)); }}>Retry</button>
         </div>
       )}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
-        <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 720, overflow: 'auto' }}>
-          {flows.map((flow) => (
-            <button key={flow.id} type="button" onClick={() => choose(flow.id)} style={{ ...card, textAlign: 'left', cursor: 'pointer', borderColor: flow.id === currentId ? 'rgba(244,114,182,0.7)' : undefined }}>
-              <div style={{ fontWeight: 700, color: '#f3f4f6' }}>{flow.name}</div>
-              <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{flow.kind === 'flow' ? (flow.enabled ? 'On' : 'Off') : flow.kind} · {flow.trigger.replace(/_/g, ' ')}</div>
-            </button>
-          ))}
-        </div>
-        <div style={{ ...card, flex: '3 1 340px', minHeight: 560, minWidth: 0 }}>
+      {/* Wave 4: one editor. The list of every flow is All flows; here a picker switches flows (and asks
+          first when the flow on screen has unsaved edits), then the map, with the step panel beside it
+          from 900px wide and below it on a narrower screen. */}
+      <div>
+        <div style={{ ...card, minWidth: 0 }}>
+          {flows.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12, maxWidth: 420 }}>
+              <label style={label} htmlFor="flow-picker">Flow to edit</label>
+              <select id="flow-picker" style={field} value={currentId} onChange={(e) => choose(e.target.value)}>
+                {FLOW_PICKER_GROUPS.map((group) => {
+                  const items = flows.filter((flow) => pickerKind(flow) === group.kind);
+                  return items.length ? (
+                    <optgroup key={group.kind} label={group.label}>
+                      {items.map((flow) => <option key={flow.id} value={flow.id}>{flow.name}</option>)}
+                    </optgroup>
+                  ) : null;
+                })}
+              </select>
+            </div>
+          )}
           {current && (
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
               <div>
@@ -680,8 +744,12 @@ export const EmailFlowMap: React.FC<{
               )}
             </div>
           )}
-          <div ref={mapBoxRef} style={{ height: 420, background: '#0b0b10', borderRadius: 10 }}>
+          <div style={{ display: 'flex', flexDirection: beside ? 'row' : 'column', gap: beside ? 16 : 0, alignItems: beside ? 'flex-start' : 'stretch' }}>
+          {/* Beside the panel the map stays in view while the panel scrolls. */}
+          <div ref={mapBoxRef} data-flow-map="map" style={{ height: 420, background: '#0b0b10', borderRadius: 10, minWidth: 0, ...(beside ? { flex: '1 1 0', position: 'sticky', top: 8, marginTop: 12 } : {}) }}>
+            {/* Fitted to the box it is drawn in: a new key when the panel moves beside or below fits it again. */}
             <ReactFlow
+              key={beside ? 'beside' : 'below'}
               nodes={graph.nodes}
               edges={graph.edges}
               nodeTypes={nodeTypes}
@@ -701,12 +769,21 @@ export const EmailFlowMap: React.FC<{
               <Controls showInteractive={false} />
             </ReactFlow>
           </div>
+          {/* Beside the map the panel's column is there from the first frame, before a flow has loaded, so the
+              map is fitted to the width it keeps (it was fitted full width, then halved, and drawn off its edge). */}
+          {(beside || current?.editable || current?.contentEditable) && (
+          <div data-flow-map="panel" style={{ minWidth: 0, ...(beside ? { flex: '1 1 0' } : {}) }}>
           {(current?.editable || current?.contentEditable) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
               {current.editable && (
               <>
-              <label style={label}>Name</label>
-              <input style={field} value={current.name} onChange={(e) => setDraft({ ...current, name: e.target.value })} />
+              {/* Wave 4: the flow's own settings stay closed until asked for, so the step being edited
+                  comes first. A native disclosure: Enter or Space opens it, and its state is announced. */}
+              <details style={{ border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '0 12px' }}>
+              <summary style={{ display: 'list-item', cursor: 'pointer', padding: '12px 0', fontSize: 13, fontWeight: 700, color: '#e5e7eb' }}>Flow settings</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 12 }}>
+              <label style={label} htmlFor="flow-settings-name">Name</label>
+              <input id="flow-settings-name" style={field} value={current.name} onChange={(e) => setDraft({ ...current, name: e.target.value })} />
               <label style={label}>Starts when</label>
               <select style={field} value={current.trigger} onChange={(e) => setDraft({ ...current, trigger: e.target.value })}>
                 <optgroup label="Recording now">
@@ -800,6 +877,8 @@ export const EmailFlowMap: React.FC<{
                 <button type="button" style={ghostBtn} onClick={saveTimezone}>Save timezone</button>
               </div>
               <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Waits that name the account timezone use this. Leave it empty to use UTC. A profile timezone is used only when that contact has one stored.</p>
+              </div>
+              </details>
               {selectedNode?.type === 'condition' && (
                 <label style={label}>
                   Connect a new step to
@@ -832,7 +911,7 @@ export const EmailFlowMap: React.FC<{
               </div>
               {current.klaviyoFlowId && (
                 <p style={{ margin: 0, fontSize: 12, color: '#d1d5db' }}>
-                  Copied from Klaviyo flow {current.klaviyoFlowId}. It stays off until you turn it on. While Klaviyo is the sender and this flow is on, the trigger hands the person to that Klaviyo flow once. The copied letters are not sent from here.
+                  Copied from Klaviyo flow {current.klaviyoFlowId}. It stays off until you turn it on. While Klaviyo is the sender and this flow is on, the trigger hands the person to that Klaviyo flow once. The copied emails are not sent from here.
                 </p>
               )}
               </>
@@ -849,23 +928,29 @@ export const EmailFlowMap: React.FC<{
               )}
               {selectedNode?.type === 'trigger' && !current.editable && (
                 <p style={{ margin: 0, fontSize: 13, color: '#d1d5db' }}>
-                  Starts when: {triggerHelp?.label || current.trigger.replace(/_/g, ' ')}. The start and the order of the steps stay as they are. Its emails and its waits can be edited.
+                  Starts when: {startsWhenText(current.trigger, triggers)}. The start and the order of the steps stay as they are. {current.kind === 'order' ? 'Its email can be edited.' : 'Its emails and its waits can be edited.'}
                 </p>
               )}
               {selectedNode?.type === 'email' && (
                 <>
                   <label style={label} htmlFor="flow-step-subject">Subject</label>
                   <input id="flow-step-subject" style={field} value={selectedNode.subject || ''} onChange={(e) => patchNode(selectedNode.id, { subject: e.target.value })} />
+                  {/* An order email keeps no preview text (the programs record stores its subject and blocks), so it has no field for one. */}
+                  {current.kind !== 'order' && (
+                  <>
                   <label style={label} htmlFor="flow-step-preview">Preview text</label>
                   <input id="flow-step-preview" style={field} value={selectedNode.previewText || ''} onChange={(e) => patchNode(selectedNode.id, { previewText: e.target.value })} />
+                  </>
+                  )}
                   {selectedNode.blocks?.[0]?.kind === 'html' ? (
-                    <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>This letter was copied from a Klaviyo template. When Jourvance sends it, if, else, for, default, lookup, catalog, and coupon tags are filled. Any other tag is removed and listed on this flow as not translated. When Klaviyo is the sender, Klaviyo fills the template.</p>
+                    <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>This email was copied from a Klaviyo template. When Jourvance sends it, if, else, for, default, lookup, catalog, and coupon tags are filled. Any other tag is removed and listed on this flow as not translated. When Klaviyo is the sender, Klaviyo fills the template.</p>
                   ) : (
                     <div role="group" aria-labelledby="flow-step-content" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <span id="flow-step-content" style={label}>Email content</span>
                       <BlockEditor blocks={selectedNode.blocks || []} onChange={(blocks) => patchNode(selectedNode.id, { blocks })} />
                     </div>
                   )}
+                  {current.kind === 'order' && <EmailStepPreview key={current.id} subject={selectedNode.subject || ''} blocks={selectedNode.blocks || []} />}
                   {current.editable && (
                   <>
                   <label style={label}>Status</label>
@@ -918,7 +1003,7 @@ export const EmailFlowMap: React.FC<{
                   <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>
                     {klaviyoSends
                       ? (klaviyoFlows.find((flow) => flow.id === selectedNode.klaviyoFlowId)?.handoff || 'Save the flow after choosing. Reaching this step adds the person to that live flow. It does not subscribe them.')
-                      : 'Jourvance is the sender, so this step still sends from here. The link is used when you choose Klaviyo on the Klaviyo tab.'}
+                      : 'Jourvance is the sender, so this step still sends from here. The link is used when you choose Send with Klaviyo in Settings, Klaviyo.'}
                   </p>
                   </>
                   )}
@@ -1117,6 +1202,9 @@ export const EmailFlowMap: React.FC<{
               )}
             </div>
           )}
+          </div>
+          )}
+          </div>
           {/* Always mounted, so a screen reader hears each outcome, the failures included. Sticky at the
               foot of the studio's scroller, so the outcome of Save at the top of a long panel is on
               screen too, not only heard. */}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Mail, Send, Users, TrendingUp, Sparkles, Plus, CheckCircle2,
   Clock, ArrowUpRight, Copy, Check, RefreshCw, AlertCircle, ShoppingBag, Eye,
@@ -9,6 +9,7 @@ import {
 import { authHeaders } from '../../lib/firebase';
 import { EmailPrograms } from './EmailPrograms';
 import { EmailFlowMap } from './EmailFlowMap';
+import { EmailFlowsList } from './EmailFlowsList';
 import { SignupForms } from './SignupForms';
 import { AudienceDesk } from './AudienceDesk';
 import { EmailInbox } from './EmailInbox';
@@ -17,6 +18,7 @@ import { SendingSetup } from './SendingSetup';
 import { KlaviyoSync } from './KlaviyoSync';
 import { CustomerProfileDrawer } from './CustomerProfileDrawer';
 import { moneyText, OPENS_UNSTORED, STAT_UNAVAILABLE, statText, withNote } from '../../lib/emailStats';
+import { STUDIO_DESTINATIONS, destinationOf, firstSectionOf, nextTabIndex, placeFor, type StudioDestinationKey, type StudioSectionKey } from '../../lib/emailStudioNav';
 import type { Workspace, AudienceSegment, DripSequence, DripEnrollment, ShopifyAbandonedCheckout } from '../../types/journey';
 
 interface FlowStep {
@@ -145,18 +147,115 @@ const BROADCAST_TABLE_MIN_WIDTH = 680;
 // Side padding of the studio's banner, view row and body: 32px on a desktop, down to 16px on a phone.
 const STUDIO_GUTTER = 'clamp(16px, 5vw, 32px)';
 
+const DESTINATION_ICONS: Record<StudioDestinationKey, typeof Clock> = {
+  flows: GitFork,
+  broadcasts: Send,
+  audience: Users,
+  results: TrendingUp,
+  settings: SlidersHorizontal
+};
+
+/**
+ * One tab on either strip. 44px tall, the touch target floor. The selected tab is pink, heavier, and
+ * carries SELECTED_BAR, so it is marked by more than colour. No transition: nothing here needs motion.
+ */
+const studioTabStyle = (selected: boolean, level: 'top' | 'section'): React.CSSProperties => ({
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  minHeight: '44px',
+  padding: level === 'top' ? '0 12px' : '0 10px',
+  border: 'none',
+  borderRadius: '8px 8px 0 0',
+  backgroundColor: selected ? 'rgba(236, 72, 153, 0.12)' : 'transparent',
+  color: selected ? '#f472b6' : '#9ca3af',
+  fontSize: level === 'top' ? '14px' : '13px',
+  fontWeight: selected ? 700 : 500,
+  cursor: 'pointer'
+});
+
+// The selected tab's bar. A border, not a background or a shadow, so Windows high contrast keeps it.
+const SELECTED_BAR: React.CSSProperties = {
+  position: 'absolute',
+  left: '10px',
+  right: '10px',
+  bottom: 0,
+  borderBottom: '3px solid #f472b6',
+  borderRadius: '2px'
+};
+
+// A group under the Flows list that stays closed until asked for. A native disclosure, so the keyboard
+// and a screen reader get its open and closed state for free.
+const STUDIO_GROUP: React.CSSProperties = {
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  borderRadius: '12px',
+  padding: '4px 16px 12px',
+  backgroundColor: 'rgba(255, 255, 255, 0.02)'
+};
+const STUDIO_GROUP_SUMMARY: React.CSSProperties = {
+  display: 'list-item',
+  cursor: 'pointer',
+  padding: '12px 0 4px',
+  fontSize: '14px',
+  fontWeight: 700,
+  color: '#f3f4f6'
+};
+
+type CheckoutsLoad = { state: 'loading' | 'loaded' } | { state: 'failed'; text: string; retry: boolean };
+
+/** What Open checkouts says when its read failed. Retry only where retrying can help. */
+function checkoutsFailure(httpStatus: number, error?: unknown): CheckoutsLoad {
+  if (httpStatus === 401) return { state: 'failed', text: "Sign in to see this account's open checkouts.", retry: false };
+  if (!httpStatus) return { state: 'failed', text: 'Open checkouts could not be loaded. The server did not answer.', retry: true };
+  const said = typeof error === 'string' && error.trim() ? ` ${error.trim()}` : '';
+  return { state: 'failed', text: `Open checkouts could not be loaded.${said}`, retry: httpStatus >= 500 };
+}
+
 export type EmailStudioTab = 'campaigns' | 'flows' | 'map' | 'transactional' | 'builder' | 'forms' | 'inbox' | 'sms' | 'audience' | 'analytics' | 'sending' | 'klaviyo';
 
 export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect, onReturnToCanvas, initialTab, openFlowId }) => {
-  const [activeTab, setActiveTab] = useState<EmailStudioTab>(initialTab || 'flows');
-  // A flow (and one of its steps) opened from a button inside Email Studio. A click on the tab
-  // strip clears both, so the Flow map tab on its own opens as it always has.
+  // The open section (EMAIL_STUDIO_PLAN.md D1). An old tab key, as App passes 'map' from a funnel
+  // step, opens the section LEGACY_TAB names; the destination is the one that holds that section.
+  const [activeTab, setActiveTab] = useState<StudioSectionKey>(() => placeFor(initialTab || 'flows').section);
+  const destination = destinationOf(activeTab);
+  const destinationTabs = useRef<Partial<Record<string, HTMLButtonElement | null>>>({});
+  const sectionTabs = useRef<Partial<Record<string, HTMLButtonElement | null>>>({});
+  // A flow (and one of its steps) opened from a button inside Email Studio. A click on either tab
+  // strip clears both, so the Flow map section on its own opens as it always has.
   const [mapFlowId, setMapFlowId] = useState('');
   const [mapNodeId, setMapNodeId] = useState('');
   const openFlowInMap = (flowId: string, nodeId?: string) => {
     setMapFlowId(flowId);
     setMapNodeId(nodeId || '');
     setActiveTab('map');
+  };
+  // A destination opens on its first section, plainly: like a click on the old strip, it clears a
+  // flow a button inside the studio asked for.
+  const selectDestination = (key: StudioDestinationKey) => {
+    if (key === destination.key) return;
+    setMapFlowId('');
+    setMapNodeId('');
+    setActiveTab(firstSectionOf(key));
+  };
+  // WAI-ARIA tabs, automatic activation: an arrow, Home or End selects the tab and moves focus to it.
+  const onDestinationKey = (e: React.KeyboardEvent, index: number) => {
+    const next = nextTabIndex(e.key, index, STUDIO_DESTINATIONS.length);
+    if (next === null) return;
+    e.preventDefault();
+    const target = STUDIO_DESTINATIONS[next];
+    selectDestination(target.key);
+    destinationTabs.current[target.key]?.focus();
+  };
+  const onSectionKey = (e: React.KeyboardEvent, index: number) => {
+    const next = nextTabIndex(e.key, index, destination.sections.length);
+    if (next === null) return;
+    e.preventDefault();
+    const target = destination.sections[next];
+    setMapFlowId('');
+    setMapNodeId('');
+    setActiveTab(target.key);
+    sectionTabs.current[target.key]?.focus();
   };
   const [flows, setFlows] = useState<HubFlow[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
@@ -174,6 +273,8 @@ export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect
 
   // Wave 8: Abandoned Checkouts state
   const [abandonedCheckouts, setAbandonedCheckouts] = useState<ShopifyAbandonedCheckout[]>([]);
+  // Open checkouts says "none yet" only of a list that was read.
+  const [checkoutsLoad, setCheckoutsLoad] = useState<CheckoutsLoad>({ state: 'loading' });
 
   // New Broadcast state
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
@@ -285,7 +386,7 @@ ${unsub}`;
         fetch('/api/email/lists', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/drips/sequences', { headers }).then(r => r.json()).catch(() => ({})),
         fetch('/api/drips/enrollments', { headers }).then(r => r.json()).catch(() => ({})),
-        fetch(`/api/workspace/${wsId}/shopify/abandoned-checkouts`, { headers }).then(r => r.json()).catch(() => ({})),
+        fetch(`/api/workspace/${wsId}/shopify/abandoned-checkouts`, { headers }).then(async r => ({ ...(await r.json().catch(() => ({}))), httpStatus: r.status })).catch(() => ({ httpStatus: 0 })),
         fetch('/api/email/predictions', { headers }).then(r => r.json()).catch(() => ({}))
       ]);
 
@@ -311,7 +412,12 @@ ${unsub}`;
       if (segRes?.followUpNote || bRes?.followUpNote) setFollowUpNote(segRes?.followUpNote || bRes?.followUpNote || '');
       if (dSeqRes?.success && Array.isArray(dSeqRes.sequences)) setDripSequences(dSeqRes.sequences);
       if (dEnrRes?.success && Array.isArray(dEnrRes.enrollments)) setDripEnrollments(dEnrRes.enrollments);
-      if (chkRes?.success && Array.isArray(chkRes.checkouts)) setAbandonedCheckouts(chkRes.checkouts);
+      if (chkRes?.success && Array.isArray(chkRes.checkouts)) {
+        setAbandonedCheckouts(chkRes.checkouts);
+        setCheckoutsLoad({ state: 'loaded' });
+      } else {
+        setCheckoutsLoad(checkoutsFailure(Number(chkRes?.httpStatus) || 0, chkRes?.error));
+      }
       if (predRes?.success) {
         setPredictionNote(predRes.ready
           ? `Predicted value uses this store’s order gaps. Sample ${predRes.sampleSize}. Computed ${String(predRes.computedAt || '').slice(0, 10)}.`
@@ -322,8 +428,8 @@ ${unsub}`;
     }
   };
 
-  // The starter cards read the sequence list once at mount. After their emails are saved on the
-  // Flow map, read it again so Automations shows this account's version.
+  // The sequence list is read once at mount. After a starter flow's emails are saved on the Flow
+  // map, read it again so All flows and its people table show this account's version.
   const refreshSequences = async () => {
     const data = await fetch('/api/drips/sequences', { headers: await authHeaders() }).then(r => r.json()).catch(() => ({}));
     if (data?.success && Array.isArray(data.sequences)) setDripSequences(data.sequences);
@@ -562,22 +668,9 @@ ${unsub}`;
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#ffffff' }}>
               Email Studio & <span style={{ whiteSpace: 'nowrap' }}>E-Commerce</span> Flows
             </h1>
-            <span
-              style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                padding: '3px 8px',
-                borderRadius: '6px',
-                backgroundColor: 'rgba(236, 72, 153, 0.15)',
-                color: '#ec4899',
-                border: '1px solid rgba(236, 72, 153, 0.3)'
-              }}
-            >
-              Hub Engine
-            </span>
           </div>
           <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-            Flows, order letters, signup forms, inbox, texts, and sending setup. A message counts as sent only when the service accepts it.
+            Flows, broadcasts, your audience, results and settings. A message counts as sent only when the service accepts it.
           </p>
         </div>
 
@@ -647,383 +740,371 @@ ${unsub}`;
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
+      {/* The five destinations (EMAIL_STUDIO_PLAN.md D1), a WAI-ARIA tablist: Left and Right move the
+          selection and the focus together, Home and End go to either end, and only the selected tab
+          is in the Tab order. Each destination's sections are a second tablist of the same kind. */}
       <div
+        role="tablist"
+        aria-label="Email Studio"
         style={{
           display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: `12px ${STUDIO_GUTTER}`,
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-          flexWrap: 'wrap'
+          flexWrap: 'wrap',
+          gap: '4px',
+          padding: `8px ${STUDIO_GUTTER} 0`,
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)'
         }}
       >
-        {[
-          { key: 'flows', label: 'Automations', icon: Clock },
-          { key: 'map', label: 'Flow map', icon: GitFork },
-          { key: 'transactional', label: 'Order letters', icon: ShoppingBag },
-          { key: 'builder', label: 'Builder', icon: Layers },
-          { key: 'forms', label: 'Forms', icon: FormInput },
-          { key: 'campaigns', label: 'Broadcasts', icon: Send },
-          { key: 'inbox', label: 'Inbox', icon: Inbox },
-          { key: 'sms', label: 'Texts', icon: MessageSquare, badge: 'Soon' },
-          { key: 'audience', label: 'Audience', icon: Users },
-          { key: 'sending', label: 'DNS & Deliverability', icon: ShieldCheck },
-          { key: 'klaviyo', label: 'Klaviyo', icon: RefreshCw },
-          { key: 'analytics', label: 'Deliverability', icon: TrendingUp }
-        ].map(tab => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.key;
+        {STUDIO_DESTINATIONS.map((dest, index) => {
+          const Icon = DESTINATION_ICONS[dest.key];
+          const selected = dest.key === destination.key;
           return (
             <button
-              key={tab.key}
-              onClick={() => { setMapFlowId(''); setMapNodeId(''); setActiveTab(tab.key as any); }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 14px',
-                borderRadius: '8px',
-                fontSize: '13px',
-                fontWeight: active ? 600 : 500,
-                border: 'none',
-                cursor: 'pointer',
-                backgroundColor: active ? 'rgba(236, 72, 153, 0.15)' : 'transparent',
-                color: active ? '#f472b6' : '#9ca3af',
-                transition: 'all 0.15s ease'
-              }}
+              key={dest.key}
+              ref={(el) => { destinationTabs.current[dest.key] = el; }}
+              type="button"
+              role="tab"
+              id={`email-studio-tab-${dest.key}`}
+              aria-selected={selected}
+              aria-controls={`email-studio-panel-${dest.key}`}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => selectDestination(dest.key)}
+              onKeyDown={(e) => onDestinationKey(e, index)}
+              style={studioTabStyle(selected, 'top')}
             >
-              <Icon size={15} />
-              <span>{tab.label}</span>
-              {(tab as any).badge && (
-                <span
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    letterSpacing: '0.04em',
-                    textTransform: 'uppercase',
-                    padding: '1px 6px',
-                    borderRadius: '9999px',
-                    backgroundColor: active ? 'rgba(236, 72, 153, 0.25)' : 'rgba(255, 255, 255, 0.08)',
-                    color: active ? '#f472b6' : '#d1d5db',
-                    border: '1px solid rgba(255, 255, 255, 0.12)'
-                  }}
-                >
-                  {(tab as any).badge}
-                </span>
-              )}
+              <Icon size={15} aria-hidden="true" />
+              <span>{dest.label}</span>
+              {selected && <span aria-hidden="true" style={SELECTED_BAR} />}
             </button>
           );
         })}
       </div>
 
-      {/* Main Tab Content */}
-      <div style={{ padding: `24px ${STUDIO_GUTTER}`, flex: 1 }}>
-        {/* TAB 1: FLOWS & DRIPS */}
+      {/* Every tab's aria-controls names a panel that exists; only the selected one has content. */}
+      {STUDIO_DESTINATIONS.filter((dest) => dest.key !== destination.key).map((dest) => (
+        <div key={dest.key} role="tabpanel" id={`email-studio-panel-${dest.key}`} aria-labelledby={`email-studio-tab-${dest.key}`} hidden />
+      ))}
+      <div
+        role="tabpanel"
+        id={`email-studio-panel-${destination.key}`}
+        aria-labelledby={`email-studio-tab-${destination.key}`}
+        // The panel that holds the content is the Tab stop after its tab (WAI-ARIA tabs: a panel whose
+        // first content is not focusable takes tabindex 0). With a second strip that panel is the
+        // section's, so this one stays out of the Tab order and Tab still goes from tab to section.
+        tabIndex={destination.sections.length > 1 ? undefined : 0}
+        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+      >
+      {destination.sections.length > 1 && (
+        <div
+          role="tablist"
+          aria-label={`${destination.label} sections`}
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '4px',
+            padding: `4px ${STUDIO_GUTTER} 0`,
+            borderBottom: '1px solid rgba(255, 255, 255, 0.06)'
+          }}
+        >
+          {destination.sections.map((tab, index) => {
+            const active = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                ref={(el) => { sectionTabs.current[tab.key] = el; }}
+                type="button"
+                role="tab"
+                id={`email-studio-section-tab-${tab.key}`}
+                aria-selected={active}
+                aria-controls={`email-studio-section-${tab.key}`}
+                tabIndex={active ? 0 : -1}
+                onClick={() => { setMapFlowId(''); setMapNodeId(''); setActiveTab(tab.key as any); }}
+                onKeyDown={(e) => onSectionKey(e, index)}
+                style={studioTabStyle(active, 'section')}
+              >
+                <span>{tab.label}</span>
+                {tab.badge && (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '1px 6px',
+                      borderRadius: '9999px',
+                      backgroundColor: active ? 'rgba(236, 72, 153, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                      color: active ? '#f472b6' : '#d1d5db',
+                      border: '1px solid rgba(255, 255, 255, 0.12)'
+                    }}
+                  >
+                    {tab.badge}
+                  </span>
+                )}
+                {active && <span aria-hidden="true" style={SELECTED_BAR} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {destination.sections.length > 1 && destination.sections.filter((tab) => tab.key !== activeTab).map((tab) => (
+        <div key={tab.key} role="tabpanel" id={`email-studio-section-${tab.key}`} aria-labelledby={`email-studio-section-tab-${tab.key}`} hidden />
+      ))}
+
+      {/* Main Tab Content: the open section's panel. Today's panels sit here unchanged inside. */}
+      <div
+        {...(destination.sections.length > 1
+          ? { role: 'tabpanel', id: `email-studio-section-${activeTab}`, 'aria-labelledby': `email-studio-section-tab-${activeTab}`, tabIndex: 0 }
+          : {})}
+        style={{ padding: `24px ${STUDIO_GUTTER}`, flex: 1 }}
+      >
+        {/* FLOWS, ALL FLOWS (EMAIL_STUDIO_PLAN.md Wave 4): one list of every flow, each row one button
+            that opens it in the editor. Under it, two groups that stay closed until asked for: the
+            people in the starter flows, and the hub's own flows, which are export only. */}
         {activeTab === 'flows' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <EmailPrograms mode="automations" onOpenFlow={(id) => openFlowInMap(id)} />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#f3f4f6' }}>
-                  Queue sequences
-                </h2>
-                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>
-                  Welcome and abandoned checkout are enrolled from real leads and checkouts. Run the queue when a step is due. A step is marked sent only after the email service accepts it.
-                </p>
+            <EmailFlowsList onOpenFlow={openFlowInMap} sequences={dripSequences} onRefresh={loadData} />
+            <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af', maxWidth: '760px' }}>
+              People join the starter flows from real leads and checkouts. The server checks for due emails every minute; Send due emails now, in Settings, Advanced, checks at once. An email is marked sent only after the email service accepts it.
+            </p>
+
+            {/* The people in the starter flows: one table for all of them, each row naming its flow. */}
+            <details style={STUDIO_GROUP}>
+              <summary style={STUDIO_GROUP_SUMMARY}>People in starter flows</summary>
+              <div style={{ marginTop: '12px', maxHeight: '240px', overflow: 'auto', backgroundColor: 'rgba(0, 0, 0, 0.25)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ color: '#9ca3af', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                      <th style={{ padding: '8px 12px' }}>Email</th>
+                      <th style={{ padding: '8px 12px' }}>Flow</th>
+                      <th style={{ padding: '8px 12px' }}>Step</th>
+                      <th style={{ padding: '8px 12px' }}>Status</th>
+                      <th style={{ padding: '8px 12px' }}>History</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dripEnrollments.map(enr => (
+                      <tr key={enr.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.03)' }}>
+                        <td style={{ padding: '8px 12px', color: '#E2E8F0', fontWeight: 500 }}>{enr.customerEmail}</td>
+                        <td style={{ padding: '8px 12px', color: '#d1d5db' }}>{dripSequences.find((seq) => seq.id === enr.sequenceId)?.name || enr.sequenceId}</td>
+                        <td style={{ padding: '8px 12px', color: '#d1d5db' }}>Step {enr.currentStepIndex + 1}{stepCountOf(enr.sequenceId) ? ` of ${stepCountOf(enr.sequenceId)}` : ''}</td>
+                        <td style={{ padding: '8px 12px', color: '#d1d5db' }}>
+                          {enr.status === 'converted_exit' ? 'Ordered, so it stopped' : enr.status === 'completed' ? 'Finished' : 'In the flow'}
+                        </td>
+                        <td style={{ padding: '8px 12px', color: '#d1d5db' }}>
+                          {enr.history?.length || 0} sent
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+            </details>
 
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  onClick={handleRunDripTick}
-                  disabled={processingDripTick}
-                  style={{
-                    padding: '8px 14px',
-                    borderRadius: '8px',
-                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(99, 102, 241, 0.2))',
-                    border: '1px solid rgba(16, 185, 129, 0.4)',
-                    color: '#34D399',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                  title="Run queue tick: dispatches due emails and exits converted buyers"
-                >
-                  <Play size={13} />
-                  <span>{processingDripTick ? 'Processing Queue...' : 'Run Queue Tick'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowWebhookGuide(true)}
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    backgroundColor: 'rgba(236, 72, 153, 0.1)',
-                    border: '1px solid rgba(236, 72, 153, 0.25)',
-                    color: '#F472B6',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Zap size={13} />
-                  <span>Webhooks</span>
-                </button>
-
-                <button
-                  onClick={loadData}
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    color: '#9ca3af',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-                  <span>Refresh</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Notification message */}
-            {dripTickMsg && (
-              <div style={{
-                padding: '10px 16px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                color: '#34D399',
-                fontSize: '12px',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <CheckCircle2 size={15} />
-                <span>{dripTickMsg}</span>
-              </div>
-            )}
-
-            {/* Active Drip Sequence Cards */}
-            {dripSequences.map(seq => (
-              <div
-                key={seq.id}
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '12px',
-                  padding: '20px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '16px'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#F8FAFC' }}>
-                      {seq.name}
-                    </h3>
-                    <span style={{
-                      padding: '3px 8px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      backgroundColor: 'rgba(99, 102, 241, 0.15)',
-                      color: '#818CF8'
-                    }}>
-                      Trigger: {seq.triggerType === 'upsell_recovery' ? 'Post-Purchase Courtesy' : seq.triggerType === 'checkout_abandonment' ? 'Abandoned Checkout' : seq.triggerType === 'lead_capture' ? 'Lead Capture' : seq.triggerType === 'exit_intent' ? 'Exit Intent' : seq.triggerType.replace(/_/g, ' ')}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      aria-label={`Edit emails in ${seq.name}`}
-                      onClick={() => openFlowInMap(seq.id)}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(236, 72, 153, 0.4)',
-                        backgroundColor: 'rgba(236, 72, 153, 0.18)',
-                        color: '#f9a8d4',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Edit emails
-                    </button>
-                    <div style={{
+            {/* D1: the hub's own flows, at the foot, closed, and export only. */}
+            {flows.length > 0 && (
+              <details style={STUDIO_GROUP}>
+                <summary style={STUDIO_GROUP_SUMMARY}>From the hub, export only</summary>
+                <div style={{ marginTop: '12px' }}>
+              {/* Flows Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(460px, 100%), 1fr))', gap: '16px' }}>
+                {flows.map(flow => (
+                  <div
+                    key={flow.id}
+                    style={{
+                      backgroundColor: '#121217',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      padding: '20px',
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      backgroundColor: 'rgba(16, 185, 129, 0.15)',
-                      border: '1px solid rgba(16, 185, 129, 0.3)',
-                      color: '#34D399',
-                      fontSize: '11px',
-                      fontWeight: 700
-                    }}>
-                      <ShieldCheck size={14} />
-                      <span>Smart Exit on Purchase Active</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sequence Metrics Ribbon */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  padding: '10px 16px',
-                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  flexWrap: 'wrap'
-                }}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ color: '#94A3B8' }}>Active Enrolled:</span>
-                    <strong style={{ color: '#818CF8' }}>{seq.activeEnrollments}</strong>
-                  </div>
-                  <span style={{ color: '#475569' }}>•</span>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ color: '#94A3B8' }}>Exited on Purchase:</span>
-                    <strong style={{ color: '#34D399' }}>{seq.totalExitedPurchased}</strong>
-                  </div>
-                  <span style={{ color: '#475569' }}>•</span>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ color: '#94A3B8' }}>{seq.steps.length === 1 ? 'Completed the email:' : `Completed all ${seq.steps.length} emails:`}</span>
-                    <strong style={{ color: '#E2E8F0' }}>{seq.totalCompleted}</strong>
-                  </div>
-                  <span style={{ color: '#475569' }}>•</span>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ color: '#94A3B8' }}>Last-touch revenue:</span>
-                    <strong style={{ color: '#34D399' }}>{statText(seq.attributedSales, (n) => `$${n.toLocaleString()}`)}</strong>
-                  </div>
-                </div>
-
-                {/* Step Progression Grid. Each email is a button that opens it on the Flow map, by the
-                    node id the flow map gives it (`<sequence id>_email_<index>`, server.mjs chainGraph). */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: '12px' }}>
-                  {seq.steps.map((step, index) => (
-                    <button
-                      type="button"
-                      key={step.id}
-                      aria-label={`Email ${index + 1} of ${seq.steps.length} in ${seq.name}: ${step.subject}`}
-                      onClick={() => openFlowInMap(seq.id, `${seq.id}_email_${index}`)}
-                      style={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                        border: '1px solid rgba(255, 255, 255, 0.06)',
-                        borderRadius: '10px',
-                        padding: '14px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                        textAlign: 'left',
-                        color: 'inherit',
-                        font: 'inherit',
-                        cursor: 'pointer',
-                        minWidth: 0
-                      }}
-                    >
-                      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', width: '100%' }}>
-                        <span style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          color: '#EC4899',
-                          textTransform: 'uppercase'
-                        }}>
-                          Email {index + 1} of {seq.steps.length} • {step.delayHours === 0 ? 'Immediate' : `+${step.delayHours}h`}
-                        </span>
-                        {step.discountVoucher && (
-                          <span style={{
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            backgroundColor: 'rgba(244, 114, 182, 0.15)',
-                            color: '#F472B6'
-                          }}>
-                            {step.discountVoucher}
+                      flexDirection: 'column',
+                      gap: '14px',
+                      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 600, fontSize: '15px', color: '#ffffff' }}>{flow.name}</span>
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: flow.active ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+                              color: flow.active ? '#34d399' : '#9ca3af'
+                            }}
+                          >
+                            {flow.active ? 'Active' : 'Draft'}
                           </span>
-                        )}
-                      </span>
-                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#F1F5F9' }}>
-                        {step.subject}
-                      </span>
-                      <span style={{ fontSize: '11px', color: '#94A3B8', lineClamp: 2, display: '-webkit-box', WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                        {step.previewText || step.body}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '3px' }}>
+                          Trigger: Lead captured via Landing Page | {flow.steps.length} Automated Steps
+                        </div>
+                      </div>
 
-                {/* Recent Enrollments Stream */}
-                <div style={{ marginTop: '8px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#CBD5E1', marginBottom: '8px' }}>
-                    Active Subscriber Enrollments ({dripEnrollments.length})
-                  </div>
-                  <div style={{
-                    maxHeight: '160px',
-                    overflowY: 'auto',
-                    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-                    borderRadius: '8px',
-                    border: '1px solid rgba(255, 255, 255, 0.04)'
-                  }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
-                      <thead>
-                        <tr style={{ color: '#64748B', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                          <th style={{ padding: '8px 12px' }}>Email</th>
-                          <th style={{ padding: '8px 12px' }}>Step</th>
-                          <th style={{ padding: '8px 12px' }}>Status</th>
-                          <th style={{ padding: '8px 12px' }}>History</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dripEnrollments.map(enr => (
-                          <tr key={enr.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.03)' }}>
-                            <td style={{ padding: '8px 12px', color: '#E2E8F0', fontWeight: 500 }}>{enr.customerEmail}</td>
-                            <td style={{ padding: '8px 12px', color: '#94A3B8' }}>Step {enr.currentStepIndex + 1}{stepCountOf(enr.sequenceId) ? ` of ${stepCountOf(enr.sequenceId)}` : ''}</td>
-                            <td style={{ padding: '8px 12px' }}>
-                              <span style={{
-                                padding: '2px 6px',
-                                borderRadius: '4px',
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExportPlatform('klaviyo');
+                            setExportModalFlow(flow);
+                          }}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                            border: '1px solid rgba(99, 102, 241, 0.35)',
+                            color: '#A5B4FC',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                          title="Export with Klaviyo Liquid merge tags"
+                        >
+                          <ExternalLink size={12} />
+                          <span>Klaviyo</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExportPlatform('shopify');
+                            setExportModalFlow(flow);
+                          }}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                            color: '#34D399',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                          title="Export with Shopify Email Liquid variables"
+                        >
+                          <ShoppingBag size={12} />
+                          <span>Shopify</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleCopyForKlaviyo(flow)}
+                          style={{
+                            padding: '6px 8px',
+                            borderRadius: '6px',
+                            backgroundColor: copiedFlowId === flow.id ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.06)',
+                            border: `1px solid ${copiedFlowId === flow.id ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
+                            color: copiedFlowId === flow.id ? '#34d399' : '#9ca3af',
+                            fontSize: '11px',
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center'
+                          }}
+                          title="Quick copy plain text"
+                        >
+                          {copiedFlowId === flow.id ? <Check size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Flow Steps Progression */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {flow.steps.map((step, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255, 255, 255, 0.05)',
+                            padding: '10px 12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                width: '24px',
+                                height: '24px',
+                                borderRadius: '6px',
+                                backgroundColor: 'rgba(236, 72, 153, 0.15)',
+                                color: '#ec4899',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
                                 fontSize: '11px',
                                 fontWeight: 700,
-                                backgroundColor: enr.status === 'converted_exit' ? 'rgba(16, 185, 129, 0.2)' : enr.status === 'completed' ? 'rgba(100, 116, 139, 0.2)' : 'rgba(99, 102, 241, 0.2)',
-                                color: enr.status === 'converted_exit' ? '#34D399' : enr.status === 'completed' ? '#94A3B8' : '#818CF8'
-                              }}>
-                                {enr.status === 'converted_exit' ? 'Converted & Exited 🛒' : enr.status === 'completed' ? 'Completed' : 'Active Pacing'}
-                              </span>
-                            </td>
-                            <td style={{ padding: '8px 12px', color: '#64748B' }}>
-                              {enr.history?.length || 0} sent
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                                flexShrink: 0
+                              }}
+                            >
+                              {idx + 1}
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: '13px', fontWeight: 500, color: '#f3f4f6', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {step.subject}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#9ca3af' }}>
+                                Delay: {step.delay} {step.previewText ? `• "${step.previewText}"` : ''}
+                              </div>
+                            </div>
+                          </div>
+                          <Mail size={15} style={{ color: '#6b7280', flexShrink: 0 }} />
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
 
-            {/* Wave 8: Abandoned Checkouts Recovery Queue */}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: CAMPAIGNS (BROADCASTS) */}
+        {activeTab === 'map' && <EmailFlowMap initialFlowId={mapFlowId || openFlowId} initialNodeId={mapNodeId || undefined} fromStep={!mapFlowId} onContentSaved={refreshSequences} />}
+        {activeTab === 'builder' && <EmailPrograms mode="builder" />}
+        {activeTab === 'forms' && <SignupForms />}
+        {activeTab === 'inbox' && <EmailInbox />}
+        {activeTab === 'sms' && <SmsPanel />}
+        {activeTab === 'sending' && <SendingSetup />}
+        {activeTab === 'klaviyo' && <KlaviyoSync />}
+        {/* AUDIENCE, OPEN CHECKOUTS: the abandoned checkouts table, moved off Flows (D1). It says
+            "none yet" only of a list that was read. */}
+        {activeTab === 'checkouts' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {checkoutsLoad.state === 'loading' && (
+              <p role="status" style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>Loading open checkouts.</p>
+            )}
+            {checkoutsLoad.state === 'failed' && (
+              <div role="alert" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(248, 113, 113, 0.35)', backgroundColor: 'rgba(248, 113, 113, 0.08)', color: '#fecaca', fontSize: '13px' }}>
+                <span>{checkoutsLoad.text}</span>
+                {checkoutsLoad.retry && (
+                  <button
+                    type="button"
+                    aria-disabled={loading || undefined}
+                    onClick={() => { if (!loading) void loadData(); }}
+                    style={{ minHeight: '36px', padding: '0 12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.2)', backgroundColor: 'transparent', color: '#f3f4f6', fontSize: '12px', fontWeight: 600, cursor: loading ? 'wait' : 'pointer' }}
+                  >
+                    {loading ? 'Loading' : 'Try again'}
+                  </button>
+                )}
+              </div>
+            )}
+            {checkoutsLoad.state === 'loaded' && abandonedCheckouts.length === 0 && (
+              <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>
+                No open checkouts yet. A checkout someone starts in your Shopify store and does not finish shows here.
+              </p>
+            )}
             {abandonedCheckouts.length > 0 && (
               <div
                 style={{
@@ -1121,179 +1202,97 @@ ${unsub}`;
               </div>
             )}
 
-            {/* Flows Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(460px, 1fr))', gap: '16px' }}>
-              {flows.map(flow => (
-                <div
-                  key={flow.id}
-                  style={{
-                    backgroundColor: '#121217',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    padding: '20px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '14px',
-                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontWeight: 600, fontSize: '15px', color: '#ffffff' }}>{flow.name}</span>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            backgroundColor: flow.active ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.06)',
-                            color: flow.active ? '#34d399' : '#9ca3af'
-                          }}
-                        >
-                          {flow.active ? 'Active' : 'Draft'}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '3px' }}>
-                        Trigger: Lead captured via Landing Page | {flow.steps.length} Automated Steps
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExportPlatform('klaviyo');
-                          setExportModalFlow(flow);
-                        }}
-                        style={{
-                          padding: '6px 10px',
-                          borderRadius: '6px',
-                          backgroundColor: 'rgba(99, 102, 241, 0.15)',
-                          border: '1px solid rgba(99, 102, 241, 0.35)',
-                          color: '#A5B4FC',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                        title="Export with Klaviyo Liquid merge tags"
-                      >
-                        <ExternalLink size={12} />
-                        <span>Klaviyo</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExportPlatform('shopify');
-                          setExportModalFlow(flow);
-                        }}
-                        style={{
-                          padding: '6px 10px',
-                          borderRadius: '6px',
-                          backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                          border: '1px solid rgba(16, 185, 129, 0.3)',
-                          color: '#34D399',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                        title="Export with Shopify Email Liquid variables"
-                      >
-                        <ShoppingBag size={12} />
-                        <span>Shopify</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleCopyForKlaviyo(flow)}
-                        style={{
-                          padding: '6px 8px',
-                          borderRadius: '6px',
-                          backgroundColor: copiedFlowId === flow.id ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.06)',
-                          border: `1px solid ${copiedFlowId === flow.id ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
-                          color: copiedFlowId === flow.id ? '#34d399' : '#9ca3af',
-                          fontSize: '11px',
-                          fontWeight: 500,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center'
-                        }}
-                        title="Quick copy plain text"
-                      >
-                        {copiedFlowId === flow.id ? <Check size={12} /> : <Copy size={12} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Flow Steps Progression */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {flow.steps.map((step, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 255, 255, 0.05)',
-                          padding: '10px 12px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: '12px'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
-                          <div
-                            style={{
-                              width: '24px',
-                              height: '24px',
-                              borderRadius: '6px',
-                              backgroundColor: 'rgba(236, 72, 153, 0.15)',
-                              color: '#ec4899',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              flexShrink: 0
-                            }}
-                          >
-                            {idx + 1}
-                          </div>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: '13px', fontWeight: 500, color: '#f3f4f6', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {step.subject}
-                            </div>
-                            <div style={{ fontSize: '11px', color: '#9ca3af' }}>
-                              Delay: {step.delay} {step.previewText ? `• "${step.previewText}"` : ''}
-                            </div>
-                          </div>
-                        </div>
-                        <Mail size={15} style={{ color: '#6b7280', flexShrink: 0 }} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
-        {/* TAB 2: CAMPAIGNS (BROADCASTS) */}
-        {activeTab === 'map' && <EmailFlowMap initialFlowId={mapFlowId || openFlowId} initialNodeId={mapNodeId || undefined} fromStep={!mapFlowId} onContentSaved={refreshSequences} />}
-        {activeTab === 'transactional' && <EmailPrograms mode="transactional" />}
-        {activeTab === 'builder' && <EmailPrograms mode="builder" />}
-        {activeTab === 'forms' && <SignupForms />}
-        {activeTab === 'inbox' && <EmailInbox />}
-        {activeTab === 'sms' && <SmsPanel />}
-        {activeTab === 'sending' && <SendingSetup />}
-        {activeTab === 'klaviyo' && <KlaviyoSync />}
+        {/* SETTINGS, ADVANCED: the hand-run controls, off the Flows screen (D1), named per D2. */}
+        {activeTab === 'advanced' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '760px' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#f3f4f6' }}>Advanced</h2>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>Controls you rarely need. Flows run without them.</p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)', backgroundColor: 'rgba(255, 255, 255, 0.03)' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 14px' }}>
+                <button
+                  type="button"
+                  onClick={handleRunDripTick}
+                  disabled={processingDripTick}
+                  aria-describedby="studio-send-due-note"
+                  style={{
+                    minHeight: '40px',
+                    padding: '0 14px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(99, 102, 241, 0.2))',
+                    border: '1px solid rgba(16, 185, 129, 0.4)',
+                    color: '#34D399',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <Play size={13} aria-hidden="true" />
+                  <span>{processingDripTick ? 'Sending due emails' : 'Send due emails now'}</span>
+                </button>
+                <p id="studio-send-due-note" style={{ flex: '1 1 260px', margin: 0, fontSize: '13px', color: '#9ca3af' }}>
+                  The server checks for due emails every minute. This checks at once: it sends what is due and stops a flow for anyone who has bought since, where that flow stops on a purchase.
+                </p>
+              </div>
+              <div role="status">
+                {dripTickMsg && (
+                  <div style={{
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                    color: '#34D399',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <CheckCircle2 size={15} />
+                    <span>{dripTickMsg}</span>
+                  </div>
+                )}
+
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 14px', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)', backgroundColor: 'rgba(255, 255, 255, 0.03)' }}>
+              <button
+                type="button"
+                onClick={() => setShowWebhookGuide(true)}
+                aria-describedby="studio-webhooks-note"
+                style={{
+                  minHeight: '40px',
+                  padding: '0 14px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(236, 72, 153, 0.1)',
+                  border: '1px solid rgba(236, 72, 153, 0.25)',
+                  color: '#F472B6',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <Zap size={13} aria-hidden="true" />
+                <span>Webhooks</span>
+              </button>
+              <p id="studio-webhooks-note" style={{ flex: '1 1 260px', margin: 0, fontSize: '13px', color: '#9ca3af' }}>
+                When a landing page has a webhook address saved, each lead it captures is posted there as JSON. This shows the fields.
+              </p>
+            </div>
+          </div>
+        )}
         {activeTab === 'campaigns' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
@@ -2339,6 +2338,7 @@ ${unsub}`;
           </div>
         )}
       </div>
+      </div>
 
       {/* New Broadcast Modal */}
       {showBroadcastModal && (
@@ -3169,10 +3169,11 @@ ${unsub}`;
               </div>
               <button
                 type="button"
+                aria-label="Close the webhook guide"
                 onClick={() => setShowWebhookGuide(false)}
                 style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: '4px' }}
               >
-                <X size={18} />
+                <X size={18} aria-hidden="true" />
               </button>
             </div>
 

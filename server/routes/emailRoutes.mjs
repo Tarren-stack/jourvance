@@ -367,9 +367,9 @@ app.post('/api/email/programs/:id', requireUser, (req, res) => {
     if (typeof req.body?.subject === 'string' && req.body.subject.trim()) row.subject = req.body.subject.trim().slice(0, 200);
     if (req.body?.blocks) row.blocks = cleanBlocks(req.body.blocks, row.blocks);
   }
-  // A built-in flow's steps are written only when this call sent them (writeUserPrograms keeps the
-  // stored steps for every other save).
-  writeUserPrograms(req.user.uid, bag, { steps: kind === 'automation' && Boolean(req.body?.steps) });
+  // A built-in flow's steps are written only when this call sent them, and an order email only from
+  // this route or the flow-content route (writeUserPrograms keeps the stored ones for every other save).
+  writeUserPrograms(req.user.uid, bag, { steps: kind === 'automation' && Boolean(req.body?.steps), transactional: kind === 'transactional' });
   res.json({ success: true, suite: suitePayload(req.user.uid) });
 });
 

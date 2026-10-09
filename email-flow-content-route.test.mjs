@@ -8,13 +8,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import express from 'express';
 import { cleanBlockList } from './email-doc.mjs';
-import { FLOW_LIMIT, cleanFlow as cleanFlowGraph, isIanaTimezone, isPredictionKey } from './email-flows.mjs';
+import { FLOW_LIMIT, TRIGGER_META, cleanFlow as cleanFlowGraph, isIanaTimezone, isPredictionKey } from './email-flows.mjs';
 import { cleanLists, cleanSegments } from './audience.mjs';
 import { cleanAttributionWindows } from './email-feeds.mjs';
 import { cleanAccountSequences, mergeAccountSteps } from './email-flow-content.mjs';
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 import {
-  FLOW_CONTENT_EMPTY, FLOW_CONTENT_NO_SUBJECT, FLOW_CONTENT_NOT_FOUND, FLOW_CONTENT_SHAPE, FLOW_CONTENT_WAIT, firstWaitFixed, setupEmailFlowContentRoutes
+  FLOW_CONTENT_EMPTY, FLOW_CONTENT_NO_SUBJECT, FLOW_CONTENT_NOT_FOUND, FLOW_CONTENT_SHAPE, FLOW_CONTENT_WAIT, ORDER_EMAIL_NO_WAIT, firstWaitFixed, setupEmailFlowContentRoutes
 } from './server/routes/emailFlowContentRoutes.mjs';
 
 const SERVER_SRC = fs.readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
@@ -55,9 +55,11 @@ function loadServer(initialStore) {
     ${slice('function chainGraph(prefix, steps) {', '\n}\n')}
     ${slice('// D3: what the step panel says', '\n}\n')}
     ${slice('function presentAutomationRow(row) {', '\n}\n')}
+    ${slice('// D2 and Wave 4: an order email as a one-email flow', '\n}\n')}
     return {
-      userProgramBag, writeUserPrograms, cleanSteps, sequenceStepsFor, chainGraph,
-      presentSequenceRow, presentAutomationRow, INITIAL_DRIP_SEQUENCES, STARTER_FLOW_NOTE
+      userProgramBag, writeUserPrograms, cleanSteps, cleanBlocks, sequenceStepsFor, chainGraph,
+      presentSequenceRow, presentAutomationRow, presentOrderEmailRow, INITIAL_DRIP_SEQUENCES, STARTER_FLOW_NOTE,
+      TRANSACTIONAL_DEFAULTS, ORDER_EMAIL_TRIGGERS
     };
     `
   );
@@ -95,9 +97,11 @@ async function serve({ store = {}, drips } = {}) {
     userProgramBag: server.userProgramBag,
     writeUserPrograms: server.writeUserPrograms,
     cleanSteps: server.cleanSteps,
+    cleanBlocks: server.cleanBlocks,
     sequenceStepsFor: server.sequenceStepsFor,
     presentSequenceRow: server.presentSequenceRow,
-    presentAutomationRow: server.presentAutomationRow
+    presentAutomationRow: server.presentAutomationRow,
+    presentOrderEmailRow: server.presentOrderEmailRow
   });
   const listener = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = `http://127.0.0.1:${listener.address().port}`;
@@ -117,6 +121,8 @@ function mapRow(server, id, uid = 'u1', dripData) {
   const bag = server.userProgramBag(uid);
   const seq = (dripData?.sequences || server.INITIAL_DRIP_SEQUENCES).find((row) => row.id === id);
   if (seq) return clone(server.presentSequenceRow(seq, bag));
+  const letter = bag.transactional.find((row) => row.id === id);
+  if (letter) return clone(server.presentOrderEmailRow(letter));
   return clone(server.presentAutomationRow(bag.automations.find((row) => row.id === id)));
 }
 const emails = (flow) => flow.nodes.filter((node) => node.type === 'email');
@@ -533,5 +539,270 @@ test('POST /api/email/programs/:id still writes a built-in flow\'s steps when it
   } finally {
     listener.closeAllConnections();
     await new Promise((r) => listener.close(r));
+  }
+});
+
+// ---- Wave 4: an order email is a one-email flow, and this route saves its subject and blocks ----
+
+const ORDER_IDS = ['order_confirmation', 'shipping_confirmation', 'order_cancelled', 'refund'];
+const NEW_ORDER_BLOCKS = [
+  { id: 'o1', kind: 'heading', text: 'Order {{order_number}} is in' },
+  { id: 'o2', kind: 'image', url: 'https://images.example.test/order.png', alt: 'Your order' },
+  { id: 'o3', kind: 'text', text: 'Thanks, {{first_name}}.' }
+];
+
+test('an order email is a one-email flow on the map, started by the event that sends it', () => {
+  const { server } = loadServer({});
+  const bag = server.userProgramBag('u1');
+  assert.deepEqual(bag.transactional.map((row) => row.id), ORDER_IDS, 'the four order emails changed');
+  const triggers = new Set(TRIGGER_META.map((row) => row.id));
+  for (const letter of bag.transactional) {
+    const row = server.presentOrderEmailRow(letter);
+    assert.equal(row.kind, 'order');
+    assert.equal(row.editable, false, 'an order email is not an account flow');
+    assert.equal(row.contentEditable, true);
+    assert.ok(triggers.has(row.trigger), `${letter.id} starts on "${row.trigger}", which TRIGGER_META does not word`);
+    assert.deepEqual(row.nodes.map((node) => node.type), ['trigger', 'email'], `${letter.id} is not one email with no wait`);
+    assert.equal(row.nodes[1].subject, letter.subject);
+    assert.deepEqual(row.nodes[1].blocks, letter.blocks);
+    assert.ok(row.note.includes(letter.shopifyNotification), `${letter.id}'s note does not name its Shopify notification`);
+    assert.doesNotMatch(row.note, /—| – /);
+  }
+});
+
+test('an order email saves its subject and blocks into the caller\'s record and keeps whether it is on', async () => {
+  const s = await serve({ store: { u1: { transactional: { order_confirmation: { enabled: true, subject: 'Stored subject', blocks: [{ id: 'k', kind: 'text', text: 'Kept words' }] } } }, u2: U2_RECORD } });
+  try {
+    const u2Before = clone(s.state.store.u2);
+    const before = clone(s.state.store.u1);
+    const row = mapRow(s.server, 'order_confirmation');
+    assert.equal(emails(row)[0].subject, 'Stored subject', 'the map does not draw the stored subject');
+    emails(row)[0].subject = '  Your order is in  ';
+    emails(row)[0].previewText = 'An order email keeps no preview text';
+    emails(row)[0].blocks = clone(NEW_ORDER_BLOCKS);
+    const res = await s.post('order_confirmation', { nodes: row.nodes, edges: row.edges });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const stored = s.state.store.u1.transactional.order_confirmation;
+    assert.equal(stored.enabled, true, 'saving the email turned the order email off');
+    assert.equal(stored.subject, 'Your order is in', 'the subject is not trimmed the way the programs route trims it');
+    assert.deepEqual(stored.blocks.map((block) => block.kind), ['heading', 'image', 'text']);
+    assert.equal(stored.blocks[1].url, 'https://images.example.test/order.png');
+    assert.equal(stored.previewText, undefined, 'an order email stored a preview text nothing sends');
+    // The answer is the flow-map row as it now reads.
+    assert.equal(res.body.flow.kind, 'order');
+    assert.equal(emails(res.body.flow)[0].subject, 'Your order is in');
+    assert.deepEqual(emails(res.body.flow)[0].blocks.map((block) => block.kind), ['heading', 'image', 'text']);
+    // Nothing else moved: the other order emails, the starter and built-in emails, the other account.
+    const untouched = loadServer({}).server.userProgramBag('fresh').transactional;
+    for (const id of ORDER_IDS.slice(1)) {
+      const def = untouched.find((r) => r.id === id);
+      assert.deepEqual(s.state.store.u1.transactional[id], { enabled: false, subject: def.subject, blocks: def.blocks }, `${id} changed`);
+    }
+    assert.deepEqual(s.state.store.u1.sequences, before.sequences ?? {});
+    assert.deepEqual(s.state.store.u2, u2Before);
+    assert.deepEqual(s.dripData, s.dripSnapshot);
+  } finally { await s.close(); }
+});
+
+test('an order email saves exactly what POST /api/email/programs/:id saves for the transactional kind', async () => {
+  const subject = 'A refund was made on {{order_number}}';
+  // Through the flow-content route, from the chain the map drew.
+  const viaMap = await serve();
+  const row = mapRow(viaMap.server, 'refund');
+  emails(row)[0].subject = subject;
+  emails(row)[0].blocks = clone(NEW_ORDER_BLOCKS);
+  try {
+    assert.equal((await viaMap.post('refund', { nodes: row.nodes, edges: row.edges })).status, 200);
+  } finally { await viaMap.close(); }
+  // Through the programs route, the way the order letter cards saved it before Wave 4.
+  const { server, state } = loadServer({});
+  const app = express();
+  app.use(express.json());
+  setupEmailRoutes(app, {
+    requireUser: (req, _res, next) => { req.user = { uid: 'u1' }; next(); },
+    userProgramBag: server.userProgramBag,
+    writeUserPrograms: server.writeUserPrograms,
+    cleanSteps: server.cleanSteps,
+    cleanBlocks: server.cleanBlocks,
+    suitePayload: () => ({})
+  });
+  const listener = await new Promise((resolve) => { const l = app.listen(0, '127.0.0.1', () => resolve(l)); });
+  try {
+    const res = await fetch(`http://127.0.0.1:${listener.address().port}/api/email/programs/refund`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'transactional', enabled: false, subject, blocks: clone(NEW_ORDER_BLOCKS) })
+    });
+    assert.equal(res.status, 200);
+  } finally {
+    listener.closeAllConnections();
+    await new Promise((r) => listener.close(r));
+  }
+  assert.deepEqual(viaMap.state.store.u1.transactional.refund, state.store.u1.transactional.refund, 'the two routes store an order email differently');
+});
+
+test('an order email refuses a wait, a second email, an empty email and a blank subject, and writes nothing', async () => {
+  const s = await serve();
+  try {
+    const cases = {
+      'a wait before it': [ORDER_EMAIL_NO_WAIT, (row) => {
+        row.nodes.splice(1, 0, { id: 'w', type: 'delay', delayHours: 2 });
+        row.edges = [{ id: 'a', source: row.nodes[0].id, target: 'w' }, { id: 'b', source: 'w', target: row.nodes[2].id }];
+      }],
+      'a second email': [FLOW_CONTENT_SHAPE, (row) => {
+        row.nodes.push({ ...clone(emails(row)[0]), id: 'extra' });
+        row.edges.push({ id: 'x', source: emails(row)[0].id, target: 'extra' });
+      }],
+      'an email with nothing in it': [FLOW_CONTENT_EMPTY, (row) => { emails(row)[0].blocks = [{ id: 'd', kind: 'divider' }]; }],
+      'a blank subject': [FLOW_CONTENT_NO_SUBJECT, (row) => { emails(row)[0].subject = '   '; }]
+    };
+    for (const [name, [error, change]] of Object.entries(cases)) {
+      const row = mapRow(s.server, 'shipping_confirmation');
+      change(row);
+      const res = await s.post('shipping_confirmation', { nodes: row.nodes, edges: row.edges });
+      assert.equal(res.status, 400, `${name}: ${JSON.stringify(res.body)}`);
+      assert.deepEqual(res.body, { success: false, error }, name);
+    }
+    assert.equal(s.state.saves, 0);
+    assert.deepEqual(s.state.store, {});
+  } finally { await s.close(); }
+});
+
+test('another account cannot reach this account\'s order email, even by naming it in the body', async () => {
+  const s = await serve({ store: { u1: { transactional: { order_cancelled: { enabled: true, subject: 'U1 cancelled subject', blocks: [{ id: 'u1', kind: 'text', text: 'U1 words' }] } } } } });
+  try {
+    const u1Before = clone(s.state.store.u1);
+    // u2 posts u1's order email id with a body that names u1. The record written is u2's own.
+    const row = mapRow(s.server, 'order_cancelled', 'u2');
+    emails(row)[0].subject = 'Written by u2';
+    const res = await s.post('order_cancelled', { nodes: row.nodes, edges: row.edges, uid: 'u1', userId: 'u1' }, 'u2');
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(s.state.store.u1, u1Before, 'u2 changed u1\'s order email');
+    assert.equal(s.state.store.u2.transactional.order_cancelled.subject, 'Written by u2');
+    assert.equal(emails(res.body.flow)[0].subject, 'Written by u2');
+    assert.equal(s.server.userProgramBag('u1').transactional.find((r) => r.id === 'order_cancelled').subject, 'U1 cancelled subject');
+  } finally { await s.close(); }
+});
+
+test('a bad order email id gets the same 404 body as a missing flow, and nothing is written', async () => {
+  const s = await serve();
+  try {
+    // A chain the route would accept for a real order email, so only the id can refuse it.
+    const row = mapRow(s.server, 'order_confirmation');
+    const missing = await s.post('drip_seq_does_not_exist', { nodes: row.nodes, edges: row.edges });
+    assert.equal(missing.status, 404);
+    assert.deepEqual(missing.body, { success: false, error: FLOW_CONTENT_NOT_FOUND });
+    for (const id of ['order_confirmationx', 'order_confirmation ', 'ORDER_CONFIRMATION', 'order', 'refunds', '__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+      assert.deepEqual(await s.post(id, { nodes: row.nodes, edges: row.edges }), missing, `"${id}" answers differently from a missing flow`);
+    }
+    assert.equal(s.state.saves, 0);
+    assert.deepEqual(s.state.store, {});
+    // The positive control: the real id with the same body saves.
+    assert.equal((await s.post('order_confirmation', { nodes: row.nodes, edges: row.edges })).status, 200);
+    assert.equal(s.state.saves, 1);
+  } finally { await s.close(); }
+});
+
+// ---- Wave 4 fix round: a send or a tick that read the record before an order email was saved ----
+
+// POST /api/email/programs/:id over the same in-memory store, for Turn on and Turn off.
+async function programRoute(server) {
+  const app = express();
+  app.use(express.json());
+  setupEmailRoutes(app, {
+    requireUser: (req, _res, next) => { req.user = { uid: 'u1' }; next(); },
+    userProgramBag: server.userProgramBag,
+    writeUserPrograms: server.writeUserPrograms,
+    cleanSteps: server.cleanSteps,
+    cleanBlocks: server.cleanBlocks,
+    suitePayload: () => ({})
+  });
+  const listener = await new Promise((resolve) => { const l = app.listen(0, '127.0.0.1', () => resolve(l)); });
+  return {
+    post: async (id, body) => {
+      const res = await fetch(`http://127.0.0.1:${listener.address().port}/api/email/programs/${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      return { status: res.status, body: await res.json() };
+    },
+    close: async () => { listener.closeAllConnections(); await new Promise((r) => listener.close(r)); }
+  };
+}
+
+const STORED_ORDER = { order_confirmation: { enabled: true, subject: 'Stored before the send', blocks: [{ id: 'k', kind: 'text', text: 'Stored words' }] } };
+
+test('a tick or an order send that read the record before an order email was saved cannot put the old email back', async () => {
+  const s = await serve({ store: { u1: { transactional: clone(STORED_ORDER) } } });
+  const programs = await programRoute(s.server);
+  try {
+    // What processAccountAutomations and the order sends do: read the whole record, await, write it back.
+    const stale = s.server.userProgramBag('u1');
+
+    const row = mapRow(s.server, 'order_confirmation');
+    emails(row)[0].subject = 'Saved while the send was out';
+    emails(row)[0].blocks = clone(NEW_ORDER_BLOCKS);
+    assert.equal((await s.post('order_confirmation', { nodes: row.nodes, edges: row.edges })).status, 200);
+    // Turn on, a new subject, and Turn off, through the programs route, the way the list and the cards send them.
+    assert.equal((await programs.post('shipping_confirmation', { kind: 'transactional', enabled: true })).status, 200);
+    assert.equal((await programs.post('refund', { kind: 'transactional', subject: 'A refund subject saved meanwhile' })).status, 200);
+    assert.equal((await programs.post('order_confirmation', { kind: 'transactional', enabled: false })).status, 200);
+
+    // The stale write's own change: a dedupe key.
+    stale.sentKeys.push('orders/create:1001');
+    s.server.writeUserPrograms('u1', stale);
+
+    const stored = s.state.store.u1.transactional;
+    assert.equal(stored.order_confirmation.subject, 'Saved while the send was out', 'the order email\'s subject was put back');
+    assert.deepEqual(stored.order_confirmation.blocks.map((block) => block.kind), ['heading', 'image', 'text'], 'its blocks were put back');
+    assert.equal(stored.order_confirmation.enabled, false, 'Turn off was put back');
+    assert.equal(stored.shipping_confirmation.enabled, true, 'Turn on was put back');
+    assert.equal(stored.refund.subject, 'A refund subject saved meanwhile');
+    assert.deepEqual(s.state.store.u1.sentKeys, ['orders/create:1001'], 'the stale write\'s own change was not written');
+  } finally {
+    await programs.close();
+    await s.close();
+  }
+});
+
+test('an order send records only its own key, onto the record as it reads after the send', async () => {
+  const s = await serve({ store: { u1: { transactional: clone(STORED_ORDER) } } });
+  const programs = await programRoute(s.server);
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const delivered = [];
+  // server.mjs's own sendTransactional, with the mail itself stood in for: delivery waits on `gate`.
+  const sendTransactional = new Function(
+    'userProgramBag', 'writeUserPrograms', 'klaviyoIsSender', 'composeForSend', 'fillMailTokens', 'deliverLetter',
+    `${slice('async function sendTransactional(', '\n}\n')}\nreturn sendTransactional;`
+  )(
+    s.server.userProgramBag, s.server.writeUserPrograms, () => false,
+    async () => ({ text: 'Text', html: '<p>Text</p>', vars: {} }), (text) => text,
+    async (mail) => { delivered.push(mail.subject); await gate; return { ok: true, status: 'sent', messageId: 'msg_1' }; }
+  );
+  try {
+    const sending = sendTransactional('u1', 'order_confirmation', { to: 'buyer@example.test', name: 'Buyer', dedupeKey: 'orders/create:1001', vars: {} });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(delivered, ['Stored before the send'], 'the send did not reach delivery');
+
+    // While it is out: the merchant saves the email and turns another on, and a tick moves someone on.
+    const row = mapRow(s.server, 'order_confirmation');
+    emails(row)[0].subject = 'Saved during the send';
+    assert.equal((await s.post('order_confirmation', { nodes: row.nodes, edges: row.edges })).status, 200);
+    assert.equal((await programs.post('order_cancelled', { kind: 'transactional', enabled: true })).status, 200);
+    const tick = s.server.userProgramBag('u1');
+    tick.enrollments.push({ id: 'penr_meanwhile', automationId: 'post_purchase', email: 'reader@example.test', stepIndex: 1, status: 'active' });
+    s.server.writeUserPrograms('u1', tick);
+
+    release();
+    assert.equal((await sending).ok, true);
+    const stored = s.state.store.u1;
+    assert.equal(stored.transactional.order_confirmation.subject, 'Saved during the send', 'the send put the old subject back');
+    assert.equal(stored.transactional.order_cancelled.enabled, true, 'the send put Turn on back');
+    assert.deepEqual(stored.enrollments.map((row) => row.id), ['penr_meanwhile'], 'the send wrote back the record it read before it was delivered');
+    assert.deepEqual(stored.sentKeys, ['orders/create:1001']);
+    // The key it recorded stops a second send for the same event (the positive control on the key).
+    assert.deepEqual(await sendTransactional('u1', 'order_confirmation', { to: 'buyer@example.test', dedupeKey: 'orders/create:1001', vars: {} }), { status: 'already_sent' });
+  } finally {
+    release();
+    await programs.close();
+    await s.close();
   }
 });

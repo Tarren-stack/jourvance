@@ -1789,16 +1789,20 @@ function cleanProfiles(input) {
   return out;
 }
 
-// `edits` names the email content this caller changed: `sequences` (a starter flow's emails) or
-// `steps` (a built-in flow's emails). Every other caller keeps what is stored for those, read here
-// just before the write. A tick reads the bag, awaits several sends, then writes it back; without
-// this, an edit saved during those awaits was replaced by the copy the tick read before it.
+// `edits` names the email content this caller changed: `sequences` (a starter flow's emails),
+// `steps` (a built-in flow's emails) or `transactional` (an order email's subject, blocks and
+// whether it is on). Every other caller keeps what is stored for those, read here just before the
+// write. A tick or an order send reads the bag, awaits several sends, then writes it back; without
+// this, an edit saved during those awaits was replaced by the copy it read before it.
 function writeUserPrograms(uid, bag, edits = {}) {
   const store = loadProgramStore();
   const previous = store[uid] && typeof store[uid] === 'object' ? store[uid] : {};
   const transactional = {};
   for (const row of bag.transactional || []) {
-    transactional[row.id] = { enabled: Boolean(row.enabled), subject: row.subject, blocks: row.blocks };
+    const stored = previous.transactional?.[row.id];
+    transactional[row.id] = edits.transactional || !stored || typeof stored !== 'object'
+      ? { enabled: Boolean(row.enabled), subject: row.subject, blocks: row.blocks }
+      : stored;
   }
   const automations = {};
   for (const row of bag.automations || []) {
@@ -2739,8 +2743,11 @@ async function sendTransactional(uid, programId, { to, name, dedupeKey, vars, vi
   });
   if (!result.ok) return result;
   if (dedupeKey) {
-    bag.sentKeys.push(dedupeKey);
-    writeUserPrograms(uid, bag);
+    // Only this send's own change, onto the record as it reads now: the compose and the delivery
+    // above were awaited, and anything saved meanwhile stands.
+    const fresh = userProgramBag(uid);
+    if (!fresh.sentKeys.includes(dedupeKey)) fresh.sentKeys.push(dedupeKey);
+    writeUserPrograms(uid, fresh);
   }
   return result;
 }
@@ -3532,7 +3539,7 @@ function chainGraph(prefix, steps) {
 // D3: what the step panel says on a starter flow and on a built-in flow. Their emails and waits are
 // edited per account; their steps and their start stay fixed.
 const STARTER_FLOW_NOTE = 'This starter flow is shared by every account. Your edits to its emails apply to this account only.';
-const BUILT_IN_FLOW_NOTE = 'This built-in flow is on this account only. You can edit its emails and waits here. Its steps and what starts it stay fixed. Turn it on or off from Automations.';
+const BUILT_IN_FLOW_NOTE = 'This built-in flow is on this account only. You can edit its emails and waits here. Its steps and what starts it stay fixed. Turn it on or off from All flows.';
 
 // A starter flow (a shared drip sequence) as one flow-map row, drawn from this account's version.
 function presentSequenceRow(seq, bag) {
@@ -3561,6 +3568,27 @@ function presentAutomationRow(row) {
     trigger: row.trigger,
     ...chainGraph(row.id, row.steps || []),
     note: BUILT_IN_FLOW_NOTE
+  };
+}
+
+// D2 and Wave 4: an order email as a one-email flow on the flow map. Its start is the Shopify event
+// that sends it, worded by the flow trigger that same webhook starts (shopifyRoutes.mjs: the order
+// handler sends the confirmation and enrolls Order paid flows; the fulfillment, cancellation and
+// refund handlers likewise). It has no preview text and no wait: POST /api/email/flow-content/:id
+// saves its subject and blocks, and Turn on and Turn off stay on POST /api/email/programs/:id.
+const ORDER_EMAIL_TRIGGERS = { order_confirmation: 'order_paid', shipping_confirmation: 'order_fulfilled', order_cancelled: 'order_cancelled', refund: 'order_refunded' };
+
+function presentOrderEmailRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    kind: 'order',
+    editable: false,
+    contentEditable: true,
+    enabled: row.enabled === true,
+    trigger: ORDER_EMAIL_TRIGGERS[row.id] || '',
+    ...chainGraph(row.id, [{ subject: row.subject, previewText: '', blocks: row.blocks, delayHours: 0 }]),
+    note: `Same job as Shopify’s “${row.shopifyNotification}” notification. Shopify keeps sending its own copy until you turn that notification off in Shopify admin. Turn it on or off from All flows.`
   };
 }
 
@@ -3676,25 +3704,30 @@ app.get('/api/email/flow-map', requireUser, (req, res) => {
   const drips = loadDrips();
   const sequences = (drips.sequences || []).filter((seq) => !seq.userId || seq.userId === req.user.uid).map((seq) => presentSequenceRow(seq, bag));
   const automations = bag.automations.map((row) => presentAutomationRow(row));
+  // Wave 4: the four order emails, last, so Email Studio lists every flow from this one read.
+  const orderEmails = bag.transactional.map((row) => presentOrderEmailRow(row));
   res.json({
     success: true,
     hubConnected: hubReady,
     timezone: bag.timezone || '',
     triggers: TRIGGER_META,
-    flows: [...bag.flows.map((flow) => presentCustomFlow(flow, bag, req.user.uid)), ...automations, ...sequences]
+    flows: [...bag.flows.map((flow) => presentCustomFlow(flow, bag, req.user.uid)), ...automations, ...sequences, ...orderEmails]
   });
 });
 
-// The emails of a starter or built-in flow, saved per account (server/routes/emailFlowContentRoutes.mjs).
+// The emails of a starter or built-in flow, and of an order email, saved per account
+// (server/routes/emailFlowContentRoutes.mjs).
 const emailFlowContentCtx = {
   requireUser,
   loadDrips,
   userProgramBag,
   writeUserPrograms,
   cleanSteps,
+  cleanBlocks,
   sequenceStepsFor,
   presentSequenceRow,
-  presentAutomationRow
+  presentAutomationRow,
+  presentOrderEmailRow
 };
 setupEmailFlowContentRoutes(app, emailFlowContentCtx);
 

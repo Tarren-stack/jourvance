@@ -24,7 +24,7 @@ test('no text in Email Studio or Shopify Sync is set under 11px', () => {
 });
 
 test('the Soon badge on the Texts view is 11px or more', () => {
-  const at = suite.indexOf('{(tab as any).badge}');
+  const at = suite.indexOf('{tab.badge}');
   assert.ok(at > 0, 'badge not found');
   const badge = suite.slice(suite.lastIndexOf('<span', at), at);
   const px = Number(badge.match(/fontSize:\s*'(\d+)px'/)?.[1]);

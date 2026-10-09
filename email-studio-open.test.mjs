@@ -13,6 +13,8 @@ import fs from 'node:fs';
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
 const programs = read('./src/components/campaign/EmailPrograms.tsx');
 const suite = read('./src/components/campaign/HubEmailSuite.tsx');
+// Wave 4: the starter rows, starter cards and built-in cards became one Flows list in this file.
+const list = read('./src/components/campaign/EmailFlowsList.tsx');
 const map = read('./src/components/campaign/EmailFlowMap.tsx');
 const server = read('./server.mjs');
 
@@ -25,44 +27,49 @@ function between(src, start, end, name) {
   return src.slice(from, to);
 }
 
-test('each starter row on Automations is a real button that opens the flow', () => {
-  const rows = between(programs, 'suite.installed.map((row) =>', 'suite.automations.map((row) =>', 'starter rows');
-  assert.match(rows, /<button type="button"[^>]*aria-label=\{`Edit emails in \$\{row\.name\}`\}[^>]*onClick=\{\(\) => onOpenFlow\(row\.id\)\}>Edit emails<\/button>/);
-  assert.doesNotMatch(rows, /queue sequence/, 'the row still says "queue sequence"');
+test('every row on All flows is one real button that opens the flow on its first email', () => {
+  // Wave 4 (D3): the starter rows and starter cards this pinned are one list now. Each row is a
+  // button, and it opens the editor on that flow with its first email chosen.
+  const row = between(list, 'const renderRow = (row: FlowRow) => {', 'const flowList =', 'a Flows list row');
+  assert.match(row, /<button\s+type="button"\s+data-flow-row=\{row\.id\}/);
+  assert.ok(row.includes('onClick={() => onOpenFlow(row.id, row.firstEmailId || undefined)}'), 'a row does not open its flow on its first email');
+  assert.doesNotMatch(row, /queue sequence/, 'a row still says "queue sequence"');
+  // Rows for every kind come from the one list: starters and built-ins are not drawn anywhere else.
+  assert.match(list, /\{flowList\.length > 0 && <ul aria-label="Flows" style=\{listStyle\}>\{flowList\.map\(renderRow\)\}<\/ul>\}/);
+  assert.match(list, /<ul aria-labelledby=\{orderHeadingId\} style=\{listStyle\}>\{orderList\.map\(renderRow\)\}<\/ul>/);
   // The intro no longer says the two built-ins are what the queue below sends.
-  assert.ok(programs.includes('Starter flows run for every new lead or checkout. Built-in flows stay off until you turn them on.'));
-  assert.ok(!programs.includes('Welcome and abandoned checkout already run from the queue below.'));
+  assert.ok(list.includes('Starter flows run for every new lead or checkout. Built-in flows stay off until you turn them on.'));
+  assert.ok(!list.includes('Welcome and abandoned checkout already run from the queue below.'));
 });
 
-test('a built-in card lists its emails, opens them in the builder, and has no textarea', () => {
-  const card = between(programs, 'const AutomationCard', 'const LetterCard', 'AutomationCard');
-  assert.doesNotMatch(card, /<textarea/, 'AutomationCard still edits a body in a textarea');
-  assert.doesNotMatch(card, /<input/, 'AutomationCard still edits a subject in an input');
-  assert.doesNotMatch(card, /Save steps/);
-  assert.match(card, /<button type="button"[^>]*aria-label=\{`Edit emails in \$\{row\.name\}`\}[^>]*onClick=\{\(\) => onOpenFlow\(row\.id\)\}>Edit emails<\/button>/);
-  assert.match(card, /Email \{index \+ 1\}: \{step\.subject\} · \{waitText\(step\.delayHours\)\}/);
-  // Turn on and Turn off send no steps, so a stale card can never overwrite an edit made on the map.
-  assert.match(card, /onSave\(row\.id, 'automation', \{ enabled: !row\.enabled \}\)/);
-  assert.doesNotMatch(card, /steps \}\)/);
+test('the Flows list edits no email itself, and Turn on or off sends no steps', () => {
+  // Wave 4 removed AutomationCard (and the order letter cards): a flow's emails are edited in the
+  // builder on the Flow map, so nothing on the list can flatten or overwrite one.
+  assert.ok(!programs.includes('const AutomationCard'), 'AutomationCard is still in EmailPrograms.tsx');
+  assert.ok(!programs.includes('const LetterCard'), 'the order letter cards are still in EmailPrograms.tsx');
+  assert.doesNotMatch(programs, /mode === 'automations'|mode === 'transactional'/);
+  assert.doesNotMatch(list, /<textarea/, 'the Flows list edits a body in a textarea');
+  assert.doesNotMatch(list, /<input/, 'the Flows list edits a field in an input');
+  assert.doesNotMatch(list, /Save steps/);
+  // Turn on and Turn off send only whether it is on, so a stale list can never overwrite an edit made on the map.
+  const toggle = between(list, 'const toggle = async (row: FlowRow) => {', 'const renderRow', 'toggle');
+  assert.ok(toggle.includes('body: JSON.stringify(own ? { enabled: next } : { kind: row.toggleKind, enabled: next })'));
+  assert.doesNotMatch(toggle, /steps|blocks|subject/);
 });
 
-test('each starter card has Edit emails, and each of its emails is a button that opens that email', () => {
-  const cards = between(suite, 'dripSequences.map(seq =>', 'Recent Enrollments Stream', 'starter cards');
-  assert.match(cards, /<button\s+type="button"\s+aria-label=\{`Edit emails in \$\{seq\.name\}`\}\s+onClick=\{\(\) => openFlowInMap\(seq\.id\)\}/);
-  assert.match(cards, />\s*Edit emails\s*<\/button>/);
-  // The tile opens `<sequence id>_email_<index>`, the id chainGraph gives that email node.
-  assert.match(cards, /seq\.steps\.map\(\(step, index\) => \(\s*<button\s+type="button"/);
-  // The label names the email by its subject too, since aria-label replaces the tile's own text.
-  assert.match(cards, /aria-label=\{`Email \$\{index \+ 1\} of \$\{seq\.steps\.length\} in \$\{seq\.name\}: \$\{step\.subject\}`\}/);
-  assert.match(cards, /onClick=\{\(\) => openFlowInMap\(seq\.id, `\$\{seq\.id\}_email_\$\{index\}`\)\}/);
+test('the duplicate starter cards are gone, and every count reads the real number of emails', () => {
+  // Wave 4: the starter cards listed each starter flow a second time beside its row. They are gone,
+  // with their Edit emails buttons and their email tiles; the list's row opens the flow instead.
+  const flows = between(suite, "{activeTab === 'flows' && (", "{activeTab === 'map' && <EmailFlowMap", 'the Flows section');
+  assert.doesNotMatch(flows, /dripSequences\.map\(seq =>/, 'a starter card is still drawn');
+  assert.doesNotMatch(flows, /Edit emails/, 'a duplicate Edit emails button is still on the Flows section');
+  // The email node ids the editor opens on are chainGraph's, so the list's first email is a real node.
   assert.ok(server.includes('const emailId = `${prefix}_email_${index}`;'), 'chainGraph no longer names email nodes <prefix>_email_<index>');
-  // A button holds only phrasing content.
-  const tile = cards.slice(cards.indexOf('seq.steps.map((step, index)'));
-  assert.doesNotMatch(tile.slice(0, tile.indexOf('</button>')), /<div/, 'a div inside the email button');
   // The step counts read the real number of emails.
   assert.ok(!suite.includes('Completed 3-Steps'));
   assert.ok(!suite.includes('of 3</td>'));
-  assert.match(suite, /Completed all \$\{seq\.steps\.length\} emails:/);
+  assert.ok(flows.includes("Step {enr.currentStepIndex + 1}{stepCountOf(enr.sequenceId) ? ` of ${stepCountOf(enr.sequenceId)}` : ''}"), 'the people table does not count the flow\'s own emails');
+  assert.ok(list.includes('{emailCountText(row.emails)}'), 'a row does not print its counted emails');
 });
 
 test('Email Studio opens the Flow map on a flow from inside, and the tab strip clears it', () => {
@@ -72,7 +79,8 @@ test('Email Studio opens the Flow map on a flow from inside, and the tab strip c
   assert.ok(suite.includes("<EmailFlowMap initialFlowId={mapFlowId || openFlowId} initialNodeId={mapNodeId || undefined} fromStep={!mapFlowId} onContentSaved={refreshSequences} />"));
   // The starter cards read the sequences again once their emails are saved on the map.
   assert.match(between(suite, 'const refreshSequences', '};', 'refreshSequences'), /fetch\('\/api\/drips\/sequences'/);
-  assert.ok(suite.includes('<EmailPrograms mode="automations" onOpenFlow={(id) => openFlowInMap(id)} />'));
+  // Wave 4: the Flows list opens a flow through the same function, on the step a row names.
+  assert.ok(suite.includes('<EmailFlowsList onOpenFlow={openFlowInMap} sequences={dripSequences} onRefresh={loadData} />'));
 });
 
 test('the Flow map shows the step panel for a starter or built-in flow, with the builder in it', () => {
@@ -149,7 +157,8 @@ test('server: the account content survives an unrelated save, and the map keeps 
 });
 
 test('the new copy has no em dash and no spaced en dash', () => {
-  for (const [name, src] of [['EmailPrograms.tsx', programs], ['HubEmailSuite.tsx', suite], ['EmailFlowMap.tsx', map]]) {
+  const added = [['EmailFlowsList.tsx', list], ['EmailStepPreview.tsx', read('./src/components/campaign/EmailStepPreview.tsx')], ['emailFlowsList.ts', read('./src/lib/emailFlowsList.ts')]];
+  for (const [name, src] of [['EmailPrograms.tsx', programs], ['HubEmailSuite.tsx', suite], ['EmailFlowMap.tsx', map], ...added]) {
     const lines = src.split('\n').map((line, i) => `${i + 1}: ${line.trim()}`).filter((line) => /—| – /.test(line));
     assert.deepEqual(lines, [], `${name} has a dash`);
   }

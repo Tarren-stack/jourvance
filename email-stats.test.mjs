@@ -8,6 +8,8 @@ import { moneyText, STAT_UNAVAILABLE, statText, withNote } from './src/lib/email
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const map = read('./src/components/campaign/EmailFlowMap.tsx');
 const suite = read('./src/components/campaign/HubEmailSuite.tsx');
+// D9, Wave 4: the starter row that prints a sequence's revenue lives in the Flows list now.
+const list = read('./src/components/campaign/EmailFlowsList.tsx');
 const DASH = /—| – /;
 
 test('an unmeasured number reads Unavailable, never a dash or 0', () => {
@@ -45,8 +47,13 @@ test('the flow map and the suite print their stats through the shared helper', (
   }
   assert.ok(map.includes('moneyText(current.stats.revenue)'));
   assert.match(map, /withNote\([^\n]*path\.note\)/);
-  // The suite: sequence revenue, the broadcast row, the holdout line and the analytics tiles.
-  for (const needle of ['statText(seq.attributedSales', 'statText(b.sent', 'statText(b.opened)', 'statText(b.clicked)', 'moneyText(b.revenue)', 'statText(b.delivered)', 'statText(b.unsubscribed)', 'moneyText(b.holdoutReport.sent.perPerson)', 'moneyText(b.holdoutReport.held.perPerson)', 'statText(value,']) {
+  // The starter row's revenue, in the file the starter row lives in. At least one match, so a moved
+  // row is a failure here and never a needle that checks nothing.
+  const revenue = list.split('statText(seq.attributedSales').length - 1;
+  assert.ok(revenue >= 1, `EmailFlowsList.tsx prints a starter flow's revenue through statText ${revenue} times`);
+  assert.ok(!/\$\{?seq\.attributedSales/.test(list), 'a starter row prints its revenue without statText');
+  // The suite: the broadcast row, the holdout line and the analytics tiles.
+  for (const needle of ['statText(b.sent', 'statText(b.opened)', 'statText(b.clicked)', 'moneyText(b.revenue)', 'statText(b.delivered)', 'statText(b.unsubscribed)', 'moneyText(b.holdoutReport.sent.perPerson)', 'moneyText(b.holdoutReport.held.perPerson)', 'statText(value,']) {
     assert.ok(suite.includes(needle), `suite uses ${needle}`);
   }
   assert.match(suite, /withNote\(`\$\{seg\.name\} \(\$\{seg\.count\} contacts\)`, seg\.definition \|\| seg\.description\)/);

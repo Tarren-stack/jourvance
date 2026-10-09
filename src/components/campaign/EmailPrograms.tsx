@@ -3,40 +3,12 @@ import { authHeaders } from '../../lib/firebase';
 import { BlockEditor, type LibraryRow, type MailBlock } from './EmailBlocks';
 
 type Block = MailBlock;
-type Step = { id: string; delayHours: number; subject: string; previewText?: string; blocks: Block[] };
-type Automation = {
-  id: string;
-  name: string;
-  trigger: string;
-  description: string;
-  enabled: boolean;
-  quietAfterDays?: number | null;
-  steps: Step[];
-  activeEnrollments: number;
-};
-type Letter = {
-  id: string;
-  name: string;
-  shopifyNotification: string;
-  shopifyTopic: string;
-  enabled: boolean;
-  subject: string;
-  blocks: Block[];
-};
+// The Builder reads only the saved-block library off the suite. The starter, built-in and order
+// email lists that used to be drawn here are the Flows list now (EmailFlowsList.tsx, Wave 4).
 type Suite = {
-  hubConnected: boolean;
-  installed: { id: string; name: string; trigger: string; steps: number }[];
-  automations: Automation[];
-  transactional: Letter[];
   library?: LibraryRow[];
 };
 
-const card: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.03)',
-  border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: 12,
-  padding: 16
-};
 const label: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em' };
 const field: React.CSSProperties = {
   width: '100%',
@@ -54,10 +26,8 @@ async function readJson(res: Response) {
 }
 
 export const EmailPrograms: React.FC<{
-  mode: 'automations' | 'transactional' | 'builder';
-  /** Opens a starter or built-in flow on the Flow map, where its emails are edited in the builder. */
-  onOpenFlow?: (id: string) => void;
-}> = ({ mode, onOpenFlow }) => {
+  mode: 'builder';
+}> = ({ mode }) => {
   const [suite, setSuite] = useState<Suite | null>(null);
   const [notice, setNotice] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
@@ -107,22 +77,6 @@ export const EmailPrograms: React.FC<{
   };
 
   useEffect(() => { load(); }, [mode]);
-
-  const saveProgram = async (id: string, kind: 'automation' | 'transactional', patch: Record<string, unknown>) => {
-    setNotice('');
-    const res = await fetch(`/api/email/programs/${id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-      body: JSON.stringify({ kind, ...patch })
-    });
-    const data = await readJson(res);
-    if (!res.ok || !data?.success) {
-      setNotice(data?.error || 'That change was not saved.');
-      return;
-    }
-    setSuite(data.suite);
-    setNotice('Saved. A letter sends only after you turn it on and the email service accepts it.');
-  };
 
   const preview = async (subject: string, blocks: Block[], merge: 'sample' | 'person' | 'keep' = 'sample', email = '', line = '') => {
     const data = await readJson(await fetch('/api/email/programs/preview', {
@@ -185,59 +139,6 @@ export const EmailPrograms: React.FC<{
 
   if (!suite) {
     return <p style={{ color: '#9ca3af', fontSize: 13 }}>Loading the email suite…</p>;
-  }
-
-  if (mode === 'automations') {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 18, color: '#f3f4f6' }}>Automations</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#9ca3af' }}>
-            Starter flows run for every new lead or checkout. Built-in flows stay off until you turn them on.
-          </p>
-        </div>
-        {suite.installed.map((row) => (
-          <div key={row.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 700, color: '#f3f4f6' }}>{row.name}</div>
-              <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>On for new {row.trigger.replace(/_/g, ' ')} events · {row.steps === 1 ? '1 email' : `${row.steps} emails`} · Starter flow</div>
-            </div>
-            {onOpenFlow && (
-              <button type="button" style={ghostBtn} aria-label={`Edit emails in ${row.name}`} onClick={() => onOpenFlow(row.id)}>Edit emails</button>
-            )}
-          </div>
-        ))}
-        {suite.automations.map((row) => (
-          <AutomationCard key={row.id} row={row} onSave={saveProgram} onOpenFlow={onOpenFlow} />
-        ))}
-        {notice && <p style={{ margin: 0, fontSize: 12, color: '#d1d5db' }}>{notice}</p>}
-      </div>
-    );
-  }
-
-  if (mode === 'transactional') {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 18, color: '#f3f4f6' }}>Transactional letters</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#9ca3af', maxWidth: 720 }}>
-            These are the customer letters Shopify sends for an order, a fulfillment, a cancellation, and a refund. Each one here stays off until you turn it on.
-            Shopify keeps sending its own copy until you turn that notification off in Shopify admin. Jourvance does not change those Shopify settings.
-            {!suite.hubConnected && ' Email sending is not connected on this server, so turning a letter on will not deliver it.'}
-          </p>
-        </div>
-        {suite.transactional.map((row) => (
-          <LetterCard key={row.id} row={row} onSave={saveProgram} onPreview={preview} />
-        ))}
-        {previewHtml && (
-          <div style={card}>
-            <div style={label}>Sample preview · not a real order</div>
-            <iframe title="Email preview" sandbox="" srcDoc={previewHtml} style={{ width: '100%', height: 280, marginTop: 8, background: '#fff', border: 0, borderRadius: 8 }} />
-          </div>
-        )}
-        {notice && <p style={{ margin: 0, fontSize: 12, color: '#d1d5db' }}>{notice}</p>}
-      </div>
-    );
   }
 
   const sendDraft = async () => {
@@ -327,78 +228,4 @@ const ghostBtn: React.CSSProperties = {
 };
 const solidBtn: React.CSSProperties = {
   padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(236,72,153,0.4)', background: 'rgba(236,72,153,0.18)', color: '#f9a8d4', cursor: 'pointer', fontSize: 12, fontWeight: 700
-};
-
-function waitText(hours: number) {
-  if (!hours) return 'no wait';
-  return hours === 1 ? 'wait 1 hour' : `wait ${hours} hours`;
-}
-
-// A built-in flow's emails are edited on the Flow map in the builder (Edit emails). This card only
-// lists them and turns the flow on or off; it never sends steps, so it cannot overwrite an edit.
-const AutomationCard: React.FC<{
-  row: Automation;
-  onSave: (id: string, kind: 'automation', patch: Record<string, unknown>) => void;
-  onOpenFlow?: (id: string) => void;
-}> = ({ row, onSave, onOpenFlow }) => {
-  return (
-    <div style={card}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 700, color: '#f3f4f6' }}>{row.name}</div>
-          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{row.description}</div>
-          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{row.enabled ? 'On' : 'Off'} · {row.activeEnrollments} active · Built-in flow</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {onOpenFlow && (
-            <button type="button" style={ghostBtn} aria-label={`Edit emails in ${row.name}`} onClick={() => onOpenFlow(row.id)}>Edit emails</button>
-          )}
-          <button type="button" style={row.enabled ? solidBtn : ghostBtn} onClick={() => onSave(row.id, 'automation', { enabled: !row.enabled })}>
-            {row.enabled ? 'Turn off' : 'Turn on'}
-          </button>
-        </div>
-      </div>
-      <ol style={{ margin: '10px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {row.steps.map((step, index) => (
-          <li key={step.id} style={{ fontSize: 13, color: '#d1d5db' }}>
-            Email {index + 1}: {step.subject} · {waitText(step.delayHours)}
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-};
-
-const LetterCard: React.FC<{
-  row: Letter;
-  onSave: (id: string, kind: 'transactional', patch: Record<string, unknown>) => void;
-  onPreview: (subject: string, blocks: Block[]) => void;
-}> = ({ row, onSave, onPreview }) => {
-  const [subject, setSubject] = useState(row.subject);
-  const [blocks, setBlocks] = useState(row.blocks);
-  useEffect(() => { setSubject(row.subject); setBlocks(row.blocks); }, [row.id, row.enabled]);
-  return (
-    <div style={card}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-        <div>
-          <div style={{ fontWeight: 700, color: '#f3f4f6' }}>{row.name}</div>
-          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
-            Same job as Shopify’s “{row.shopifyNotification}” notification. Shopify still sends its own until you turn it off there. Webhook topic {row.shopifyTopic}. {row.enabled ? 'On.' : 'Off.'}
-          </div>
-        </div>
-        <button type="button" style={row.enabled ? solidBtn : ghostBtn} onClick={() => onSave(row.id, 'transactional', { enabled: !row.enabled, subject, blocks })}>
-          {row.enabled ? 'Turn off' : 'Turn on'}
-        </button>
-      </div>
-      <label style={{ ...label, display: 'block', marginTop: 10 }}>Subject</label>
-      <input style={{ ...field, marginTop: 6 }} value={subject} onChange={(e) => setSubject(e.target.value)} />
-      <div style={{ marginTop: 8 }}>
-        <BlockEditor blocks={blocks} onChange={setBlocks} library={[]} />
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <button type="button" style={ghostBtn} onClick={() => onPreview(subject, blocks)}>Preview sample</button>
-        <button type="button" style={ghostBtn} onClick={() => onSave(row.id, 'transactional', { enabled: row.enabled, subject, blocks })}>Save letter</button>
-      </div>
-    </div>
-  );
 };
