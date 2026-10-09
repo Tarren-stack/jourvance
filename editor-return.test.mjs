@@ -111,10 +111,12 @@ test('Email Studio opens on a chosen tab and deep-links the Flow map', () => {
   const suite = read('./src/components/campaign/HubEmailSuite.tsx');
   assert.ok(suite.includes('export type EmailStudioTab'));
   assert.ok(suite.includes('initialTab ||'));
-  assert.ok(suite.includes('<EmailFlowMap initialFlowId={openFlowId}'));
+  assert.ok(suite.includes('<EmailFlowMap initialFlowId={mapFlowId || openFlowId}'));
+  // A flow opened from a button inside Email Studio is not one a funnel step asked for.
+  assert.ok(suite.includes('fromStep={!mapFlowId}'));
   const map = read('./src/components/campaign/EmailFlowMap.tsx');
   assert.match(map, /chooseFlowId\(loaded \?/);
-  assert.match(map, /load\(initialFlowId, true\)/);
+  assert.match(map, /load\(initialFlowId, fromStep\)/);
   assert.match(map, /fromStep && pick\.missing\) setNotice\(LINKED_FLOW_MISSING\)/);
 });
 

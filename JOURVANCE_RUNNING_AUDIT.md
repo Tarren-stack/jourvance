@@ -4,6 +4,103 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-08. DEPLOYED: jourvance.com serves 4b1cf75 (the motion pass, the countdown dip removed, on top of the lead-capture fix, the Sentinel and the page builder Waves 0 to 3). Render reported it live and the two earlier deploys deactivated; the Sentinel, policy and lead probes answer as before. A bundle fingerprint for the motion code was inconclusive (no lazy chunk names found), not failed. Read the newest section first.
 
+## 2026-10-08: Email Studio, Wave 1: a starter flow opens and its emails are edited in the builder
+
+**Correction first.** Earlier sections of this file describe "sandboxed" boots through the
+session's `run-check.mjs`. That script sandboxes nothing: `server.mjs` loads `.env` from its own
+directory (`server.mjs:155`) and writes every store beside itself (`journeys.json` at `:235`,
+`drips.json` at `:895`, `behavior.json` at `:473`, and more), whatever the working directory is.
+VERIFIED by reading those lines. What those boots reached: the local `.env` holds only `APP_ID`,
+`HUB_URL`, `HUB_API_KEY`, `PORT`, `MAIL_EVENT_SECRET` and `PUBLIC_BASE_URL` (names read with
+`cut -d= -f1 .env`), and the script set every one of them except `APP_ID` and `PORT` to an empty
+string, so no boot held a hub key or a mail secret and nothing live was reached. What they wrote:
+the gitignored `behavior.json` (15:44 today), `drips.json` and `email_programs.json` (04:29
+today) beside the server (`stat` on each). `drips.json` holds 0 active enrollments (52 stopped, 9
+converted exits; counted with python over the file). Nothing was restored. From this section on
+no check boots `server.mjs`: route tests mount a route module on a bare Express app, and the
+browser checks answer `/api` with recorded JSON and abort everything that leaves the preview
+origin.
+
+**The owner's report:** "I cant click in and edit email sequences, or get to the builder." The
+survey (three agents: a Chrome reproduction on a scratch copy of the tracked files, a code map, a
+heuristic evaluation; their notes in the session scratchpad `email-survey/`, the plan in
+`EMAIL_STUDIO_PLAN.md`) found three stacked causes, all in the deployed commit `4b1cf75`:
+
+1. The sequence cards on the studio's default tab had no click handler at all (reported by the
+   Chrome reproducer: 22 clicks on sequence and automation names, nothing happened; confirmed by
+   the code map's grep of `onClick` in `HubEmailSuite.tsx`).
+2. On the Flow map every starter sequence and both built-in automations were served
+   `editable: false`, so the step panel never rendered and a node click drew nothing
+   (`server.mjs`, the old flow-map route, VERIFIED in the diff).
+3. There was no route to save an edit to a sequence: only GET and create existed
+   (`server/routes/emailRoutes.mjs`, VERIFIED).
+
+The block builder (`BlockEditor`) was mounted only in the one-off Builder tab and in the order
+letters. Every flow email was a textarea that rewrote the whole email as one text block on each
+keystroke (`EmailFlowMap.tsx`, old line 738, VERIFIED in the diff).
+
+**What Wave 1 ships** (built by two Opus agents, reviewed by three Sonnet lenses, fixed by an
+Opus round; the main session reviewed the diff of `server.mjs`, `emailRoutes.mjs` and the new
+route module in full):
+
+- `email-flow-content.mjs` (new, pure): `stepsFromChain` (the map's chain back into steps,
+  refusing a branch, a cycle, a missing or extra email, a removed wait, an unknown node, an empty
+  email, a wait outside 1 to 2160 whole hours), `mergeAccountSteps` (by step id; `id`,
+  `stepNumber` and `discountVoucher` always from the shared step), `cleanAccountSequences` (at most
+  20 ids, `__proto__` and `constructor` are plain keys), `emailHasContent`.
+- `server.mjs`: the account's own emails for a shared starter flow live in its program record
+  (`sequences`), merged through `sequenceStepsFor` by the drip sender, the flow map and
+  `GET /api/drips/sequences`; `writeUserPrograms(uid, bag, edits)` keeps stored starter emails and
+  built-in steps unless the caller names them, so a background tick cannot put old emails back;
+  `chainGraph` carries `previewText`; the sender sends the account's blocks when they hold content
+  and the shared body otherwise.
+- `server/routes/emailFlowContentRoutes.mjs` (new): `POST /api/email/flow-content/:id` behind
+  `requireUser`. A foreign sequence, a missing id and an account flow get the identical 404 and
+  nothing is written; a malformed chain is a 400 with one sentence; only the emails that differ
+  from the shared copy are stored.
+- Client: "Edit emails" on every starter row and card and on both built-in cards; each email tile
+  is a button opening that email; the Flow map draws the selected node, moves focus to the step
+  heading ("Email 2 of 3"), and edits every email with the block builder (the textareas are gone);
+  a wait is a whole-hours field; Save reads Saving and the status region is sticky at the foot;
+  "Unsaved changes" shows beside Save; choosing another flow with unsaved edits asks first.
+- `scripts/email-studio-browser-check.mjs` (new): 17 steps in real Chrome against recorded JSON.
+
+**Checks the main session re-ran** (VERIFIED, exit codes read directly, one after another):
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npm test` | 2553 tests, 2550 pass, 0 fail, 3 skipped (the live-server tests, `JOURVANCE_LIVE_TEST_URL` unset); exit 0 |
+| `node scripts/email-studio-browser-check.mjs` | 17 of 17 steps, exit 0 |
+| `node scripts/builder-browser-check.mjs` | 40 of 40 steps, exit 0 |
+| `npx vite build` | exit 0 |
+
+**Reported by the agents, not re-run by the main session:** the planted reds (merge by index,
+dropped blocks, the removed ownership filter, the `contentEditable` gate, the browser check's
+"Edit emails" onClick plus nine fix-round plants, each restored and confirmed with `cmp`); the
+three adversarial reviews (16 findings, 5 major: a removed wait saved as 0 and sent after 24
+hours, an empty email saved and sent, a tick overwriting a fresh save, the Save result off screen,
+a notice that never cleared; all five reported fixed with a test each).
+
+**Found on the way, not fixed here:**
+
+- `route-context-gate.test.mjs` does not catch a name a route module destructures from `ctx`
+  that `server.mjs` never passes (reported by the server builder, who proved it by removing a
+  name and watching the gate stay green: its scope walker does not visit variable declarators).
+  Two existing names are affected today and both have runtime defaults.
+- The sender still reads a stored `delayHours` of 0 as 24 hours (Wave 2 owns that line).
+- Switching the studio tab with unsaved edits still unmounts the map without asking.
+- Two identical "Edit emails in Welcome sequence" buttons (the row and the card) until Wave 4
+  removes the duplicate rows.
+- Open question 1 of the plan (skip unedited starter drafts so the placeholder Welcome emails
+  never send) is Wave 2 and changes what live leads receive; it waits for the owner.
+
+**Not in this commit:** another session's About page work (`src/components/public/AboutPage.tsx`,
+`design-state.md`, `docs/designpowers/`, and its own section of this file) was in the working
+tree at the same time and is left to that session.
+
+---
+
 ## 2026-10-08: The page builder motion pass, fix round 3 applied, green, NOT committed
 
 After fix round 3 every check listed under Evidence passes on this tree, run by the fix round 3 agent after its last change. The countdown's minute dip was removed afterwards (below). The items under "Left open" are open. Nothing is committed or deployed.

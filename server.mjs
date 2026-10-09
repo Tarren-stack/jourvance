@@ -85,6 +85,8 @@ import {
   simulateTestPing
 } from './server/webhookHealth.mjs';
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
+import { setupEmailFlowContentRoutes } from './server/routes/emailFlowContentRoutes.mjs';
+import { cleanAccountSequences, emailHasContent, mergeAccountSteps } from './email-flow-content.mjs';
 import { mailCallbackPlan } from './server/mail-events.mjs';
 
 import { setupJourneyRoutes } from './server/routes/journeyRoutes.mjs';
@@ -1709,7 +1711,17 @@ function userProgramBag(uid) {
   const segmentState = cleanSegmentState(saved.segmentState);
   const predictionCheckedAt = String(saved.predictionCheckedAt || '').slice(0, 40);
   const attributionWindows = cleanAttributionWindows(saved.attributionWindows);
-  return { transactional, automations, enrollments, sentKeys, flows, flowEnrollments, postalAddress, suppressions, timezone, profiles, library, couponCodes, lists, segments, segmentState, signalStartersSeeded: saved.signalStartersSeeded === true, predictionCheckedAt, attributionWindows };
+  // This account's own subjects, preview texts, blocks and waits for the shared starter flows
+  // (email-flow-content.mjs). The shared sequence stays one copy; the sender merges this over it.
+  const sequences = cleanAccountSequences(saved.sequences, cleanSteps);
+  return { transactional, automations, sequences, enrollments, sentKeys, flows, flowEnrollments, postalAddress, suppressions, timezone, profiles, library, couponCodes, lists, segments, segmentState, signalStartersSeeded: saved.signalStartersSeeded === true, predictionCheckedAt, attributionWindows };
+}
+
+// A starter flow's steps as this account sends them: the shared steps with the account's own
+// content laid over them by step id. The drip sender, the flow map and the sequence list all read
+// through here, so what the map shows is what the sender sends.
+function sequenceStepsFor(seq, bag) {
+  return mergeAccountSteps(seq.steps || [], bag.sequences?.[seq.id]?.steps);
 }
 
 function cleanSegmentState(input) {
@@ -1777,7 +1789,11 @@ function cleanProfiles(input) {
   return out;
 }
 
-function writeUserPrograms(uid, bag) {
+// `edits` names the email content this caller changed: `sequences` (a starter flow's emails) or
+// `steps` (a built-in flow's emails). Every other caller keeps what is stored for those, read here
+// just before the write. A tick reads the bag, awaits several sends, then writes it back; without
+// this, an edit saved during those awaits was replaced by the copy the tick read before it.
+function writeUserPrograms(uid, bag, edits = {}) {
   const store = loadProgramStore();
   const previous = store[uid] && typeof store[uid] === 'object' ? store[uid] : {};
   const transactional = {};
@@ -1786,11 +1802,16 @@ function writeUserPrograms(uid, bag) {
   }
   const automations = {};
   for (const row of bag.automations || []) {
-    automations[row.id] = { enabled: Boolean(row.enabled), steps: row.steps };
+    const storedSteps = previous.automations?.[row.id]?.steps;
+    automations[row.id] = { enabled: Boolean(row.enabled), steps: edits.steps || !Array.isArray(storedSteps) ? row.steps : storedSteps };
   }
   store[uid] = {
     transactional,
     automations,
+    // Every save rebuilds the record from this field list, so a field left out here is erased by
+    // the next unrelated save. Only the flow-content route writes sequences; every other save keeps
+    // the stored ones, whatever its bag carries.
+    sequences: cleanAccountSequences(edits.sequences ? bag.sequences : previous.sequences, cleanSteps),
     enrollments: (bag.enrollments || []).slice(0, 2000),
     sentKeys: (bag.sentKeys || []).slice(-4000),
     flows: (bag.flows || []).map(cleanFlow).filter(Boolean).slice(0, FLOW_LIMIT),
@@ -2959,7 +2980,8 @@ const emailCtx = {
   cleanHoldout,
   smartSendConflict,
   assignSmartSend,
-  sequenceRevenue
+  sequenceRevenue,
+  sequenceStepsFor
 };
 const emailHandlers = setupEmailRoutes(app, emailCtx);
 noteSegmentChanges = emailHandlers.noteSegmentChanges;
@@ -3047,6 +3069,9 @@ async function processUserAutomationsTick(uid) {
   const programTick = await processAccountAutomations(uid);
   const campaignTick = await processDueCampaigns(uid);
   const holdForKlaviyo = klaviyoIsSender(uid);
+  // Read once per tick, after the account automations and campaigns above have written theirs. A
+  // starter flow sends this account's own version of each email (sequenceStepsFor).
+  const programBag = userProgramBag(uid);
   let processedCount = 0;
   let convertedExitCount = 0;
   let completedCount = 0;
@@ -3058,6 +3083,7 @@ async function processUserAutomationsTick(uid) {
 
     const seq = dripsData.sequences.find(s => s.id === enr.sequenceId);
     if (!seq) continue;
+    const steps = sequenceStepsFor(seq, programBag);
 
     // 1. Smart Exit on Purchase Check
     if (seq.smartExitOnPurchase) {
@@ -3091,7 +3117,7 @@ async function processUserAutomationsTick(uid) {
     // 2. Due Date Check
     const dueDate = new Date(enr.nextStepDueAt || enr.enrolledAt).getTime();
     if (dueDate <= now) {
-      const step = seq.steps[enr.currentStepIndex];
+      const step = steps[enr.currentStepIndex];
       if (step) {
         if (!hubReady || !enr.customerEmail) continue;
         const dripContact = loadContacts().find(c => c.email === enr.customerEmail && contactOwnerId(c) === uid) || { email: enr.customerEmail, name: enr.customerName };
@@ -3117,7 +3143,10 @@ async function processUserAutomationsTick(uid) {
         // Signed now with this server's key: a stored link may carry a token from the key once written
         // in reviewEngine.mjs, which the review route no longer accepts (R24).
         const reviewUrl = enr.orderId ? reviewUrlFor(enr.orderId, enr.customerEmail) : (enr.reviewUrl || '/review');
-        const letter = await composeForSend(uid, dripContact, [{ kind: 'text', text: step.body || '' }], {
+        // The account's blocks when they hold something to read; otherwise the shared body, so an
+        // email is never sent with nothing but the footer.
+        const stepBlocks = emailHasContent(step.blocks) ? step.blocks : [{ kind: 'text', text: step.body || '' }];
+        const letter = await composeForSend(uid, dripContact, stepBlocks, {
           checkout_url: effectiveCheckoutUrl,
           abandoned_checkout_url: effectiveCheckoutUrl,
           offer_url: offerUrl,
@@ -3161,9 +3190,9 @@ async function processUserAutomationsTick(uid) {
         processedCount++;
 
         // Advance or complete
-        if (enr.currentStepIndex + 1 < seq.steps.length) {
+        if (enr.currentStepIndex + 1 < steps.length) {
           enr.currentStepIndex++;
-          const nextStep = seq.steps[enr.currentStepIndex];
+          const nextStep = steps[enr.currentStepIndex];
           const delayMs = (nextStep.delayHours || 24) * 3600000;
           enr.nextStepDueAt = new Date(now + delayMs).toISOString();
         } else {
@@ -3493,11 +3522,46 @@ function chainGraph(prefix, steps) {
     const blocks = Array.isArray(step.blocks) && step.blocks.length
       ? step.blocks
       : [{ id: `${emailId}_b`, kind: 'text', text: step.body || '' }];
-    nodes.push({ id: emailId, type: 'email', subject: step.subject || '', blocks });
+    nodes.push({ id: emailId, type: 'email', subject: step.subject || '', previewText: step.previewText || '', blocks });
     edges.push({ id: `${prev}__${emailId}`, source: prev, target: emailId, branch: '' });
     prev = emailId;
   });
   return { nodes, edges };
+}
+
+// D3: what the step panel says on a starter flow and on a built-in flow. Their emails and waits are
+// edited per account; their steps and their start stay fixed.
+const STARTER_FLOW_NOTE = 'This starter flow is shared by every account. Your edits to its emails apply to this account only.';
+const BUILT_IN_FLOW_NOTE = 'This built-in flow is on this account only. You can edit its emails and waits here. Its steps and what starts it stay fixed. Turn it on or off from Automations.';
+
+// A starter flow (a shared drip sequence) as one flow-map row, drawn from this account's version.
+function presentSequenceRow(seq, bag) {
+  return {
+    id: seq.id,
+    name: seq.name,
+    kind: 'sequence',
+    editable: false,
+    contentEditable: true,
+    enabled: true,
+    trigger: seq.triggerType || 'lead_capture',
+    ...chainGraph(seq.id, sequenceStepsFor(seq, bag)),
+    note: STARTER_FLOW_NOTE
+  };
+}
+
+// A built-in flow (an account automation) as one flow-map row.
+function presentAutomationRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    kind: 'automation',
+    editable: false,
+    contentEditable: true,
+    enabled: row.enabled,
+    trigger: row.trigger,
+    ...chainGraph(row.id, row.steps || []),
+    note: BUILT_IN_FLOW_NOTE
+  };
 }
 
 function rememberUntranslated(flow) {
@@ -3610,26 +3674,8 @@ app.get('/api/email/pages', requireUser, (req, res) => {
 app.get('/api/email/flow-map', requireUser, (req, res) => {
   const bag = ensureSignalStarters(req.user.uid);
   const drips = loadDrips();
-  const sequences = (drips.sequences || []).filter((seq) => !seq.userId || seq.userId === req.user.uid).map((seq) => ({
-    id: seq.id,
-    name: seq.name,
-    kind: 'sequence',
-    editable: false,
-    enabled: true,
-    trigger: seq.triggerType || 'lead_capture',
-    ...chainGraph(seq.id, seq.steps || []),
-    note: 'Shared queue sequence. A new lead or checkout enrolls it. Build a flow on this account when this one should differ.'
-  }));
-  const automations = bag.automations.map((row) => ({
-    id: row.id,
-    name: row.name,
-    kind: 'automation',
-    editable: false,
-    enabled: row.enabled,
-    trigger: row.trigger,
-    ...chainGraph(row.id, row.steps || []),
-    note: 'Turn this on from Automations. The queue tick sends the next due step.'
-  }));
+  const sequences = (drips.sequences || []).filter((seq) => !seq.userId || seq.userId === req.user.uid).map((seq) => presentSequenceRow(seq, bag));
+  const automations = bag.automations.map((row) => presentAutomationRow(row));
   res.json({
     success: true,
     hubConnected: hubReady,
@@ -3638,6 +3684,19 @@ app.get('/api/email/flow-map', requireUser, (req, res) => {
     flows: [...bag.flows.map((flow) => presentCustomFlow(flow, bag, req.user.uid)), ...automations, ...sequences]
   });
 });
+
+// The emails of a starter or built-in flow, saved per account (server/routes/emailFlowContentRoutes.mjs).
+const emailFlowContentCtx = {
+  requireUser,
+  loadDrips,
+  userProgramBag,
+  writeUserPrograms,
+  cleanSteps,
+  sequenceStepsFor,
+  presentSequenceRow,
+  presentAutomationRow
+};
+setupEmailFlowContentRoutes(app, emailFlowContentCtx);
 
 app.post('/api/email/flows', requireUser, (req, res) => {
   const id = `flow_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;

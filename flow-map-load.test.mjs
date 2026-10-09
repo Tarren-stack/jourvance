@@ -91,7 +91,7 @@ test('a write the server never answered settles as unanswered, and an answer is 
 });
 
 test('each unanswered write has one plain sentence that does not claim what happened', () => {
-  assert.deepEqual(Object.keys(FLOW_MAP_WRITE_UNREACHABLE).sort(), ['create', 'enroll', 'remove', 'save', 'suppress', 'timezone']);
+  assert.deepEqual(Object.keys(FLOW_MAP_WRITE_UNREACHABLE).sort(), ['content', 'create', 'enroll', 'remove', 'save', 'suppress', 'timezone']);
   for (const sentence of Object.values(FLOW_MAP_WRITE_UNREACHABLE)) {
     assert.match(sentence, /^The server did not answer, so .* may not .*\.$/);
     assert.equal(sentence.split('. ').length, 1, sentence);
@@ -101,12 +101,12 @@ test('each unanswered write has one plain sentence that does not claim what happ
 
 test('no Flow map request can reject unhandled: every fetch is inside settleRead or sendFlowWrite', () => {
   const calls = map.split('\n').filter((line) => /\bfetch\(/.test(line));
-  assert.equal(calls.length, 9, 'three reads and six writes');
+  assert.equal(calls.length, 10, 'three reads and seven writes');
   for (const line of calls) {
     assert.match(line, /(settleRead\(async \(\) => readJson\(await fetch\(|sendFlowWrite\(async \(\) => fetch\()/, line.trim());
   }
   // Each write says which change may not have gone through, then stops.
-  for (const [key, route] of [['save', '`/api/email/flows/${next.id}`, {'], ['timezone', "'/api/email/timezone', {"], ['create', "'/api/email/flows', {"], ['remove', "`/api/email/flows/${current.id}`, { method: 'DELETE'"], ['enroll', '`/api/email/flows/${current.id}/enroll`, {'], ['suppress', '`/api/email/flows/${current.id}/suppress`, {']]) {
+  for (const [key, route] of [['save', '`/api/email/flows/${next.id}`, {'], ['timezone', "'/api/email/timezone', {"], ['create', "'/api/email/flows', {"], ['remove', "`/api/email/flows/${current.id}`, { method: 'DELETE'"], ['enroll', '`/api/email/flows/${current.id}/enroll`, {'], ['suppress', '`/api/email/flows/${current.id}/suppress`, {'], ['content', '`/api/email/flow-content/${next.id}`, {']]) {
     const at = map.indexOf(`sendFlowWrite(async () => fetch(${route}`);
     assert.ok(at > 0, `${key} is sent through sendFlowWrite`);
     // The first thing read back is whether it answered, before anything else is set or loaded.

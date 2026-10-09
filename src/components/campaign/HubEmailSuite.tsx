@@ -149,6 +149,15 @@ export type EmailStudioTab = 'campaigns' | 'flows' | 'map' | 'transactional' | '
 
 export const HubEmailSuite: React.FC<Props> = ({ workspace, onOpenShopifyConnect, onReturnToCanvas, initialTab, openFlowId }) => {
   const [activeTab, setActiveTab] = useState<EmailStudioTab>(initialTab || 'flows');
+  // A flow (and one of its steps) opened from a button inside Email Studio. A click on the tab
+  // strip clears both, so the Flow map tab on its own opens as it always has.
+  const [mapFlowId, setMapFlowId] = useState('');
+  const [mapNodeId, setMapNodeId] = useState('');
+  const openFlowInMap = (flowId: string, nodeId?: string) => {
+    setMapFlowId(flowId);
+    setMapNodeId(nodeId || '');
+    setActiveTab('map');
+  };
   const [flows, setFlows] = useState<HubFlow[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
@@ -311,6 +320,13 @@ ${unsub}`;
     } finally {
       setLoading(false);
     }
+  };
+
+  // The starter cards read the sequence list once at mount. After their emails are saved on the
+  // Flow map, read it again so Automations shows this account's version.
+  const refreshSequences = async () => {
+    const data = await fetch('/api/drips/sequences', { headers: await authHeaders() }).then(r => r.json()).catch(() => ({}));
+    if (data?.success && Array.isArray(data.sequences)) setDripSequences(data.sequences);
   };
 
   const handleRunDripTick = async () => {
@@ -512,6 +528,9 @@ ${unsub}`;
 
   const isConnected = workspace?.shopifyConfig?.status === 'connected' && !!workspace?.shopifyConfig?.storeDomain;
 
+  // How many emails the enrollment's own sequence has, or 0 when that sequence is not loaded.
+  const stepCountOf = (sequenceId: string) => dripSequences.find((seq) => seq.id === sequenceId)?.steps.length || 0;
+
   return (
     <div
       style={{
@@ -658,7 +677,7 @@ ${unsub}`;
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key as any)}
+              onClick={() => { setMapFlowId(''); setMapNodeId(''); setActiveTab(tab.key as any); }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -703,7 +722,7 @@ ${unsub}`;
         {/* TAB 1: FLOWS & DRIPS */}
         {activeTab === 'flows' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <EmailPrograms mode="automations" />
+            <EmailPrograms mode="automations" onOpenFlow={(id) => openFlowInMap(id)} />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#f3f4f6' }}>
@@ -830,7 +849,24 @@ ${unsub}`;
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      aria-label={`Edit emails in ${seq.name}`}
+                      onClick={() => openFlowInMap(seq.id)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(236, 72, 153, 0.4)',
+                        backgroundColor: 'rgba(236, 72, 153, 0.18)',
+                        color: '#f9a8d4',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Edit emails
+                    </button>
                     <div style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -871,7 +907,7 @@ ${unsub}`;
                   </div>
                   <span style={{ color: '#475569' }}>•</span>
                   <div style={{ display: 'flex', gap: '6px' }}>
-                    <span style={{ color: '#94A3B8' }}>Completed 3-Steps:</span>
+                    <span style={{ color: '#94A3B8' }}>{seq.steps.length === 1 ? 'Completed the email:' : `Completed all ${seq.steps.length} emails:`}</span>
                     <strong style={{ color: '#E2E8F0' }}>{seq.totalCompleted}</strong>
                   </div>
                   <span style={{ color: '#475569' }}>•</span>
@@ -881,11 +917,15 @@ ${unsub}`;
                   </div>
                 </div>
 
-                {/* Step Progression Grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-                  {seq.steps.map(step => (
-                    <div
+                {/* Step Progression Grid. Each email is a button that opens it on the Flow map, by the
+                    node id the flow map gives it (`<sequence id>_email_<index>`, server.mjs chainGraph). */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: '12px' }}>
+                  {seq.steps.map((step, index) => (
+                    <button
+                      type="button"
                       key={step.id}
+                      aria-label={`Email ${index + 1} of ${seq.steps.length} in ${seq.name}: ${step.subject}`}
+                      onClick={() => openFlowInMap(seq.id, `${seq.id}_email_${index}`)}
                       style={{
                         backgroundColor: 'rgba(255, 255, 255, 0.02)',
                         border: '1px solid rgba(255, 255, 255, 0.06)',
@@ -893,17 +933,22 @@ ${unsub}`;
                         padding: '14px',
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: '8px'
+                        gap: '8px',
+                        textAlign: 'left',
+                        color: 'inherit',
+                        font: 'inherit',
+                        cursor: 'pointer',
+                        minWidth: 0
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', width: '100%' }}>
                         <span style={{
                           fontSize: '11px',
                           fontWeight: 700,
                           color: '#EC4899',
                           textTransform: 'uppercase'
                         }}>
-                          Step {step.stepNumber} • {step.delayHours === 0 ? 'Immediate' : `+${step.delayHours}h`}
+                          Email {index + 1} of {seq.steps.length} • {step.delayHours === 0 ? 'Immediate' : `+${step.delayHours}h`}
                         </span>
                         {step.discountVoucher && (
                           <span style={{
@@ -917,14 +962,14 @@ ${unsub}`;
                             {step.discountVoucher}
                           </span>
                         )}
-                      </div>
-                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#F1F5F9' }}>
+                      </span>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#F1F5F9' }}>
                         {step.subject}
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#94A3B8', lineClamp: 2, display: '-webkit-box', WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      </span>
+                      <span style={{ fontSize: '11px', color: '#94A3B8', lineClamp: 2, display: '-webkit-box', WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                         {step.previewText || step.body}
-                      </div>
-                    </div>
+                      </span>
+                    </button>
                   ))}
                 </div>
 
@@ -953,7 +998,7 @@ ${unsub}`;
                         {dripEnrollments.map(enr => (
                           <tr key={enr.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.03)' }}>
                             <td style={{ padding: '8px 12px', color: '#E2E8F0', fontWeight: 500 }}>{enr.customerEmail}</td>
-                            <td style={{ padding: '8px 12px', color: '#94A3B8' }}>Step {enr.currentStepIndex + 1} of 3</td>
+                            <td style={{ padding: '8px 12px', color: '#94A3B8' }}>Step {enr.currentStepIndex + 1}{stepCountOf(enr.sequenceId) ? ` of ${stepCountOf(enr.sequenceId)}` : ''}</td>
                             <td style={{ padding: '8px 12px' }}>
                               <span style={{
                                 padding: '2px 6px',
@@ -1241,7 +1286,7 @@ ${unsub}`;
         )}
 
         {/* TAB 2: CAMPAIGNS (BROADCASTS) */}
-        {activeTab === 'map' && <EmailFlowMap initialFlowId={openFlowId} />}
+        {activeTab === 'map' && <EmailFlowMap initialFlowId={mapFlowId || openFlowId} initialNodeId={mapNodeId || undefined} fromStep={!mapFlowId} onContentSaved={refreshSequences} />}
         {activeTab === 'transactional' && <EmailPrograms mode="transactional" />}
         {activeTab === 'builder' && <EmailPrograms mode="builder" />}
         {activeTab === 'forms' && <SignupForms />}

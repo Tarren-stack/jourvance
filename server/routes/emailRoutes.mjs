@@ -100,7 +100,8 @@ export function setupEmailRoutes(app, ctx) {
     cleanHoldout,
     smartSendConflict,
     assignSmartSend,
-    sequenceRevenue
+    sequenceRevenue,
+    sequenceStepsFor
   } = ctx;
 
 // ── Hub Email Suite Routes ──
@@ -366,7 +367,9 @@ app.post('/api/email/programs/:id', requireUser, (req, res) => {
     if (typeof req.body?.subject === 'string' && req.body.subject.trim()) row.subject = req.body.subject.trim().slice(0, 200);
     if (req.body?.blocks) row.blocks = cleanBlocks(req.body.blocks, row.blocks);
   }
-  writeUserPrograms(req.user.uid, bag);
+  // A built-in flow's steps are written only when this call sent them (writeUserPrograms keeps the
+  // stored steps for every other save).
+  writeUserPrograms(req.user.uid, bag, { steps: kind === 'automation' && Boolean(req.body?.steps) });
   res.json({ success: true, suite: suitePayload(req.user.uid) });
 });
 
@@ -1444,11 +1447,17 @@ app.post('/api/email/campaign/send', requireUser, async (req, res) => {
 
 // ── Wave 7: Automated Lead Nurture Drips API ──────────────────────────────────
 
+// The sequences this account can see, the same filter the flow map uses (a shared one, or its own),
+// each with this account's own version of its emails merged in (email-flow-content.mjs).
 app.get('/api/drips/sequences', requireUser, async (req, res) => {
+  const uid = req.user.uid;
   const { sequences } = loadDrips();
+  const bag = userProgramBag(uid);
   res.json({
     success: true,
-    sequences: sequences.map((seq) => ({ ...seq, attributedSales: sequenceRevenue(req.user.uid, seq.id) })),
+    sequences: sequences
+      .filter((seq) => !seq.userId || seq.userId === uid)
+      .map((seq) => ({ ...seq, steps: sequenceStepsFor(seq, bag), attributedSales: sequenceRevenue(uid, seq.id) })),
     revenueNote: 'Last-touch revenue uses a click within 5 days, or an open within 5 days when there is no click. Blank until one of those is stored.'
   });
 });

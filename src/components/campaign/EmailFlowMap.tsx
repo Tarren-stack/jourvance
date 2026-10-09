@@ -4,6 +4,7 @@ import { authHeaders } from '../../lib/firebase';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
 import { chooseFlowId, LINKED_FLOW_MISSING } from '../../lib/editorReturn';
 import { moneyText, statText, withNote } from '../../lib/emailStats';
+import { BlockEditor, type MailBlock } from './EmailBlocks';
 import { FLOW_MAP_UNREACHABLE, FLOW_MAP_WRITE_UNREACHABLE, retryFlowMapArgs, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
 
 type FlowPath = { id: string; label?: string; else?: boolean; clauses?: { kind: string; field?: string; op?: string; value?: string; event?: string; since?: string; done?: boolean; note?: string }[]; note?: string };
@@ -21,7 +22,7 @@ type FlowNode = {
   previewText?: string;
   fromName?: string;
   replyTo?: string;
-  blocks?: { id: string; kind: string; text?: string }[];
+  blocks?: MailBlock[];
   message?: string;
   status?: 'draft' | 'review' | 'live';
   transactional?: boolean;
@@ -54,6 +55,8 @@ type FlowView = {
   name: string;
   kind: 'flow' | 'automation' | 'sequence';
   editable: boolean;
+  /** A starter or built-in flow: its emails and waits can be edited, its steps and its start cannot. */
+  contentEditable?: boolean;
   enabled: boolean;
   trigger: string;
   quietAfterDays?: number | null;
@@ -92,8 +95,9 @@ const FALLBACK_TRIGGERS: TriggerChoice[] = [
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const MailNode = ({ data }: { data: { title: string; detail: string; kind: string; paths?: FlowPath[] } }) => (
-  <div style={{ padding: '8px 10px', borderRadius: 10, background: '#121217', border: '1px solid rgba(255,255,255,0.16)', color: '#f3f4f6', width: 190, fontSize: 12 }}>
+// The selected step draws a 2px pink border; the padding gives back the extra pixel so nothing moves.
+const MailNode = ({ data, selected }: { data: { title: string; detail: string; kind: string; paths?: FlowPath[] }; selected?: boolean }) => (
+  <div style={{ padding: selected ? '7px 9px' : '8px 10px', borderRadius: 10, background: '#121217', border: selected ? '2px solid #f472b6' : '1px solid rgba(255,255,255,0.16)', color: '#f3f4f6', width: 190, fontSize: 12 }}>
     <Handle type="target" position={Position.Top} />
     <div style={{ fontSize: 11, letterSpacing: '0.04em', color: '#9ca3af', fontWeight: 700 }}>{data.title}</div>
     <div style={{ marginTop: 4, lineHeight: 1.35 }}>{data.detail}</div>
@@ -146,7 +150,32 @@ function detailOf(node: FlowNode) {
   return 'When the trigger happens';
 }
 
-function layout(flow: FlowView): { nodes: Node[]; edges: Edge[] } {
+/** The step panel's heading: "Email 2 of 3", "Wait before email 2", or the step's name. */
+function stepHeadingText(flow: FlowView, node: FlowNode) {
+  const emails = flow.nodes.filter((item) => item.type === 'email');
+  if (node.type === 'email') return `Email ${emails.findIndex((item) => item.id === node.id) + 1} of ${emails.length}`;
+  if (node.type === 'delay') {
+    const next = flow.nodes.find((item) => item.id === flow.edges.find((edge) => edge.source === node.id)?.target);
+    if (next?.type === 'email') return `Wait before email ${emails.findIndex((item) => item.id === next.id) + 1}`;
+    return 'Wait';
+  }
+  if (node.type === 'sms') {
+    const texts = flow.nodes.filter((item) => item.type === 'sms');
+    return `Text ${texts.findIndex((item) => item.id === node.id) + 1} of ${texts.length}`;
+  }
+  return titleOf(node);
+}
+
+/** A whole number of hours from 1 to 2160. The sender reads 0 as 24, so 0 is refused. */
+function waitHoursOk(hours: number | undefined) {
+  return typeof hours === 'number' && Number.isInteger(hours) && hours >= 1 && hours <= 2160;
+}
+
+const WAIT_RANGE = 'Enter a whole number of hours from 1 to 2160.';
+
+type NodeSize = { width: number; height: number };
+
+function layout(flow: FlowView, selectedId = '', sizes?: Map<string, NodeSize>): { nodes: Node[]; edges: Edge[] } {
   const depth = new Map<string, number>();
   const shift = new Map<string, number>();
   const trigger = flow.nodes.find((node) => node.type === 'trigger');
@@ -175,7 +204,9 @@ function layout(flow: FlowView): { nodes: Node[]; edges: Edge[] } {
       position: { x: 280 + (shift.get(node.id) || 0), y: 16 + (depth.get(node.id) || 0) * 128 },
       data: { title: titleOf(node), detail: detailOf(node), kind: node.type, paths: node.paths },
       draggable: false,
-      selectable: true
+      selectable: true,
+      selected: node.id === selectedId,
+      measured: sizes?.get(`${flow.id}\n${node.id}`)
     })),
     edges: flow.edges.map((edge) => {
       const source = flow.nodes.find((node) => node.id === edge.source);
@@ -217,15 +248,36 @@ const SmsCount: React.FC<{ message: string }> = ({ message }) => {
   return line ? <p style={{ margin: 0, fontSize: 12, color: '#d1d5db' }}>{line}</p> : null;
 };
 
-export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlowId }) => {
+export const EmailFlowMap: React.FC<{
+  initialFlowId?: string;
+  /** A step to select once the list loads, when the chosen flow has it. */
+  initialNodeId?: string;
+  /** True when a step on the funnel asked for the flow; false for a button inside Email Studio. */
+  fromStep?: boolean;
+  /** Called after a starter or built-in flow's emails were saved, so lists outside the map can read them again. */
+  onContentSaved?: (flowId: string) => void;
+}> = ({ initialFlowId, initialNodeId, fromStep = true, onContentSaved }) => {
   const [flows, setFlows] = useState<FlowView[]>([]);
   const [currentId, setCurrentId] = useState('');
   const [draft, setDraft] = useState<FlowView | null>(null);
   const [selected, setSelected] = useState('');
   const [notice, setNotice] = useState('');
+  // True while a starter or built-in flow's emails are being sent to the server: Save reads Saving.
+  const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
   const retried = useRef(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // The step panel's heading takes focus each time a step is selected, so the fields that follow
+  // are where a keyboard or screen reader user already is.
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  // The map's own box, brought on screen before the heading so the step just chosen is seen too.
+  const mapBoxRef = useRef<HTMLDivElement>(null);
+  const [stepFocus, setStepFocus] = useState(0);
+  const initialPick = useRef(true);
+  // React Flow hides a step until it knows the step's size, and a new node object starts unmeasured.
+  // The map is rebuilt on every selection and every edit, so each step carries its last measured
+  // size; without it every step blanked for a frame, long enough to refuse keyboard focus.
+  const nodeSizes = useRef(new Map<string, NodeSize>());
   const [enrollEmail, setEnrollEmail] = useState('');
   const [pathBranch, setPathBranch] = useState('yes');
   const [joinTarget, setJoinTarget] = useState('');
@@ -235,9 +287,10 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
   const [klaviyoSends, setKlaviyoSends] = useState(false);
   const [klaviyoFlows, setKlaviyoFlows] = useState<{ id: string; name: string; status: string; handoff: string }[]>([]);
 
-  // fromStep is true when a step on the funnel asked for `prefer`. Only then is a missing flow
-  // worth saying, and only when the list really loaded.
-  const load = async (prefer?: string, fromStep = false) => {
+  // `asked` is true when this read is for the flow the map was opened on. A missing flow is said
+  // only when a step on the funnel asked for it (fromStep), never for a button inside Email
+  // Studio, and only when the list really loaded.
+  const load = async (prefer?: string, asked = false) => {
     const read = await settleRead(async () => readJson(await fetch('/api/email/flow-map', { headers: await authHeaders() })));
     // No answer is not an empty account: keep the last list and say so, with Retry.
     if (!read.answered) {
@@ -256,11 +309,20 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
     const pick = chooseFlowId(loaded ? list.map((flow) => flow.id) : null, prefer);
     setCurrentId(pick.id);
     setDraft(list.find((flow) => flow.id === pick.id) || null);
-    if (fromStep && pick.missing) setNotice(LINKED_FLOW_MISSING);
+    if (asked && fromStep && pick.missing) setNotice(LINKED_FLOW_MISSING);
+    // Once, on the first list that loads: the step the opener asked for, or, for a starter or
+    // built-in flow opened from inside Email Studio, its first email.
+    if (loaded && initialPick.current) {
+      initialPick.current = false;
+      const chosen = initialFlowId && pick.id === initialFlowId ? list.find((flow) => flow.id === pick.id) : undefined;
+      const node = chosen?.nodes.find((item) => item.id === initialNodeId)
+        || (!fromStep && chosen?.contentEditable ? chosen.nodes.find((item) => item.type === 'email') : undefined);
+      if (node) selectNode(node.id);
+    }
   };
 
   useEffect(() => {
-    load(initialFlowId, true);
+    load(initialFlowId, fromStep);
     (async () => {
       // No answer leaves Klaviyo off, which already disables its picker.
       const read = await settleRead(async () => readJson(await fetch('/api/klaviyo', { headers: await authHeaders() })));
@@ -281,12 +343,36 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
     if (!active || active === document.body) headingRef.current?.focus();
   }, [loadError]);
 
+  useEffect(() => {
+    const heading = stepHeadingRef.current;
+    if (!stepFocus || !heading) return;
+    heading.focus({ preventScroll: true });
+    // 'nearest' moves the page only as far as each box needs: first the map, so the step just chosen
+    // is on screen (the studio keeps its scroll position from the tab it was opened from), then the
+    // heading that holds focus, which wins when both do not fit.
+    mapBoxRef.current?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+    heading.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+  }, [stepFocus]);
+
+  // A notice is about the last action. Choosing another step or editing one is a new action, so the
+  // old sentence (a Saved that no longer covers the fields on screen) goes.
+  const selectNode = (id: string) => {
+    setSelected(id);
+    setNotice('');
+    setStepFocus((count) => count + 1);
+  };
+
   const current = draft && draft.id === currentId ? draft : flows.find((flow) => flow.id === currentId) || null;
-  const graph = useMemo(() => current ? layout(current) : { nodes: [], edges: [] }, [current]);
+  const graph = useMemo(() => current ? layout(current, selected, nodeSizes.current) : { nodes: [], edges: [] }, [current, selected]);
   const selectedNode = current?.nodes.find((node) => node.id === selected) || null;
   const triggerHelp = triggers.find((trigger) => trigger.id === current?.trigger);
+  // The flow on screen is not the one last loaded: an edit that is not saved yet. Every load and
+  // every choice puts the loaded object itself back in draft.
+  const unsaved = Boolean(draft && draft.id === currentId && flows.find((flow) => flow.id === draft.id) !== draft);
 
   const choose = (id: string) => {
+    // Choosing another flow drops the edits on screen, so it asks first.
+    if (unsaved && id !== currentId && !window.confirm('This flow has changes that are not saved. Leave it and lose them?')) return;
     setCurrentId(id);
     setSelected('');
     setNotice('');
@@ -331,6 +417,42 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
     }
     setNotice('Saved. It sends only after you turn it on and the queue reaches a due step.');
     await load(next.id);
+  };
+
+  // A starter or built-in flow: only its emails and waits are sent. The server matches them to
+  // the flow's own steps and refuses a graph whose steps changed.
+  const saveContent = async (next: FlowView) => {
+    if (saving) return;
+    setNotice('');
+    if (next.nodes.some((node) => node.type === 'delay' && !waitHoursOk(node.delayHours))) {
+      setNotice('Nothing was saved, because a wait is not a whole number of hours from 1 to 2160.');
+      return;
+    }
+    // Saved is said only once the server has answered; until then Save reads Saving and the status
+    // region says so.
+    setSaving(true);
+    setNotice('Saving these emails.');
+    try {
+      const sent = await sendFlowWrite(async () => fetch(`/api/email/flow-content/${next.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ nodes: next.nodes, edges: next.edges })
+      }));
+      if (!sent.answered) {
+        setNotice(FLOW_MAP_WRITE_UNREACHABLE.content);
+        return;
+      }
+      const data = sent.data;
+      if (!sent.ok || !data?.success) {
+        setNotice(data?.error || 'These emails were not saved.');
+        return;
+      }
+      setNotice('Saved. Every email sent from now on uses this version, including for people already in this flow.');
+      onContentSaved?.(next.id);
+      await load(next.id);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveTimezone = async () => {
@@ -384,8 +506,9 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
   };
 
   const patchNode = (id: string, patch: Partial<FlowNode>) => {
-    if (!current?.editable) return;
+    if (!current?.editable && !current?.contentEditable) return;
     setDraft({ ...current, nodes: current.nodes.map((node) => node.id === id ? { ...node, ...patch } : node) });
+    setNotice('');
   };
 
   const attach = (type: FlowNode['type']) => {
@@ -541,22 +664,47 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
                 )}
               </div>
               {current.editable && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {unsaved && <span style={{ fontSize: 12, color: '#fbbf24' }}>Unsaved changes</span>}
                   <button type="button" style={current.enabled ? solidBtn : ghostBtn} onClick={() => save({ ...current, enabled: !current.enabled })}>{current.enabled ? 'Turn off' : 'Turn on'}</button>
                   <button type="button" style={ghostBtn} onClick={() => save(current)}>Save</button>
                   <button type="button" style={ghostBtn} onClick={remove}>Delete</button>
                 </div>
               )}
+              {!current.editable && current.contentEditable && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {unsaved && !saving && <span style={{ fontSize: 12, color: '#fbbf24' }}>Unsaved changes</span>}
+                  {/* aria-disabled, not disabled: a disabled button drops keyboard focus to the page. */}
+                  <button type="button" style={{ ...solidBtn, opacity: saving ? 0.6 : 1 }} aria-disabled={saving} onClick={() => saveContent(current)}>{saving ? 'Saving' : 'Save'}</button>
+                </div>
+              )}
             </div>
           )}
-          <div style={{ height: 420, background: '#0b0b10', borderRadius: 10 }}>
-            <ReactFlow nodes={graph.nodes} edges={graph.edges} nodeTypes={nodeTypes} fitView onNodeClick={(_, node) => setSelected(node.id)} proOptions={{ hideAttribution: true }}>
+          <div ref={mapBoxRef} style={{ height: 420, background: '#0b0b10', borderRadius: 10 }}>
+            <ReactFlow
+              nodes={graph.nodes}
+              edges={graph.edges}
+              nodeTypes={nodeTypes}
+              fitView
+              onNodeClick={(_, node) => selectNode(node.id)}
+              // Enter or Space on a focused step selects it too, through the same path as a click. A
+              // measured size is kept for the next rebuild of the map (nodeSizes above).
+              onNodesChange={(changes) => {
+                for (const change of changes) {
+                  if (change.type === 'dimensions' && change.dimensions && current) nodeSizes.current.set(`${current.id}\n${change.id}`, change.dimensions);
+                  if (change.type === 'select' && change.selected) selectNode(change.id);
+                }
+              }}
+              proOptions={{ hideAttribution: true }}
+            >
               <Background />
               <Controls showInteractive={false} />
             </ReactFlow>
           </div>
-          {current?.editable && (
+          {(current?.editable || current?.contentEditable) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+              {current.editable && (
+              <>
               <label style={label}>Name</label>
               <input style={field} value={current.name} onChange={(e) => setDraft({ ...current, name: e.target.value })} />
               <label style={label}>Starts when</label>
@@ -687,12 +835,39 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
                   Copied from Klaviyo flow {current.klaviyoFlowId}. It stays off until you turn it on. While Klaviyo is the sender and this flow is on, the trigger hands the person to that Klaviyo flow once. The copied letters are not sent from here.
                 </p>
               )}
+              </>
+              )}
+              {selectedNode && (
+                <h3 ref={stepHeadingRef} tabIndex={-1} style={{ margin: '8px 0 0', fontSize: 15, color: '#f3f4f6' }}>{stepHeadingText(current, selectedNode)}</h3>
+              )}
+              {!current.editable && current.note && (
+                // D3: the panel says whose emails these are. The heading above takes focus, so this is read next.
+                <p style={{ margin: 0, fontSize: 13, color: '#d1d5db' }}>{current.note}</p>
+              )}
+              {!selectedNode && !current.editable && (
+                <p style={{ margin: 0, fontSize: 13, color: '#d1d5db' }}>Choose an email or a wait on the map to edit it.</p>
+              )}
+              {selectedNode?.type === 'trigger' && !current.editable && (
+                <p style={{ margin: 0, fontSize: 13, color: '#d1d5db' }}>
+                  Starts when: {triggerHelp?.label || current.trigger.replace(/_/g, ' ')}. The start and the order of the steps stay as they are. Its emails and its waits can be edited.
+                </p>
+              )}
               {selectedNode?.type === 'email' && (
                 <>
-                  <label style={label}>Subject</label>
-                  <input style={field} value={selectedNode.subject || ''} onChange={(e) => patchNode(selectedNode.id, { subject: e.target.value })} />
-                  <label style={label}>Preview text</label>
-                  <input style={field} value={selectedNode.previewText || ''} onChange={(e) => patchNode(selectedNode.id, { previewText: e.target.value })} />
+                  <label style={label} htmlFor="flow-step-subject">Subject</label>
+                  <input id="flow-step-subject" style={field} value={selectedNode.subject || ''} onChange={(e) => patchNode(selectedNode.id, { subject: e.target.value })} />
+                  <label style={label} htmlFor="flow-step-preview">Preview text</label>
+                  <input id="flow-step-preview" style={field} value={selectedNode.previewText || ''} onChange={(e) => patchNode(selectedNode.id, { previewText: e.target.value })} />
+                  {selectedNode.blocks?.[0]?.kind === 'html' ? (
+                    <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>This letter was copied from a Klaviyo template. When Jourvance sends it, if, else, for, default, lookup, catalog, and coupon tags are filled. Any other tag is removed and listed on this flow as not translated. When Klaviyo is the sender, Klaviyo fills the template.</p>
+                  ) : (
+                    <div role="group" aria-labelledby="flow-step-content" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span id="flow-step-content" style={label}>Email content</span>
+                      <BlockEditor blocks={selectedNode.blocks || []} onChange={(blocks) => patchNode(selectedNode.id, { blocks })} />
+                    </div>
+                  )}
+                  {current.editable && (
+                  <>
                   <label style={label}>Status</label>
                   <select style={field} value={selectedNode.status || 'live'} onChange={(e) => patchNode(selectedNode.id, { status: e.target.value as FlowNode['status'] })}>
                     <option value="draft">Draft, skipped</option>
@@ -730,14 +905,6 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
                     </label>
                   )}
                   <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>Holdout stays off until you turn it on. After it runs, the report shows revenue per person for the people who received this email and the people who were held out, with both sample sizes.</p>
-                  {selectedNode.blocks?.[0]?.kind === 'html' ? (
-                    <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>This letter was copied from a Klaviyo template. When Jourvance sends it, if, else, for, default, lookup, catalog, and coupon tags are filled. Any other tag is removed and listed on this flow as not translated. When Klaviyo is the sender, Klaviyo fills the template.</p>
-                  ) : (
-                    <>
-                      <label style={label}>Body</label>
-                      <textarea style={{ ...field, minHeight: 80 }} value={selectedNode.blocks?.[0]?.text || ''} onChange={(e) => patchNode(selectedNode.id, { blocks: [{ id: selectedNode.blocks?.[0]?.id || `${selectedNode.id}_b`, kind: 'text', text: e.target.value }] })} />
-                    </>
-                  )}
                   <label style={label}>From name</label>
                   <input style={field} value={selectedNode.fromName || ''} onChange={(e) => patchNode(selectedNode.id, { fromName: e.target.value })} />
                   <label style={label}>Reply-to</label>
@@ -753,9 +920,33 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
                       ? (klaviyoFlows.find((flow) => flow.id === selectedNode.klaviyoFlowId)?.handoff || 'Save the flow after choosing. Reaching this step adds the person to that live flow. It does not subscribe them.')
                       : 'Jourvance is the sender, so this step still sends from here. The link is used when you choose Klaviyo on the Klaviyo tab.'}
                   </p>
+                  </>
+                  )}
                 </>
               )}
-              {selectedNode?.type === 'delay' && (
+              {selectedNode?.type === 'delay' && !current.editable && (
+                <>
+                  <label style={label} htmlFor="flow-step-wait">Wait, in hours</label>
+                  <input
+                    id="flow-step-wait"
+                    style={field}
+                    type="number"
+                    min={1}
+                    max={2160}
+                    step={1}
+                    aria-invalid={!waitHoursOk(selectedNode.delayHours)}
+                    aria-describedby="flow-step-wait-help"
+                    value={Number.isFinite(selectedNode.delayHours) ? selectedNode.delayHours : ''}
+                    onChange={(e) => patchNode(selectedNode.id, { delayHours: e.target.value === '' ? Number.NaN : Number(e.target.value) })}
+                  />
+                  <p id="flow-step-wait-help" style={{ margin: 0, fontSize: 12, color: waitHoursOk(selectedNode.delayHours) ? '#9ca3af' : '#fca5a5' }}>
+                    {waitHoursOk(selectedNode.delayHours)
+                      ? 'The next email sends this many hours after the step before it. From 1 to 2160 hours, which is 90 days.'
+                      : WAIT_RANGE}
+                  </p>
+                </>
+              )}
+              {selectedNode?.type === 'delay' && current.editable && (
                 <>
                   <label style={label}>Wait</label>
                   <select style={field} value={selectedNode.mode || 'duration'} onChange={(e) => patchNode(selectedNode.id, { mode: e.target.value as FlowNode['mode'] })}>
@@ -900,7 +1091,7 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
                   <p style={{ margin: 0, fontSize: 12, color: '#9ca3af' }}>This step waits until a later inventory update releases it. Until then it holds, then continues when the cap is reached. It does not email anyone by itself.</p>
                 </>
               )}
-              {current.sunset && (
+              {current.editable && current.sunset && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <label style={{ fontSize: 13, color: '#e5e7eb' }}>
                     Quiet period in days
@@ -918,7 +1109,7 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
                   }}>Suppress people marked unengaged</button>
                 </div>
               )}
-              {current.trigger === 'manual' && !current.sunset && (
+              {current.editable && current.trigger === 'manual' && !current.sunset && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <input style={{ ...field, flex: '1 1 180px' }} value={enrollEmail} placeholder="Email to enroll" onChange={(e) => setEnrollEmail(e.target.value)} />
                   <button type="button" style={ghostBtn} onClick={enroll}>Enroll</button>
@@ -926,8 +1117,10 @@ export const EmailFlowMap: React.FC<{ initialFlowId?: string }> = ({ initialFlow
               )}
             </div>
           )}
-          {/* Always mounted, so a screen reader hears each outcome, the failures included. */}
-          <p role="status" style={{ margin: notice ? '8px 0 0' : 0, fontSize: 13, color: '#d1d5db' }}>{notice}</p>
+          {/* Always mounted, so a screen reader hears each outcome, the failures included. Sticky at the
+              foot of the studio's scroller, so the outcome of Save at the top of a long panel is on
+              screen too, not only heard. */}
+          <p role="status" style={{ margin: notice ? '8px 0 0' : 0, fontSize: 13, color: '#d1d5db', position: 'sticky', bottom: 0, zIndex: 10, background: notice ? '#16161d' : 'transparent', padding: notice ? '8px 10px' : 0, borderRadius: 8, border: notice ? '1px solid rgba(244,114,182,0.5)' : 'none' }}>{notice}</p>
         </div>
       </div>
     </div>

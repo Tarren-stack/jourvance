@@ -3,7 +3,7 @@ import { authHeaders } from '../../lib/firebase';
 import { BlockEditor, type LibraryRow, type MailBlock } from './EmailBlocks';
 
 type Block = MailBlock;
-type Step = { id: string; delayHours: number; subject: string; blocks: Block[] };
+type Step = { id: string; delayHours: number; subject: string; previewText?: string; blocks: Block[] };
 type Automation = {
   id: string;
   name: string;
@@ -53,7 +53,11 @@ async function readJson(res: Response) {
   return res.json().catch(() => ({}));
 }
 
-export const EmailPrograms: React.FC<{ mode: 'automations' | 'transactional' | 'builder' }> = ({ mode }) => {
+export const EmailPrograms: React.FC<{
+  mode: 'automations' | 'transactional' | 'builder';
+  /** Opens a starter or built-in flow on the Flow map, where its emails are edited in the builder. */
+  onOpenFlow?: (id: string) => void;
+}> = ({ mode, onOpenFlow }) => {
   const [suite, setSuite] = useState<Suite | null>(null);
   const [notice, setNotice] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
@@ -189,17 +193,22 @@ export const EmailPrograms: React.FC<{ mode: 'automations' | 'transactional' | '
         <div>
           <h2 style={{ margin: 0, fontSize: 18, color: '#f3f4f6' }}>Automations</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#9ca3af' }}>
-            Welcome and abandoned checkout already run from the queue below. These two stay off until you turn them on. The queue tick is what sends the next due step.
+            Starter flows run for every new lead or checkout. Built-in flows stay off until you turn them on.
           </p>
         </div>
         {suite.installed.map((row) => (
-          <div key={row.id} style={card}>
-            <div style={{ fontWeight: 700, color: '#f3f4f6' }}>{row.name}</div>
-            <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>On for new {row.trigger.replace(/_/g, ' ')} events · {row.steps} steps · queue sequence</div>
+          <div key={row.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, color: '#f3f4f6' }}>{row.name}</div>
+              <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>On for new {row.trigger.replace(/_/g, ' ')} events · {row.steps === 1 ? '1 email' : `${row.steps} emails`} · Starter flow</div>
+            </div>
+            {onOpenFlow && (
+              <button type="button" style={ghostBtn} aria-label={`Edit emails in ${row.name}`} onClick={() => onOpenFlow(row.id)}>Edit emails</button>
+            )}
           </div>
         ))}
         {suite.automations.map((row) => (
-          <AutomationCard key={row.id} row={row} onSave={saveProgram} />
+          <AutomationCard key={row.id} row={row} onSave={saveProgram} onOpenFlow={onOpenFlow} />
         ))}
         {notice && <p style={{ margin: 0, fontSize: 12, color: '#d1d5db' }}>{notice}</p>}
       </div>
@@ -320,33 +329,42 @@ const solidBtn: React.CSSProperties = {
   padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(236,72,153,0.4)', background: 'rgba(236,72,153,0.18)', color: '#f9a8d4', cursor: 'pointer', fontSize: 12, fontWeight: 700
 };
 
-const AutomationCard: React.FC<{ row: Automation; onSave: (id: string, kind: 'automation', patch: Record<string, unknown>) => void }> = ({ row, onSave }) => {
-  const [steps, setSteps] = useState(row.steps);
-  useEffect(() => setSteps(row.steps), [row.id, row.enabled]);
+function waitText(hours: number) {
+  if (!hours) return 'no wait';
+  return hours === 1 ? 'wait 1 hour' : `wait ${hours} hours`;
+}
+
+// A built-in flow's emails are edited on the Flow map in the builder (Edit emails). This card only
+// lists them and turns the flow on or off; it never sends steps, so it cannot overwrite an edit.
+const AutomationCard: React.FC<{
+  row: Automation;
+  onSave: (id: string, kind: 'automation', patch: Record<string, unknown>) => void;
+  onOpenFlow?: (id: string) => void;
+}> = ({ row, onSave, onOpenFlow }) => {
   return (
     <div style={card}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-        <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 700, color: '#f3f4f6' }}>{row.name}</div>
           <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{row.description}</div>
-          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{row.enabled ? 'On' : 'Off'} · {row.activeEnrollments} active</div>
+          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{row.enabled ? 'On' : 'Off'} · {row.activeEnrollments} active · Built-in flow</div>
         </div>
-        <button type="button" style={row.enabled ? solidBtn : ghostBtn} onClick={() => onSave(row.id, 'automation', { enabled: !row.enabled, steps })}>
-          {row.enabled ? 'Turn off' : 'Turn on'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {onOpenFlow && (
+            <button type="button" style={ghostBtn} aria-label={`Edit emails in ${row.name}`} onClick={() => onOpenFlow(row.id)}>Edit emails</button>
+          )}
+          <button type="button" style={row.enabled ? solidBtn : ghostBtn} onClick={() => onSave(row.id, 'automation', { enabled: !row.enabled })}>
+            {row.enabled ? 'Turn off' : 'Turn on'}
+          </button>
+        </div>
       </div>
-      {steps.map((step, index) => (
-        <div key={step.id} style={{ marginTop: 10 }}>
-          <div style={label}>Step {index + 1} · wait {step.delayHours} hours</div>
-          <input style={{ ...field, marginTop: 6 }} value={step.subject} onChange={(e) => setSteps(steps.map((s, i) => i === index ? { ...s, subject: e.target.value } : s))} />
-          <textarea
-            style={{ ...field, minHeight: 72, marginTop: 6 }}
-            value={step.blocks.filter((b) => b.kind === 'text' || b.kind === 'heading').map((b) => b.text).join('\n\n')}
-            onChange={(e) => setSteps(steps.map((s, i) => i === index ? { ...s, blocks: [{ id: s.blocks[0]?.id || `t_${i}`, kind: 'text', text: e.target.value }] } : s))}
-          />
-        </div>
-      ))}
-      <button type="button" style={{ ...ghostBtn, marginTop: 8 }} onClick={() => onSave(row.id, 'automation', { enabled: row.enabled, steps })}>Save steps</button>
+      <ol style={{ margin: '10px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {row.steps.map((step, index) => (
+          <li key={step.id} style={{ fontSize: 13, color: '#d1d5db' }}>
+            Email {index + 1}: {step.subject} · {waitText(step.delayHours)}
+          </li>
+        ))}
+      </ol>
     </div>
   );
 };
