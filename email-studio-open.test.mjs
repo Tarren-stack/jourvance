@@ -53,8 +53,10 @@ test('the Flows list edits no email itself, and Turn on or off sends no steps', 
   assert.doesNotMatch(list, /Save steps/);
   // Turn on and Turn off send only whether it is on, so a stale list can never overwrite an edit made on the map.
   const toggle = between(list, 'const toggle = async (row: FlowRow) => {', 'const renderRow', 'toggle');
-  assert.ok(toggle.includes('body: JSON.stringify(own ? { enabled: next } : { kind: row.toggleKind, enabled: next })'));
+  assert.ok(toggle.includes('body: JSON.stringify(request.body)'));
   assert.doesNotMatch(toggle, /steps|blocks|subject/);
+  const request = between(read('./src/lib/emailFlowsList.ts'), 'export function switchRequest(', '\n}\n', 'switchRequest');
+  assert.doesNotMatch(request, /steps|blocks|subject/);
 });
 
 test('the duplicate starter cards are gone, and every count reads the real number of emails', () => {

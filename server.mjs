@@ -86,7 +86,7 @@ import {
 } from './server/webhookHealth.mjs';
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 import { setupEmailFlowContentRoutes } from './server/routes/emailFlowContentRoutes.mjs';
-import { cleanAccountSequences, emailHasContent, mergeAccountSteps } from './email-flow-content.mjs';
+import { cleanAccountSequences, emailHasContent, isStarterDraft, mergeAccountSteps, starterFlowOn, storedWaitHours } from './email-flow-content.mjs';
 import { mailCallbackPlan } from './server/mail-events.mjs';
 
 import { setupJourneyRoutes } from './server/routes/journeyRoutes.mjs';
@@ -1520,7 +1520,8 @@ const shopifyCtx = {
   touchRevenue,
   enrollPriceDrops,
   enrollInventorySignals,
-  marketingSubscribed
+  marketingSubscribed,
+  starterFlowOnFor
 };
 setupShopifyRoutes(app, shopifyCtx);
 
@@ -1722,6 +1723,13 @@ function userProgramBag(uid) {
 // through here, so what the map shows is what the sender sends.
 function sequenceStepsFor(seq, bag) {
   return mergeAccountSteps(seq.steps || [], bag.sequences?.[seq.id]?.steps);
+}
+
+// Wave 2: whether this account has its starter flow on (email-flow-content.mjs starterFlowOn). Every
+// place that enrolls someone in a shared sequence asks this first, so a starter flow an account turned
+// off takes nobody new for that account. The route modules get it through their ctx.
+function starterFlowOnFor(uid, seqId) {
+  return starterFlowOn(userProgramBag(uid), seqId);
 }
 
 function cleanSegmentState(input) {
@@ -2860,7 +2868,8 @@ async function processAccountAutomations(uid) {
     enr.lastError = '';
     enr.stepIndex += 1;
     if (enr.stepIndex >= auto.steps.length) enr.status = 'completed';
-    else enr.nextDueAt = new Date(now + (Number(auto.steps[enr.stepIndex]?.delayHours) || 24) * 3600000).toISOString();
+    // A stored 0 is 0 hours; only a wait that is absent or not a number reads as 24 (storedWaitHours).
+    else enr.nextDueAt = new Date(now + storedWaitHours(auto.steps[enr.stepIndex]?.delayHours) * 3600000).toISOString();
   }
   writeUserPrograms(uid, fresh);
   const flowTick = await processCustomFlows(uid);
@@ -2988,7 +2997,8 @@ const emailCtx = {
   smartSendConflict,
   assignSmartSend,
   sequenceRevenue,
-  sequenceStepsFor
+  sequenceStepsFor,
+  starterFlowOnFor
 };
 const emailHandlers = setupEmailRoutes(app, emailCtx);
 noteSegmentChanges = emailHandlers.noteSegmentChanges;
@@ -3012,7 +3022,7 @@ async function processUserAutomationsTick(uid) {
     if (userRfm.autoWinbackEnabled) {
       const dripsData = loadDrips();
       const winbackSeq = dripsData.sequences.find(s => s.id === 'drip_seq_at_risk_winback');
-      if (winbackSeq) {
+      if (winbackSeq && starterFlowOnFor(uid, winbackSeq.id)) {
         const enabledAtMs = Date.parse(userRfm.autoWinbackEnabledAt || '') || now;
         const atRiskWindowMs = userRfm.atRiskDays * 86400000;
         const lapsedWindowMs = userRfm.lapsedDays * 86400000;
@@ -3084,6 +3094,22 @@ async function processUserAutomationsTick(uid) {
   let completedCount = 0;
 
   const dripRedirectBatch = [];
+  // The enrolment moves on to the next step after its wait, or completes. A sent step and a skipped
+  // starter draft both move it on the same way.
+  const advanceDrip = (enr, seq, steps) => {
+    if (enr.currentStepIndex + 1 < steps.length) {
+      enr.currentStepIndex++;
+      const nextStep = steps[enr.currentStepIndex];
+      // A stored 0 is 0 hours; only a wait that is absent or not a number reads as 24 (storedWaitHours).
+      const delayMs = storedWaitHours(nextStep.delayHours) * 3600000;
+      enr.nextStepDueAt = new Date(now + delayMs).toISOString();
+    } else {
+      enr.status = 'completed';
+      seq.activeEnrollments = Math.max(0, (seq.activeEnrollments || 1) - 1);
+      seq.totalCompleted = (seq.totalCompleted || 0) + 1;
+      completedCount++;
+    }
+  };
   for (const enr of dripsData.enrollments) {
     if (holdForKlaviyo) break;
     if (enr.status !== 'active' || enr.userId !== uid) continue;
@@ -3126,7 +3152,35 @@ async function processUserAutomationsTick(uid) {
     if (dueDate <= now) {
       const step = steps[enr.currentStepIndex];
       if (step) {
+        // Wave 2: a starter flow this account turned off sends nothing. An enrolment whose email comes
+        // due while it is off is taken out of the flow, the way a built-in flow that is off stops its
+        // due enrolments (processAccountAutomations), so Turn on never sends a backlog of the emails
+        // people were due while it was off. One not yet due when it is turned back on goes on as before.
+        if (!starterFlowOn(programBag, seq.id)) {
+          enr.status = 'stopped';
+          enr.stoppedAt = new Date().toISOString();
+          enr.stoppedReason = 'flow_off';
+          seq.activeEnrollments = Math.max(0, (seq.activeEnrollments || 1) - 1);
+          continue;
+        }
         if (!hubReady || !enr.customerEmail) continue;
+        // The auto-winback enrolment is written without a history list (above), and a push onto none
+        // threw after the email had gone, so the enrolment never moved on.
+        if (!Array.isArray(enr.history)) enr.history = [];
+        // Wave 2 (owner question 1): an email still in its seeded placeholder words is never sent. It is
+        // recorded as skipped and the enrolment moves on to the next step after its wait; nothing is
+        // counted as sent.
+        if (isStarterDraft(step)) {
+          enr.history.push({
+            stepNumber: step.stepNumber,
+            subject: step.subject,
+            skippedAt: new Date().toISOString(),
+            status: 'skipped',
+            reason: 'starter_draft'
+          });
+          advanceDrip(enr, seq, steps);
+          continue;
+        }
         const dripContact = loadContacts().find(c => c.email === enr.customerEmail && contactOwnerId(c) === uid) || { email: enr.customerEmail, name: enr.customerName };
         const checkout = loadCheckouts().find((row) => row.userId === uid && String(row.customerEmail || '').toLowerCase() === String(enr.customerEmail || '').toLowerCase());
         const userStore = Object.values(workspaceCache).find(ws => ws.userId === uid && realStoreDomain(ws?.shopifyConfig))?.shopifyConfig;
@@ -3197,17 +3251,7 @@ async function processUserAutomationsTick(uid) {
         processedCount++;
 
         // Advance or complete
-        if (enr.currentStepIndex + 1 < steps.length) {
-          enr.currentStepIndex++;
-          const nextStep = steps[enr.currentStepIndex];
-          const delayMs = (nextStep.delayHours || 24) * 3600000;
-          enr.nextStepDueAt = new Date(now + delayMs).toISOString();
-        } else {
-          enr.status = 'completed';
-          seq.activeEnrollments = Math.max(0, (seq.activeEnrollments || 1) - 1);
-          seq.totalCompleted = (seq.totalCompleted || 0) + 1;
-          completedCount++;
-        }
+        advanceDrip(enr, seq, steps);
       }
     }
   }
@@ -3222,6 +3266,17 @@ async function processUserAutomationsTick(uid) {
   const shops = Object.values(workspaceCache).filter(ws => ws.userId === uid);
   const shop = shops.find(ws => realStoreDomain(ws?.shopifyConfig) && ws?.shopifyConfig?.status === 'connected') || shops[0];
   const userStoreDomain = realStoreDomain(shop?.shopifyConfig) || '';
+  // Wave 2: these two reminders are the Cart recovery starter flow's, so an account that turned that
+  // flow off is sent neither. A checkout whose reminder comes due while it is off is stopped, the way
+  // a drip enrolment is (above), so Turn on sends no backlog. The flow is found the way the checkout
+  // webhook finds it to enroll (shopifyRoutes.mjs), by its trigger.
+  const cartFlow = dripsData.sequences.find(s => s.triggerType === 'checkout_abandonment');
+  const cartRecoveryOn = !cartFlow || starterFlowOn(programBag, cartFlow.id);
+  const stopForFlowOff = (chk) => {
+    chk.recoveryStatus = 'stopped';
+    chk.stoppedAt = new Date().toISOString();
+    chk.stoppedReason = 'flow_off';
+  };
 
   for (const chk of checkouts) {
     if (chk.userId !== uid) continue;
@@ -3249,7 +3304,8 @@ async function processUserAutomationsTick(uid) {
     // Stage 1: Initial reminder after 45 minutes
     if (chk.recoveryStatus === 'pending') {
       if (now - abandonedTime >= 2700000) {
-        if (!holdForKlaviyo && hubReady && chk.customerEmail) {
+        if (!cartRecoveryOn) stopForFlowOff(chk);
+        else if (!holdForKlaviyo && hubReady && chk.customerEmail) {
           const recoveryContact = loadContacts().find(c => c.email === chk.customerEmail && contactOwnerId(c) === uid) || { email: chk.customerEmail };
           const resolvedUrl = resolveCheckoutRecoveryUrl(chk, userStoreDomain, '');
           const cartCardsHtml = renderLineItemCardsHtml(chk.lineItems, chk.totalPrice, chk.currency, {
@@ -3295,7 +3351,8 @@ async function processUserAutomationsTick(uid) {
     else if (chk.recoveryStatus === 'email_sent') {
       const sentTime = new Date(chk.recoveryEmailSentAt || chk.abandonedAt).getTime();
       if (now - sentTime >= 86400000) {
-        if (!holdForKlaviyo && hubReady && chk.customerEmail) {
+        if (!cartRecoveryOn) stopForFlowOff(chk);
+        else if (!holdForKlaviyo && hubReady && chk.customerEmail) {
           const recoveryContact = loadContacts().find(c => c.email === chk.customerEmail && contactOwnerId(c) === uid) || { email: chk.customerEmail };
           const cartSeq = dripsData.sequences.find(s => s.triggerType === 'checkout_abandonment');
           const merchantCode = String((cartSeq?.steps || []).find(st => Number(st.stepNumber) > 1 && String(st.discountVoucher || '').trim())?.discountVoucher || '').trim();
@@ -3542,16 +3599,25 @@ const STARTER_FLOW_NOTE = 'This starter flow is shared by every account. Your ed
 const BUILT_IN_FLOW_NOTE = 'This built-in flow is on this account only. You can edit its emails and waits here. Its steps and what starts it stay fixed. Turn it on or off from All flows.';
 
 // A starter flow (a shared drip sequence) as one flow-map row, drawn from this account's version.
+// Wave 2: `enabled` is this account's own switch, and an email the sender would skip as a starter
+// draft carries `starterDraft: true`, so the step panel says so without reading the words itself.
 function presentSequenceRow(seq, bag) {
+  const steps = sequenceStepsFor(seq, bag);
+  const graph = chainGraph(seq.id, steps);
+  steps.forEach((step, index) => {
+    if (!isStarterDraft(step)) return;
+    const node = graph.nodes.find((item) => item.id === `${seq.id}_email_${index}`);
+    if (node) node.starterDraft = true;
+  });
   return {
     id: seq.id,
     name: seq.name,
     kind: 'sequence',
     editable: false,
     contentEditable: true,
-    enabled: true,
+    enabled: starterFlowOn(bag, seq.id),
     trigger: seq.triggerType || 'lead_capture',
-    ...chainGraph(seq.id, sequenceStepsFor(seq, bag)),
+    ...graph,
     note: STARTER_FLOW_NOTE
   };
 }
@@ -5095,7 +5161,8 @@ const publicCtx = {
   loadDiscounts,
   loadWorkspace,
   hubStorage,
-  requireUser
+  requireUser,
+  starterFlowOnFor
 };
 setupPublicRoutes(app, publicCtx);
 

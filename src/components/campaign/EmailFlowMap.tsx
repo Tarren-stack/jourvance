@@ -6,7 +6,7 @@ import { chooseFlowId, LINKED_FLOW_MISSING } from '../../lib/editorReturn';
 import { moneyText, statText, withNote } from '../../lib/emailStats';
 import { BlockEditor, type MailBlock } from './EmailBlocks';
 import { FLOW_MAP_UNREACHABLE, FLOW_MAP_WRITE_UNREACHABLE, retryFlowMapArgs, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
-import { startsWhenText } from '../../lib/emailFlowsList';
+import { STARTER_DRAFT_NOTE, starterOffNotice, startsWhenText } from '../../lib/emailFlowsList';
 import { EmailStepPreview } from './EmailStepPreview';
 
 type FlowPath = { id: string; label?: string; else?: boolean; clauses?: { kind: string; field?: string; op?: string; value?: string; event?: string; since?: string; done?: boolean; note?: string }[]; note?: string };
@@ -47,6 +47,8 @@ type FlowNode = {
   minimum?: number;
   capDays?: number;
   klaviyoFlowId?: string;
+  /** Wave 2: the server reports this starter email as still the seeded draft, which the sender skips. */
+  starterDraft?: boolean;
 };
 
 type FlowEdge = { id: string; source: string; target: string; branch?: string };
@@ -302,6 +304,10 @@ export const EmailFlowMap: React.FC<{
   const [notice, setNotice] = useState('');
   // True while a starter or built-in flow's emails are being sent to the server: Save reads Saving.
   const [saving, setSaving] = useState(false);
+  // Wave 2: a starter flow's Turn on or Turn off as the server stored it, by flow id, until the next
+  // load reads it. Kept apart from the flows so an unsaved email edit is neither lost nor marked saved.
+  const [switched, setSwitched] = useState<Record<string, boolean>>({});
+  const [switchingFlow, setSwitchingFlow] = useState(false);
   const [loadError, setLoadError] = useState('');
   const retried = useRef(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -343,6 +349,7 @@ export const EmailFlowMap: React.FC<{
     const loaded = Array.isArray(data?.flows);
     const list: FlowView[] = loaded ? data.flows : [];
     setFlows(list);
+    setSwitched({});
     if (Array.isArray(data?.triggers) && data.triggers.length) setTriggers(data.triggers);
     if (typeof data?.timezone === 'string') setTimezone(data.timezone);
     const pick = chooseFlowId(loaded ? list.map((flow) => flow.id) : null, prefer);
@@ -495,6 +502,37 @@ export const EmailFlowMap: React.FC<{
       await load(next.id);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Wave 2: Turn on or Turn off for a starter flow, on this account only. Only `enabled` is sent; the
+  // server keeps the emails, and an unsaved edit on screen stays unsaved.
+  const switchStarter = async (flow: FlowView, on: boolean) => {
+    if (switchingFlow) return;
+    const next = !on;
+    const word = next ? 'on' : 'off';
+    setSwitchingFlow(true);
+    setNotice('');
+    try {
+      const sent = await sendFlowWrite(async () => fetch(`/api/email/flow-content/${flow.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ enabled: next })
+      }));
+      if (!sent.answered) {
+        setNotice(FLOW_MAP_WRITE_UNREACHABLE.enabled);
+        return;
+      }
+      const data = sent.data;
+      if (!sent.ok || !data?.success || typeof data?.flow?.enabled !== 'boolean') {
+        setNotice(data?.error || `${flow.name} was not turned ${word}.`);
+        return;
+      }
+      const stored = data.flow.enabled === true;
+      setSwitched((was) => ({ ...was, [flow.id]: stored }));
+      setNotice(stored ? `${flow.name} is on. An email from it sends only when the email service accepts it.` : starterOffNotice(flow.name));
+    } finally {
+      setSwitchingFlow(false);
     }
   };
 
@@ -738,6 +776,18 @@ export const EmailFlowMap: React.FC<{
               {!current.editable && current.contentEditable && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   {unsaved && !saving && <span style={{ fontSize: 12, color: '#fbbf24' }}>Unsaved changes</span>}
+                  {current.kind === 'sequence' && (() => {
+                    // Wave 2: a starter flow turns on and off here and on All flows, for this account only.
+                    const on = switched[current.id] ?? current.enabled !== false;
+                    const text = switchingFlow ? 'Saving' : on ? 'Turn off' : 'Turn on';
+                    // The state stays said in words beside the button, which names only the action.
+                    return (
+                      <>
+                        <span data-flow-header-state={current.id} style={{ fontSize: 12, fontWeight: 700, color: on ? '#6ee7b7' : '#d1d5db' }}>{on ? 'On for this account' : 'Off for this account'}</span>
+                        <button type="button" data-flow-header-switch={current.id} style={{ ...(on ? solidBtn : ghostBtn), opacity: switchingFlow ? 0.6 : 1 }} aria-disabled={switchingFlow} onClick={() => switchStarter(current, on)}>{text}</button>
+                      </>
+                    );
+                  })()}
                   {/* aria-disabled, not disabled: a disabled button drops keyboard focus to the page. */}
                   <button type="button" style={{ ...solidBtn, opacity: saving ? 0.6 : 1 }} aria-disabled={saving} onClick={() => saveContent(current)}>{saving ? 'Saving' : 'Save'}</button>
                 </div>
@@ -922,6 +972,11 @@ export const EmailFlowMap: React.FC<{
               {!current.editable && current.note && (
                 // D3: the panel says whose emails these are. The heading above takes focus, so this is read next.
                 <p style={{ margin: 0, fontSize: 13, color: '#d1d5db' }}>{current.note}</p>
+              )}
+              {selectedNode?.type === 'email' && selectedNode.starterDraft === true && (
+                // D6 (Wave 2): the server says this email is still the seeded draft, which is skipped and never
+                // sent. It goes once an edit is saved, because the next load no longer marks it.
+                <p data-starter-draft="" style={{ margin: 0, fontSize: 13, color: '#fbbf24' }}>{STARTER_DRAFT_NOTE}</p>
               )}
               {!selectedNode && !current.editable && (
                 <p style={{ margin: 0, fontSize: 13, color: '#d1d5db' }}>Choose an email or a wait on the map to edit it.</p>

@@ -13,6 +13,10 @@
  * refuses any graph that is not exactly that chain over the same number of emails, so a save can
  * change what the emails say and how long each wait is, and nothing else.
  *
+ * Wave 2 (owner question 1, answered yes on 2026-10-08): a starter email still in its seeded
+ * placeholder words is a draft, and the drip sender skips it (`isStarterDraft`); and an account can
+ * turn a starter flow off for itself, `sequences[<id>].enabled === false`, read by `starterFlowOn`.
+ *
  * Plain ESM that imports nothing. The cleaners live in server.mjs and are passed in.
  */
 
@@ -33,9 +37,9 @@ export const WAIT_HOURS_MAX = 24 * 90;
  * trigger, an edge naming a node that is not there, a branch (two edges out of or into one node), a
  * cycle, a node the walk never reaches, a delay that is not followed by an email, a wait that is not
  * a whole number of hours from 1 to WAIT_HOURS_MAX (a number, or a string of digits), a wait taken
- * away from before an email after the first when the base step had one (the senders read a stored
- * 0 there as 24 hours, so the map would show no wait while the email waits a day), an email with no
- * blocks or with a blank subject, and an email count different from `baseSteps.length`.
+ * away from before an email after the first when the base step had one (a starter or built-in flow's
+ * steps stay fixed, and the map draws a wait for every such step), an email with no blocks or with a
+ * blank subject, and an email count different from `baseSteps.length`.
  *
  * `error` is a short machine reason: 'shape', 'wait', 'empty_email' or 'no_subject'. The route words it.
  */
@@ -104,7 +108,7 @@ export function stepsFromChain(graph, baseSteps) {
       if (typeof node.subject !== 'string' || !node.subject.trim()) return fail('no_subject', `email ${nextId} has no subject`);
       const shared = base[index] && typeof base[index] === 'object' ? base[index] : {};
       // A wait cannot be taken away from between two emails: the map draws one for every base step
-      // after the first that has a wait, and a stored 0 there is sent a day later.
+      // after the first that has a wait, and the flow's steps stay fixed.
       if (index > 0 && pendingWait === null && (Number(shared.delayHours) || 0) > 0) {
         return fail('shape', `the wait before email ${index + 1} was taken away`);
       }
@@ -164,23 +168,99 @@ export function mergeAccountSteps(sharedSteps, accountSteps) {
  * what an unknown or junk block cleans to.
  */
 export function emailHasContent(blocks) {
-  const filled = (block) => {
-    if (!block || typeof block !== 'object') return false;
-    const kind = block.kind;
-    if (kind === 'heading' || kind === 'text' || kind === 'html') return typeof block.text === 'string' && block.text.trim() !== '';
-    if (kind === 'image') return typeof block.url === 'string' && block.url.trim() !== '';
-    if (kind === 'divider' || kind === 'spacer') return false;
-    if (kind === 'columns') return (Array.isArray(block.columns) ? block.columns : []).some((column) => (Array.isArray(column?.blocks) ? column.blocks : []).some(filled));
-    if (kind === 'split') return (Array.isArray(block.cells) ? block.cells : []).some(filled);
-    return typeof kind === 'string' && kind !== '';
-  };
-  return Array.isArray(blocks) && blocks.some(filled);
+  return Array.isArray(blocks) && blocks.some(blockHasContent);
+}
+
+function blockHasContent(block) {
+  if (!block || typeof block !== 'object') return false;
+  const kind = block.kind;
+  if (kind === 'heading' || kind === 'text' || kind === 'html') return typeof block.text === 'string' && block.text.trim() !== '';
+  if (kind === 'image') return typeof block.url === 'string' && block.url.trim() !== '';
+  if (kind === 'divider' || kind === 'spacer') return false;
+  if (kind === 'columns') return (Array.isArray(block.columns) ? block.columns : []).some((column) => (Array.isArray(column?.blocks) ? column.blocks : []).some(blockHasContent));
+  if (kind === 'split') return (Array.isArray(block.cells) ? block.cells : []).some(blockHasContent);
+  return typeof kind === 'string' && kind !== '';
+}
+
+/**
+ * The placeholder bodies a starter email is seeded with, word for word: the three Welcome seeds in
+ * server.mjs INITIAL_DRIP_SEQUENCES, the two the old-copy migration there writes
+ * (recomputeDripCounters), and the earlier winback draft (server/seededOffers.mjs SEEDED_DRAFT_STEPS,
+ * which loadDrips replaces in the shared copy; it is here too in case a copy of it is held anywhere
+ * that migration does not reach). Each one tells the merchant to replace it before anyone receives it.
+ * starter-drafts.test.mjs reads them back out of server.mjs and seededOffers.mjs, so a seed changed
+ * there without a line here fails that test. Never take a line out when a seed changes: loadDrips adds
+ * a missing sequence but keeps a stored one's steps as they are, so a store seeded earlier still holds
+ * the old words.
+ */
+export const STARTER_DRAFT_BODIES = Object.freeze([
+  'Hey {{first_name}},\n\nThanks for signing up. This is the first note in the sequence. Replace it with the real next step for your offer before anyone receives it.',
+  'Hey {{first_name}},\n\nThis is the second note in the sequence. Replace it with a real detail about your offer before anyone receives it.',
+  'Hey {{first_name}},\n\nThis is the last note in the sequence. Replace it with a real deadline only if you actually have one.',
+  'Hey {{first_name}},\n\nThis is a follow-up in the sequence. Replace it with a real detail about your offer before anyone receives it.',
+  'Hey {{first_name}},\n\nThanks for signing up. Replace this note with the real next step for your offer before anyone receives it.',
+  'Hello {{first_name}},\n\nWe noticed it has been a little while since your last order, and we wanted to check in.\n\nReplace this note with your real message before anyone receives it. Mention a discount only if the code exists in your store.'
+]);
+
+// Word for word: the same characters in the same order, whatever the spacing. Line breaks, runs of
+// spaces, a non-breaking space and HTML tags are not words, so the placeholder wrapped in <p>, with a
+// bold name, or retyped into an HTML block, which a reader sees as the same words, is still the
+// placeholder.
+const wordsOf = (text) => String(text)
+  .replace(/<[^>]*>/g, '')
+  .replace(/&nbsp;|&#160;|&#xa0;/gi, ' ')
+  .replace(/\s+/g, '');
+const DRAFT_WORDS = new Set(STARTER_DRAFT_BODIES.map(wordsOf));
+
+/**
+ * True when a starter step, as this account would send it (the shared step with the account's own
+ * row merged over it, `sequenceStepsFor` in server.mjs), still says one of STARTER_DRAFT_BODIES word
+ * for word. The email read is the one the drip sender sends: the step's blocks when they hold
+ * something to read, and its shared `body` otherwise. Blocks are a draft only when the one block in
+ * them that holds anything is a text or HTML block in those words (tags aside), so an email the
+ * merchant added to (an image, a button, a heading) or rewrote is never a draft. The subject and
+ * preview text are not read: a placeholder body under a new subject would still go out saying
+ * "Replace it with ...".
+ */
+export function isStarterDraft(step) {
+  if (!step || typeof step !== 'object') return false;
+  if (emailHasContent(step.blocks)) {
+    const filled = step.blocks.filter(blockHasContent);
+    const only = filled.length === 1 ? filled[0] : null;
+    return Boolean(only && (only.kind === 'text' || only.kind === 'html') && DRAFT_WORDS.has(wordsOf(only.text)));
+  }
+  return typeof step.body === 'string' && DRAFT_WORDS.has(wordsOf(step.body));
+}
+
+/**
+ * Whether a starter flow is on for this account: off only when the account's own row says
+ * `enabled: false`. A row with no `enabled`, or no row at all, is on, which is how every starter flow
+ * behaved before an account could turn one off.
+ */
+export function starterFlowOn(bag, seqId) {
+  const own = bag && typeof bag === 'object' ? bag.sequences : null;
+  if (!own || typeof own !== 'object') return true;
+  const id = String(seqId ?? '');
+  if (!Object.prototype.hasOwnProperty.call(own, id)) return true;
+  const row = own[id];
+  return !(row && typeof row === 'object' && row.enabled === false);
+}
+
+/**
+ * The hours a stored wait holds, for the senders: a number as stored, 0 included, and never below 0;
+ * a string of a number the same. Only a wait that is absent or not a number reads as 24 hours, the
+ * senders' old default. (A stored 0 used to read as 24 too, so a step meant to go at once waited a day.)
+ */
+export function storedWaitHours(value) {
+  const hours = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  return Number.isFinite(hours) ? Math.max(0, hours) : 24;
 }
 
 /**
  * The account's `sequences` record, cleaned: at most ACCOUNT_SEQUENCE_LIMIT ids matching
- * ACCOUNT_SEQUENCE_ID, each row's steps through the injected `cleanSteps(input, fallback)`, and a
- * row with no steps left dropped.
+ * ACCOUNT_SEQUENCE_ID, each row's steps through the injected `cleanSteps(input, fallback)`, its
+ * `enabled` kept when it is a boolean (Wave 2: false turns the starter flow off for this account), and
+ * a row with no steps left dropped unless it turns the flow off.
  *
  * The answer has no prototype, so `__proto__` and `constructor` are plain ids: kept as own keys
  * when they are in the input, never read through to Object.prototype, and never matching a
@@ -195,9 +275,11 @@ export function cleanAccountSequences(input, cleanSteps) {
     if (kept >= ACCOUNT_SEQUENCE_LIMIT) break;
     if (!ACCOUNT_SEQUENCE_ID.test(id)) continue;
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
-    const steps = cleanSteps(Array.isArray(row.steps) ? row.steps : [], []);
-    if (!Array.isArray(steps) || !steps.length) continue;
-    out[id] = { steps };
+    const cleaned = cleanSteps(Array.isArray(row.steps) ? row.steps : [], []);
+    const steps = Array.isArray(cleaned) ? cleaned : [];
+    const enabled = typeof row.enabled === 'boolean' ? row.enabled : undefined;
+    if (!steps.length && enabled !== false) continue;
+    out[id] = enabled === undefined ? { steps } : { steps, enabled };
     kept += 1;
   }
   return out;

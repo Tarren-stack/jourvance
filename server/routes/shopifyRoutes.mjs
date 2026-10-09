@@ -191,7 +191,8 @@ export function setupShopifyRoutes(app, ctx) {
     touchRevenue,
     enrollPriceDrops,
     enrollInventorySignals,
-    marketingSubscribed
+    marketingSubscribed,
+    starterFlowOnFor
   } = ctx;
 
   // ── 1. Connect Shopify Store to Workspace ──────────────────────────────────
@@ -1176,7 +1177,7 @@ export function setupShopifyRoutes(app, ctx) {
     try {
       const dripsData = loadDrips();
       const cartSeq = dripsData.sequences.find(s => s.triggerType === 'checkout_abandonment');
-      if (cartSeq && !klaviyoIsSender(shopWs.userId)) {
+      if (cartSeq && starterFlowOnFor(shopWs.userId, cartSeq.id) && !klaviyoIsSender(shopWs.userId)) {
         const alreadyActive = dripsData.enrollments.some(e => e.userId === shopWs.userId && e.customerEmail === customerEmail && e.sequenceId === cartSeq.id && e.status === 'active');
         if (!alreadyActive) {
           dripsData.enrollments.unshift({
@@ -1279,7 +1280,7 @@ export function setupShopifyRoutes(app, ctx) {
       try {
         const dripsData = loadDrips();
         const reviewSeq = (dripsData.sequences || []).find(s => s.id === 'drip_seq_review_request' || s.triggerType === 'fulfillment_review');
-        if (reviewSeq) {
+        if (reviewSeq && starterFlowOnFor(shopWs.userId, reviewSeq.id)) {
           const alreadyEnrolled = (dripsData.enrollments || []).some(
             e => e.userId === shopWs.userId &&
                  String(e.customerEmail || '').toLowerCase() === email &&

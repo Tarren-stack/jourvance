@@ -30,6 +30,13 @@
  * following the shared sequence, so a later fix to the shared copy still reaches it; saving every
  * email would freeze all of them at the moment of the first edit.
  *
+ * TURN ON AND OFF (Wave 2): for a starter flow only, a body of `{ enabled: true | false }` and nothing
+ * else turns the flow on or off for this account. It writes `sequences[<id>].enabled` and keeps the
+ * stored emails; an emails save keeps `enabled`. A value that is not a boolean, `enabled` sent with the
+ * emails or with any other key, or `enabled` for any other kind of flow is a 400 that writes nothing (a built-in flow and an
+ * order email are turned on and off through POST /api/email/programs/:id). The answer is the flow-map
+ * row as the record now reads, so the client shows what was stored.
+ *
  * WRITE: `writeUserPrograms(uid, bag, { sequences: true })`, `{ steps: true }` or
  * `{ transactional: true }`. Every other save keeps the stored starter-flow emails, built-in steps and
  * order emails (subject, blocks and whether it is on), so a background tick or an order send that read
@@ -46,6 +53,10 @@ export const FLOW_CONTENT_NOT_KEPT = "These emails could not be saved, because t
 export const FLOW_CONTENT_FULL = `This account already keeps its own emails for ${ACCOUNT_SEQUENCE_LIMIT} starter flows, so this one could not be saved.`;
 export const FLOW_CONTENT_FAILED = 'These emails were not saved. Try again in a minute.';
 export const ORDER_EMAIL_NO_WAIT = 'An order email sends as soon as Shopify reports the order event, so it cannot have a wait before it. This email was not saved.';
+export const FLOW_SWITCH_NOT_BOOLEAN = 'This flow was not turned on or off, because enabled must be true or false.';
+export const FLOW_SWITCH_ALONE = 'This flow was not changed, because turning it on or off is sent on its own, without its emails or anything else.';
+export const FLOW_SWITCH_STARTER_ONLY = 'This flow was not turned on or off here. Turn it on or off from All flows.';
+export const FLOW_SWITCH_FULL = `This account already keeps its own settings for ${ACCOUNT_SEQUENCE_LIMIT} starter flows, so this one was not turned off.`;
 
 // A starter flow's first email is timed when someone joins it, from the shared sequence (the
 // enrollment points in publicRoutes.mjs and shopifyRoutes.mjs), and the sender reads only the waits
@@ -115,6 +126,24 @@ export function setupEmailFlowContentRoutes(app, ctx) {
     return res.json({ success: true, flow: presentOrderEmailRow(saved) });
   };
 
+  // Wave 2: Turn on and Turn off for a starter flow, on this account only (TURN ON AND OFF above).
+  const switchStarter = (res, uid, id, bag, found, body) => {
+    // Only `enabled`: emails or anything else sent beside it is refused, never quietly dropped.
+    if (Object.keys(body).some((key) => key !== 'enabled')) return res.status(400).json({ success: false, error: FLOW_SWITCH_ALONE });
+    if (!found.sequence) return res.status(400).json({ success: false, error: FLOW_SWITCH_STARTER_ONLY });
+    if (typeof body.enabled !== 'boolean') return res.status(400).json({ success: false, error: FLOW_SWITCH_NOT_BOOLEAN });
+    const own = bag.sequences && typeof bag.sequences === 'object' ? bag.sequences : Object.create(null);
+    const held = Object.keys(own);
+    if (!body.enabled && !held.includes(id) && held.length >= ACCOUNT_SEQUENCE_LIMIT) {
+      return res.status(400).json({ success: false, error: FLOW_SWITCH_FULL });
+    }
+    const was = held.includes(id) && own[id] && typeof own[id] === 'object' ? own[id] : {};
+    own[id] = { steps: Array.isArray(was.steps) ? was.steps : [], enabled: body.enabled };
+    bag.sequences = own;
+    writeUserPrograms(uid, bag, { sequences: true });
+    return res.json({ success: true, flow: presentSequenceRow(found.sequence, userProgramBag(uid)) });
+  };
+
   app.post('/api/email/flow-content/:id', requireUser, (req, res) => {
     try {
       const uid = req.user.uid;
@@ -123,6 +152,7 @@ export function setupEmailFlowContentRoutes(app, ctx) {
       const found = resolveFlow(uid, id, bag);
       if (!found) return res.status(404).json({ success: false, error: FLOW_CONTENT_NOT_FOUND });
       const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+      if (Object.prototype.hasOwnProperty.call(body, 'enabled')) return switchStarter(res, uid, id, bag, found, body);
       if (found.letter) return saveOrderEmail(req, res, uid, bag, found.letter, body);
 
       const base = found.sequence ? sequenceStepsFor(found.sequence, bag) : (found.automation.steps || []);
@@ -158,7 +188,10 @@ export function setupEmailFlowContentRoutes(app, ctx) {
         if (changed.length && !held.includes(id) && held.length >= ACCOUNT_SEQUENCE_LIMIT) {
           return res.status(400).json({ success: false, error: FLOW_CONTENT_FULL });
         }
-        if (changed.length) own[id] = { steps: changed };
+        // Whether this account turned the flow off is its own and is kept (Wave 2).
+        const off = held.includes(id) && own[id] && own[id].enabled === false;
+        if (changed.length) own[id] = off ? { steps: changed, enabled: false } : { steps: changed };
+        else if (off) own[id] = { steps: [], enabled: false };
         else delete own[id];
         bag.sequences = own;
         writeUserPrograms(uid, bag, { sequences: true });

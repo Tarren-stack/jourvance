@@ -1,20 +1,27 @@
 #!/usr/bin/env node
-// The Email Studio browser check (EMAIL_STUDIO_PLAN.md Waves 1, 3 and 4): node scripts/email-studio-browser-check.mjs
+// The Email Studio browser check (EMAIL_STUDIO_PLAN.md Waves 1 to 4): node scripts/email-studio-browser-check.mjs
 //
 // What it does, from /canvas, in real Chrome at 1440x900. "All flows" is the Flows destination's first
 // section, the screen the Automations tab was before Wave 3; the steps reach it through the tablists.
 //   open             the sidebar's Email Studio opens the studio; its heading is visible
 //   counts           (Wave 4) each starter row counts its own emails from its steps ("3 emails", "1 email"), and
 //                    in the opened "People in starter flows" an enrollment reads "Step 1 of 2" for a two-email
-//                    flow, never a literal 3
+//                    flow, never a literal 3; (Wave 2 fix) an active one reads "In the flow" and one the sender
+//                    took out because its flow was off reads "Taken out, flow turned off"
 //   flows-one-list   (Wave 4) All flows holds each of the 12 flows and the 4 order emails exactly once, each the
 //                    only button of its name on the page; the order emails are the last four, in their own
 //                    group; one row of each kind reads its tag, its start in TRIGGER_META's words, On or Off,
 //                    its counted emails and Enrolled through statText; the hub's flows are a closed group
-//                    under the list and their flow is not shown
+//                    under the list and their flow is not shown; (Wave 2 fix) Welcome's row says its 3 emails
+//                    are still starter drafts and not sent, and no other row says so
 //   starter-open     on All flows, the Welcome sequence row: Flows and its Flow map are the selected tabs,
 //                    Welcome sequence is the chosen flow, its first email is drawn selected, and the
 //                    step heading reads "Email 1 of 3" and holds focus
+//   starter-draft-note (Wave 2) on Welcome's email 1, the step panel says the D6 starter-draft sentence under the
+//                    starter note; it stays while the email's text is edited and not saved; Save posts the new
+//                    text and the sentence is gone from email 1 while email 2, still the draft, keeps it. The
+//                    server marks a draft (starterDraft on the email node), the client never reads the words.
+//                    The step puts the stub's account back as it found it, so the steps after it start from the seeds
 //   email-open       back on All flows, the Welcome row opens email 1, and a click on email 2 on the map
 //                    selects it: on screen, drawn selected, and its subject is in the Subject field
 //   node-selected    a click on the Wait node draws it with a border colour an unselected node does not
@@ -62,7 +69,13 @@
 //                    heading and the status says it was deleted; both new flows are deleted so All flows is 16 rows
 //   row-switches     (Wave 4 fix) Viewed a product turns on and off from its row through /api/email/flows/:id with
 //                    { enabled } alone; while the answer is held the switch reads Saving and its name begins with
-//                    Saving; the Welcome row has no switch and its description says it is always on
+//                    Saving
+//   starter-off      (Wave 2) Welcome's row reads On; Turn off Welcome sequence posts exactly { enabled: false } to
+//                    /api/email/flow-content/drip_seq_default, the row reads Off and its switch Turn on, and the
+//                    status says what happens to the people in it (starterOffNotice); in the editor Welcome's
+//                    header says "Off for this account" beside a switch that reads Turn on and posts
+//                    { enabled: true }, then says "On for this account" beside Turn off, and back on All flows
+//                    the row reads On; no "Always on" sentence is left on the list
 //   panel-beside     (Wave 4) at 1440 the step panel's left edge is right of the map's right edge, and every
 //                    step on the map is drawn inside the map's box
 //   panel-below      (Wave 4) at 390 the step panel is below the map, the map's steps inside its box, nothing
@@ -75,7 +88,9 @@
 //   nav-moved        the Flows list no longer shows Run Queue Tick, Webhooks or the checkouts table; Settings,
 //                    Advanced has "Send due emails now", which posts /api/drips/process-tick once and says what
 //                    it did in a status region, and Webhooks, which opens the guide and closes by its named
-//                    button; Audience, Open checkouts shows the checkouts table with the stub's checkout
+//                    button; Audience, Open checkouts shows the checkouts table with the stub's checkout, which
+//                    reads Pending, and (Wave 2 fix) a checkout stopped because Cart recovery was off, which
+//                    reads "Stopped, flow turned off" and never Pending
 //   nav-keyboard     on the destination strip ArrowRight, ArrowLeft, Home and End each move the selection AND
 //                    the focus, wrapping at both ends; Tab reaches the open destination's selected section,
 //                    where the arrows and End do the same; Shift+Tab goes back to the destination. The panel
@@ -110,7 +125,8 @@
 // Every /api request the studio makes is answered AT THE ROUTE GUARD with recorded JSON in the real
 // routes' shapes: the starter flows are INITIAL_DRIP_SEQUENCES, the built-in flows AUTOMATION_DEFAULTS
 // and the order emails TRANSACTIONAL_DEFAULTS, all read out of server.mjs without booting it; the flow
-// map rows are drawn by server.mjs's own chainGraph, and the order emails' rows by its own
+// map rows are drawn by server.mjs's own chainGraph, the starter flows' rows by its own presentSequenceRow
+// (with email-flow-content.mjs's isStarterDraft and starterFlowOn), and the order emails' rows by its own
 // presentOrderEmailRow; the account flows are shopify-signals.mjs's
 // starter flows and the triggers email-flows.mjs's TRIGGER_META. The flow-content and flows stubs
 // record each body and keep what they saved in memory, the way the server keeps it per account. This
@@ -128,6 +144,7 @@ import { routeVerdict } from '../src/lib/canvasCheckRules.ts';
 import { DEFAULT_LEAD_CAPTURE_PROJECT } from '../src/lib/defaultBlueprint.ts';
 import { FLOW_MAP_WRITE_UNREACHABLE } from '../src/lib/flowMapLoad.ts';
 import { TRIGGER_META } from '../email-flows.mjs';
+import { isStarterDraft, mergeAccountSteps, starterFlowOn } from '../email-flow-content.mjs';
 import { signalStarterFlows } from '../shopify-signals.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -154,8 +171,17 @@ const HUB_FLOW_NAME = 'Hub welcome, kept for export';
 const NEW_ORDER_SUBJECT = 'Order {{order_number}} is in, from the studio check';
 const ORDER_BUTTON_URL = 'https://shop.example.test/order-check';
 const DELETE_FLOW = 'flow_pricedrop';
-/** Wave 4 fix round: what a starter row says where the other rows have Turn on or Turn off (emailFlowsList.ts). */
+/** Wave 4 fix round said this where a starter row's switch is now (Wave 2); it must be gone. */
 const STARTER_NO_SWITCH = 'Always on. A starter flow cannot be turned off.';
+/** Wave 2, D6: the step panel on a starter email the server marks as still the seeded draft (emailFlowsList.ts). */
+const STARTER_DRAFT_NOTE = 'This email is still the starter draft, so it is skipped and not sent. Edit it and save to send it.';
+const DRAFT_EDIT = 'Hey {{first_name}},\n\nThanks for joining. Here is the first real note, from the studio check.';
+/** Wave 2 fix round: a row whose emails are still starter drafts, and what Turn off says for a starter flow (emailFlowsList.ts). */
+const WELCOME_DRAFTS = '3 are still starter drafts, so they are not sent';
+const starterOffSaid = name => `${name} is off. Nobody new joins it, and anyone already in it whose next email comes due while it is off leaves it, so turning it back on sends nothing they missed.`;
+/** Wave 2 fix round: an enrollment and a checkout the sender stopped because their starter flow was off. */
+const TAKEN_OUT_EMAIL = 'taken-out@example.test';
+const STOPPED_CHECKOUT_EMAIL = 'cart-stopped@example.test';
 /** The step panel's notes on a starter and on a built-in flow (server.mjs STARTER_FLOW_NOTE, BUILT_IN_FLOW_NOTE). */
 const STARTER_FLOW_NOTE = 'This starter flow is shared by every account. Your edits to its emails apply to this account only.';
 const BUILT_IN_FLOW_NOTE = 'This built-in flow is on this account only. You can edit its emails and waits here. Its steps and what starts it stay fixed. Turn it on or off from All flows.';
@@ -192,8 +218,17 @@ function readSeeds() {
   if (triggersAt < 0) throw new Error('server.mjs does not define ORDER_EMAIL_TRIGGERS');
   const orderTriggers = src.slice(triggersAt, src.indexOf('\n', triggersAt));
   const presentOrderEmailRow = new Function(`${fn('chainGraph')}\n${orderTriggers}\n${fn('presentOrderEmailRow')}\nreturn presentOrderEmailRow;`)();
+  // Wave 2: a starter flow's row, drawn by server.mjs's own presenter over an account bag, with its notes.
+  const notesAt = src.indexOf('// D3: what the step panel says');
+  const notesEnd = src.indexOf('\n// A starter flow (a shared drip sequence)', notesAt);
+  if (notesAt < 0 || notesEnd < notesAt) throw new Error('server.mjs does not define the step panel notes before presentSequenceRow');
+  // chainGraph alone, to its closing brace: fn() runs on to the next function and would bring the notes twice.
+  const chainAt = src.indexOf('function chainGraph(');
+  const chainOnly = src.slice(chainAt, src.indexOf('\n}\n', chainAt) + 3);
+  const presentSequenceRow = new Function('mergeAccountSteps', 'isStarterDraft', 'starterFlowOn',
+    `${chainOnly}\n${fn('sequenceStepsFor')}\n${src.slice(notesAt, notesEnd)}\n${fn('presentSequenceRow')}\nreturn presentSequenceRow;`)(mergeAccountSteps, isStarterDraft, starterFlowOn);
   if (!sequences.some(seq => seq.id === WELCOME)) throw new Error(`the seeds have no ${WELCOME}`);
-  return { sequences, automations, transactional, chainGraph, presentOrderEmailRow };
+  return { sequences, automations, transactional, chainGraph, presentOrderEmailRow, presentSequenceRow };
 }
 
 // ---- Recorded answers for the studio's routes ----
@@ -213,6 +248,8 @@ function newState(seeds) {
   return {
     seeds,
     accountSequences: {},
+    // Wave 2: the starter flows this account turned off, by id.
+    starterOff: {},
     automationSteps: Object.fromEntries(seeds.automations.map(row => [row.id, programSteps(row.steps)])),
     automationEnabled: {},
     // Each order email as the account's program record holds it: off, with the seed's subject and blocks.
@@ -244,9 +281,9 @@ function sequenceSteps(state, seq) {
   });
 }
 
-const sequenceRow = (state, seq) => ({
-  id: seq.id, name: seq.name, kind: 'sequence', editable: false, contentEditable: true, enabled: true,
-  trigger: seq.triggerType || 'lead_capture', ...state.seeds.chainGraph(seq.id, sequenceSteps(state, seq)), note: STARTER_FLOW_NOTE
+/** server.mjs presentSequenceRow over this account's bag: its own emails and whether it turned the flow off. */
+const sequenceRow = (state, seq) => state.seeds.presentSequenceRow(seq, {
+  sequences: { [seq.id]: { steps: state.accountSequences[seq.id] || [], ...(state.starterOff[seq.id] ? { enabled: false } : {}) } }
 });
 
 const automationRow = (state, row) => ({
@@ -340,6 +377,12 @@ function studioAnswer(req, u, state) {
       return json(200, { success: true, flow: orderRow(state, letter) });
     }
     if (!seq && !auto) return json(404, { success: false, error: NOT_ON_ACCOUNT });
+    // Wave 2: { enabled } alone turns a starter flow on or off for this account; the emails stay.
+    if (Object.prototype.hasOwnProperty.call(body, 'enabled')) {
+      if (!seq || body.nodes !== undefined || typeof body.enabled !== 'boolean') return json(400, { success: false, error: 'This flow was not turned on or off.' });
+      state.starterOff[seq.id] = body.enabled === false;
+      return json(200, { success: true, flow: sequenceRow(state, seq) });
+    }
     const steps = stepsFromChain(body, seq ? sequenceSteps(state, seq) : state.automationSteps[auto.id]);
     if (!steps) return json(400, { success: false, error: STEPS_CHANGED });
     if (seq) {
@@ -429,6 +472,11 @@ function studioAnswer(req, u, state) {
       enrollments: cart ? [{
         id: 'enr_check_1', sequenceId: cart.id, customerEmail: 'reader@example.test', currentStepIndex: 0, status: 'active',
         enrolledAt: '2026-10-01T00:00:00.000Z', nextStepDueAt: '2026-10-02T00:00:00.000Z', history: []
+      }, {
+        // Wave 2: the sender took this one out when its email came due while the flow was off.
+        id: 'enr_check_2', sequenceId: cart.id, customerEmail: TAKEN_OUT_EMAIL, currentStepIndex: 0, status: 'stopped',
+        stoppedReason: 'flow_off', stoppedAt: '2026-10-02T00:00:30.000Z',
+        enrolledAt: '2026-10-01T00:00:00.000Z', nextStepDueAt: '2026-10-02T00:00:00.000Z', history: []
       }] : []
     });
   }
@@ -468,6 +516,11 @@ function studioAnswer(req, u, state) {
         id: 'chk_check_1', userId: 'check', customerEmail: CHECKOUT_EMAIL, totalPrice: 42.5, currency: 'USD',
         lineItems: [{ title: 'Studio check candle', quantity: 1, price: 42.5 }], recoveryStatus: 'pending',
         abandonedCheckoutUrl: 'https://shop.example.test/checkouts/check', createdAt: '2026-10-01T00:00:00.000Z'
+      }, {
+        // Wave 2: stopped by the sender because this account turned Cart recovery off.
+        id: 'chk_check_2', userId: 'check', customerEmail: STOPPED_CHECKOUT_EMAIL, totalPrice: 18, currency: 'USD',
+        lineItems: [{ title: 'Studio check matches', quantity: 1, price: 18 }], recoveryStatus: 'stopped', stoppedReason: 'flow_off',
+        abandonedCheckoutUrl: 'https://shop.example.test/checkouts/stopped', createdAt: '2026-10-01T00:00:00.000Z'
       }]
     });
   }
@@ -804,8 +857,17 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     const text = await studioText(page);
     expect(text.includes('Step 1 of 2'), 'the people table does not say "Step 1 of 2" for the two-email flow');
     expect(!/Completed 3-Steps|Step \d+ of 3\b/.test(text.replace(/Email \d+ of 3/g, '')), 'a literal 3 is still counted');
+    // Wave 2 fix: each person's status cell reads what the sender did, and a stopped one is never "In the flow".
+    const statusOf = email => page.evaluate(address => {
+      const row = [...document.querySelectorAll('tr')].find(tr => (tr.cells[0]?.textContent || '').trim() === address);
+      return row ? (row.cells[3]?.textContent || '').trim() : null;
+    }, email);
+    const active = await statusOf('reader@example.test');
+    const takenOut = await statusOf(TAKEN_OUT_EMAIL);
+    expect(active === 'In the flow', `the active enrollment's status reads ${JSON.stringify(active)}`);
+    expect(takenOut === 'Taken out, flow turned off', `the enrollment taken out because its flow was off reads ${JSON.stringify(takenOut)}`);
     await group.click();
-    return `the rows say ${notes.join(' | ')}; the people table says Step 1 of 2`;
+    return `the rows say ${notes.join(' | ')}; the people table says Step 1 of 2, "${active}" and "${takenOut}"`;
   });
 
   await go('flows-one-list', async () => {
@@ -830,7 +892,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     // One of each kind says its tag, its start in TRIGGER_META's words, On or Off, and its counted emails.
     const label = id => TRIGGER_META.find(t => t.id === id).label;
     const checks = [
-      ['Welcome sequence', ['Starter', `Starts when: ${label('lead_capture')}`, ' On ', '3 emails', 'Enrolled Unavailable', 'Last-touch revenue Unavailable']],
+      ['Welcome sequence', ['Starter', `Starts when: ${label('lead_capture')}`, ' On ', '3 emails', ` ${WELCOME_DRAFTS} `, 'Enrolled Unavailable', 'Last-touch revenue Unavailable']],
       ['After the order', ['Built in', `Starts when: ${label('order_paid')}`, ' Off ', '2 emails', 'Enrolled Unavailable']],
       ['Order confirmation', ['Order email', `Starts when: ${label('order_paid')}`, ' Off ', '1 email']],
       ['Viewed a product', [`Starts when: ${label('product_viewed')}`, ' Off ', '1 email', 'Enrolled Unavailable']]
@@ -841,6 +903,9 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
       expect(missing.length === 0, `${name}'s row reads "${row.meta}", without ${JSON.stringify(missing)}`);
     }
     expect(!rows.find(r => r.name === 'Viewed a product').meta.includes('|'), 'an account flow carries a tag');
+    // Wave 2 fix: only Welcome's emails are still the starter drafts, so no other row says so.
+    const saysDrafts = rows.filter(r => /starter draft/.test(r.meta)).map(r => r.name);
+    expect(JSON.stringify(saysDrafts) === JSON.stringify(['Welcome sequence']), `rows that say they hold starter drafts: ${JSON.stringify(saysDrafts)}`);
     expect(!rows.find(r => r.name === 'Order confirmation').meta.includes('Enrolled'), 'an order email says Enrolled');
     // The hub flows: a closed group at the foot, export only, its flow not a row and not shown.
     const hub = await page.evaluate(() => {
@@ -885,6 +950,43 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     await keepText('Flow map, Welcome email 1');
     await shot('2-starter-open');
     return `1 "Welcome sequence" row; Flows, Flow map selected, Welcome chosen, email 1 drawn ${border.width} ${border.color}, focus on h3 "${f.text}"`;
+  });
+
+  await go('starter-draft-note', async () => {
+    // Wave 2, D6: the server marks Welcome's emails as the seeded drafts; the panel says so, under the note.
+    expect(await stepHeading('Email 1 of 3') || (await focused(page))?.text === 'Email 1 of 3', 'Welcome email 1 is not the step on screen');
+    const note = page.getByText(STARTER_DRAFT_NOTE, { exact: true });
+    const shown = await waitUntil(async () => ((await note.isVisible()) ? true : null), 3000);
+    expect(shown, `Welcome's email 1 does not say "${STARTER_DRAFT_NOTE}"`);
+    const order = await page.evaluate(([starterNote, draftNote]) => {
+      const draft = [...document.querySelectorAll('[data-starter-draft]')].find(el => (el.textContent || '').trim() === draftNote);
+      return draft ? { before: (draft.previousElementSibling?.textContent || '').trim(), count: document.querySelectorAll('[data-starter-draft]').length, starter: starterNote } : null;
+    }, [STARTER_FLOW_NOTE, STARTER_DRAFT_NOTE]);
+    expect(order && order.before === STARTER_FLOW_NOTE && order.count === 1, `the draft sentence sits after "${order?.before}", ${order?.count} of them`);
+    await keepText('Flow map, a starter draft');
+    // Edited and not saved: still the draft the server holds, so it still says so.
+    await content().getByRole('textbox', { name: 'Text', exact: true }).first().fill(DRAFT_EDIT);
+    expect(await page.getByText(UNSAVED, { exact: true }).isVisible(), `"${UNSAVED}" is not shown after editing the text`);
+    expect(await note.isVisible(), 'the sentence went before the edit was saved');
+    const posts = state.contentPosts.length;
+    await saveButton().click();
+    const saved = await waitUntil(async () => ((await statusTexts(page)).includes(SAVED_CONTENT) ? true : null), 5000);
+    expect(saved, `no Saved after Save: ${JSON.stringify(await statusTexts(page))}`);
+    const post = state.contentPosts[posts];
+    const mail = post?.body.nodes?.find(node => node.id === `${WELCOME}_email_0`);
+    expect(mail && mail.blocks.some(b => b.kind === 'text' && b.text === DRAFT_EDIT), `Save did not post the edited text: ${JSON.stringify(mail?.blocks)}`);
+    const gone = await waitUntil(async () => (!(await note.isVisible()) ? true : null), 5000);
+    expect(gone, 'the sentence still shows on email 1 after its edit was saved');
+    // Email 2 is still the draft, so it still says so: the mark is per email and comes from the server.
+    await page.click(`.react-flow__node[data-id="${WELCOME}_email_1"]`);
+    expect(await stepHeading('Email 2 of 3'), 'email 2 did not take the step heading');
+    const second = await waitUntil(async () => ((await note.isVisible()) ? true : null), 3000);
+    expect(second, 'email 2, still the draft, does not say so');
+    await shot('starter-draft-note');
+    // The steps after this one start from the seeds, as they did before this step existed.
+    state.accountSequences = {};
+    state.contentPosts = [];
+    return `email 1 said "${STARTER_DRAFT_NOTE}" under the starter note, kept it while edited, and lost it once Save posted the new text; email 2 still says it`;
   });
 
   await go('email-open', async () => {
@@ -1409,13 +1511,48 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     expect(off, `after Turn off the row reads "${(await rowOf(name))?.meta}"`);
     const sent = state.flowPosts.slice(posts);
     expect(JSON.stringify(sent) === JSON.stringify([{ id: STEP_FLOW, body: { enabled: true } }, { id: STEP_FLOW, body: { enabled: false } }]), `the switch sent ${JSON.stringify(sent)}`);
-    // A starter row has no switch, and says why in its own description.
-    const welcome = await rowOf('Welcome sequence');
-    expect(welcome && welcome.meta.endsWith(STARTER_NO_SWITCH), `the Welcome row reads "${welcome?.meta}"`);
-    const switches = await page.locator('button[aria-label$=" Welcome sequence"]').count();
-    expect(switches === 0, `${switches} switches for the Welcome row`);
     await keepText('All flows, switches');
-    return `Turn on and Turn off on ${name} sent ${JSON.stringify(sent.map(r => r.body))} to /api/email/flows/${STEP_FLOW}; held, the switch showed "${busy.text}" named "${busy.label}"; the Welcome row has no switch and ends "${STARTER_NO_SWITCH}"`;
+    return `Turn on and Turn off on ${name} sent ${JSON.stringify(sent.map(r => r.body))} to /api/email/flows/${STEP_FLOW}; held, the switch showed "${busy.text}" named "${busy.label}"`;
+  });
+
+  await go('starter-off', async () => {
+    // Wave 2: a starter flow turns off for this account, from its row and from the editor's header.
+    const name = 'Welcome sequence';
+    expect((await rowOf(name))?.meta.includes('· On ·'), `${name}'s row reads "${(await rowOf(name))?.meta}"`);
+    expect(!(await studioText(page)).includes(STARTER_NO_SWITCH), `the list still says "${STARTER_NO_SWITCH}"`);
+    const posts = state.contentPosts.length;
+    await page.getByRole('button', { name: `Turn off ${name}`, exact: true }).click();
+    const off = await waitUntil(async () => ((await rowOf(name))?.meta.includes('· Off ·') ? true : null), 5000);
+    expect(off, `after Turn off the row reads "${(await rowOf(name))?.meta}"`);
+    const sentOff = state.contentPosts.slice(posts);
+    expect(JSON.stringify(sentOff) === JSON.stringify([{ id: WELCOME, body: { enabled: false } }]), `Turn off sent ${JSON.stringify(sentOff)}`);
+    expect(await page.getByRole('button', { name: `Turn on ${name}`, exact: true }).isVisible(), 'the switch does not read Turn on once the row is Off');
+    const said = await waitUntil(async () => ((await statusTexts(page)).includes(starterOffSaid(name)) ? true : null), 3000);
+    expect(said, `the status says ${JSON.stringify(await statusTexts(page))}`);
+    await keepText('All flows, a starter flow off');
+    // The editor's header: Welcome is off there too, and Turn on there sends only { enabled: true }.
+    await flowRow(name).click();
+    expect(await stepHeading('Email 1 of 3'), 'the Welcome row did not open on email 1');
+    const header = page.locator(`[data-flow-header-switch="${WELCOME}"]`);
+    await header.waitFor({ state: 'visible' });
+    expect((await header.textContent()).trim() === 'Turn on', `the header switch reads "${(await header.textContent()).trim()}" on a flow that is off`);
+    // Wave 2 fix: the state is said in words beside the switch, which names only the action.
+    const headerState = page.locator(`[data-flow-header-state="${WELCOME}"]`);
+    const stateText = async () => ((await headerState.count()) ? (await headerState.textContent()).trim() : null);
+    expect((await stateText()) === 'Off for this account' && (await headerState.isVisible()), `beside the switch of a flow that is off: ${JSON.stringify(await stateText())}`);
+    const before = state.contentPosts.length;
+    await header.click();
+    const flipped = await waitUntil(async () => ((await header.textContent()).trim() === 'Turn off' ? true : null), 5000);
+    expect(flipped, `after Turn on the header switch reads "${(await header.textContent()).trim()}"`);
+    expect((await stateText()) === 'On for this account', `beside the switch once it is on: ${JSON.stringify(await stateText())}`);
+    const sentOn = state.contentPosts.slice(before);
+    expect(JSON.stringify(sentOn) === JSON.stringify([{ id: WELCOME, body: { enabled: true } }]), `the header switch sent ${JSON.stringify(sentOn)}`);
+    expect(!(await page.getByText(UNSAVED, { exact: true }).isVisible()), `"${UNSAVED}" shows after only turning the flow on`);
+    await keepText('Flow map, a starter flow turned on in the header');
+    await toFlowList();
+    const on = await waitUntil(async () => ((await rowOf(name))?.meta.includes('· On ·') ? true : null), 5000);
+    expect(on, `back on All flows the row reads "${(await rowOf(name))?.meta}"`);
+    return `Turn off ${name} sent ${JSON.stringify(sentOff[0].body)}, the row read Off and its switch Turn on, and the status said what happens to the people in it; the editor header said Off for this account beside Turn on, sent ${JSON.stringify(sentOn[0].body)} and said On for this account beside Turn off; the row reads On again`;
   });
 
   await go('panel-beside', async () => {
@@ -1515,7 +1652,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     }
     expect(buttons.length === 0, `the Flows list still has the buttons ${JSON.stringify(buttons)}`);
     const flows = await studioText(page);
-    const left = ['Shopify Abandoned Checkouts Queue', CHECKOUT_EMAIL].filter(t => flows.includes(t));
+    const left = ['Shopify Abandoned Checkouts Queue', CHECKOUT_EMAIL, STOPPED_CHECKOUT_EMAIL].filter(t => flows.includes(t));
     expect(left.length === 0, `the Flows list still shows ${JSON.stringify(left)}`);
     expect(await page.getByRole('button', { name: 'Refresh', exact: true }).count() === 1, 'Refresh left the Flows list');
     // Settings, Advanced: Send due emails now asks the server once and says what it did.
@@ -1541,6 +1678,15 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     await tab('Open checkouts').click();
     await page.getByRole('heading', { name: 'Shopify Abandoned Checkouts Queue', exact: true }).waitFor({ state: 'visible' });
     expect((await studioText(page)).includes(CHECKOUT_EMAIL), `Open checkouts does not list ${CHECKOUT_EMAIL}`);
+    // Wave 2 fix: a checkout stopped because Cart recovery was off says so, and never reads Pending.
+    const checkoutStatus = email => page.evaluate(address => {
+      const row = [...document.querySelectorAll('tr')].find(tr => [...tr.cells].some(td => (td.textContent || '').trim() === address));
+      return row ? (row.cells[row.cells.length - 2]?.textContent || '').trim() : null;
+    }, email);
+    const pendingSays = await checkoutStatus(CHECKOUT_EMAIL);
+    const stoppedSays = await checkoutStatus(STOPPED_CHECKOUT_EMAIL);
+    expect(pendingSays === 'Pending', `the pending checkout's status reads ${JSON.stringify(pendingSays)}`);
+    expect(stoppedSays === 'Stopped, flow turned off', `the checkout stopped because Cart recovery was off reads ${JSON.stringify(stoppedSays)}`);
     await keepText('Audience, Open checkouts');
     await shot('nav-checkouts');
     return `Flows list holds none of ${['Run Queue Tick', 'Send due emails now', 'the checkouts table'].join(', ')} and keeps Refresh; Send due emails now posted once and said "${said}"; Webhooks opened and closed; Open checkouts lists ${CHECKOUT_EMAIL}`;

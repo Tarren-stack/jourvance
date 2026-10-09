@@ -37,7 +37,8 @@ export interface FlowListInput {
   kind: string;
   enabled?: boolean;
   trigger?: string;
-  nodes?: { id: string; type: string }[];
+  /** Wave 2: `starterDraft` marks a starter email the server reports as still the seeded draft. */
+  nodes?: { id: string; type: string; starterDraft?: boolean }[];
   enrolled?: number | null;
 }
 
@@ -53,16 +54,21 @@ export interface FlowRow {
   on: boolean;
   /** Counted from the flow's own steps. */
   emails: number;
+  /**
+   * Wave 2: how many of its emails the server marks as still the starter draft, which the sender skips.
+   * Counted from the marks, so the list never reads an email's words.
+   */
+  drafts: number;
   /** What the server measured, or null. Printed through statText, so null reads Unavailable. */
   enrolled: number | null;
   /** The step the row opens on (D3: its first email), or '' for a flow with no email. */
   firstEmailId: string;
   /**
-   * How the list turns this flow on or off: 'flow' through POST /api/email/flows/:id (an account's own
-   * flow), the other two as the kind POST /api/email/programs/:id takes. Null for a starter flow, which
-   * has no switch (the server sends it as always on).
+   * How the list turns this flow on or off (switchRequest): 'flow' through POST /api/email/flows/:id (an
+   * account's own flow), 'sequence' through POST /api/email/flow-content/:id (a starter flow, on this
+   * account only, Wave 2), the other two as the kind POST /api/email/programs/:id takes.
    */
-  toggleKind: 'flow' | 'automation' | 'transactional' | null;
+  toggleKind: 'flow' | 'automation' | 'transactional' | 'sequence';
 }
 
 /**
@@ -133,19 +139,49 @@ export function flowRows(flows: unknown, triggers: unknown): FlowRow[] {
       tag: FLOW_TAGS[kind],
       group: kind === 'order' ? 'order' : 'flows',
       startsWhen: startsWhenText(flow.trigger, words),
-      // A starter flow has no switch until Wave 2, and the server sends it as on.
+      // A starter flow is on unless this account turned it off (the server sends its own switch).
       on: kind === 'sequence' ? flow.enabled !== false : flow.enabled === true,
       emails: emailCount(nodes),
+      drafts: nodes.filter((node) => node && SENDS_AN_EMAIL.has(node.type) && node.starterDraft === true).length,
       enrolled: typeof flow.enrolled === 'number' && Number.isFinite(flow.enrolled) ? flow.enrolled : null,
       firstEmailId: nodes.find((node) => node && SENDS_AN_EMAIL.has(node.type))?.id || '',
-      toggleKind: kind === 'flow' ? 'flow' : kind === 'automation' ? 'automation' : kind === 'order' ? 'transactional' : null
+      toggleKind: kind === 'flow' ? 'flow' : kind === 'automation' ? 'automation' : kind === 'order' ? 'transactional' : 'sequence'
     });
   }
   return rows;
 }
 
-/** Said where a starter row's switch would be, so the rows that cannot be turned off say why. */
-export const STARTER_NO_SWITCH = 'Always on. A starter flow cannot be turned off.';
+/**
+ * Where a row's Turn on or Turn off is sent and what it sends: only whether the flow is on, plus the
+ * kind POST /api/email/programs/:id needs, never its steps, so a stale list cannot overwrite an edit
+ * made in the editor. A starter flow is switched for this account only (Wave 2).
+ */
+export function switchRequest(row: Pick<FlowRow, 'id' | 'toggleKind'>, next: boolean): { url: string; body: Record<string, unknown> } {
+  const id = encodeURIComponent(row.id);
+  if (row.toggleKind === 'flow') return { url: `/api/email/flows/${id}`, body: { enabled: next } };
+  if (row.toggleKind === 'sequence') return { url: `/api/email/flow-content/${id}`, body: { enabled: next } };
+  return { url: `/api/email/programs/${id}`, body: { kind: row.toggleKind, enabled: next } };
+}
+
+/** D6: what the step panel says on a starter email the server reports as still the seeded draft. */
+export const STARTER_DRAFT_NOTE = 'This email is still the starter draft, so it is skipped and not sent. Edit it and save to send it.';
+
+/**
+ * Wave 2: what a row says when some of its emails are still the starter draft, so a flow that reads On
+ * while the sender skips its emails says so on the list, not only inside the editor.
+ */
+export function draftCountText(count: number): string {
+  return count === 1 ? '1 is still the starter draft, so it is not sent' : `${count} are still starter drafts, so they are not sent`;
+}
+
+/**
+ * Wave 2: what Turn off says for a starter flow. Nobody new joins it (every enrollment point asks), and
+ * the sender takes out anyone whose next email comes due while it is off (server.mjs
+ * processUserAutomationsTick, the drip enrolments and the cart reminders), so Turn on sends no backlog.
+ */
+export function starterOffNotice(name: string): string {
+  return `${name} is off. Nobody new joins it, and anyone already in it whose next email comes due while it is off leaves it, so turning it back on sends nothing they missed.`;
+}
 
 /**
  * A row's Turn on or Turn off: the word on the button, and its accessible name, which begins with

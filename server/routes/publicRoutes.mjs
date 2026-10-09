@@ -141,6 +141,9 @@ const pushKlaviyoContact = (...args) => (getCtx().pushKlaviyoContact ? getCtx().
 const klaviyoRow = (uid) => (getCtx().klaviyoRow ? getCtx().klaviyoRow(uid) : null);
 const writeKlaviyoRow = (uid, row) => (getCtx().writeKlaviyoRow ? getCtx().writeKlaviyoRow(uid, row) : undefined);
 const klaviyoIsSender = (uid) => (getCtx().klaviyoIsSender ? getCtx().klaviyoIsSender(uid) : false);
+// Wave 2: an account can turn a starter flow off; every enrollment into a shared sequence asks first.
+// With no helper on the context, a flow reads as on, which is how it behaved before the switch.
+const starterFlowOnFor = (uid, seqId) => (getCtx().starterFlowOnFor ? getCtx().starterFlowOnFor(uid, seqId) : true);
 const deliverLetter = (...args) => (getCtx().deliverLetter ? getCtx().deliverLetter(...args) : Promise.resolve({ ok: false }));
 const noteSegmentChanges = (...args) => (getCtx().noteSegmentChanges ? getCtx().noteSegmentChanges(...args) : Promise.resolve());
 const verifyConfirmToken = (token) => (getCtx().verifyConfirmToken ? getCtx().verifyConfirmToken(token) : null);
@@ -4625,7 +4628,7 @@ app.post('/api/public/lead', async (req, res) => {
   try {
     const dripsData = loadDrips();
     const activeSeq = dripsData.sequences.find(s => s.triggerType === (exitIntent ? 'exit_intent' : 'lead_capture'));
-    if (activeSeq && !(doubleOpt && contact.acceptsMarketing !== true) && !(page?.userId && klaviyoIsSender(page.userId))) {
+    if (activeSeq && starterFlowOnFor(page?.userId || '', activeSeq.id) && !(doubleOpt && contact.acceptsMarketing !== true) && !(page?.userId && klaviyoIsSender(page.userId))) {
       const alreadyActive = dripsData.enrollments.some(e => e.customerEmail === contact.email && e.sequenceId === activeSeq.id && e.status === 'active' && (!e.userId || e.userId === (page?.userId || '')));
       if (!alreadyActive) {
         const enrollment = {
@@ -4894,7 +4897,7 @@ app.get('/api/public/form-confirm/:token', async (req, res) => {
     const dripsData = loadDrips();
     const activeSeq = dripsData.sequences.find((seq) => seq.triggerType === 'lead_capture');
     const already = dripsData.enrollments.some((row) => row.customerEmail === contact.email && row.sequenceId === activeSeq?.id && row.status === 'active' && (!row.userId || row.userId === parsed.uid));
-    if (activeSeq && !already && !klaviyoIsSender(parsed.uid)) {
+    if (activeSeq && !already && starterFlowOnFor(parsed.uid, activeSeq.id) && !klaviyoIsSender(parsed.uid)) {
       dripsData.enrollments.unshift({
         id: `enr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         sequenceId: activeSeq.id,
@@ -5009,7 +5012,7 @@ app.post('/api/public/upsell-action', async (req, res) => {
 
       if (action === 'decline' && !klaviyoIsSender(targetUid)) {
         const recoverySeq = dripsData.sequences.find(s => s.triggerType === 'upsell_recovery');
-        if (recoverySeq) {
+        if (recoverySeq && starterFlowOnFor(targetUid, recoverySeq.id)) {
           const alreadyActive = dripsData.enrollments.some(e => 
             e.customerEmail && e.customerEmail.toLowerCase() === customerEmail.toLowerCase() &&
             e.sequenceId === recoverySeq.id && e.status === 'active'

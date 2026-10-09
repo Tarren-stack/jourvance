@@ -193,7 +193,9 @@ function withoutWait(graph, wait) {
   return graph;
 }
 
-test('a wait taken out from between two emails is refused, because the senders read a stored 0 as 24 hours', () => {
+// The senders read a stored 0 as 24 hours when this was written; since Wave 2 a stored 0 is 0 hours
+// (storedWaitHours, starter-drafts.test.mjs). The refusal stands: a starter or built-in flow's steps stay fixed.
+test('a wait taken out from between two emails is refused, because a starter or built-in flow keeps its steps', () => {
   const { seq, graph } = welcomeGraph();
   const read = stepsFromChain(withoutWait(graph, waits(graph)[0]), seq.steps);
   assert.equal(read.ok, false, `the wait before Welcome's email 2 was taken out and the save went through: ${JSON.stringify(read.steps?.map((step) => step.delayHours))}`);

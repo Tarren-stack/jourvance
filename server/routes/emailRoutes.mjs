@@ -101,7 +101,8 @@ export function setupEmailRoutes(app, ctx) {
     smartSendConflict,
     assignSmartSend,
     sequenceRevenue,
-    sequenceStepsFor
+    sequenceStepsFor,
+    starterFlowOnFor
   } = ctx;
 
 // ── Hub Email Suite Routes ──
@@ -1514,6 +1515,10 @@ app.post('/api/drips/enroll', requireUser, async (req, res) => {
   const seq = dripsData.sequences.find(s => s.id === (sequenceId || 'drip_seq_default')) || dripsData.sequences[0];
   if (!seq) {
     return res.status(404).json({ success: false, error: 'Drip sequence not found.' });
+  }
+  // Wave 2: a starter flow this account turned off takes nobody, by hand either.
+  if (!starterFlowOnFor(req.user.uid, seq.id)) {
+    return res.status(409).json({ success: false, error: 'That flow is turned off for this account, so nobody was added. Turn it on in Email Studio, Flows, first.' });
   }
 
   const alreadyActive = dripsData.enrollments.find(e => e.customerEmail === customerEmail.toLowerCase().trim() && e.sequenceId === seq.id && e.status === 'active');

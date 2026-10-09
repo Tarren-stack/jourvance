@@ -33,7 +33,8 @@ export const FLOW_MAP_WRITE_UNREACHABLE = {
   remove: 'The server did not answer, so this flow may not be deleted.',
   enroll: 'The server did not answer, so this email may not be enrolled.',
   suppress: 'The server did not answer, so unengaged people may not be suppressed.',
-  content: 'The server did not answer, so these emails may not be saved.'
+  content: 'The server did not answer, so these emails may not be saved.',
+  enabled: 'The server did not answer, so this flow may not be turned on or off.'
 } as const;
 
 export type FlowMapWrite = keyof typeof FLOW_MAP_WRITE_UNREACHABLE;

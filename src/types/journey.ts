@@ -569,16 +569,23 @@ export interface DripEnrollment {
   offerType?: 'upsell' | 'downsell';
   discountCode?: string;
   currentStepIndex: number;
-  status: 'active' | 'completed' | 'converted_exit';
+  // 'stopped': taken out by the sender (Wave 2: its starter flow was turned off, stoppedReason 'flow_off').
+  status: 'active' | 'completed' | 'converted_exit' | 'stopped';
+  stoppedAt?: string;
+  stoppedReason?: string;
   enrolledAt: string;
   nextStepDueAt: string;
   lastStepSentAt?: string;
   convertedAt?: string;
+  // As server.mjs's drip sender writes it: a sent or failed email, or a skipped starter draft (Wave 2).
   history: Array<{
     stepNumber: number;
     subject: string;
-    sentAt: string;
-    status: 'delivered' | 'bounced';
+    sentAt?: string;
+    skippedAt?: string;
+    status: 'sent' | 'failed' | 'skipped';
+    reason?: string;
+    error?: string;
   }>;
 }
 
@@ -709,7 +716,9 @@ export interface ShopifyAbandonedCheckout {
   lineItems: Array<{ title: string; quantity: number; price: number }>;
   abandonedCheckoutUrl: string;
   abandonedAt: string;
-  recoveryStatus: 'pending' | 'email_sent' | 'recovered' | 'expired';
+  // 'stopped': no reminder goes (stoppedReason 'flow_off' when the Cart recovery flow was turned off, Wave 2).
+  recoveryStatus: 'pending' | 'email_sent' | 'recovered' | 'expired' | 'stopped';
+  stoppedReason?: string;
   recoveryEmailSentAt?: string;
   recoveredAt?: string;
   recoveredOrderId?: string;

@@ -4,6 +4,77 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-08. DEPLOYED: jourvance.com serves 4b1cf75 (the motion pass, the countdown dip removed, on top of the lead-capture fix, the Sentinel and the page builder Waves 0 to 3). Render reported it live and the two earlier deploys deactivated; the Sentinel, policy and lead probes answer as before. A bundle fingerprint for the motion code was inconclusive (no lazy chunk names found), not failed. Read the newest section first.
 
+## 2026-10-08: Email Studio, Wave 2: unedited starter drafts are skipped, a starter flow can be turned off
+
+**Owner decision (2026-10-08, "wave 2 go"):** plan question 1 answered yes. A starter email still in
+its seeded placeholder words is never sent.
+
+**Not done first.** No screen reader was used. The server changes were driven by slicing the
+sender and the route out of `server.mjs` into tests on a bare Express app, never in a booted
+server. Open after this wave: a manual enrol refused because the flow is off (409) shows nothing
+in the customer drawer (`CustomerProfileDrawer.tsx`, read, not changed); the Flows list intro
+still says "Starter flows run for every new lead or checkout." although a starter flow can now be
+off (pinned by `email-studio-open.test.mjs`, left for Wave 6); INFERRED by the fix agent and not
+run: the drip loop stops for every enrolment when Klaviyo is the sender before it reaches the
+off check, so a flow turned off under Klaviyo and turned on after switching the sender back could
+send the emails that came due in between.
+
+**A decision made in the fix round, for the owner to confirm:** the plan was silent on people
+already in a starter flow when it is turned off. The agent copied the rule built-in flows already
+follow: an enrolment whose email comes due while the flow is off is taken out of the flow
+(`status: 'stopped'`, `stoppedReason: 'flow_off'`), so Turn on never sends a backlog. One not yet
+due when the flow is turned back on continues as before. The two hard-coded checkout reminders
+inside the drip tick (a second sender for cart recovery that no enrolment point covers) now ask
+the same switch and stop the checkout the same way.
+
+**What Wave 2 ships** (built by Opus, verified by Sonnet, two Sonnet review lenses, an Opus fix
+round; the main session read the `server.mjs` diff):
+
+- `email-flow-content.mjs`: `isStarterDraft(step)` is true only when the email the sender would
+  send (the account's blocks when they hold content, otherwise the shared body) is one of the five
+  seeded placeholders, tags and spacing ignored, subject never read; `starterFlowOn(bag, id)` is
+  off only when the account stored `enabled: false`; `storedWaitHours` reads a stored 0 as 0 hours
+  and only an absent or non-numeric wait as 24; `cleanAccountSequences` keeps `enabled`.
+- The drip sender skips a draft step with a history row (`status: 'skipped'`, `reason:
+  'starter_draft'`), moves the enrolment on after that step's own wait, and counts nothing as
+  sent; sent and skipped steps advance through one helper. A missing history list (the
+  auto-winback enrolment is written without one) no longer throws after delivery.
+- `starterFlowOnFor(uid, seqId)` guards every enrolment write found: `server.mjs` (auto-winback),
+  `publicRoutes.mjs` (lead capture, double opt-in confirm, upsell decline), `shopifyRoutes.mjs`
+  (checkout, fulfilment review) and `emailRoutes.mjs` (`POST /api/drips/enroll`, which answers
+  409 when the flow is off). Seven in all; the plan's seventh (`server.mjs` near 3264) enrols
+  nobody and the manual enrol route was the one it missed.
+- `POST /api/email/flow-content/:id` takes `{ enabled }` alone for a starter flow (any other key
+  beside it, a non-boolean, a built-in or order flow is 400 and writes nothing; a foreign id is the
+  same 404) and writes through `writeUserPrograms` with `{ sequences: true }`, keeping the stored
+  steps.
+- The flow-map row carries the account's `enabled` and marks each draft email node
+  `starterDraft: true`; the client never reads the words. Every Flows row has a real Turn on and
+  Turn off; a starter row reads Off when off and says how many of its emails are still drafts;
+  the editor header has the same switch with "On for this account" or "Off for this account";
+  the step panel shows "This email is still the starter draft, so it is skipped and not sent.
+  Edit it and save to send it." until the email is edited and saved. The people table counts only
+  rows with `status: 'sent'`.
+
+**Checks the main session re-ran** (VERIFIED, exit codes read directly, one after another):
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npm test` | 2612 tests, 2609 pass, 0 fail, 3 skipped (the live-server tests, `JOURVANCE_LIVE_TEST_URL` unset); exit 0 |
+| `node scripts/email-studio-browser-check.mjs` | 34 of 34 steps, exit 0 |
+| `node scripts/builder-browser-check.mjs` | 40 of 40 steps, exit 0 |
+| `npx vite build` | exit 0 |
+
+**Reported by the agents, not re-run by the main session:** the planted reds (subject-only
+matching, a removed enrolment guard, the sender slice without the skip, the `|| 24` line, the
+browser steps `starter-draft-note` and `starter-off`, and the fix round's five browser plants,
+each restored and confirmed with `cmp`; one plant was restored by re-inserting the line and then
+confirmed with `cmp`); the two review lenses (2 majors, 6 minors: both majors fixed, four minors
+fixed, one refuted, one covered by the major fix).
+
+---
+
 ## 2026-10-08: Email Studio, Waves 3 and 4: five destinations, one Flows list, the editor beside the map
 
 **Not done first.** This entry was written in the commit after a90f6bb, not in it: the insert script stopped on another session's new section and the commit went ahead without it. No screen reader was used (DOM and Chrome only). The server changes were

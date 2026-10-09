@@ -11,10 +11,11 @@ import { cleanBlockList } from './email-doc.mjs';
 import { FLOW_LIMIT, TRIGGER_META, cleanFlow as cleanFlowGraph, isIanaTimezone, isPredictionKey } from './email-flows.mjs';
 import { cleanLists, cleanSegments } from './audience.mjs';
 import { cleanAttributionWindows } from './email-feeds.mjs';
-import { cleanAccountSequences, mergeAccountSteps } from './email-flow-content.mjs';
+import { ACCOUNT_SEQUENCE_LIMIT, cleanAccountSequences, emailHasContent, isStarterDraft, mergeAccountSteps, starterFlowOn, storedWaitHours } from './email-flow-content.mjs';
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 import {
-  FLOW_CONTENT_EMPTY, FLOW_CONTENT_NO_SUBJECT, FLOW_CONTENT_NOT_FOUND, FLOW_CONTENT_SHAPE, FLOW_CONTENT_WAIT, ORDER_EMAIL_NO_WAIT, firstWaitFixed, setupEmailFlowContentRoutes
+  FLOW_CONTENT_EMPTY, FLOW_CONTENT_NO_SUBJECT, FLOW_CONTENT_NOT_FOUND, FLOW_CONTENT_SHAPE, FLOW_CONTENT_WAIT, FLOW_SWITCH_ALONE, FLOW_SWITCH_FULL,
+  FLOW_SWITCH_NOT_BOOLEAN, FLOW_SWITCH_STARTER_ONLY, ORDER_EMAIL_NO_WAIT, firstWaitFixed, setupEmailFlowContentRoutes
 } from './server/routes/emailFlowContentRoutes.mjs';
 
 const SERVER_SRC = fs.readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
@@ -35,6 +36,7 @@ function loadServer(initialStore) {
   const build = new Function(
     'state', 'cleanBlockList', 'FLOW_LIMIT', 'cleanFlowGraph', 'isIanaTimezone', 'isPredictionKey',
     'cleanLists', 'cleanSegments', 'cleanAttributionWindows', 'cleanAccountSequences', 'mergeAccountSteps',
+    'isStarterDraft', 'starterFlowOn',
     `
     function loadProgramStore() { return state.store; }
     function saveProgramStore(store) { state.saves += 1; state.store = JSON.parse(JSON.stringify(store)); }
@@ -64,7 +66,8 @@ function loadServer(initialStore) {
     `
   );
   const server = build(state, cleanBlockList, FLOW_LIMIT, cleanFlowGraph, isIanaTimezone, isPredictionKey,
-    cleanLists, cleanSegments, cleanAttributionWindows, cleanAccountSequences, mergeAccountSteps);
+    cleanLists, cleanSegments, cleanAttributionWindows, cleanAccountSequences, mergeAccountSteps,
+    isStarterDraft, starterFlowOn);
   return { server, state };
 }
 
@@ -805,4 +808,386 @@ test('an order send records only its own key, onto the record as it reads after 
     await programs.close();
     await s.close();
   }
+});
+
+// ---- Wave 2: Turn on and Turn off for a starter flow, on this account only ----
+
+test('Turn off and Turn on: a starter flow is switched for this account only, and its stored emails stay', async () => {
+  const mine = { id: 'step_2', subject: 'Mine', previewText: 'My preview', delayHours: 24, blocks: [{ id: 'm', kind: 'text', text: 'My words' }] };
+  const s = await serve({ store: { u1: { sequences: { drip_seq_default: { steps: [mine] } } }, u2: U2_RECORD } });
+  try {
+    const u2Before = clone(s.state.store.u2);
+    // As the record reads (cleaned), which is what every write stores.
+    const stepsBefore = clone(s.server.userProgramBag('u1').sequences.drip_seq_default.steps);
+    assert.equal(stepsBefore[0].subject, 'Mine');
+    const off = await s.post('drip_seq_default', { enabled: false });
+    assert.equal(off.status, 200, JSON.stringify(off.body));
+    assert.equal(off.body.success, true);
+    assert.equal(off.body.flow.enabled, false);
+    assert.equal(s.state.store.u1.sequences.drip_seq_default.enabled, false);
+    assert.deepEqual(s.state.store.u1.sequences.drip_seq_default.steps, stepsBefore, 'the switch rewrote the stored emails');
+    // The answer is the row the record now reads; another account and the shared copy are untouched.
+    assert.deepEqual(off.body.flow, mapRow(s.server, 'drip_seq_default'));
+    assert.deepEqual(s.state.store.u2, u2Before);
+    assert.deepEqual(s.dripData, s.dripSnapshot);
+    assert.equal(mapRow(s.server, 'drip_seq_default', 'u2').enabled, true, 'another account still has it on');
+
+    // An emails save made while it is off keeps it off, and an unrelated save (a tick) does too.
+    const row = mapRow(s.server, 'drip_seq_default');
+    emails(row)[0].subject = 'Edited while off';
+    const saved = await s.post('drip_seq_default', { nodes: row.nodes, edges: row.edges });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(saved.body.flow.enabled, false);
+    assert.equal(s.state.store.u1.sequences.drip_seq_default.enabled, false, 'an emails save turned it back on');
+    s.server.writeUserPrograms('u1', s.server.userProgramBag('u1'));
+    assert.equal(s.state.store.u1.sequences.drip_seq_default.enabled, false, 'an unrelated save turned it back on');
+    const before = clone(s.state.store.u1.sequences.drip_seq_default.steps);
+
+    const on = await s.post('drip_seq_default', { enabled: true });
+    assert.equal(on.status, 200, JSON.stringify(on.body));
+    assert.equal(on.body.flow.enabled, true);
+    assert.deepEqual(s.state.store.u1.sequences.drip_seq_default.steps, before, 'Turn on rewrote the stored emails');
+    assert.notEqual(s.state.store.u1.sequences.drip_seq_default.enabled, false);
+
+    // A starter flow with no emails of its own: off is a row holding only that, and on leaves no row.
+    assert.equal((await s.post('drip_seq_cart_recovery', { enabled: false })).status, 200);
+    assert.deepEqual(s.state.store.u1.sequences.drip_seq_cart_recovery, { steps: [], enabled: false });
+    assert.equal(mapRow(s.server, 'drip_seq_cart_recovery').enabled, false);
+    assert.equal((await s.post('drip_seq_cart_recovery', { enabled: true })).status, 200);
+    assert.equal(s.state.store.u1.sequences.drip_seq_cart_recovery, undefined);
+    assert.equal(mapRow(s.server, 'drip_seq_cart_recovery').enabled, true);
+  } finally { await s.close(); }
+});
+
+test('Turn on and Turn off refuses a non-boolean, a foreign or missing id, other kinds and emails sent with it; nothing is written', async () => {
+  const s = await serve({ store: { u2: U2_RECORD } });
+  try {
+    const storeBefore = clone(s.state.store);
+    for (const bad of ['false', 'true', 0, 1, null, {}, []]) {
+      const res = await s.post('drip_seq_default', { enabled: bad });
+      assert.equal(res.status, 400, JSON.stringify(bad));
+      assert.deepEqual(res.body, { success: false, error: FLOW_SWITCH_NOT_BOOLEAN }, JSON.stringify(bad));
+    }
+    const foreign = await s.post(FOREIGN.id, { enabled: false }, 'u1');
+    const missing = await s.post('drip_seq_does_not_exist', { enabled: false }, 'u1');
+    const accountFlow = await s.post('flow_abc123', { enabled: false }, 'u1');
+    assert.equal(foreign.status, 404);
+    assert.deepEqual(foreign.body, { success: false, error: FLOW_CONTENT_NOT_FOUND });
+    assert.deepEqual(foreign, missing, 'a foreign sequence and a missing id answer alike');
+    assert.deepEqual(accountFlow, missing);
+    for (const id of ['post_purchase', 'winback', 'order_confirmation']) {
+      assert.deepEqual(await s.post(id, { enabled: false }), { status: 400, body: { success: false, error: FLOW_SWITCH_STARTER_ONLY } }, id);
+    }
+    const row = mapRow(s.server, 'drip_seq_default');
+    assert.deepEqual(await s.post('drip_seq_default', { enabled: false, nodes: row.nodes, edges: row.edges }), { status: 400, body: { success: false, error: FLOW_SWITCH_ALONE } });
+    // Anything else beside `enabled` is refused too, never quietly dropped with a 200.
+    for (const extra of [{ steps: [{ x: 1 }] }, { nodes: [] }, { edges: [] }, { appId: 'u2' }, { kind: 'sequence' }, { enabledAt: 'now' }]) {
+      assert.deepEqual(await s.post('drip_seq_default', { enabled: false, ...extra }), { status: 400, body: { success: false, error: FLOW_SWITCH_ALONE } }, JSON.stringify(extra));
+    }
+    assert.doesNotMatch(FLOW_SWITCH_ALONE, /\u2014| \u2013 /);
+    assert.equal(s.state.saves, 0);
+    assert.deepEqual(s.state.store, storeBefore);
+    assert.deepEqual(s.dripData, s.dripSnapshot);
+    // Its owner can switch it (the positive control for the 404 above).
+    const own = await s.post(FOREIGN.id, { enabled: false }, 'u2');
+    assert.equal(own.status, 200, JSON.stringify(own.body));
+    assert.equal(s.state.store.u2.sequences[FOREIGN.id].enabled, false);
+    assert.equal(s.state.store.u1, undefined);
+  } finally { await s.close(); }
+});
+
+test('Turn off is refused, never dropped, when the account already keeps rows for the most starter flows', async () => {
+  const full = {};
+  for (let i = 0; i < ACCOUNT_SEQUENCE_LIMIT; i++) full[`held_${i}`] = { steps: [{ id: 'step_1', subject: 'S', blocks: [{ id: 'b', kind: 'text', text: 'x' }] }] };
+  const s = await serve({ store: { u1: { sequences: full } } });
+  try {
+    const before = clone(s.state.store);
+    assert.deepEqual(await s.post('drip_seq_default', { enabled: false }), { status: 400, body: { success: false, error: FLOW_SWITCH_FULL } });
+    assert.deepEqual(s.state.store, before);
+    assert.equal(mapRow(s.server, 'drip_seq_default').enabled, true);
+  } finally { await s.close(); }
+});
+
+// ---- Wave 2: the drip sender, server.mjs's own processUserAutomationsTick, sliced out and run ----
+
+function dripSender(server, drips, { contacts = [], rfm = {}, hubReady = true, checkouts = [] } = {}) {
+  const clock = { now: Date.parse('2026-10-08T12:00:00.000Z') };
+  class At extends Date {
+    constructor(...args) { super(...(args.length ? args : [clock.now])); }
+    static now() { return clock.now; }
+  }
+  const sent = [];
+  const saves = { drips: 0, checkouts: 0 };
+  const deps = {
+    Date: At,
+    DEFAULT_RFM_CONFIG: {},
+    catalogFor: () => [],
+    cleanRfmConfig: () => ({ autoWinbackEnabled: false, atRiskDays: 90, lapsedDays: 180, ...rfm }),
+    composeForSend: async (_uid, _contact, blocks) => ({ text: blocks.map((b) => b.text || '').join('\n'), html: '<p></p>', vars: {}, blocks }),
+    composeLetter: () => ({ text: '', html: '', vars: {} }),
+    contactOwnerId: (c) => c.userId,
+    deliverLetter: async (mail) => { sent.push({ ...mail, at: new At().toISOString() }); return { ok: true, status: 'sent' }; },
+    emailHasContent,
+    fillMailTokens: (text) => text,
+    hubReady,
+    isFixtureEnrollment: () => false,
+    isStarterDraft,
+    klaviyoIsSender: () => false,
+    loadCheckouts: () => checkouts,
+    loadContacts: () => contacts,
+    loadDrips: () => drips,
+    loadEvents: () => [],
+    loadOrders: () => [],
+    personFields: (name) => ({ first_name: String(name || '').split(' ')[0] }),
+    processAccountAutomations: async () => ({ sent: 0, failed: 0, active: 0 }),
+    processDueCampaigns: async () => ({ sent: 0 }),
+    publicBase: () => 'https://jv.test',
+    realStoreDomain: () => '',
+    refreshPredictionsIfDue: async () => {},
+    rememberRedirectsBatch: () => {},
+    renderLineItemCardsHtml: () => '',
+    resolveCheckoutRecoveryUrl: () => '',
+    reviewUrlFor: () => '/review',
+    saveCheckouts: () => { saves.checkouts += 1; },
+    saveContacts: () => {},
+    saveDrips: () => { saves.drips += 1; },
+    sequenceStepsFor: server.sequenceStepsFor,
+    starterFlowOn,
+    starterFlowOnFor: (uid, id) => starterFlowOn(server.userProgramBag(uid), id),
+    storedWaitHours,
+    syncContactRfmTags: () => false,
+    userProgramBag: server.userProgramBag,
+    workspaceCache: {}
+  };
+  const names = Object.keys(deps);
+  const tick = new Function(...names, `${slice('async function processUserAutomationsTick(uid) {', '\n}\n')}\nreturn processUserAutomationsTick;`)(...names.map((n) => deps[n]));
+  return { tick, sent, clock, saves };
+}
+
+const HOUR = 3600000;
+const enrollment = (sequenceId, extra = {}) => ({
+  id: `enr_${sequenceId}`, sequenceId, userId: 'u1', customerEmail: 'reader@example.test', customerName: 'Reader',
+  currentStepIndex: 0, status: 'active', enrolledAt: '2026-10-01T00:00:00.000Z', nextStepDueAt: '2026-10-08T11:00:00.000Z', history: [], ...extra
+});
+
+test('the sender skips an unedited starter draft: a history row, no send, and the next step after its wait', async () => {
+  const { server, state } = loadServer({});
+  const drips = { sequences: clone(server.INITIAL_DRIP_SEQUENCES), enrollments: [enrollment('drip_seq_default')] };
+  const { tick, sent, clock } = dripSender(server, drips);
+  const enr = drips.enrollments[0];
+  const welcome = drips.sequences.find((seq) => seq.id === 'drip_seq_default');
+
+  const first = await tick('u1');
+  assert.equal(sent.length, 0, `a starter draft was sent: ${JSON.stringify(sent.map((m) => m.subject))}`);
+  assert.equal(first.processedCount, 0, 'a skipped draft was counted as sent');
+  assert.deepEqual(enr.history, [{ stepNumber: 1, subject: welcome.steps[0].subject, skippedAt: new Date(clock.now).toISOString(), status: 'skipped', reason: 'starter_draft' }]);
+  assert.equal(enr.currentStepIndex, 1);
+  assert.equal(enr.status, 'active');
+  assert.equal(enr.lastStepSentAt, undefined);
+  assert.equal(enr.nextStepDueAt, new Date(clock.now + 24 * HOUR).toISOString(), 'the next step waits its own 24 hours');
+
+  // The merchant rewrites email 2 and saves it: it is not a draft, so it goes, in the account's words.
+  const bag = server.userProgramBag('u1');
+  bag.sequences = { drip_seq_default: { steps: [{ id: 'step_2', subject: 'A real second note', previewText: '', delayHours: 24, blocks: [{ id: 'r', kind: 'text', text: 'Hey {{first_name}},\n\nHere is something true.' }] }] } };
+  server.writeUserPrograms('u1', bag, { sequences: true });
+  clock.now += 24 * HOUR;
+  const second = await tick('u1');
+  assert.deepEqual(sent.map((m) => m.subject), ['A real second note']);
+  assert.equal(second.processedCount, 1);
+  assert.equal(enr.history[1].status, 'sent');
+  assert.equal(enr.currentStepIndex, 2);
+  assert.equal(enr.nextStepDueAt, new Date(clock.now + 48 * HOUR).toISOString());
+
+  // Email 3 is still the draft: skipped, and the flow completes with nothing more sent.
+  clock.now += 48 * HOUR;
+  const third = await tick('u1');
+  assert.equal(sent.length, 1, 'email 3, a draft, was sent');
+  assert.equal(third.processedCount, 0);
+  assert.equal(third.completedCount, 1);
+  assert.equal(enr.status, 'completed');
+  assert.deepEqual(enr.history.map((row) => row.status), ['skipped', 'sent', 'skipped']);
+  assert.equal(enr.history.filter((row) => row.status === 'sent').length, 1);
+  assert.equal(state.store.u1.sequences.drip_seq_default.steps.length, 1, 'the tick wrote the account record');
+});
+
+test('a flow whose every email is a draft completes without sending anything', async () => {
+  const { server } = loadServer({});
+  const drips = { sequences: clone(server.INITIAL_DRIP_SEQUENCES), enrollments: [enrollment('drip_seq_default')] };
+  const { tick, sent, clock } = dripSender(server, drips);
+  const welcome = drips.sequences.find((seq) => seq.id === 'drip_seq_default');
+  const completedBefore = welcome.totalCompleted || 0;
+  let processed = 0;
+  for (let i = 0; i < 3; i++) {
+    const result = await tick('u1');
+    processed += result.processedCount;
+    clock.now += 72 * HOUR;
+  }
+  const enr = drips.enrollments[0];
+  assert.equal(sent.length, 0);
+  assert.equal(processed, 0);
+  assert.equal(enr.status, 'completed');
+  assert.deepEqual(enr.history.map((row) => [row.stepNumber, row.status, row.reason]), [[1, 'skipped', 'starter_draft'], [2, 'skipped', 'starter_draft'], [3, 'skipped', 'starter_draft']]);
+  assert.equal(welcome.totalCompleted, completedBefore + 1);
+});
+
+test('a stored wait of 0 is 0 hours; only an absent wait is 24', async () => {
+  const { server } = loadServer({});
+  // A sequence made through POST /api/drips/sequences can store 0 after the first step, and none at all.
+  const made = {
+    id: 'drip_seq_made', userId: 'u1', name: 'Made', triggerType: 'lead_capture', smartExitOnPurchase: false,
+    steps: [
+      { id: 's1', stepNumber: 1, delayHours: 0, subject: 'One', previewText: '', body: 'The first real note.', discountVoucher: '' },
+      { id: 's2', stepNumber: 2, delayHours: 0, subject: 'Two', previewText: '', body: 'The second real note.', discountVoucher: '' },
+      { id: 's3', stepNumber: 3, subject: 'Three', previewText: '', body: 'The third real note.', discountVoucher: '' }
+    ]
+  };
+  const drips = { sequences: [made], enrollments: [enrollment('drip_seq_made')] };
+  const { tick, sent, clock } = dripSender(server, drips);
+  const enr = drips.enrollments[0];
+  await tick('u1');
+  assert.deepEqual(sent.map((m) => m.subject), ['One']);
+  assert.equal(enr.nextStepDueAt, new Date(clock.now).toISOString(), 'a stored 0 was read as 24 hours');
+  await tick('u1');
+  assert.deepEqual(sent.map((m) => m.subject), ['One', 'Two'], 'the step after a 0 wait did not go on the next tick');
+  assert.equal(enr.nextStepDueAt, new Date(clock.now + 24 * HOUR).toISOString(), 'an absent wait is 24 hours');
+});
+
+test('a starter flow turned off sends nothing: an enrolment whose email comes due while it is off is taken out, so Turn on sends no backlog', async () => {
+  const { server } = loadServer({ u1: { sequences: { drip_seq_cart_recovery: { steps: [], enabled: false } } } });
+  const drips = {
+    sequences: clone(server.INITIAL_DRIP_SEQUENCES),
+    enrollments: [
+      enrollment('drip_seq_cart_recovery'),
+      enrollment('drip_seq_cart_recovery', { id: 'enr_later', customerEmail: 'later@example.test', nextStepDueAt: '2026-10-08T18:00:00.000Z' })
+    ]
+  };
+  const cart = drips.sequences.find((seq) => seq.id === 'drip_seq_cart_recovery');
+  cart.activeEnrollments = 2;
+  const { tick, sent, clock } = dripSender(server, drips);
+  const [due, later] = drips.enrollments;
+  const off = await tick('u1');
+  assert.equal(sent.length, 0, 'an email went from a flow that is off');
+  assert.equal(off.processedCount, 0);
+  assert.deepEqual(
+    [due.status, due.stoppedReason, due.stoppedAt, due.currentStepIndex, due.history.length],
+    ['stopped', 'flow_off', new Date(clock.now).toISOString(), 0, 0],
+    'the enrolment due while the flow is off is still waiting to send'
+  );
+  assert.equal(cart.activeEnrollments, 1, 'the one taken out is still counted as in the flow');
+  assert.deepEqual([later.status, later.currentStepIndex], ['active', 0], 'an enrolment not yet due was taken out early');
+  assert.equal(off.activeRemaining, 1);
+
+  // Turned back on: the one taken out is never sent what it missed; the one not yet due goes at its time.
+  const bag = server.userProgramBag('u1');
+  bag.sequences = {};
+  server.writeUserPrograms('u1', bag, { sequences: true });
+  await tick('u1');
+  assert.equal(sent.length, 0, 'Turn on sent the email that came due while the flow was off');
+  clock.now += 6 * HOUR;
+  await tick('u1');
+  assert.deepEqual(sent.map((m) => [m.to, m.subject]), [['later@example.test', 'You left something in your cart']]);
+  assert.equal(later.currentStepIndex, 1);
+  assert.equal(due.status, 'stopped');
+});
+
+// The two checkout reminders (server.mjs, after the drip loop) are the Cart recovery flow's on this
+// server: one 45 minutes after a checkout is abandoned, one 24 hours after that.
+const checkoutRows = () => [
+  { id: 'chk_due', userId: 'u1', customerEmail: 'due@example.test', abandonedAt: '2026-10-08T11:00:00.000Z', recoveryStatus: 'pending', lineItems: [] },
+  { id: 'chk_second', userId: 'u1', customerEmail: 'second@example.test', abandonedAt: '2026-10-07T00:00:00.000Z', recoveryStatus: 'email_sent', recoveryEmailSentAt: '2026-10-07T01:00:00.000Z', lineItems: [] },
+  { id: 'chk_fresh', userId: 'u1', customerEmail: 'fresh@example.test', abandonedAt: '2026-10-08T11:50:00.000Z', recoveryStatus: 'pending', lineItems: [] }
+];
+
+test('Cart recovery turned off sends neither checkout reminder: a checkout whose reminder comes due is stopped, and Turn on sends no backlog', async () => {
+  // The control: with the flow on, both reminders that are due go, and the fresh checkout waits.
+  const on = loadServer({});
+  const onCheckouts = checkoutRows();
+  const onRun = dripSender(on.server, { sequences: clone(on.server.INITIAL_DRIP_SEQUENCES), enrollments: [] }, { checkouts: onCheckouts });
+  const onResult = await onRun.tick('u1');
+  assert.deepEqual(onRun.sent.map((m) => [m.to, m.subject]), [['due@example.test', 'You left something in your cart'], ['second@example.test', 'Your checkout is still open']]);
+  assert.equal(onResult.cartRecoverySentCount, 2);
+  assert.deepEqual(onCheckouts.map((c) => c.recoveryStatus), ['email_sent', 'incentive_sent', 'pending']);
+
+  // Off for this account: nothing is sent, and the two that came due are stopped, not left to wait.
+  const { server } = loadServer({ u1: { sequences: { drip_seq_cart_recovery: { steps: [], enabled: false } } } });
+  const checkouts = checkoutRows();
+  const { tick, sent, clock, saves } = dripSender(server, { sequences: clone(server.INITIAL_DRIP_SEQUENCES), enrollments: [] }, { checkouts });
+  const off = await tick('u1');
+  assert.deepEqual(sent.map((m) => [m.to, m.subject]), [], 'a checkout reminder went while Cart recovery is off');
+  assert.equal(off.cartRecoverySentCount, 0);
+  assert.deepEqual(checkouts.map((c) => [c.id, c.recoveryStatus, c.stoppedReason]), [['chk_due', 'stopped', 'flow_off'], ['chk_second', 'stopped', 'flow_off'], ['chk_fresh', 'pending', undefined]]);
+  assert.equal(checkouts[0].stoppedAt, new Date(clock.now).toISOString());
+  assert.ok(saves.checkouts >= 1, 'the stopped checkouts were not saved');
+  // Another account's switch is not this one's: u2 has nothing turned off.
+  assert.equal(server.userProgramBag('u2').sequences?.drip_seq_cart_recovery, undefined);
+
+  // Turned back on: the stopped checkouts get nothing; the fresh one gets its first reminder at its time.
+  const bag = server.userProgramBag('u1');
+  bag.sequences = {};
+  server.writeUserPrograms('u1', bag, { sequences: true });
+  clock.now += 40 * 60000;
+  await tick('u1');
+  assert.deepEqual(sent.map((m) => [m.to, m.subject]), [['fresh@example.test', 'You left something in your cart']]);
+  assert.deepEqual(checkouts.map((c) => c.recoveryStatus), ['stopped', 'stopped', 'email_sent']);
+});
+
+test('the automatic winback enrols nobody while its starter flow is off; on, its enrolment (written with no history) is sent once and moves on', async () => {
+  const contact = { email: 'quiet@example.test', name: 'Quiet', userId: 'u1', acceptsMarketing: true, lastOrderAt: '2026-06-30T12:00:00.000Z', tags: [] };
+  const rfm = { autoWinbackEnabled: true, autoWinbackEnabledAt: '2026-09-01T00:00:00.000Z' };
+  const off = loadServer({ u1: { sequences: { drip_seq_at_risk_winback: { steps: [], enabled: false } } } });
+  const offDrips = { sequences: clone(off.server.INITIAL_DRIP_SEQUENCES), enrollments: [] };
+  const offRun = dripSender(off.server, offDrips, { contacts: [clone(contact)], rfm });
+  await offRun.tick('u1');
+  assert.equal(offDrips.enrollments.length, 0, 'a winback flow that is off took someone');
+  assert.equal(offRun.sent.length, 0);
+
+  const on = loadServer({});
+  const onDrips = { sequences: clone(on.server.INITIAL_DRIP_SEQUENCES), enrollments: [] };
+  const onRun = dripSender(on.server, onDrips, { contacts: [clone(contact)], rfm });
+  const result = await onRun.tick('u1');
+  assert.equal(onDrips.enrollments.length, 1, 'the control: with the flow on, the at-risk buyer is enrolled');
+  assert.deepEqual(onRun.sent.map((m) => m.subject), ['It has been a little while']);
+  assert.equal(result.processedCount, 1);
+  assert.equal(onDrips.enrollments[0].status, 'completed', 'the send threw before the enrolment moved on');
+  assert.deepEqual(onDrips.enrollments[0].history.map((row) => row.status), ['sent']);
+});
+
+test('the built-in flows\' sender reads a stored 0 between emails as 0 hours too', async () => {
+  const { server } = loadServer({
+    u1: {
+      automations: { post_purchase: { enabled: true, steps: [
+        { id: 'pp1', delayHours: 24, subject: 'Thanks', blocks: [{ id: 'a', kind: 'text', text: 'Thanks for the order.' }] },
+        { id: 'pp2', delayHours: 0, subject: 'And one more', blocks: [{ id: 'b', kind: 'text', text: 'One more note.' }] }
+      ] } },
+      enrollments: [{ id: 'penr_1', automationId: 'post_purchase', email: 'buyer@example.test', name: 'Buyer', stepIndex: 0, status: 'active', nextDueAt: '2026-10-08T11:00:00.000Z', vars: {} }]
+    }
+  });
+  const now = Date.parse('2026-10-08T12:00:00.000Z');
+  class At extends Date {
+    constructor(...args) { super(...(args.length ? args : [now])); }
+    static now() { return now; }
+  }
+  const sent = [];
+  const deps = {
+    Date: At,
+    composeForSend: async () => ({ text: 't', html: '<p>t</p>', vars: {} }),
+    contactsForUser: () => [],
+    deliverLetter: async (mail) => { sent.push(mail.subject); return { ok: true, status: 'sent' }; },
+    fillMailTokens: (text) => text,
+    isDemoRecord: () => false,
+    klaviyoIsSender: () => false,
+    loadOrders: () => [],
+    orderMailVars: () => ({}),
+    processCustomFlows: async () => ({ sent: 0, failed: 0, active: 0 }),
+    storedWaitHours,
+    userProgramBag: server.userProgramBag,
+    writeUserPrograms: server.writeUserPrograms
+  };
+  const names = Object.keys(deps);
+  const run = new Function(...names, `${slice('async function processAccountAutomations(uid) {', '\n}\n')}\nreturn processAccountAutomations;`)(...names.map((n) => deps[n]));
+  await run('u1');
+  assert.deepEqual(sent, ['Thanks']);
+  const row = server.userProgramBag('u1').enrollments[0];
+  assert.equal(row.stepIndex, 1);
+  assert.equal(row.nextDueAt, new Date(now).toISOString(), 'a stored 0 was read as 24 hours');
 });

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { TRIGGER_META } from './email-flows.mjs';
 import { signalStarterFlows } from './shopify-signals.mjs';
 import { FLOW_MAP_UNREACHABLE } from './src/lib/flowMapLoad.ts';
+import { isStarterDraft, starterFlowOn } from './email-flow-content.mjs';
 
 // EMAIL_STUDIO_PLAN.md Wave 4: Flows is one list and one editor. Every flow (the account's own, the
 // built-in and the starter flows, and the four order emails as one-email flows) is one row from one
@@ -14,8 +15,8 @@ import { FLOW_MAP_UNREACHABLE } from './src/lib/flowMapLoad.ts';
 // order-email-builder, delete-asks, panel-beside, panel-below).
 
 const {
-  FLOW_TAGS, FLOWS_FAILED, FLOWS_NOT_CONNECTED, FLOWS_SIGN_IN, START_ALIASES, START_WORDS, STARTER_NO_SWITCH,
-  emailCount, emailCountText, flowRows, flowsListLoad, startsWhenText, switchText
+  FLOW_TAGS, FLOWS_FAILED, FLOWS_NOT_CONNECTED, FLOWS_SIGN_IN, START_ALIASES, START_WORDS,
+  draftCountText, emailCount, emailCountText, flowRows, flowsListLoad, starterOffNotice, startsWhenText, switchRequest, switchText
 } = await import('./src/lib/emailFlowsList.ts');
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -42,7 +43,7 @@ function between(src, start, end, name) {
 }
 
 // The flow-map payload for an account that has edited nothing, drawn by server.mjs's own code.
-const server = new Function(`
+const server = new Function('isStarterDraft', 'starterFlowOn', `
   ${slice('function block(id, kind, text, extra) {', '\n}\n')}
   ${slice('const TRANSACTIONAL_DEFAULTS = [', '\n];\n')}
   ${slice('const AUTOMATION_DEFAULTS = [', '\n];\n')}
@@ -53,7 +54,7 @@ const server = new Function(`
   ${slice('function presentAutomationRow(row) {', '\n}\n')}
   ${slice('// D2 and Wave 4: an order email as a one-email flow', '\n}\n')}
   return { TRANSACTIONAL_DEFAULTS, AUTOMATION_DEFAULTS, INITIAL_DRIP_SEQUENCES, presentSequenceRow, presentAutomationRow, presentOrderEmailRow };
-`)();
+`)(isStarterDraft, starterFlowOn);
 
 const sequences = server.INITIAL_DRIP_SEQUENCES.filter((seq) => !seq.userId);
 const own = signalStarterFlows();
@@ -116,8 +117,8 @@ test('each flow is in the list once, in its group, with its tag and its first em
     assert.equal(row.tag, FLOW_TAGS[flow.kind]);
     assert.equal(row.group, flow.kind === 'order' ? 'order' : 'flows');
     assert.equal(row.firstEmailId, flow.nodes.find(sends)?.id || '', `${row.name} opens on the wrong step`);
-    // Every row but a starter's can be turned on or off from the list (Wave 4 fix round).
-    assert.equal(row.toggleKind, { flow: 'flow', automation: 'automation', order: 'transactional', sequence: null }[flow.kind]);
+    // Every row can be turned on or off from the list (Wave 4 fix round; a starter's since Wave 2).
+    assert.equal(row.toggleKind, { flow: 'flow', automation: 'automation', order: 'transactional', sequence: 'sequence' }[flow.kind]);
   }
   assert.deepEqual(
     Object.fromEntries(['flow', 'automation', 'sequence', 'order'].map((kind) => [kind, rows.filter((row) => row.kind === kind).length])),
@@ -260,18 +261,22 @@ test('Turn on and Turn off: the accessible name begins with the word on the butt
     }
   }
   // The list draws both from switchText, so what is shown and what is announced cannot part.
-  const button = between(list, '{row.toggleKind ? (', ') : (', 'the switch');
+  const button = between(list, '<button\n          type="button"\n          data-flow-switch={row.id}', '</button>', 'the switch');
   assert.match(button, /aria-label=\{label\.label\}/);
-  assert.match(button, />\s*\{label\.text\}\s*<\/button>/);
+  assert.match(button, />\s*\{label\.text\}\s*$/);
   assert.match(list, /const label = switchText\(row, switching === row\.id\);/);
-  // A row with no switch says why, and that sentence is part of the row's description.
-  assert.match(list, /\) : \(\s*<span id=\{fixedId\}[^>]*>\{STARTER_NO_SWITCH\}<\/span>/);
-  assert.match(list, /row\.toggleKind \? '' : fixedId/);
-  assert.doesNotMatch(STARTER_NO_SWITCH, /—| – /);
-  // An account's own flow is switched through its own save route with only `enabled`.
+  // Wave 2: every row has its switch, a starter's included, so the "Always on" sentence is gone.
+  assert.doesNotMatch(list, /row\.toggleKind \?|STARTER_NO_SWITCH|Always on/);
+  // Each kind is switched through its own route with only `enabled` (and the kind the programs route needs).
   const toggle = between(list, 'const toggle = async (row: FlowRow) => {', 'const renderRow', 'toggle');
-  assert.ok(toggle.includes("fetch(`/api/email/${own ? 'flows' : 'programs'}/${encodeURIComponent(row.id)}`"), 'the switch posts to the wrong route');
-  assert.ok(toggle.includes('JSON.stringify(own ? { enabled: next } : { kind: row.toggleKind, enabled: next })'), 'the switch sends the wrong body');
+  assert.ok(toggle.includes('const request = switchRequest(row, next);'), 'the switch does not build its request with switchRequest');
+  assert.ok(toggle.includes('fetch(request.url, {') && toggle.includes('body: JSON.stringify(request.body)'), 'the switch does not send what switchRequest built');
+  const sent = (toggleKind) => switchRequest({ id: 'a b', toggleKind }, false);
+  assert.deepEqual(sent('flow'), { url: '/api/email/flows/a%20b', body: { enabled: false } });
+  assert.deepEqual(sent('sequence'), { url: '/api/email/flow-content/a%20b', body: { enabled: false } });
+  assert.deepEqual(sent('automation'), { url: '/api/email/programs/a%20b', body: { kind: 'automation', enabled: false } });
+  assert.deepEqual(sent('transactional'), { url: '/api/email/programs/a%20b', body: { kind: 'transactional', enabled: false } });
+  assert.deepEqual(switchRequest({ id: 'x', toggleKind: 'sequence' }, true).body, { enabled: true });
 });
 
 test('New flow is on All flows, and both New flow buttons open the new flow on its first email', () => {
@@ -305,4 +310,38 @@ test('the Flows screens say email, never the retired "letter" (D2)', () => {
       .filter(([, line]) => /\bletters?\b/i.test(line));
     assert.deepEqual(lines, [], `${name} still says letter`);
   }
+});
+
+test('Wave 2: a starter row counts its emails the server marks as drafts, and says so beside On', () => {
+  const { flows, triggers } = payload();
+  const rows = flowRows(flows, triggers);
+  // Counted from the server's marks on the real payload: Welcome's three seeds are drafts, nothing else is.
+  for (const row of rows) {
+    const flow = flows.find((item) => item.id === row.id);
+    assert.equal(row.drafts, flow.nodes.filter((node) => node.starterDraft === true).length, row.name);
+  }
+  assert.deepEqual(rows.filter((row) => row.drafts > 0).map((row) => [row.id, row.drafts]), [['drip_seq_default', 3]]);
+  // A mark on a step that sends nothing is not an email, and only `true` is a mark.
+  assert.equal(flowRows([{ id: 's', name: 'S', kind: 'sequence', nodes: [{ id: 'a', type: 'email', starterDraft: true }, { id: 'b', type: 'delay', starterDraft: true }, { id: 'c', type: 'email', starterDraft: 'true' }] }], triggers)[0].drafts, 1);
+  assert.equal(draftCountText(1), '1 is still the starter draft, so it is not sent');
+  assert.equal(draftCountText(3), '3 are still starter drafts, so they are not sent');
+  // The row says it in its meta line, which is the row button's description, only when there is one.
+  const meta = between(list, '<span id={metaId}', '</span>\n        </button>', 'the row meta');
+  assert.match(meta, /\{row\.drafts > 0 && <> · <span data-flow-drafts=\{row\.id\}[^>]*>\{draftCountText\(row\.drafts\)\}<\/span><\/>\}/);
+  assert.ok(meta.indexOf('draftCountText') > meta.indexOf('emailCountText(row.emails)'), 'the draft count is not beside the email count');
+});
+
+test('Wave 2: Turn off on a starter flow says what happens to the people in it, from the list and from the editor', () => {
+  const said = starterOffNotice('Welcome sequence');
+  assert.equal(said, 'Welcome sequence is off. Nobody new joins it, and anyone already in it whose next email comes due while it is off leaves it, so turning it back on sends nothing they missed.');
+  for (const text of [said, draftCountText(1), draftCountText(2)]) assert.doesNotMatch(text, /\u2014| \u2013 /);
+  // The list says it for a starter row only; other kinds keep their own sentence.
+  const toggle = between(list, 'const toggle = async (row: FlowRow) => {', 'const renderRow', 'toggle');
+  assert.ok(toggle.includes("row.kind === 'sequence' ? starterOffNotice(row.name) : `${row.name} is off.`"), 'the list does not say what Turn off does to a starter flow');
+  // The editor's header says it too, and keeps the flow's state in words beside the switch.
+  const header = between(map, 'const switchStarter = async', 'const saveTimezone', 'the header switch');
+  assert.ok(header.includes(': starterOffNotice(flow.name));'), 'the header does not say what Turn off does');
+  const state = between(map, "{current.kind === 'sequence' && (() => {", '})()}', 'the header state');
+  assert.match(state, /<span data-flow-header-state=\{current\.id\}[^>]*>\{on \? 'On for this account' : 'Off for this account'\}<\/span>/);
+  assert.ok(state.indexOf('data-flow-header-state') < state.indexOf('data-flow-header-switch'), 'the state is not said before the switch');
 });

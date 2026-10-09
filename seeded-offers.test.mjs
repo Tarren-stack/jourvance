@@ -39,6 +39,8 @@ function stubCtx(extra = {}) {
     DEFAULT_RFM_CONFIG: {},
     userProgramBag: () => ({ rfmConfig: {} }),
     cleanRfmConfig: (c) => ({ allowUnlimitedDiscountUse: false, ...c }),
+    // Wave 2: every starter flow is on unless an account turned it off (server.mjs starterFlowOnFor).
+    starterFlowOnFor: () => true,
     ...extra
   }, { get: (t, k) => (k in t ? t[k] : () => {}) });
 }

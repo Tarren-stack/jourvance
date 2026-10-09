@@ -885,10 +885,12 @@ ${unsub}`;
                         <td style={{ padding: '8px 12px', color: '#d1d5db' }}>{dripSequences.find((seq) => seq.id === enr.sequenceId)?.name || enr.sequenceId}</td>
                         <td style={{ padding: '8px 12px', color: '#d1d5db' }}>Step {enr.currentStepIndex + 1}{stepCountOf(enr.sequenceId) ? ` of ${stepCountOf(enr.sequenceId)}` : ''}</td>
                         <td style={{ padding: '8px 12px', color: '#d1d5db' }}>
-                          {enr.status === 'converted_exit' ? 'Ordered, so it stopped' : enr.status === 'completed' ? 'Finished' : 'In the flow'}
+                          {/* Wave 2: an enrolment taken out because its starter flow was turned off says so, never "In the flow". */}
+                          {enr.status === 'converted_exit' ? 'Ordered, so it stopped' : enr.status === 'completed' ? 'Finished' : enr.status === 'stopped' ? (enr.stoppedReason === 'flow_off' ? 'Taken out, flow turned off' : 'Stopped') : 'In the flow'}
                         </td>
                         <td style={{ padding: '8px 12px', color: '#d1d5db' }}>
-                          {enr.history?.length || 0} sent
+                          {/* Only the emails that went: a failed send or a skipped starter draft (Wave 2) is not one. */}
+                          {(enr.history || []).filter((row) => row?.status === 'sent').length} sent
                         </td>
                       </tr>
                     ))}
@@ -1171,10 +1173,11 @@ ${unsub}`;
                               borderRadius: '4px',
                               fontSize: '11px',
                               fontWeight: 700,
-                              backgroundColor: chk.recoveryStatus === 'recovered' ? 'rgba(16, 185, 129, 0.2)' : chk.recoveryStatus === 'email_sent' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(234, 179, 8, 0.2)',
-                              color: chk.recoveryStatus === 'recovered' ? '#34D399' : chk.recoveryStatus === 'email_sent' ? '#60A5FA' : '#FACC15'
+                              backgroundColor: chk.recoveryStatus === 'recovered' ? 'rgba(16, 185, 129, 0.2)' : chk.recoveryStatus === 'email_sent' ? 'rgba(59, 130, 246, 0.2)' : chk.recoveryStatus === 'stopped' ? 'rgba(148, 163, 184, 0.2)' : 'rgba(234, 179, 8, 0.2)',
+                              color: chk.recoveryStatus === 'recovered' ? '#34D399' : chk.recoveryStatus === 'email_sent' ? '#60A5FA' : chk.recoveryStatus === 'stopped' ? '#E2E8F0' : '#FACC15'
                             }}>
-                              {chk.recoveryStatus === 'recovered' ? 'Recovered' : chk.recoveryStatus === 'email_sent' ? 'Email sent' : 'Pending'}
+                              {/* Wave 2: a checkout stopped (Cart recovery turned off, or a test address) is never "Pending". */}
+                              {chk.recoveryStatus === 'recovered' ? 'Recovered' : chk.recoveryStatus === 'email_sent' ? 'Email sent' : chk.recoveryStatus === 'stopped' ? (chk.stoppedReason === 'flow_off' ? 'Stopped, flow turned off' : 'Stopped') : 'Pending'}
                             </span>
                           </td>
                           <td style={{ padding: '8px 12px', textAlign: 'right' }}>

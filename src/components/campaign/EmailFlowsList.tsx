@@ -5,7 +5,7 @@ import { ghostBtn, readJson, solidBtn } from './emailChrome';
 import { FLOW_MAP_WRITE_UNREACHABLE, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
 import { statText } from '../../lib/emailStats';
 import {
-  FLOWS_NOT_CONNECTED, SENDS_AN_EMAIL, STARTER_NO_SWITCH, emailCountText, flowRows, flowsListLoad, switchText, type FlowRow, type FlowsListLoad
+  FLOWS_NOT_CONNECTED, SENDS_AN_EMAIL, draftCountText, emailCountText, flowRows, flowsListLoad, starterOffNotice, switchRequest, switchText, type FlowRow, type FlowsListLoad
 } from '../../lib/emailFlowsList';
 import type { DripSequence } from '../../types/journey';
 
@@ -13,9 +13,9 @@ import type { DripSequence } from '../../types/journey';
  * Flows, All flows (EMAIL_STUDIO_PLAN.md Wave 4): one list of every flow, from one read of
  * GET /api/email/flow-map. The account's own flows, the built-in flows and the starter flows come
  * first, then the four order emails as their own group. Each row is one button that opens the flow
- * editor on that flow with its first email chosen (D3). Every row but a starter's has Turn on or Turn
- * off beside it (a built-in flow's and an order email's notes on the map send the reader here); a
- * starter row says there instead that it is always on. New flow (D1's primary action) makes a flow and
+ * editor on that flow with its first email chosen (D3). Every row has Turn on or Turn off beside it (a
+ * built-in flow's and an order email's notes on the map send the reader here); a starter flow's is for
+ * this account only (Wave 2). New flow (D1's primary action) makes a flow and
  * opens it on its first email, so designing an email from scratch is one click from this list.
  *
  * The row model (what each row says) is src/lib/emailFlowsList.ts. A starter row's revenue is the
@@ -120,20 +120,21 @@ export const EmailFlowsList: React.FC<{
     }
   };
 
-  // Turn on or Turn off: an account's own flow through its own save route, a built-in flow or an order
-  // email through the same write their cards made.
+  // Turn on or Turn off: an account's own flow through its own save route, a starter flow through the
+  // flow-content route for this account only, a built-in flow or an order email through the programs
+  // route (switchRequest).
   const toggle = async (row: FlowRow) => {
-    if (!row.toggleKind || switching) return;
+    if (switching) return;
     const next = !row.on;
     const word = next ? 'on' : 'off';
     setSwitching(row.id);
     setNotice('');
     try {
-      const own = row.toggleKind === 'flow';
-      const sent = await sendFlowWrite(async () => fetch(`/api/email/${own ? 'flows' : 'programs'}/${encodeURIComponent(row.id)}`, {
+      const request = switchRequest(row, next);
+      const sent = await sendFlowWrite(async () => fetch(request.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-        body: JSON.stringify(own ? { enabled: next } : { kind: row.toggleKind, enabled: next })
+        body: JSON.stringify(request.body)
       }));
       if (!sent.answered) {
         setNotice(`The server did not answer, so ${row.name} may not be turned ${word}.`);
@@ -143,7 +144,7 @@ export const EmailFlowsList: React.FC<{
         setNotice(sent.data?.error || `${row.name} was not turned ${word}.`);
         return;
       }
-      setNotice(next ? `${row.name} is on. An email from it sends only when the email service accepts it.` : `${row.name} is off.`);
+      setNotice(next ? `${row.name} is on. An email from it sends only when the email service accepts it.` : row.kind === 'sequence' ? starterOffNotice(row.name) : `${row.name} is off.`);
       await read();
     } finally {
       setSwitching('');
@@ -155,8 +156,7 @@ export const EmailFlowsList: React.FC<{
     const nameId = `${ids}-${row.id}-name`;
     const tagId = `${ids}-${row.id}-tag`;
     const metaId = `${ids}-${row.id}-meta`;
-    const fixedId = `${ids}-${row.id}-fixed`;
-    const described = [row.tag ? tagId : '', metaId, row.toggleKind ? '' : fixedId].filter(Boolean).join(' ');
+    const described = [row.tag ? tagId : '', metaId].filter(Boolean).join(' ');
     const label = switchText(row, switching === row.id);
     return (
       <li key={row.id} style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
@@ -174,25 +174,24 @@ export const EmailFlowsList: React.FC<{
           </span>
           <span id={metaId} style={{ fontSize: 12, color: '#d1d5db', lineHeight: 1.5 }}>
             Starts when: {row.startsWhen} · <strong style={{ color: row.on ? '#6ee7b7' : '#d1d5db' }}>{row.on ? 'On' : 'Off'}</strong> · {emailCountText(row.emails)}
+            {/* Wave 2: a flow that reads On while the sender skips its starter drafts says so here. */}
+            {row.drafts > 0 && <> · <span data-flow-drafts={row.id} style={{ color: '#fbbf24' }}>{draftCountText(row.drafts)}</span></>}
             {row.group === 'flows' && <> · Enrolled {statText(row.enrolled)}</>}
             {seq && <> · Last-touch revenue {statText(seq.attributedSales, (n) => `$${n.toLocaleString()}`)}</>}
           </span>
         </button>
-        {row.toggleKind ? (
-          <button
-            type="button"
-            // The name begins with the word on the button, Saving included (switchText).
-            aria-label={label.label}
-            // aria-disabled, not disabled: a disabled button drops keyboard focus to the page.
-            aria-disabled={switching === row.id}
-            onClick={() => toggle(row)}
-            style={{ ...(row.on ? solidBtn : ghostBtn), minHeight: 44, alignSelf: 'center', opacity: switching === row.id ? 0.6 : 1 }}
-          >
-            {label.text}
-          </button>
-        ) : (
-          <span id={fixedId} style={{ alignSelf: 'center', fontSize: 12, color: '#d1d5db', maxWidth: 220 }}>{STARTER_NO_SWITCH}</span>
-        )}
+        <button
+          type="button"
+          data-flow-switch={row.id}
+          // The name begins with the word on the button, Saving included (switchText).
+          aria-label={label.label}
+          // aria-disabled, not disabled: a disabled button drops keyboard focus to the page.
+          aria-disabled={switching === row.id}
+          onClick={() => toggle(row)}
+          style={{ ...(row.on ? solidBtn : ghostBtn), minHeight: 44, alignSelf: 'center', opacity: switching === row.id ? 0.6 : 1 }}
+        >
+          {label.text}
+        </button>
       </li>
     );
   };
