@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, ArrowRight, ShieldCheck, Zap, Heart, Target } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Zap, Target } from 'lucide-react';
 
 interface AboutPageProps {
   onNavigate: (page: 'home' | 'about' | 'blog' | 'contact' | 'canvas') => void;
@@ -32,10 +32,11 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
               color: '#FFFFFF'
             }}
           >
-            Built for Businesses That Value Clarity Over Tool Chaos
+            Built by a marketer. Made for your business.
           </h1>
           <p style={{ fontSize: '1.15rem', lineHeight: 1.6, color: '#94A3B8', maxWidth: '700px', margin: '0 auto' }}>
-            We believe that when you can see your entire customer journey in one place, conversion stops being a guessing game.
+            Eight years of hands-on marketing experience, brought together to help you connect your marketing
+            and grow your business.
           </p>
         </div>
 
@@ -45,7 +46,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
             backgroundColor: '#111827',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: '16px',
-            padding: '3rem 2.5rem',
+            padding: 'clamp(1.5rem, 5vw, 3rem) clamp(1.25rem, 4vw, 2.5rem)',
             marginBottom: '3rem',
             lineHeight: 1.7,
             color: '#CBD5E1',
@@ -53,28 +54,37 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
           }}
         >
           <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '1.25rem' }}>
-            The Origin of Jourvance
+            The story behind Jourvance
           </h2>
           <p style={{ marginBottom: '1.25rem' }}>
-            Over the last decade, marketing software split itself into a dozen fragmented pieces. Business owners and agencies
-            ended up with one tool for landing pages, another for forms, a third for email automation, and separate dashboards
-            for Facebook and Google Ads.
+            I'm Tarren Munoz, the founder of Jourvance. I've spent the past eight years in marketing,
+            working with a wide range of software, website builders, and marketing tools. That experience
+            shaped what I wanted to build and the problems I wanted to solve.
           </p>
           <p style={{ marginBottom: '1.25rem' }}>
-            None of these tools talked to each other in a way you could actually see. When a campaign failed to generate
-            clients, you were left guessing: Did the ad fail? Was the landing page headline weak? Did the form have too many
-            fields? Or did the follow-up email get stuck in spam?
+            Every part of your marketing shapes the next. The page someone lands on, the offer they see,
+            and the follow-up they receive all need to work together. I wanted a clearer way to see those
+            connections and build around them.
+          </p>
+          <p style={{ marginBottom: '1.25rem' }}>
+            Jourvance brings together what I've learned and what I've needed over the years. It connects
+            customer journeys, landing pages, and follow-up in one workspace, built around the practical
+            work of turning an idea into a campaign.
           </p>
           <p style={{ color: '#F1F5F9', fontWeight: 600 }}>
-            Jourvance was created to fix this. We combined the advertising hook, the landing page offer, the lead intake form,
-            and the follow-up letters onto a single interactive visual canvas.
+            My goal is simple: give business owners and marketers the tools and clarity to put their ideas
+            into action, keep improving, and grow their businesses. That's why I built Jourvance.
           </p>
+          <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            <p style={{ margin: 0, fontWeight: 700, color: '#FFFFFF' }}>Tarren Munoz</p>
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: '#94A3B8' }}>Founder, Jourvance</p>
+          </div>
         </div>
 
         {/* 3 Guiding Pillars */}
         <div style={{ marginBottom: '4rem' }}>
           <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', textAlign: 'center', marginBottom: '2.5rem' }}>
-            Our Guiding Principles
+            What drives Jourvance
           </h2>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: '1.5rem' }}>
@@ -91,10 +101,10 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
                 <Target style={{ width: '20px', height: '20px', color: '#818CF8' }} />
               </div>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.5rem' }}>
-                1. Visual Context Wins
+                1. See the whole journey
               </h3>
               <p style={{ fontSize: '0.875rem', color: '#94A3B8', lineHeight: 1.5 }}>
-                When you see the edge connecting your landing page to your follow-up email, you naturally write copy that matches the promise.
+                Connect your landing pages, forms, and follow-up so you can understand the path you're building for your customers.
               </p>
             </div>
 
@@ -111,10 +121,10 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
                 <Zap style={{ width: '20px', height: '20px', color: '#10B981' }} />
               </div>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.5rem' }}>
-                2. Zero Blank Screens
+                2. Turn ideas into action
               </h3>
               <p style={{ fontSize: '0.875rem', color: '#94A3B8', lineHeight: 1.5 }}>
-                Starting with a blank canvas causes analysis paralysis. Jourvance starts you with proven conversion blueprints ready to customize.
+                Start with a journey blueprint, make it your own, and build on it as your business evolves.
               </p>
             </div>
 
@@ -131,10 +141,10 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
                 <ShieldCheck style={{ width: '20px', height: '20px', color: '#38BDF8' }} />
               </div>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.5rem' }}>
-                3. Honest & Lean
+                3. Built around real needs
               </h3>
               <p style={{ fontSize: '0.875rem', color: '#94A3B8', lineHeight: 1.5 }}>
-                No bloated server dependencies. Fast client-side execution, offline-safe storage, and transparent flat pricing.
+                Our focus is practical tools that help you plan, create, and improve your marketing, shaped by hands-on experience.
               </p>
             </div>
           </div>
@@ -150,11 +160,11 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
             textAlign: 'center'
           }}
         >
-          <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.75rem' }}>
-            Experience Jourvance Today
-          </h3>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.75rem' }}>
+            Start building your next customer journey
+          </h2>
           <p style={{ fontSize: '0.95rem', color: '#94A3B8', maxWidth: '500px', margin: '0 auto 1.75rem' }}>
-            Start mapping your funnel immediately. No credit card required.
+            Bring your next idea to the canvas and map a path from first interest to follow-up.
           </p>
           <button
             onClick={() => onNavigate('canvas')}

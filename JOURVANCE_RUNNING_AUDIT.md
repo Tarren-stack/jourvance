@@ -4,6 +4,38 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-08. DEPLOYED: jourvance.com serves 4b1cf75 (the motion pass, the countdown dip removed, on top of the lead-capture fix, the Sentinel and the page builder Waves 0 to 3). Render reported it live and the two earlier deploys deactivated; the Sentinel, policy and lead probes answer as before. A bundle fingerprint for the motion code was inconclusive (no lazy chunk names found), not failed. Read the newest section first.
 
+## 2026-10-08: About page commit and push verification
+
+**Limits first:** 3 live-server tests were skipped because `JOURVANCE_LIVE_TEST_URL`
+was unset. Deployment was not checked. The unit suite is green, never seen red by
+fault injection for this copy change; the browser founder-presence assertion has the
+negative control recorded below.
+
+The owner requested "commit push" after reviewing the About update. Scope is
+`src/components/public/AboutPage.tsx`, this audit's About sections, `design-state.md`,
+and `docs/designpowers/briefs/2026-10-08-about-story.md`. The Email Studio edits in the
+shared working tree are outside this commit.
+
+Reran on the current working tree: `npx tsc --noEmit` exit 0; `npm test` with localhost
+access exit 0, 2,560 tests, 2,557 pass, 0 fail, 3 skipped, 0 cancelled; and
+`npx vite build --outDir /private/tmp/jourvance-about-release-dist` exit 0. The test
+count includes the other session's current tests, which are not part of this commit.
+Logs: `/private/tmp/jourvance-about-release-test.log` and
+`/private/tmp/jourvance-about-release-build.log`.
+
+`node /private/tmp/jourvance-about-check.mjs` served that new build through a temporary
+copy of the real `server.mjs` with no `.env`, account data, or inherited credentials:
+exit 0, 28 assertions passed. Checked GET `/about` 200; founder story, signature,
+heading order, no horizontal overflow, keyboard CTA reaching the canvas, and no
+uncaught page errors at desktop, 390px, and the 640px reflow model. The negative
+control removed the founder paragraph, observed its rejection, then restored it.
+All API and external browser requests were blocked. Log:
+`/private/tmp/jourvance-about-release-browser.log`.
+
+Before staging: on `main`, fetched `origin main`, and
+`git rev-list --left-right --count HEAD...origin/main` returned `0 0`.
+The push outcome will be verified and reported after this commit is created.
+
 ## 2026-10-08: Email Studio, Wave 1: a starter flow opens and its emails are edited in the builder
 
 **Correction first.** Earlier sections of this file describe "sandboxed" boots through the
@@ -100,6 +132,59 @@ a notice that never cleared; all five reported fixed with a test each).
 tree at the same time and is left to that session.
 
 ---
+
+## 2026-10-08: About page founder story
+
+**Limits first:** three live-server tests were skipped because `JOURVANCE_LIVE_TEST_URL`
+was unset. This copy update is local, not committed or deployed. The broad unit suite
+was green on the successful run but was not fault-planted for this copy change.
+
+Updated `src/components/public/AboutPage.tsx` from the owner's supplied facts: Tarren
+Munoz, eight years in marketing, experience with software and builders, and Jourvance
+combining what he learned and needed. Added a first-person founder story and sign-off,
+the headline "Built by a marketer. Made for your business.", aligned principles and
+CTA copy, responsive story-card padding, and a level-two CTA heading. Growth is framed
+as the founder's purpose, with no invented client results or conversion guarantees.
+Brief: `docs/designpowers/briefs/2026-10-08-about-story.md`; state: `design-state.md`.
+
+### Verification run by the main agent
+
+- `npx tsc --noEmit`: exit 0.
+- Initial sandboxed `npm test`: exit 1, 2,537 tests, 2,285 pass, 243 fail, 1 cancelled,
+  8 skipped. The log contains 243 `listen EPERM` errors. A focused
+  `node --test journey-save-route.test.mjs` reproduced the localhost restriction:
+  10 tests, 3 pass, 7 fail, each failure `listen EPERM`.
+- Reran `npm test` with localhost access: exit 0, 2,553 tests, 2,550 pass, 0 fail,
+  3 skipped, 0 cancelled. Skips: live domain authentication, public-lead CORS, and
+  check-slug. Log: `/private/tmp/jourvance-about-npm-test-local.log`.
+- `npx vite build --outDir /private/tmp/jourvance-about-dist`: exit 0. Existing bundle
+  size warnings remain; this task does not assess bundle optimization.
+- `node /private/tmp/jourvance-about-check.mjs`: 28 assertions passed. Booted a copy of
+  the real `server.mjs` in a temporary directory with no `.env`, customer data, or
+  inherited credentials, serving the new build. GET `/about` returned 200 and the app
+  shell. Chrome rendered the actual headline, founder story and signature at 1440px,
+  390px, and 640 CSS pixels at device scale 2 (a reflow model for 200% at 1280px).
+  The page's heading sequence was 1, 2, 2, 3, 3, 3, 2. No About-content horizontal
+  overflow or uncaught page error was found; keyboard Enter on Open Canvas Studio
+  reached the real journey canvas at each size. All API and outside requests were
+  aborted: 9 blocked requests across local API, Google Fonts, and the hub tracker.
+- Negative control: removed the founder paragraph text in the desktop browser DOM;
+  the founder-presence check rejected it. Restored the exact text and checked again.
+  This control covers founder presence only, not every browser assertion.
+- Read desktop and mobile screenshots and the 640px reflow story screenshot from
+  `/private/tmp/jourvance-about-shots/`. Mobile paragraphs and the founder story remain
+  readable without horizontal scrolling.
+- `git diff --check`: exit 0.
+
+The first zoom harness used CSS `zoom: 2`, which overflows the existing `100vw` app
+shell and is not equivalent to browser zoom. It failed visibly; the final check uses
+the reduced CSS viewport described above. Actual browser-menu zoom, screen-reader
+speech, a full automated accessibility scan, external fonts, live integrations, and
+deployment were not tested. No shared app-shell change was made for the harness issue.
+
+Reported by the independent content-writer reviewer, not a browser review: no material
+copy issue; the story stays within the owner's supplied facts and the growth purpose
+is not a guarantee. The main agent also read the source and observed the rendered text.
 
 ## 2026-10-08: The page builder motion pass, fix round 3 applied, green, NOT committed
 
