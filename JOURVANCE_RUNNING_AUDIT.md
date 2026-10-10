@@ -2,7 +2,62 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-08. DEPLOYED: jourvance.com serves 4b1cf75 (the motion pass, the countdown dip removed, on top of the lead-capture fix, the Sentinel and the page builder Waves 0 to 3). Render reported it live and the two earlier deploys deactivated; the Sentinel, policy and lead probes answer as before. A bundle fingerprint for the motion code was inconclusive (no lazy chunk names found), not failed. Read the newest section first.
+Checked: 2026-10-09. DEPLOYED: jourvance.com serves 7678443 (the Email Studio rebuild, Waves 1 to 8, and the open list closed) per the Render API; the Sentinel, policy and lead probes answer as before. Read the newest section first.
+
+## 2026-10-09: Email Studio, the four items the open-list round found
+
+**Not done first.** Some assertions inside the new tests were never seen failing on their own
+(each test went red at an earlier line under its plant): the "was mailed" and "was saved" lines
+of the refused-enrolment test, the "handed to Klaviyo again" lines, the with-room halves, the
+win-back control, and the sentence-count and `#root` checks of the chunk-error browser step
+(reported by the fix agent). `enrollInventorySignals` saves the back-in-stock request stamps
+before its enrolment write, so at the cap a request is used up while nobody is enrolled
+(INFERRED by the fix agent, pre-existing, not fixed). Only Chrome was run; no screen reader. The
+browser check flake's cause is still unknown; this round's twelve agent runs and the main
+session's two were all green.
+
+**A behaviour change to know about:** `userProgramBag` handed back the cached record's own
+`enrollments` array, so a built-in or win-back enrolment pushed onto the bag was already part of
+the "previous" record the size cap compared against, and the write was never refused (VERIFIED
+by the fix agent with a probe: the record went from 4,999,980 to 5,000,143 bytes past the
+5,000,000 cap and was saved). The array is copied now, so post-purchase and win-back enrolments
+are refused at the cap, as the code comments already claimed; the price-drop and inventory
+passes return 0 when refused, and a Klaviyo hand-off is written with `always` so its count stays
+true.
+
+**Closed** (one Opus builder, a Sonnet verifier, a Sonnet reviewer with 1 major and 4 minors, an
+Opus fix round, a second verify):
+
+- `POST /api/email/flows`, `POST /api/email/attribution-windows` and the segment refresh route
+  answer 413 with one sentence when the record size cap refuses the write; an acorn scan found 38
+  `writeUserPrograms` calls, 21 in route handlers, 0 now answering success on a refused write.
+- `ChunkBoundary` (`src/components/ChunkBoundary.tsx`, `src/lib/chunkLoad.ts`) catches a failed
+  lazy import only, shows "This part of Jourvance did not load. Reload the page to get the newest
+  version." with a Reload button, and leaves the rest of the app mounted; every `lazy(` in
+  `App.tsx` renders inside one (pinned), each modal in its own, and an ordinary render error is
+  passed on (browser step `chunk-error-passed-on`).
+- An interrupted broadcast reads "Interrupted" with its stored reason on its own line.
+- The People row is a button named "Open <name>, <email>" on the same grid, built of spans, with
+  the focus ring drawn inside the row, and closing the drawer puts focus back on it.
+
+**Checks the main session re-ran** (VERIFIED, exit codes read directly, one after another):
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npm test` | 2750 tests, 2747 pass, 0 fail, 3 skipped (the live-server tests, `JOURVANCE_LIVE_TEST_URL` unset); exit 0 |
+| `node scripts/email-studio-browser-check.mjs` | 61 of 61 steps in each of two consecutive runs, exit 0 |
+| `node scripts/builder-browser-check.mjs` | 40 of 40 steps, exit 0 |
+| `npm run check:canvas` | overflow, drawers, save, a11y, runtime PASS; 24 of 24 keyboard checks; 62 contrast items unmeasured (not passes); exit 0 |
+| `npm run check:a11y` | 22 PASS, 0 FAIL; exit 0 |
+| `npx vite build` | exit 0 |
+
+**Reported by the agents, not re-run by the main session:** the planted reds (builder: eleven;
+fix round: its own, listed in `openlist2/audit-notes-fix.md` in the session scratchpad), each
+restored and confirmed with `cmp`; the review's five findings (the major fixed at its root cause,
+three minors fixed, one refuted with reasoning).
+
+---
 
 ## 2026-10-09: Email Studio, the open list closed (except the flake)
 

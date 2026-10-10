@@ -411,6 +411,12 @@ body {
   outline-offset: 2px !important;
 }
 
+/* A People row fills a table that clips its overflow, so a ring outside the row would show only along
+   its top edge. Drawn inside the row instead (HubEmailSuite.tsx, data-person-row). */
+button[data-person-row]:focus-visible {
+  outline-offset: -2px !important;
+}
+
 /* A step's ring sits clear of its card's own border and follows its rounded corners. */
 .react-flow__node:focus-visible {
   outline: 2px solid var(--color-focus) !important;

@@ -175,6 +175,11 @@
 //                    asks COMPOSER_REPLACE first and Cancel keeps the work; accepted, its words call nothing a
 //                    note; Save draft, then Delete on All broadcasts asks, sends one DELETE, says so and puts
 //                    focus on the Drafts heading
+//   people-row-keyboard (open list, second round) after drawer-enrol-refused, with the one person listed: the People
+//                    row is one BUTTON named "Open <name>, <email>" holding no div (fix round), on the header row's
+//                    grid (same width, same left edge, six columns); Tab from the search box reaches it, Enter opens the drawer, and Enter on Close drawer
+//                    puts focus back on the row with its ring drawn inside the row (the table clips its overflow);
+//                    Space opens it again and a click on Close drawer does the same
 //   drawer-enrol-refused (open list) Audience, People lists one person (the stub's peopleMode); in their drawer,
 //                    Flows, a flow picked and Enroll in Flow answered 409 says the route's own sentence in a
 //                    status region right under the control, on screen, and lists nobody; the next try clears it
@@ -190,6 +195,20 @@
 //                    Footer says POSTAL_NOT_SAVED and posts nothing, and once the read answers Retry loads it
 //                    and Save posts once; Texts says the phone count failure in its one alert, and its Retry
 //                    counts the phones once the audience answers
+//   chunk-missing    (open list, second round) a fresh context whose BlueprintModal chunk request is aborted, as an
+//                    open tab meets a deploy that replaced it: ChunkBoundary's sentence (CHUNK_NOT_LOADED) shows in
+//                    an alert with a Reload button at least 44px tall, the withheld request was really asked for
+//                    (positive control), (fix round) Check design still opens its dialog while the sentence stays, the
+//                    sidebar and the canvas are still on the page, the sidebar still opens Email Studio, and Reload
+//                    loads the page again
+//   chunk-error-passed-on (fix round) a fresh context whose BlueprintModal file arrives and throws an ordinary
+//                    TypeError when it runs: the page reports that error (ChunkBoundary passes it on, as before it
+//                    existed, so the app unmounts) and the sentence is never shown
+//   broadcast-interrupted (open list, second round) a fresh context whose broadcasts list holds one interrupted
+//                    broadcast (status interrupted, lastError the server's CAMPAIGN_INTERRUPTED, no sentAt) and one
+//                    scheduled: All broadcasts reads "Interrupted" in the first row's status column with the stored
+//                    sentence on its own line under it, never "Not sent"; the scheduled row reads Scheduled and
+//                    shows no reason line
 //   states-401       (Wave 6, D6) a fresh context whose studio reads all answer 401, as requireUser answers a
 //                    signed-out reader: on every screen (All flows, People in starter flows, Flow map, All
 //                    broadcasts, People, Sign-up forms, Replies, Open checkouts, Results, Sending, Klaviyo, Texts)
@@ -265,6 +284,8 @@ import {
 import { retiredIn } from '../src/lib/studioVocabulary.ts';
 import { FLOW_BUILDING, STUDIO_NOT_OPENED, flowStartForStep, stepLettersSource } from '../src/lib/editorReturn.ts';
 import { BROADCAST_UNSAVED_LEAVE, FLOW_UNSAVED_LEAVE } from '../src/lib/studioLeave.ts';
+import { CHUNK_NOT_LOADED } from '../src/lib/chunkLoad.ts';
+import { CAMPAIGN_INTERRUPTED } from '../server/routes/emailRoutes.mjs';
 import { TRIGGER_META } from '../email-flows.mjs';
 import { isStarterDraft, mergeAccountSteps, starterFlowOn } from '../email-flow-content.mjs';
 import { signalStarterFlows } from '../shopify-signals.mjs';
@@ -447,6 +468,8 @@ function newState(seeds) {
     flowEnrolled: {},
     sequenceRevenue: {},
     peopleMode: 'none',
+    // Open list, second round: the rows GET /api/email/broadcasts answers, in presentCampaign's shape.
+    broadcasts: [],
     enrollMode: 'answer',
     enrollHold: null,
     enrollPosts: [],
@@ -672,7 +695,7 @@ function studioAnswer(req, u, state) {
       flows: [{ id: 'hub_flow_check', name: HUB_FLOW_NAME, category: 'welcome', active: true, steps: [{ type: 'email', subject: 'Hello from the hub', previewText: '', delay: 'Immediately', body: 'Kept on the hub.' }] }]
     });
   }
-  if (method === 'GET' && p === '/api/email/broadcasts') return json(200, { success: true, broadcasts: [] });
+  if (method === 'GET' && p === '/api/email/broadcasts') return json(200, { success: true, broadcasts: state.broadcasts || [] });
   if (method === 'GET' && p === '/api/email/analytics') {
     return json(200, {
       success: true,
@@ -2921,6 +2944,79 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     }
   });
 
+  await go('people-row-keyboard', async () => {
+    // Open list, second round: the People row that opens the customer drawer was a div with an onClick, so a
+    // keyboard could not reach the drawer. It is one button named for the person, on the header row's grid.
+    state.peopleMode = 'one';
+    try {
+      await toFlowList();
+      await refreshFlows();
+      await tab('Audience').click();
+      expect(await isSelected('People'), 'Audience did not open on People');
+      const named = `Open ${DRAWER_NAME}, ${DRAWER_EMAIL}`;
+      const row = page.getByRole('button', { name: named, exact: true });
+      await row.waitFor({ state: 'visible' });
+      expect((await row.count()) === 1, `${await row.count()} buttons are named "${named}"`);
+      const shape = await row.evaluate(el => {
+        const header = el.previousElementSibling;
+        const r = el.getBoundingClientRect();
+        const h = header?.getBoundingClientRect();
+        const firstCell = el.firstElementChild?.getBoundingClientRect();
+        const headerCell = header?.firstElementChild?.getBoundingClientRect();
+        return {
+          tag: el.tagName,
+          person: el.getAttribute('data-person-row'),
+          columns: getComputedStyle(el).gridTemplateColumns.split(' ').length,
+          sameWidth: !!h && Math.abs(r.width - h.width) < 1,
+          sameLeft: !!firstCell && !!headerCell && Math.abs(firstCell.left - headerCell.left) < 1,
+          textAlign: getComputedStyle(el).textAlign,
+          divs: el.querySelectorAll('div').length
+        };
+      });
+      expect(shape.tag === 'BUTTON' && shape.person === DRAWER_EMAIL, `the row is ${JSON.stringify(shape)}`);
+      expect(shape.divs === 0, `the row button holds ${shape.divs} divs; a button holds phrasing content only`);
+      expect(shape.columns === 6 && shape.sameWidth && shape.sameLeft && shape.textAlign === 'left', `the row left the header's grid: ${JSON.stringify(shape)}`);
+      const onRow = () => page.evaluate(email => document.activeElement?.getAttribute('data-person-row') === email, DRAWER_EMAIL);
+      // Reached by Tab from the search box, as a keyboard user gets there.
+      await page.getByPlaceholder('Search contacts...', { exact: true }).focus();
+      let tabs = 0;
+      while (!(await onRow()) && tabs < 25) {
+        await page.keyboard.press('Tab');
+        tabs += 1;
+      }
+      expect(await onRow(), `25 Tabs from the search box never reached the row; focus is on ${JSON.stringify(await focused(page))}`);
+      // Enter opens the drawer; Enter on Close drawer closes it and focus is back on the row.
+      await page.keyboard.press('Enter');
+      const close = page.getByRole('button', { name: 'Close drawer', exact: true });
+      await close.waitFor({ state: 'visible' });
+      await page.getByRole('heading', { level: 3, name: DRAWER_NAME, exact: true }).waitFor({ state: 'visible' });
+      await close.focus();
+      await page.keyboard.press('Enter');
+      await close.waitFor({ state: 'detached' });
+      const back = await waitUntil(async () => ((await onRow()) ? true : null), 3000);
+      expect(back, `after Close drawer by keyboard focus is on ${JSON.stringify(await focused(page))}`);
+      // Its ring is drawn inside the row: the table clips its overflow, so a ring outside it showed only along the top.
+      const ring = await page.evaluate(() => {
+        const el = document.activeElement;
+        const cs = getComputedStyle(el);
+        return { visible: el.matches(':focus-visible'), style: cs.outlineStyle, width: cs.outlineWidth, offset: cs.outlineOffset };
+      });
+      expect(ring.visible && ring.style === 'solid' && ring.width === '2px' && ring.offset === '-2px', `the row's focus ring is ${JSON.stringify(ring)}, not a 2px ring inside the row`);
+      // The table with focus back on the row, its ring drawn.
+      if (shots) await row.locator('xpath=..').screenshot({ path: path.join(shots, 'people-row.png') });
+      // Space opens it too, and a click on Close drawer brings focus back the same way.
+      await page.keyboard.press('Space');
+      await close.waitFor({ state: 'visible' });
+      await close.click();
+      await close.waitFor({ state: 'detached' });
+      const backAgain = await waitUntil(async () => ((await onRow()) ? true : null), 3000);
+      expect(backAgain, `after a click on Close drawer focus is on ${JSON.stringify(await focused(page))}`);
+      return `the row is one button named "${named}", holding no div, on the header's six-column grid; ${tabs} Tab(s) from the search box reach it, Enter and Space open the drawer, and closing it by Enter or by a click puts focus back on the row, its 2px ring drawn inside the row`;
+    } finally {
+      state.peopleMode = 'none';
+    }
+  });
+
   await go('nav-from-step', async () => {
     // The canvas entry, as an owner takes it. Signed out, the journey saves to this browser, and only
     // a save that landed opens the studio (openAfterSave).
@@ -3286,6 +3382,157 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
       expect(await onScreen('contacts have phones on file'), 'Texts: Retry with the audience answering did not count the phones');
       expect(pageErrors.length === 0, `page errors: ${pageErrors.slice(0, 3).join(' | ')}`);
       return `Sending said "${POSTAL_READ.failed}" in its one alert, Save Postal Footer said "${POSTAL_NOT_SAVED}" and posted nothing, then Retry loaded it and Save posted once; Texts said "${PHONES_READ.failed}" in its one alert with a named Retry, which counted the phones`;
+    } finally {
+      await ctx.close();
+    }
+  }));
+  // Open list, second round: a fresh context answered by the studio stub, with the asset paths `withhold`
+  // matches aborted (as a deploy that replaced them would). Like the states steps it shares nothing with
+  // the page above, so it runs whatever an earlier step did.
+  const freshPage = async (sstate, withhold, body) => {
+    const withheld = [];
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await ctx.route('**/*', async route => {
+      const req = route.request();
+      try {
+        const u = new URL(req.url());
+        if (withhold && u.origin === origin && withhold.test(u.pathname)) {
+          withheld.push(u.pathname);
+          // `body`: the file does arrive, as this script (a part that loaded and then threw).
+          if (body) return route.fulfill({ status: 200, contentType: 'text/javascript', body });
+          return route.abort();
+        }
+        if (routeVerdict(req.url(), origin) === 'continue') return route.continue();
+        if (u.origin === origin) {
+          const answer = studioAnswer(req, u, sstate);
+          if (answer === 'abort') return route.abort();
+          if (answer) return route.fulfill(answer);
+        }
+      } catch {}
+      blocked.push(`${req.method()} ${req.url().slice(0, 100)}`);
+      return route.abort();
+    });
+    await ctx.addInitScript(([key, value]) => {
+      if (window.top !== window) return;
+      if (sessionStorage.getItem('jv-studio-check-seeded')) return;
+      sessionStorage.setItem('jv-studio-check-seeded', '1');
+      localStorage.setItem(key, value);
+    }, [STORAGE_KEY, JSON.stringify(DEFAULT_LEAD_CAPTURE_PROJECT)]);
+    const sp = await ctx.newPage();
+    sp.setDefaultTimeout(8000);
+    const pageErrors = [];
+    sp.on('pageerror', err => pageErrors.push(String(err?.message || err)));
+    sp.on('dialog', d => d.dismiss().catch(() => {}));
+    return { ctx, sp, pageErrors, withheld };
+  };
+
+  ran.push(await step('chunk-missing', async () => {
+    // BlueprintModal is rendered on every load, so its chunk is the one an open tab asks for first after a deploy.
+    const { ctx, sp, pageErrors, withheld } = await freshPage(newState(seeds), /^\/assets\/BlueprintModal-[^/]+\.js$/);
+    try {
+      await sp.goto(`${origin}/canvas`);
+      const said = () => sp.getByRole('alert').filter({ hasText: CHUNK_NOT_LOADED });
+      await said().waitFor({ state: 'visible', timeout: 20000 });
+      expect(withheld.length >= 1, 'no BlueprintModal chunk was asked for, so the sentence is not about a withheld file');
+      expect(((await said().textContent()) || '').includes(CHUNK_NOT_LOADED), `the alert reads ${JSON.stringify(await said().textContent())}`);
+      const onScreen = await said().evaluate(el => {
+        const r = el.getBoundingClientRect();
+        return r.height > 0 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth;
+      });
+      expect(onScreen, 'the sentence is not on screen');
+      const reload = said().getByRole('button', { name: 'Reload', exact: true });
+      const box = await reload.boundingBox();
+      expect(box && box.height >= 44, `Reload is ${box?.height}px tall`);
+      if (shots) await sp.screenshot({ path: path.join(shots, 'chunk-missing.png') });
+      // Every other modal still opens (fix round): one boundary around them all hid them until a reload.
+      await sp.locator('button[aria-label^="Check design"]').first().click();
+      const audit = sp.getByRole('dialog', { name: 'Check design' });
+      await audit.waitFor({ state: 'visible', timeout: 10000 });
+      expect(await said().isVisible(), 'the sentence went when another modal opened');
+      await audit.getByRole('button', { name: 'Close design checks', exact: true }).click();
+      await audit.waitFor({ state: 'detached' });
+      // The rest of the app is still mounted: the sidebar's switch and the canvas, and the switch still works.
+      const studio = sp.getByRole('button', { name: 'Switch to Email Studio view' });
+      expect(await studio.isVisible(), 'the sidebar is gone');
+      expect(await sp.locator('.react-flow').first().isVisible(), 'the canvas is gone');
+      await studio.click();
+      await sp.getByRole('heading', { level: 1, name: /Email Studio/ }).waitFor({ state: 'visible', timeout: 15000 });
+      // Reload loads the page again; the chunk is still withheld, so it asks for it again and says the sentence again.
+      const asked = withheld.length;
+      await Promise.all([sp.waitForEvent('load', { timeout: 20000 }), said().getByRole('button', { name: 'Reload', exact: true }).click()]);
+      await said().waitFor({ state: 'visible', timeout: 20000 });
+      expect(withheld.length > asked, 'Reload did not load the page again');
+      expect(pageErrors.length === 0, `page errors: ${pageErrors.slice(0, 3).join(' | ')}`);
+      return `with ${withheld[0]} withheld, "${CHUNK_NOT_LOADED}" showed in an alert on screen with a ${Math.round(box.height)}px Reload; Check design still opened; the sidebar and the canvas stayed, the sidebar opened Email Studio, and Reload loaded the page again`;
+    } finally {
+      await ctx.close();
+    }
+  }));
+
+  ran.push(await step('chunk-error-passed-on', async () => {
+    // Fix round: a part whose file arrived and then threw is a bug in that part, not a missing file. The
+    // boundary passes it on as it was before the boundary existed, and never says the file did not load.
+    const thrown = "Cannot read properties of undefined (reading 'nodes')";
+    const { ctx, sp, pageErrors, withheld } = await freshPage(newState(seeds), /^\/assets\/BlueprintModal-[^/]+\.js$/, `throw new TypeError(${JSON.stringify(thrown)});`);
+    try {
+      await sp.goto(`${origin}/canvas`);
+      const reported = await waitUntil(async () => (pageErrors.some(e => e.includes(thrown)) ? true : null), 20000);
+      expect(withheld.length >= 1, 'no BlueprintModal file was asked for, so nothing threw');
+      expect(reported, `the error was not passed on to the page: ${pageErrors.slice(0, 3).join(' | ') || 'no page error'}`);
+      expect((await sp.getByText(CHUNK_NOT_LOADED).count()) === 0, 'the boundary said the file did not load for an ordinary error');
+      const mounted = await sp.evaluate(() => document.getElementById('root')?.childElementCount);
+      expect(mounted === 0, `the app is still mounted (${mounted} children in #root), so the error was caught somewhere`);
+      return `the file arrived and threw "${thrown}"; the page reported it, the app unmounted as before the boundary existed, and the sentence was never shown`;
+    } finally {
+      await ctx.close();
+    }
+  }));
+
+  ran.push(await step('broadcast-interrupted', async () => {
+    // emailRoutes.mjs presentCampaign's shape: one broadcast a stopped server left part way (reportInterrupted),
+    // and one scheduled whose stored line must not show.
+    const sstate = newState(seeds);
+    const row = (id, extra) => ({
+      id, subject: '', previewText: '', body: '', segment: 'all', segmentName: 'All marketing', recipients: 0, recipientsCount: 0, sentAt: null,
+      openRate: null, clickRate: null, attributedSales: null, sent: null, delivered: null, opened: null, clicked: null, unsubscribed: null,
+      revenue: null, prefetchOpens: null, holdout: null, holdoutReport: null, status: '', sendMode: 'direct', when: '', sendAt: null,
+      gradual: null, ab: null, smartSkip: false, smartReport: '', followUp: null, followUpNote: '', scheduledCount: 0, lastError: '', ...extra
+    });
+    sstate.broadcasts = [
+      row('bc_interrupted', { subject: 'Autumn restock, stopped part way', status: 'interrupted', lastError: CAMPAIGN_INTERRUPTED }),
+      row('bc_scheduled', { subject: 'Winter preview, scheduled', status: 'scheduled', when: 'clock', sendAt: '2030-01-15T09:30:00.000Z', scheduledCount: 4, lastError: 'A stored line this row must not show.' })
+    ];
+    const { ctx, sp, pageErrors } = await freshPage(sstate, null);
+    try {
+      await sp.goto(`${origin}/canvas`);
+      const studio = sp.getByRole('button', { name: 'Switch to Email Studio view' });
+      await studio.waitFor({ state: 'visible', timeout: 20000 });
+      await studio.click();
+      await sp.getByRole('heading', { level: 1, name: /Email Studio/ }).waitFor({ state: 'visible', timeout: 15000 });
+      await sp.getByRole('tab', { name: 'Broadcasts', exact: true }).click();
+      await sp.getByRole('tab', { name: 'All broadcasts', exact: true }).click();
+      const stopped = sp.locator('[data-broadcast-row="bc_interrupted"]');
+      await stopped.waitFor({ state: 'visible' });
+      const status = ((await stopped.locator('[data-broadcast-status]').textContent()) || '').trim();
+      expect(status === 'Interrupted', `the interrupted row's status reads "${status}"`);
+      const reason = stopped.locator('[data-broadcast-stopped]');
+      expect((await reason.count()) === 1, `the interrupted row has ${await reason.count()} reason lines`);
+      expect(((await reason.textContent()) || '').trim() === CAMPAIGN_INTERRUPTED && (await reason.isVisible()), `the reason line reads ${JSON.stringify(await reason.textContent())}`);
+      expect(!((await stopped.textContent()) || '').includes('Not sent'), 'the interrupted row still says Not sent');
+      const placed = await stopped.evaluate(el => {
+        const s = el.querySelector('[data-broadcast-status]').getBoundingClientRect();
+        const r = el.querySelector('[data-broadcast-stopped]').getBoundingClientRect();
+        return { below: r.top >= s.bottom - 1, spans: r.width > el.getBoundingClientRect().width * 0.8 };
+      });
+      expect(placed.below && placed.spans, `the reason line is not under the row across it: ${JSON.stringify(placed)}`);
+      if (shots) await sp.screenshot({ path: path.join(shots, 'broadcast-interrupted.png') });
+      const scheduled = sp.locator('[data-broadcast-row="bc_scheduled"]');
+      const word = ((await scheduled.locator('[data-broadcast-status]').textContent()) || '').trim();
+      expect(word === 'Scheduled', `the scheduled row's status reads "${word}"`);
+      expect((await scheduled.locator('[data-broadcast-stopped]').count()) === 0, 'the scheduled row shows a reason line');
+      texts.push({ where: 'All broadcasts, an interrupted broadcast', text: await studioText(sp) });
+      expect(pageErrors.length === 0, `page errors: ${pageErrors.slice(0, 3).join(' | ')}`);
+      return `the interrupted broadcast reads "Interrupted" with "${CAMPAIGN_INTERRUPTED}" on its own line under the row and no "Not sent"; the scheduled one reads Scheduled with no reason line`;
     } finally {
       await ctx.close();
     }

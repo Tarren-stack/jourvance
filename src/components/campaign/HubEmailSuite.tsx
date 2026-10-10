@@ -17,6 +17,7 @@ import { SmsPanel } from './SmsPanel';
 import { SendingSetup } from './SendingSetup';
 import { KlaviyoSync } from './KlaviyoSync';
 import { CustomerProfileDrawer } from './CustomerProfileDrawer';
+import { broadcastStatusText, broadcastStoppedReason } from '../../lib/broadcastRow';
 import { moneyText, OPENS_UNSTORED, STAT_UNAVAILABLE, statText, withNote } from '../../lib/emailStats';
 import { STUDIO_DESTINATIONS, destinationOf, firstSectionOf, nextTabIndex, placeFor, type StudioDestinationKey, type StudioSectionKey } from '../../lib/emailStudioNav';
 import {
@@ -64,6 +65,8 @@ interface Broadcast {
   sendMode?: 'direct' | 'shopify_push';
   shopifyTagApplied?: string;
   status?: string;
+  /** The reason the server stored; All broadcasts shows it under an interrupted broadcast. */
+  lastError?: string;
   when?: string;
   ab?: { variable: string; winner: string; offsetHours: number } | null;
   smartReport?: string;
@@ -1365,6 +1368,7 @@ ${unsub}`;
               {broadcasts.map(b => (
                   <div
                     key={b.id}
+                    data-broadcast-row={b.id}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '2.5fr 1fr 1fr 1fr 1fr 1fr',
@@ -1414,7 +1418,7 @@ ${unsub}`;
                       </span>
                     </div>
 
-                    <div style={{ color: '#9ca3af', fontSize: '12px' }}>{b.sentAt ? new Date(b.sentAt).toLocaleDateString() : (b.status === 'scheduled' ? 'Scheduled' : 'Not sent')}</div>
+                    <div style={{ color: '#9ca3af', fontSize: '12px' }} data-broadcast-status>{broadcastStatusText(b)}</div>
                     <div style={{ color: '#d1d5db', fontWeight: 500 }}>{statText(b.sent, (n) => n.toLocaleString())}</div>
                     {b.opened == null && b.clicked == null ? (
                       <div style={{ color: '#9ca3af' }}>{STAT_UNAVAILABLE}</div>
@@ -1428,6 +1432,9 @@ ${unsub}`;
                     <div style={{ color: '#fbbf24', fontWeight: 700 }}>
                       {moneyText(b.revenue)}
                     </div>
+                    {broadcastStoppedReason(b) && (
+                      <p data-broadcast-stopped style={{ gridColumn: '1 / -1', margin: '8px 0 0', fontSize: 12, color: '#fcd34d' }}>{broadcastStoppedReason(b)}</p>
+                    )}
                     <p style={{ gridColumn: '1 / -1', margin: '8px 0 0', fontSize: 12, color: '#9ca3af' }}>
                       Delivered {statText(b.delivered)} · Unsubscribed {statText(b.unsubscribed)}
                       {b.prefetchOpens ? ` · ${b.prefetchOpens} opens included an Apple Mail prefetch flag.` : ''}
@@ -1761,15 +1768,31 @@ ${unsub}`;
                   );
                 })
                 .map((sub, idx) => (
-                  <div
+                  // One button per person, so a keyboard reaches the drawer; closing it brings focus back here.
+                  <button
+                    type="button"
                     key={idx}
+                    data-person-row={sub.email}
+                    aria-label={sub.name ? `Open ${sub.name}, ${sub.email}` : `Open ${sub.email}`}
                     onClick={() => setSelectedCustomerEmail(sub.email)}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '1.5fr 1.5fr 1.2fr 1fr 1.8fr 36px',
+                      width: '100%',
+                      margin: 0,
                       padding: '14px 20px',
+                      borderTop: 'none',
+                      borderLeft: 'none',
+                      borderRight: 'none',
+                      borderRadius: 0,
                       borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+                      backgroundColor: 'transparent',
+                      color: 'inherit',
+                      fontFamily: 'inherit',
+                      fontWeight: 'inherit',
+                      lineHeight: 'inherit',
                       fontSize: '13px',
+                      textAlign: 'left',
                       alignItems: 'center',
                       cursor: 'pointer',
                       transition: 'background-color 0.15s'
@@ -1777,8 +1800,8 @@ ${unsub}`;
                     onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                   >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ display: 'block' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 600, color: '#f3f4f6' }}>{sub.name || 'Anonymous Customer'}</span>
                         {sub.rfmBadge && (
                           <span
@@ -1805,26 +1828,27 @@ ${unsub}`;
                             {sub.rfmBadge}
                           </span>
                         )}
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
+                      </span>
+                      <span style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
                         Joined {new Date(sub.joinedAt).toLocaleDateString()}
-                      </div>
-                    </div>
+                      </span>
+                    </span>
 
-                    <div>
-                      <div style={{ color: '#e2e8f0', fontSize: '12px' }}>{sub.email}</div>
-                      {sub.phone && <div style={{ color: '#94a3b8', fontSize: '11px' }}>{sub.phone}</div>}
-                    </div>
+                    <span style={{ display: 'block' }}>
+                      <span style={{ display: 'block', color: '#e2e8f0', fontSize: '12px' }}>{sub.email}</span>
+                      {sub.phone && <span style={{ display: 'block', color: '#94a3b8', fontSize: '11px' }}>{sub.phone}</span>}
+                    </span>
 
-                    <div>
-                      <div style={{ color: '#ffffff', fontWeight: 600 }}>
+                    <span style={{ display: 'block' }}>
+                      <span style={{ display: 'block', color: '#ffffff', fontWeight: 600 }}>
                         ${(sub.totalSpent || 0).toFixed(2)}
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#9ca3af' }}>
+                      </span>
+                      <span style={{ display: 'block', fontSize: '11px', color: '#9ca3af' }}>
                         {sub.ordersCount || 0} {(sub.ordersCount || 0) === 1 ? 'order' : 'orders'}
-                      </div>
+                      </span>
                       {sub.recencyDays != null ? (
-                        <div style={{
+                        <span style={{
+                          display: 'block',
                           fontSize: '11px',
                           fontWeight: 600,
                           marginTop: '2px',
@@ -1834,13 +1858,13 @@ ${unsub}`;
                            sub.isAtRisk ? `At-Risk (${sub.recencyDays}d inactive)` :
                            sub.isLapsed ? `Lapsed (${sub.recencyDays}d)` :
                            `Ordered ${sub.recencyDays}d ago`}
-                        </div>
+                        </span>
                       ) : (
-                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>No orders yet</div>
+                        <span style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>No orders yet</span>
                       )}
-                    </div>
+                    </span>
 
-                    <div>
+                    <span style={{ display: 'block' }}>
                       <span
                         style={{
                           padding: '2px 8px',
@@ -1853,9 +1877,9 @@ ${unsub}`;
                       >
                         {sub.status === 'active' ? 'Subscribed' : 'Unsubscribed'}
                       </span>
-                    </div>
+                    </span>
 
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                       {sub.tags.map((tag, tIdx) => {
                         const isWhale = tag === 'VIP-Platinum';
                         const isGold = tag === 'VIP-Gold';
@@ -1913,8 +1937,8 @@ ${unsub}`;
                           </span>
                         );
                       })}
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    </span>
+                    <span style={{ display: 'flex', justifyContent: 'center' }}>
                       <span
                         title="View Customer 360 Profile"
                         style={{
@@ -1930,8 +1954,8 @@ ${unsub}`;
                       >
                         <ChevronRight size={13} />
                       </span>
-                    </div>
-                  </div>
+                    </span>
+                  </button>
                 ))}
             </div>
             </>
@@ -2253,7 +2277,15 @@ ${unsub}`;
             {selectedCustomerEmail && (
               <CustomerProfileDrawer
                 customerEmail={selectedCustomerEmail}
-                onClose={() => setSelectedCustomerEmail(null)}
+                onClose={() => {
+                  const email = selectedCustomerEmail;
+                  setSelectedCustomerEmail(null);
+                  // Back to the row that opened it, once the drawer is gone, so a keyboard carries on from there.
+                  requestAnimationFrame(() => {
+                    const row = Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-person-row]')).find(el => el.dataset.personRow === email);
+                    row?.focus();
+                  });
+                }}
                 onDraftCampaign={(contact, templateKey) => {
                   // No code, gift or percentage the merchant did not set (R24): the written drafts are BroadcastComposer's.
                   const kind: BroadcastPreset = templateKey === 'whale_perk' || templateKey === 'at_risk_winback' || templateKey === 'lead_welcome' ? templateKey : 'personal';

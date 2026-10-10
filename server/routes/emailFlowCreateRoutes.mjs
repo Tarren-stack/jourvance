@@ -14,8 +14,12 @@
  *
  * CAP: an account holds FLOW_LIMIT flows, and writeUserPrograms keeps the first FLOW_LIMIT, so a
  * create at the cap would push the oldest flow off the end without a word. It is refused instead.
+ *
+ * SIZE: a create that would take the account's email record past its size cap (saveProgramStore in
+ * server.mjs) saves nothing and is a 413 with the sentence naming what to delete, never a 200.
  */
 import { FLOW_LIMIT } from '../../email-flows.mjs';
+import { programWriteRefusal } from '../../email-flow-content.mjs';
 
 export const FLOW_NOT_CREATED = 'That flow could not be created.';
 export const FLOW_GRAPH_SHAPE = 'That flow could not be created, because its steps and lines must both be lists.';
@@ -68,7 +72,8 @@ export function setupEmailFlowCreateRoutes(app, ctx) {
     const bag = userProgramBag(req.user.uid);
     if (bag.flows.length >= FLOW_LIMIT) return res.status(409).json({ success: false, error: FLOW_LIMIT_REACHED });
     bag.flows.unshift(flow);
-    writeUserPrograms(req.user.uid, bag);
+    const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+    if (refused) return res.status(413).json(refused);
     res.json({ success: true, flow: presentCustomFlow(flow, bag, req.user.uid) });
   });
 }

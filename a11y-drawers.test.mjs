@@ -355,3 +355,33 @@ test('no added accessible name has an em dash or a spaced en dash', () => {
     }
   }
 });
+
+// Open list, second round (2026-10-09): the People row that opens the customer drawer was a div with an
+// onClick, so a keyboard could not reach the drawer at all.
+test('the People row is a button named for the person, keeps its grid, and closing the drawer puts focus back on it', () => {
+  const suite = read(`${C}/campaign/HubEmailSuite.tsx`);
+  const rows = openingTags(suite, 'button').filter(t => /\sdata-person-row=/.test(t.text));
+  assert.equal(rows.length, 1, 'the People row is not one button');
+  const row = rows[0].text;
+  assert.match(row, /\stype="button"/);
+  // Fix round: the name says the email as well, so two people with one name are told apart.
+  assert.equal(attrValue(row, 'aria-label'), 'sub.name ? `Open ${sub.name}, ${sub.email}` : `Open ${sub.email}`');
+  assert.equal(attrValue(row, 'onClick'), '() => setSelectedCustomerEmail(sub.email)');
+  // Nothing else opens the drawer for a row.
+  assert.equal((suite.match(/setSelectedCustomerEmail\(sub\.email\)/g) || []).length, 1, 'another element opens the drawer');
+  // The same six columns as the header row, read left to right, with no button chrome.
+  assert.match(row, /gridTemplateColumns: '1\.5fr 1\.5fr 1\.2fr 1fr 1\.8fr 36px'/);
+  for (const rule of ["width: '100%'", "textAlign: 'left'", "backgroundColor: 'transparent'", "borderTop: 'none'", "color: 'inherit'", "fontFamily: 'inherit'"]) assert.ok(row.includes(rule), `the row lost ${rule}`);
+  // Closing the drawer finds that row by its person and focuses it, once the drawer is gone.
+  const at = suite.indexOf('<CustomerProfileDrawer');
+  assert.ok(at > -1, 'the drawer is not rendered');
+  const onClose = attrValue(openingTags(suite.slice(at), 'CustomerProfileDrawer')[0].text, 'onClose');
+  assert.match(onClose, /const email = selectedCustomerEmail;\s*setSelectedCustomerEmail\(null\);/);
+  assert.match(onClose, /requestAnimationFrame\(\(\) => \{[\s\S]*querySelectorAll<HTMLButtonElement>\('button\[data-person-row\]'\)[\s\S]*el\.dataset\.personRow === email[\s\S]*row\?\.focus\(\);/);
+  // Fix round: a button holds phrasing content only, so every cell and line inside the row is a span.
+  const inside = suite.slice(rows[0].end, suite.indexOf('</button>', rows[0].end));
+  assert.ok(inside.includes('{sub.email}</span>') && inside.includes('<ChevronRight size={13} />'), 'the row\'s content was not found, so this checks nothing');
+  assert.deepEqual(openingTags(inside, 'div').map(t => `HubEmailSuite.tsx:${lineOf(suite, rows[0].end + t.start)}`), [], 'a div inside the People row button');
+  // The table clips its overflow, so the row's ring is drawn inside it (the global ring sits 2px outside).
+  assert.match(read('src/index.css'), /button\[data-person-row\]:focus-visible \{\s*outline-offset: -2px !important;\s*\}/);
+});

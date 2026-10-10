@@ -138,16 +138,16 @@ One word per concept, in every visible string of the studio and the server sente
 ### Tests and the browser check
 
 - Unit and route suites at the repo root: `email-flow-content-route.test.mjs` (the flow-content route and the program record, sliced out of `server.mjs` onto a bare Express app), `broadcast-drafts-route.test.mjs`, `broadcast-composer.test.mjs` (the real `campaign/send` handler), `email-doc-clip.test.mjs` (`blocksWouldClip` held to `cleanBlock` field by field), `studio-leave.test.mjs`, and the `email-studio-*`, `email-flows-list`, `flow-map-load`, `editor-return*` and `build-flow-wiring` source pins. Run with `node --test <file>`.
-- `node scripts/email-studio-browser-check.mjs [--shots <dir>]`: 51 steps in real Chrome at 1440x900 (and 390 where a step says so). Exit 0 pass, 1 a step failed, 2 could not run. Env: `PLAYWRIGHT_MODULE`, `CHROME_PATH`, `CHECK_STUDIO_PORT`. The step list and what each proves is the comment at the top of the file.
+- `node scripts/email-studio-browser-check.mjs [--shots <dir>]`: 61 steps in real Chrome at 1440x900 (and 390 where a step says so). Exit 0 pass, 1 a step failed, 2 could not run. Env: `PLAYWRIGHT_MODULE`, `CHROME_PATH`, `CHECK_STUDIO_PORT`. The step list and what each proves is the comment at the top of the file.
 - How it works: it builds the app with Vite into a temp dir with an empty `envDir` (so `.env` is never read), serves it with `vite preview` with the proxy off, and answers every studio `/api` request in the page with recorded JSON in the real routes' shapes (the seeds and presenters read out of `server.mjs` as text). It never starts `server.mjs`. It proves the client; the route suites above prove the routes.
 - A failed step skips every later step that runs through `go()`; the four states steps run anyway. Every dialog is answered Cancel unless the step sets `acceptNextDialog`. Never run it beside a `node --test` run or beside another browser check.
-- Last runs, Wave 8 fix round (2026-10-09, not yet re-run by the main session): 51 of 51, exit 0, in each of the three runs after the last code change (one of them slow, see Known flake).
+- Last runs, the open-list follow-up (2026-10-09, re-run by the main session): 61 of 61, exit 0, in each of two consecutive runs.
 
 ### Known flake
 
 - From Waves 5 and 6: a Playwright click timeout on a different step each time (one agent saw 4 of 20 runs fail that way; HEAD `6ac2c13` failed 1 of 5), and runs that hang in teardown with the Vite preview still listening. The cause is UNKNOWN.
 - On a timeout the check prints the step's FAIL line and then the last four lines of Playwright's call log, which say what it waited on and why the element never became clickable; with `--shots` it also saves `failed-<step>.png`.
-- A run that prints "N of 51 steps passed." and then does not exit is the teardown hang. Kill it (and any `vite preview` or headless Chrome it left behind) and say so in the report.
+- A run that prints "N of 61 steps passed." and then does not exit is the teardown hang. Kill it (and any `vite preview` or headless Chrome it left behind) and say so in the report.
 - In the Wave 8 fix round one green run took 373 s from start to exit where the other timed runs took 34 to 48 s. Where the time went is UNKNOWN: the check prints no timings.
 
 ### Still open

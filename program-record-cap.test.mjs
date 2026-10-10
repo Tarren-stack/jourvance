@@ -12,6 +12,10 @@ import { cleanBlockList } from './email-doc.mjs';
 import { FLOW_LIMIT, cleanFlow as cleanFlowGraph, isIanaTimezone, isPredictionKey } from './email-flows.mjs';
 import { cleanLists, cleanSegments } from './audience.mjs';
 import { cleanAttributionWindows } from './email-feeds.mjs';
+import { FLOW_TRIGGERS, buildEnrollment, clausesMatch, reentryBlocks } from './email-flows.mjs';
+import { enrollChoice } from './email-map.mjs';
+import { signalStarterFlows } from './shopify-signals.mjs';
+import { storedWaitHours } from './email-flow-content.mjs';
 import {
   HUB_DOCUMENT_MAX_BYTES, PROGRAM_RECORD_FULL, PROGRAM_RECORD_MAX_BYTES, cleanAccountSequences, isStarterDraft, mergeAccountSteps,
   programRecordBytes, programRecordCheck, programWriteRefusal, starterFlowOn
@@ -19,6 +23,8 @@ import {
 import { cleanBroadcastDrafts, setupBroadcastDraftRoutes } from './server/routes/broadcastDraftRoutes.mjs';
 import { setupEmailFlowContentRoutes } from './server/routes/emailFlowContentRoutes.mjs';
 import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
+import { setupEmailFlowCreateRoutes } from './server/routes/emailFlowCreateRoutes.mjs';
+import { setupAnalyticsRoutes } from './server/routes/analyticsRoutes.mjs';
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), 'utf8');
 const SERVER_SRC = read('./server.mjs');
@@ -230,14 +236,95 @@ test('a record from before the cap, already over it, can still be made smaller',
   }
 });
 
+// The three routes that answered 200 over a refused write (open list, second round): New flow and
+// Build a flow (POST /api/email/flows), Results' Save windows (POST /api/email/attribution-windows) and
+// a segment's refresh (POST /api/email/segments/:id/refresh, whose one write is noteSegmentChanges').
+async function mountCapRoutes(server) {
+  const ctx = {};
+  for (const line of SERVER_SRC.match(/const emailCtx = \{([\s\S]*?)\n\};/)[1].split('\n')) {
+    const key = line.replace(/\/\/.*$/, '').trim().replace(/,$/, '');
+    if (/^[A-Za-z_$][\w$]*$/.test(key)) ctx[key] = () => null;
+  }
+  // noteSegmentChanges over an account with no people, orders or events: only the segment state changes.
+  Object.assign(ctx, {
+    hub: null, hubReady: false, requireUser, userProgramBag: server.userProgramBag, writeUserPrograms: server.writeUserPrograms,
+    cleanLibrary: server.cleanLibrary, SAMPLE_MAIL_VARS: {}, DEFAULT_RFM_CONFIG: {},
+    loadOrders: () => [], loadEvents: () => [], loadBehaviorBag: () => ({ events: [] }), contactsForUser: () => [], isDemoRecord: () => false
+  });
+  return listen((app) => {
+    setupEmailFlowCreateRoutes(app, {
+      requireUser,
+      userProgramBag: server.userProgramBag,
+      writeUserPrograms: server.writeUserPrograms,
+      cleanFlow: (input) => cleanFlowGraph(input, { cleanBlocks: server.cleanBlocks }),
+      flowShapeError: () => '',
+      validateFlow: () => ({ ok: true }),
+      rememberUntranslated: () => {},
+      presentCustomFlow: (flow) => ({ id: flow.id, name: flow.name, enabled: flow.enabled })
+    });
+    setupAnalyticsRoutes(app, { requireUser, requireOperator: (_req, res) => res.status(403).end(), userProgramBag: server.userProgramBag, writeUserPrograms: server.writeUserPrograms });
+    setupEmailRoutes(app, ctx);
+  });
+}
+const WIDER_WINDOWS = { emailClickDays: 30, emailOpenDays: 30, smsClickDays: 30 };
+
+test('New flow, Save windows and a segment refresh over the cap are 413 with the sentence, and nothing is saved', async () => {
+  const { server, state } = loadServer();
+  // Two bytes of room: the three wider windows add one byte each, so even that is over.
+  fillTo(server, state, 2);
+  const before = JSON.stringify(state.memory.u1);
+  const setsBefore = state.sets;
+  const s = await mountCapRoutes(server);
+  try {
+    const created = await s.call('POST', '/api/email/flows', { name: 'Restock note', trigger: 'manual' });
+    const windows = await s.call('POST', '/api/email/attribution-windows', WIDER_WINDOWS);
+    const refreshed = await s.call('POST', '/api/email/segments/all/refresh');
+    for (const [name, res] of Object.entries({ created, windows, refreshed })) {
+      assert.equal(res.status, 413, `${name}: ${JSON.stringify(res.body).slice(0, 200)}`);
+      assert.equal(res.body.success, false, name);
+      assert.equal(res.body.error, PROGRAM_RECORD_FULL, name);
+      assert.ok(res.body.bytes > PROGRAM_RECORD_MAX_BYTES && res.body.maxBytes === PROGRAM_RECORD_MAX_BYTES, `${name}: ${JSON.stringify({ bytes: res.body.bytes, maxBytes: res.body.maxBytes })}`);
+    }
+    assert.equal(state.sets, setsBefore, 'a refused write was saved');
+    assert.equal(JSON.stringify(state.memory.u1), before, 'a refused write changed the record in memory');
+    assert.equal(state.warnings.filter((line) => line.startsWith('[Jourvance] Not saved')).length, 3);
+    const bag = server.userProgramBag('u1');
+    assert.equal(bag.flows.length, 0, 'the refused flow is on the account');
+    assert.deepEqual(bag.attributionWindows, { emailClickDays: 5, emailOpenDays: 5, smsClickDays: 5 }, 'the refused windows are stored');
+    assert.deepEqual(bag.segmentState, {}, 'the refused segment state is stored');
+  } finally {
+    await s.close();
+  }
+});
+
+test('the control: with room, New flow, Save windows and a segment refresh each land and answer 200', async () => {
+  const { server, state } = loadServer();
+  const s = await mountCapRoutes(server);
+  try {
+    const created = await s.call('POST', '/api/email/flows', { name: 'Restock note', trigger: 'manual' });
+    assert.equal(created.status, 200, JSON.stringify(created.body).slice(0, 200));
+    assert.equal(server.userProgramBag('u1').flows[0]?.id, created.body.flow.id);
+    const windows = await s.call('POST', '/api/email/attribution-windows', WIDER_WINDOWS);
+    assert.equal(windows.status, 200, JSON.stringify(windows.body).slice(0, 200));
+    assert.deepEqual(server.userProgramBag('u1').attributionWindows, WIDER_WINDOWS);
+    const refreshed = await s.call('POST', '/api/email/segments/all/refresh');
+    assert.equal(refreshed.status, 200, JSON.stringify(refreshed.body).slice(0, 200));
+    assert.deepEqual(refreshed.body, { success: true, entered: 0 });
+    assert.ok(Object.keys(server.userProgramBag('u1').segmentState).includes('all'), 'the refresh saved no segment state');
+    assert.equal(state.sets, 3);
+  } finally {
+    await s.close();
+  }
+});
+
 test('source: every write a route makes answers 413 when refused, or is one that stops mail and is never refused', () => {
-  // The writes no route answers: noteSegmentChanges runs after a segment save and on its own.
-  const background = [/^\s*writeUserPrograms\(uid, bag\);\s*$/];
-  for (const file of ['server/routes/emailRoutes.mjs', 'server/routes/emailFlowContentRoutes.mjs', 'server/routes/broadcastDraftRoutes.mjs']) {
+  // Every write in these modules is read (noteSegmentChanges included: it is the segment refresh
+  // route's one write), or is one that stops mail. The minimum is how many writes each module has.
+  const files = { 'server/routes/emailRoutes.mjs': 2, 'server/routes/emailFlowContentRoutes.mjs': 2, 'server/routes/broadcastDraftRoutes.mjs': 2, 'server/routes/emailFlowCreateRoutes.mjs': 1, 'server/routes/analyticsRoutes.mjs': 1 };
+  for (const [file, least] of Object.entries(files)) {
     const lines = read(`./${file}`).split('\n').map((line, i) => ({ line, at: i + 1 })).filter(({ line }) => /writeUserPrograms\(/.test(line) && !/^\s*(\*|\/\/)/.test(line));
-    assert.ok(lines.length >= 2, `${file}: only ${lines.length} writes found, so this checks too little`);
-    const loose = lines.filter(({ line }) => !/programWriteRefusal\(writeUserPrograms\(/.test(line) && !/always: true/.test(line)
-      && !(file.endsWith('emailRoutes.mjs') && background.some((re) => re.test(line))));
+    assert.ok(lines.length >= least, `${file}: only ${lines.length} writes found, so this checks too little`);
+    const loose = lines.filter(({ line }) => !/programWriteRefusal\(writeUserPrograms\(/.test(line) && !/always: true/.test(line));
     assert.deepEqual(loose.map(({ line, at }) => `${file}:${at}: ${line.trim()}`), []);
   }
   const route = (head) => {
@@ -265,4 +352,190 @@ test('source: each write that records an email already sent is never refused for
   assert.match(body('async function sendTransactional(uid, programId, { to, name, dedupeKey, vars, visitorId }) {'), /writeUserPrograms\(uid, fresh, \{ always: true \}\);/);
   // A person handed to Klaviyo is recorded whatever the size.
   assert.match(body('async function enrollFlowsForTrigger(uid, trigger, contact, vars, context, bagIn) {'), /writeUserPrograms\(uid, bag, \{ always: handedOff > 0 \}\)/);
+});
+
+// Fix round of the open list: the writers outside a route. Each one built its enrolments on the bag,
+// wrote it, and went on as if the write had landed. userProgramBag handed back the stored record's own
+// enrolments array, so an enrolment a refused write had added stayed on the record in memory, and the
+// next pass mailed it and then saved it with `always`. The webhooks' price drop and stock enrolments
+// counted the people a refused write had dropped, and a hand-off to Klaviyo made there or in the segment
+// pass was written without `always`, so a refusal dropped the record of it and the next signal handed
+// the same people off again.
+const QUIET_BUYER = 'quiet@example.test';
+const WATCHER = 'watcher@example.test';
+
+function automationsPass(server, sent) {
+  const deps = {
+    Date,
+    composeForSend: async () => ({ text: 't', html: '<p>t</p>', vars: {} }),
+    contactsForUser: () => [],
+    deliverLetter: async (mail) => { sent.push(mail.to); return { ok: true, status: 'sent' }; },
+    fillMailTokens: (text) => text,
+    isDemoRecord: () => false,
+    klaviyoIsSender: () => false,
+    loadOrders: () => [{ userId: 'u1', customerEmail: QUIET_BUYER, customerName: 'Quiet', createdAt: '2026-01-01T00:00:00.000Z' }],
+    orderMailVars: () => ({}),
+    processCustomFlows: async () => ({ sent: 0, failed: 0, active: 0 }),
+    storedWaitHours,
+    userProgramBag: server.userProgramBag,
+    writeUserPrograms: server.writeUserPrograms
+  };
+  const names = Object.keys(deps);
+  return new Function(...names, `${slice('async function processAccountAutomations(uid) {', '\n}\n')}\nreturn processAccountAutomations;`)(...names.map((n) => deps[n]));
+}
+
+function builtInsOn(server) {
+  const bag = server.userProgramBag('u1');
+  for (const id of ['post_purchase', 'winback']) bag.automations.find((row) => row.id === id).enabled = true;
+  assert.equal(server.writeUserPrograms('u1', bag).ok, true);
+}
+
+test('an enrolment a refused write added is on no record, in memory or saved, and the pass after it mails nobody', async () => {
+  const { server, state } = loadServer();
+  builtInsOn(server);
+  fillTo(server, state, 20);
+  const stored = JSON.stringify(state.memory.u1);
+  // An order's post-purchase flow (enrollAutomation, the orders webhook): refused, so it answers false.
+  const enrollAutomation = new Function('klaviyoIsSender', 'userProgramBag', 'writeUserPrograms',
+    `${slice('function enrollAutomation(uid, automationId, contact, vars) {', '\n}\n')}\nreturn enrollAutomation;`
+  )(() => false, server.userProgramBag, server.writeUserPrograms);
+  assert.equal(enrollAutomation('u1', 'post_purchase', { email: 'buyer@example.test', name: 'Buyer' }, {}), false);
+  assert.deepEqual(server.userProgramBag('u1').enrollments, [], 'an enrolment the write refused is on the record in memory');
+  // The built-in flows' pass enrols a quiet buyer in the win-back flow, whose one email is due at once.
+  const sent = [];
+  const result = await automationsPass(server, sent)('u1');
+  assert.deepEqual(sent, [], 'an enrolment the write refused was mailed');
+  assert.equal(result.sent, 0);
+  assert.deepEqual(server.userProgramBag('u1').enrollments, [], 'an enrolment the write refused is on the record');
+  assert.equal(JSON.stringify(state.memory.u1), stored, 'the record in memory changed');
+  // The pass's own last write (`always`) saves the record unchanged.
+  assert.equal(JSON.stringify(state.persisted.u1), stored, 'a refused enrolment was saved');
+});
+
+test('the control: with room, the win-back buyer is enrolled, mailed once, and the enrolment is saved', async () => {
+  const { server } = loadServer();
+  builtInsOn(server);
+  const sent = [];
+  const result = await automationsPass(server, sent)('u1');
+  assert.deepEqual(sent, [QUIET_BUYER]);
+  assert.equal(result.sent, 1);
+  const row = server.userProgramBag('u1').enrollments.find((r) => r.email === QUIET_BUYER);
+  assert.equal(row?.status, 'completed', JSON.stringify(row));
+});
+
+// server.mjs's own enrollFlowsForTrigger, with Klaviyo the sender (`klaviyo`) or not. `handed` lists
+// every person handed to Klaviyo.
+function realEnroll(server, klaviyo) {
+  const handed = [];
+  const enterKlaviyoFlow = async (_uid, _flowId, contact) => { handed.push(contact.email); return { entered: true, status: 'added_to_list', detail: 'Added to the list.' }; };
+  const enrollFlowsForTrigger = new Function(
+    'FLOW_TRIGGERS', 'klaviyoIsSender', 'enrollChoice', 'reentryBlocks', 'enterKlaviyoFlow', 'graphContext', 'clausesMatch', 'buildEnrollment', 'writeUserPrograms', 'userProgramBag',
+    `${slice('async function enrollFlowsForTrigger(uid, trigger, contact, vars, context, bagIn) {', '\n}\n')}\nreturn enrollFlowsForTrigger;`
+  )(FLOW_TRIGGERS, () => klaviyo, enrollChoice, reentryBlocks, enterKlaviyoFlow, () => ({}), clausesMatch, buildEnrollment, server.writeUserPrograms, server.userProgramBag);
+  return { enrollFlowsForTrigger, handed };
+}
+
+// A starter signal flow turned on, linked to a Klaviyo flow when Klaviyo sends.
+function signalFlowOn(server, id, klaviyo) {
+  const bag = server.userProgramBag('u1');
+  const flow = signalStarterFlows().find((row) => row.id === id);
+  bag.flows = [{ ...flow, enabled: true, ...(klaviyo ? { klaviyoFlowId: 'KlFlow1' } : {}) }];
+  assert.equal(server.writeUserPrograms('u1', bag).ok, true);
+  assert.equal(server.userProgramBag('u1').flows[0]?.enabled, true, `${id} did not stay on`);
+}
+
+// The webhooks' two signal writers (products/update and inventory_levels/update), from server.mjs.
+function signalWriters(server, enrollFlowsForTrigger) {
+  const deps = {
+    userProgramBag: server.userProgramBag,
+    writeUserPrograms: server.writeUserPrograms,
+    enrollFlowsForTrigger,
+    priceDropQualifies: () => true,
+    lowInventoryQualifies: () => true,
+    watchersForVariant: () => [WATCHER],
+    contactForEnroll: (_uid, email) => ({ email, name: 'Watcher', phone: '' }),
+    personFields: () => ({}),
+    loadBehaviorBag: () => ({ events: [], subscriptions: [] }),
+    saveBehaviorBag: () => {},
+    restockRecipients: () => [WATCHER],
+    stampRestockFired: (subs) => subs,
+    rearmRestock: (subs) => subs
+  };
+  const names = Object.keys(deps);
+  return new Function(...names, `
+    ${slice('async function enrollPriceDrops(uid, changes) {', '\n}\n')}
+    ${slice('async function enrollInventorySignals(uid, changes) {', '\n}\n')}
+    return { enrollPriceDrops, enrollInventorySignals };
+  `)(...names.map((n) => deps[n]));
+}
+
+const SIGNALS = [
+  { flowId: 'flow_pricedrop', writer: 'enrollPriceDrops', change: { variantId: 'v1', price: 18, previousPrice: 24 } },
+  { flowId: 'flow_backinstock', writer: 'enrollInventorySignals', change: { variantId: 'v1', available: 5, previousAvailable: 0 } }
+];
+
+test('a price drop or stock enrolment a refused write dropped counts nobody, and with room it counts and is saved', async () => {
+  for (const { flowId, writer, change } of SIGNALS) {
+    const full = loadServer();
+    signalFlowOn(full.server, flowId, false);
+    fillTo(full.server, full.state, 20);
+    const stored = JSON.stringify(full.state.memory.u1);
+    const count = await signalWriters(full.server, realEnroll(full.server, false).enrollFlowsForTrigger)[writer]('u1', [change]);
+    assert.equal(count, 0, `${writer} counted ${count} enrolled over a refused write`);
+    assert.equal(JSON.stringify(full.state.memory.u1), stored, `${writer}: the stored copy changed`);
+    assert.deepEqual(full.server.userProgramBag('u1').flowEnrollments, [], `${writer}: a refused enrolment is on the record`);
+
+    const room = loadServer();
+    signalFlowOn(room.server, flowId, false);
+    const counted = await signalWriters(room.server, realEnroll(room.server, false).enrollFlowsForTrigger)[writer]('u1', [change]);
+    assert.equal(counted, 1, `the control: ${writer} counted ${counted}`);
+    assert.deepEqual(room.server.userProgramBag('u1').flowEnrollments.map((row) => [row.flowId, row.email, row.status]), [[flowId, WATCHER, 'active']], `the control: ${writer} saved no enrolment`);
+  }
+});
+
+test('a hand-off to Klaviyo from a price drop or stock signal is recorded over the cap, so the next signal does not hand off again', async () => {
+  for (const { flowId, writer, change } of SIGNALS) {
+    const { server, state } = loadServer();
+    signalFlowOn(server, flowId, true);
+    fillTo(server, state, 20);
+    const { enrollFlowsForTrigger, handed } = realEnroll(server, true);
+    const writers = signalWriters(server, enrollFlowsForTrigger);
+    const count = await writers[writer]('u1', [change]);
+    assert.deepEqual(handed, [WATCHER], `${writer}: the fixture handed off ${JSON.stringify(handed)}, so this proves nothing`);
+    assert.equal(count, 1, `${writer}: a person handed to Klaviyo was counted ${count}`);
+    assert.deepEqual(server.userProgramBag('u1').flowEnrollments.map((row) => [row.email, row.status]), [[WATCHER, 'handed_to_klaviyo']], `${writer}: the hand-off was not recorded`);
+    assert.match(state.warnings.at(-1), /was saved because it records an email already sent or stops mail\.$/, `${writer}: ${state.warnings.at(-1)}`);
+    await writers[writer]('u1', [change]);
+    assert.deepEqual(handed, [WATCHER], `${writer}: the same person was handed to Klaviyo again`);
+  }
+});
+
+test('a hand-off to Klaviyo from the segment pass is recorded over the cap, so the next pass does not hand off again', async () => {
+  const { server, state } = loadServer();
+  const bag = server.userProgramBag('u1');
+  bag.flows = [{ ...signalStarterFlows().find((row) => row.id === 'flow_pricedrop'), id: 'flow_segment', name: 'Entered All marketing', trigger: 'segment_entered', enabled: true, klaviyoFlowId: 'KlFlow1' }];
+  // All marketing already counted once, empty: whoever matches it now has newly entered it.
+  bag.segmentState = { all: { baselined: true, members: {} } };
+  assert.equal(server.writeUserPrograms('u1', bag).ok, true);
+  assert.equal(server.userProgramBag('u1').flows[0]?.trigger, 'segment_entered', 'the segment flow was not kept');
+  fillTo(server, state, 20);
+  const { enrollFlowsForTrigger, handed } = realEnroll(server, true);
+  const ctx = {};
+  for (const line of SERVER_SRC.match(/const emailCtx = \{([\s\S]*?)\n\};/)[1].split('\n')) {
+    const key = line.replace(/\/\/.*$/, '').trim().replace(/,$/, '');
+    if (/^[A-Za-z_$][\w$]*$/.test(key)) ctx[key] = () => null;
+  }
+  Object.assign(ctx, {
+    hub: null, hubReady: false, requireUser, userProgramBag: server.userProgramBag, writeUserPrograms: server.writeUserPrograms, enrollFlowsForTrigger,
+    SAMPLE_MAIL_VARS: {}, DEFAULT_RFM_CONFIG: {}, loadOrders: () => [], loadEvents: () => [], loadBehaviorBag: () => ({ events: [] }), isDemoRecord: () => false,
+    contactsForUser: () => [{ email: WATCHER, name: 'Watcher', userId: 'u1', acceptsMarketing: true }]
+  });
+  const { noteSegmentChanges } = setupEmailRoutes(express(), ctx);
+  const noted = await noteSegmentChanges('u1');
+  assert.deepEqual(handed, [WATCHER], `the fixture handed off ${JSON.stringify(handed)}, so this proves nothing`);
+  assert.equal(noted.refused, undefined, `the pass that handed someone off was refused: ${JSON.stringify(noted).slice(0, 200)}`);
+  assert.equal(noted.byId.all, 1);
+  assert.deepEqual(server.userProgramBag('u1').flowEnrollments.map((row) => [row.email, row.status]), [[WATCHER, 'handed_to_klaviyo']], 'the hand-off was not recorded');
+  await noteSegmentChanges('u1');
+  assert.deepEqual(handed, [WATCHER], 'the same person was handed to Klaviyo again');
 });

@@ -851,6 +851,7 @@ async function noteSegmentChanges(uid) {
   const nowIso = new Date().toISOString();
   const state = { ...(bag.segmentState || {}) };
   const byId = {};
+  let handedOff = 0;
   const consider = [
     ...BUILT_INS.map((row) => ({ id: row.id, builtin: true })),
     ...bag.segments.map((segment) => ({ id: segment.id, builtin: false, segment }))
@@ -866,16 +867,24 @@ async function noteSegmentChanges(uid) {
     byId[item.id] = next.entered.length;
     for (const email of next.entered) {
       const ctx = contexts.find((row) => String(row.contact.email || '').toLowerCase() === email);
-      await enrollFlowsForTrigger(uid, 'segment_entered', ctx?.contact || { email }, {}, {
+      const result = await enrollFlowsForTrigger(uid, 'segment_entered', ctx?.contact || { email }, {}, {
         reason: 'segment',
         dedupe: `segment:${item.id}:${nowIso}`,
         occurrence: `segment:${item.id}:${nowIso}`,
         event: { segment_id: item.id }
       }, bag);
+      handedOff += result?.handedOff || 0;
     }
   }
   bag.segmentState = state;
-  writeUserPrograms(uid, bag);
+  // Refused over the account record's size cap: no segment state and no enrolment was saved, so
+  // nobody entered, and the next pass finds them again. The refresh route answers the refusal. Every
+  // other caller (a segment or list save, a lead, an order, checkout or customer webhook, the prediction
+  // refresh) has saved its own change already and takes this pass as best effort, on purpose. A hand-off
+  // to Klaviyo already happened, so it is recorded whatever the size; dropped, the next pass would hand
+  // the same people off again.
+  const refused = programWriteRefusal(writeUserPrograms(uid, bag, { always: handedOff > 0 }));
+  if (refused) return { entered: 0, byId: {}, refused };
   return { entered: Object.values(byId).reduce((sum, count) => sum + count, 0), byId };
 }
 
@@ -1335,6 +1344,7 @@ app.post('/api/email/segments/:id/refresh', requireUser, async (req, res) => {
   const known = BUILT_INS.some((row) => row.id === req.params.id) || userProgramBag(req.user.uid).segments.some((row) => row.id === req.params.id);
   if (!known) return res.status(404).json({ success: false, error: 'That segment is not on this account.' });
   const noted = await noteSegmentChanges(req.user.uid);
+  if (noted.refused) return res.status(413).json(noted.refused);
   res.json({ success: true, entered: noted.byId[req.params.id] || 0 });
 });
 

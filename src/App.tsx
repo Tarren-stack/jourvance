@@ -47,6 +47,7 @@ import { SIGN_OUT_QUESTION } from './lib/journeyAutosave';
 import { funnelReturnFor, returnStepId, returnBannerText, openAfterSave, linkStepToFlow, type FunnelReturn, type StepFlowLink } from './lib/editorReturn';
 import { leaveStudioOk } from './lib/studioLeave';
 import { FunnelReturnBanner } from './components/campaign/FunnelReturnBanner';
+import { ChunkBoundary } from './components/ChunkBoundary';
 
 // Code-split heavy interior app and modal bundles to ensure sub-second public page loads
 const JourneyCanvas = lazy(() => import('./components/canvas/JourneyCanvas').then(m => ({ default: m.JourneyCanvas })));
@@ -977,6 +978,8 @@ export const App: React.FC = () => {
               )}
 
               {/* Main Area: Funnel Canvas, Email Studio, OR Attribution Reports */}
+              {/* A view whose file did not arrive says so in its own place, and the sidebar still opens the others. */}
+              <ChunkBoundary key={activeView}>
               <Suspense fallback={<SuspenseLoader label="Loading studio view..." />}>
                 {activeView === 'email-studio' ? (
                   <HubEmailSuite
@@ -1067,6 +1070,7 @@ export const App: React.FC = () => {
                   </PublishStatusContext.Provider>
                 )}
               </Suspense>
+              </ChunkBoundary>
             </div>
           </div>
           </div>{/* jv-workspace-main */}
@@ -1136,8 +1140,8 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Lazy-Loaded Modals & Drawers */}
-      <Suspense fallback={null}>
+      {/* Lazy-Loaded Modals & Drawers, each in its own boundary (`each`): one whose file did not arrive leaves the others working. */}
+      <ChunkBoundary floating each>
         {/* Live Funnel Simulation Modal */}
         {showLiveModal && (
           <LiveFunnelModal
@@ -1346,7 +1350,7 @@ export const App: React.FC = () => {
             }
           }}
         />
-      </Suspense>
+      </ChunkBoundary>
     </div>
   );
 };

@@ -10,6 +10,7 @@ import {
   channelOf
 } from '../../email-map.mjs';
 import { cleanAttributionWindows } from '../../email-feeds.mjs';
+import { programWriteRefusal } from '../../email-flow-content.mjs';
 import { mailEventsReady } from '../mail-events.mjs';
 
 function round1(n) {
@@ -738,7 +739,9 @@ export function setupAnalyticsRoutes(app, ctx) {
   app.post('/api/email/attribution-windows', requireUser, (req, res) => {
     const bag = userProgramBag(req.user.uid);
     bag.attributionWindows = cleanAttributionWindows(req.body || {});
-    writeUserPrograms(req.user.uid, bag);
+    // Over the account record's size cap nothing is saved, and the answer says so (saveProgramStore).
+    const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+    if (refused) return res.status(413).json(refused);
     res.json({ success: true, windows: bag.attributionWindows, note: 'Orders already attributed keep the window stored on them.' });
   });
 

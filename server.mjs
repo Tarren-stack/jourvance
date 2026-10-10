@@ -593,6 +593,7 @@ async function enrollPriceDrops(uid, changes) {
   const flows = bag.flows.filter((flow) => flow.enabled && flow.trigger === 'price_drop');
   if (!flows.length) return 0;
   let added = 0;
+  let handedOff = 0;
   for (const change of changes) {
     for (const flow of flows) {
       if (flow.variantId && flow.variantId !== change.variantId) continue;
@@ -608,10 +609,14 @@ async function enrollPriceDrops(uid, changes) {
           event: { variant_id: change.variantId, price: change.price, previous_price: change.previousPrice }
         }, bag);
         added += result.added;
+        handedOff += result.handedOff || 0;
       }
     }
   }
-  if (added) writeUserPrograms(uid, bag);
+  // Refused over the record's size cap: nobody was enrolled (saveProgramStore logged it), so none is
+  // counted, and nothing is mailed. A hand-off to Klaviyo already happened, so it is recorded whatever
+  // the size, as enrollFlowsForTrigger records its own; dropped, the next signal hands them off again.
+  if (added && writeUserPrograms(uid, bag, { always: handedOff > 0 })?.ok === false) return 0;
   return added;
 }
 
@@ -619,6 +624,7 @@ async function enrollInventorySignals(uid, changes) {
   const bag = userProgramBag(uid);
   const behavior = loadBehaviorBag(uid);
   let added = 0;
+  let handedOff = 0;
   let subsChanged = false;
   for (const change of changes) {
     const lowFlows = bag.flows.filter((flow) => flow.enabled && flow.trigger === 'low_inventory' && (!flow.variantId || flow.variantId === change.variantId) && lowInventoryQualifies(change, flow));
@@ -633,6 +639,7 @@ async function enrollInventorySignals(uid, changes) {
           event: { variant_id: change.variantId, available: change.available }
         }, bag);
         added += result.added;
+        handedOff += result.handedOff || 0;
       }
     }
     const restockFlows = bag.flows.filter((flow) => flow.enabled && flow.trigger === 'back_in_stock' && (!flow.variantId || flow.variantId === change.variantId));
@@ -651,6 +658,7 @@ async function enrollInventorySignals(uid, changes) {
           event: { variant_id: change.variantId, available: change.available }
         }, bag);
         added += result.added;
+        handedOff += result.handedOff || 0;
       }
     }
     const minimums = restockFlows.map((flow) => Number(flow.stockMinimum) || 1);
@@ -660,7 +668,8 @@ async function enrollInventorySignals(uid, changes) {
     }
   }
   if (subsChanged) saveBehaviorBag(uid, behavior);
-  if (added) writeUserPrograms(uid, bag);
+  // As enrollPriceDrops: a refused write counts nobody, and a hand-off is recorded whatever the size.
+  if (added && writeUserPrograms(uid, bag, { always: handedOff > 0 })?.ok === false) return 0;
   return added;
 }
 
@@ -871,6 +880,9 @@ async function refreshPredictions(uid) {
   if (JSON.stringify(previous) !== JSON.stringify(committed.store)) savePredictionStore(committed.store);
   const bag = userProgramBag(uid);
   bag.predictionCheckedAt = new Date().toISOString();
+  // Best effort, on purpose: this stamp only spaces the refreshes out, and the predictions are in their
+  // own store. Refused over the record's size cap (saveProgramStore logs it), the next due check runs
+  // the refresh again. The segment pass below answers its own refusal; nothing here reports it.
   writeUserPrograms(uid, bag);
   await noteSegmentChanges(uid);
   return committed.result;
@@ -1730,7 +1742,11 @@ function userProgramBag(uid) {
       steps: cleanSteps(over.steps, def.steps)
     };
   });
-  const enrollments = Array.isArray(saved.enrollments) ? saved.enrollments : [];
+  // A copy (fix round of the open list): this was the stored record's own array, so an enrolment added
+  // to the bag was on the record before it was written. The size cap then measured the grown record
+  // against itself, saved it over the cap as "smaller than the record it replaces", and the pass after
+  // mailed it.
+  const enrollments = Array.isArray(saved.enrollments) ? saved.enrollments.slice() : [];
   const sentKeys = Array.isArray(saved.sentKeys) ? saved.sentKeys.map(k => String(k)).slice(-4000) : [];
   const flows = (Array.isArray(saved.flows) ? saved.flows : []).map(cleanFlow).filter(Boolean).slice(0, FLOW_LIMIT);
   const flowEnrollments = (Array.isArray(saved.flowEnrollments) ? saved.flowEnrollments : []).slice(0, 2000);
@@ -2002,7 +2018,7 @@ async function enrollFlowsForTrigger(uid, trigger, contact, vars, context, bagIn
     const saved = writeUserPrograms(uid, bag, { always: handedOff > 0 });
     if (saved?.ok === false) return { added: 0, errors: [...errors, saved.error], skipped, stitched: false };
   }
-  return { added, errors, skipped, stitched };
+  return { added, errors, skipped, stitched, handedOff };
 }
 
 async function enrollLinkedMapFlows(uid, journeyId, when, contact, vars) {
@@ -2940,6 +2956,8 @@ async function processAccountAutomations(uid) {
       });
       enrolled = true;
     }
+    // Refused over the record's size cap: nobody was enrolled (saveProgramStore logged it). The sends
+    // below read the stored record, so none of them is mailed, and the next pass tries again.
     if (enrolled) writeUserPrograms(uid, bag);
   }
 

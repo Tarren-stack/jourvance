@@ -368,3 +368,33 @@ test('the customer drawer says why Enroll did not add someone, in a status regio
   assert.match(said[1], /turned off/);
   assert.doesNotMatch(said[1], /\u2014| \u2013 /);
 });
+
+// ---- Open list, second round (2026-10-09): an interrupted broadcast says so, with its stored reason ----
+
+test('All broadcasts: an interrupted broadcast reads Interrupted with the reason the server stored under it, never Not sent', async () => {
+  const { broadcastStatusText, broadcastStoppedReason } = await import('./src/lib/broadcastRow.ts');
+  const { CAMPAIGN_INTERRUPTED, CAMPAIGN_NOT_SENT } = await import('./server/routes/emailRoutes.mjs');
+  const sentAt = '2026-10-01T12:00:00.000Z';
+  const rows = [
+    [{ status: 'interrupted', sentAt: null, lastError: CAMPAIGN_INTERRUPTED }, 'Interrupted', CAMPAIGN_INTERRUPTED],
+    [{ status: 'interrupted', sentAt: null, lastError: CAMPAIGN_NOT_SENT }, 'Interrupted', CAMPAIGN_NOT_SENT],
+    [{ status: 'interrupted', sentAt: null, lastError: '' }, 'Interrupted', ''],
+    [{ status: 'scheduled', sentAt: null, lastError: 'Not shown for a scheduled broadcast.' }, 'Scheduled', ''],
+    [{ status: 'partial', sentAt, lastError: 'Not shown for one that went out.' }, new Date(sentAt).toLocaleDateString(), ''],
+    [{ status: '', sentAt: null }, 'Not sent', '']
+  ];
+  for (const [row, word, reason] of rows) {
+    assert.equal(broadcastStatusText(row), word, JSON.stringify(row));
+    assert.equal(broadcastStoppedReason(row), reason, JSON.stringify(row));
+  }
+  // The list route hands both over (emailRoutes.mjs presentCampaign), so the row has the reason to show.
+  const present = between(read('./server/routes/emailRoutes.mjs'), 'function presentCampaign(row) {', '\n}\n', 'presentCampaign');
+  assert.match(present, /status: row\.status \|\| '',/);
+  assert.match(present, /lastError: row\.lastError \|\| ''/);
+  // The status column prints the word, and the reason is its own line spanning the row, under it.
+  const row = between(suite, 'data-broadcast-row={b.id}', '{b.smartReport &&', 'a broadcast row');
+  assert.ok(row.includes('data-broadcast-status>{broadcastStatusText(b)}</div>'), 'the status column does not print broadcastStatusText');
+  assert.match(row, /\{broadcastStoppedReason\(b\) && \(\s*<p data-broadcast-stopped style=\{\{ gridColumn: '1 \/ -1'[^}]*\}\}>\{broadcastStoppedReason\(b\)\}<\/p>\s*\)\}/);
+  assert.ok(!code(suite).includes("'Not sent'"), 'HubEmailSuite.tsx still words a status of its own');
+  for (const reason of [CAMPAIGN_INTERRUPTED, CAMPAIGN_NOT_SENT]) assert.doesNotMatch(reason, /—| – /);
+});
