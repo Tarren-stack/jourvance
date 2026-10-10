@@ -912,7 +912,7 @@ test('Turn off is refused, never dropped, when the account already keeps rows fo
 
 // ---- Wave 2: the drip sender, server.mjs's own processUserAutomationsTick, sliced out and run ----
 
-function dripSender(server, drips, { contacts = [], rfm = {}, hubReady = true, checkouts = [] } = {}) {
+function dripSender(server, drips, { contacts = [], rfm = {}, hubReady = true, checkouts = [], klaviyo = false } = {}) {
   const clock = { now: Date.parse('2026-10-08T12:00:00.000Z') };
   class At extends Date {
     constructor(...args) { super(...(args.length ? args : [clock.now])); }
@@ -934,7 +934,7 @@ function dripSender(server, drips, { contacts = [], rfm = {}, hubReady = true, c
     hubReady,
     isFixtureEnrollment: () => false,
     isStarterDraft,
-    klaviyoIsSender: () => false,
+    klaviyoIsSender: () => klaviyo,
     loadCheckouts: () => checkouts,
     loadContacts: () => contacts,
     loadDrips: () => drips,
@@ -1325,4 +1325,311 @@ test('an email larger than 64 KB as sent is refused 413 and nothing is written; 
     assert.equal(FLOW_EMAIL_MAX_BYTES, 64 * 1024);
     assert.doesNotMatch(FLOW_CONTENT_TOO_LARGE, /—| – /);
   } finally { await s.close(); }
+});
+
+// ---- Open list (2026-10-09): the drip loop's Klaviyo hold no longer skips the off check ----
+
+test('a starter flow turned off while Klaviyo is the sender still takes a due enrolment out, so switching back sends no backlog', async () => {
+  const off = { u1: { sequences: { drip_seq_cart_recovery: { steps: [], enabled: false } } } };
+  const due = () => enrollment('drip_seq_cart_recovery');
+  const later = () => enrollment('drip_seq_cart_recovery', { id: 'enr_later', customerEmail: 'later@example.test', nextStepDueAt: '2026-10-08T18:00:00.000Z' });
+
+  // The control: Klaviyo is the sender and the flow is ON, so the hold holds: nothing sent, nothing moved.
+  const onServer = loadServer({});
+  const onDrips = { sequences: clone(onServer.server.INITIAL_DRIP_SEQUENCES), enrollments: [due()] };
+  const onRun = dripSender(onServer.server, onDrips, { klaviyo: true });
+  await onRun.tick('u1');
+  assert.equal(onRun.sent.length, 0, 'an email went from the drip loop while Klaviyo is the sender');
+  assert.deepEqual([onDrips.enrollments[0].status, onDrips.enrollments[0].currentStepIndex, onDrips.enrollments[0].stoppedReason], ['active', 0, undefined], 'the Klaviyo hold moved an enrolment in a flow that is on');
+
+  // Off under Klaviyo: the due one is taken out; the one not yet due waits as before.
+  const { server } = loadServer(off);
+  const drips = { sequences: clone(server.INITIAL_DRIP_SEQUENCES), enrollments: [due(), later()] };
+  const cart = drips.sequences.find((seq) => seq.id === 'drip_seq_cart_recovery');
+  cart.activeEnrollments = 2;
+  const underKlaviyo = dripSender(server, drips, { klaviyo: true });
+  await underKlaviyo.tick('u1');
+  const [dueRow, laterRow] = drips.enrollments;
+  assert.equal(underKlaviyo.sent.length, 0);
+  assert.deepEqual([dueRow.status, dueRow.stoppedReason, dueRow.currentStepIndex], ['stopped', 'flow_off', 0], 'a due enrolment in a flow turned off was left waiting while Klaviyo is the sender');
+  assert.equal(dueRow.stoppedAt, new Date(underKlaviyo.clock.now).toISOString());
+  assert.equal(cart.activeEnrollments, 1);
+  assert.deepEqual([laterRow.status, laterRow.currentStepIndex], ['active', 0], 'an enrolment not yet due was taken out early');
+
+  // Turned back on and the sender back to Jourvance: the one taken out gets nothing it missed.
+  const bag = server.userProgramBag('u1');
+  bag.sequences = {};
+  server.writeUserPrograms('u1', bag, { sequences: true });
+  const back = dripSender(server, drips);
+  back.clock.now = underKlaviyo.clock.now;
+  await back.tick('u1');
+  assert.deepEqual(back.sent.map((m) => m.to), [], 'switching back sent what came due while the flow was off under Klaviyo');
+  assert.equal(dueRow.status, 'stopped');
+});
+
+// ---- Open list (2026-10-09): the custom flows' sender, server.mjs's own processCustomFlows, sliced out ----
+
+const flowHelpers = new Function('isPredictionKey', 'loadContacts', 'contactOwnerId', 'saveContacts', `
+  ${slice('function stepAt(program, stack) {', '\n}\n')}
+  ${slice('function stackAfter(program, stack) {', '\n}\n')}
+  ${slice('function writeFlowProperty(uid, bag, email, action) {', '\n}\n')}
+  ${slice('function layFlowPass(latest, bag, before, knownIds) {', '\n}\n')}
+  return { stepAt, stackAfter, writeFlowProperty, layFlowPass };
+`)(isPredictionKey, () => [], (row) => row.userId, () => {});
+
+function customFlowPass(server, deps = {}) {
+  const source = slice('async function processCustomFlows(uid) {', '\n}\n');
+  assert.match(source, /return \{ sent, failed, active: /, 'the slice of processCustomFlows did not reach its return');
+  const all = {
+    Date,
+    crypto: { randomBytes: () => Buffer.from('a1b2c3', 'hex') },
+    userProgramBag: server.userProgramBag,
+    writeUserPrograms: server.writeUserPrograms,
+    layFlowPass: flowHelpers.layFlowPass,
+    stepAt: flowHelpers.stepAt,
+    stackAfter: flowHelpers.stackAfter,
+    loadOrders: () => [],
+    isDemoRecord: () => false,
+    markSunset: () => false,
+    enrollFlowsForTrigger: async () => ({ added: 0 }),
+    orderMailVars: () => ({}),
+    predictionAccount: () => null,
+    contactsForUser: () => [],
+    dateOccurrenceDue: () => ({ due: false }),
+    personFields: () => ({}),
+    loadBehaviorBag: () => ({ events: [] }),
+    loadEvents: () => [],
+    advanceGraphEnrollment: async () => ({ sent: 0, failed: 0, dirty: false, spawned: false }),
+    smsQuietEnabled: () => false,
+    quietOpenAt: () => null,
+    prepareSmsMessage: async () => ({ text: '' }),
+    sendFlowSms: async () => ({ ok: false }),
+    recordEvent: () => {},
+    klaviyoIsSender: () => false,
+    enterKlaviyoFlow: async () => ({}),
+    composeForSend: async () => ({ text: 't', html: '<p>t</p>', vars: {} }),
+    fillMailTokens: (text) => text,
+    deliverLetter: async () => ({ ok: true, status: 'sent' }),
+    ...deps
+  };
+  const names = Object.keys(all);
+  return new Function(...names, `${source}\nreturn processCustomFlows;`)(...names.map((n) => all[n]));
+}
+
+const flowGraph = (id, extra = {}) => ({
+  id,
+  name: `Flow ${id}`,
+  enabled: true,
+  trigger: 'manual',
+  nodes: [{ id: 'n_start', type: 'trigger' }, { id: 'n_mail', type: 'email', subject: 'Hello', blocks: [{ id: 'b', kind: 'text', text: 'Hello there.' }] }],
+  edges: [{ id: 'e_start', source: 'n_start', target: 'n_mail', branch: '' }],
+  ...extra
+});
+const programRow = (id, flowId, email, extra = {}) => ({
+  id, flowId, email, name: '', status: 'active', enrolledAt: '2026-10-01T00:00:00.000Z', nextDueAt: '2020-01-01T00:00:00.000Z', stack: [0],
+  program: [
+    { type: 'email', subject: 'One', delayHours: 0, blocks: [{ id: 'o', kind: 'text', text: 'One.' }] },
+    { type: 'email', subject: 'Two', delayHours: 24, blocks: [{ id: 't', kind: 'text', text: 'Two.' }] }
+  ],
+  ...extra
+});
+
+test('the custom flows\' sender writes back only what it changed, so a save made while it was sending stands', async () => {
+  const { server } = loadServer({
+    u1: {
+      flows: [flowGraph('flow_main'), flowGraph('flow_quiet', { trigger: 'quiet_buyer', quietAfterDays: 45 })],
+      flowEnrollments: [
+        programRow('fenr_moving', 'flow_main', 'buyer@example.test'),
+        programRow('fenr_done', 'flow_main', 'done@example.test', { status: 'completed' })
+      ],
+      profiles: { 'p@example.test': { properties: { tier: 'gold' }, lists: [] } }
+    }
+  });
+  assert.deepEqual(server.userProgramBag('u1').flows.map((flow) => flow.id), ['flow_main', 'flow_quiet'], 'the fixture flows did not survive cleaning, so this proves nothing');
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  let calls = 0;
+  let editedDuringSend = false;
+  const run = customFlowPass(server, {
+    // Two people whose last order is old: the pass enrols both in the quiet-buyer flow, into its own copy.
+    loadOrders: () => [
+      { userId: 'u1', customerEmail: 'new@example.test', createdAt: '2020-01-01T00:00:00.000Z' },
+      { userId: 'u1', customerEmail: 'dupe@example.test', createdAt: '2020-01-01T00:00:00.000Z' }
+    ],
+    enrollFlowsForTrigger: async (uid, trigger, contact, vars, context, bagIn) => {
+      assert.ok(bagIn, 'the pass enrolled into a bag of its own reading, so nothing here is its copy');
+      bagIn.flowEnrollments.unshift(programRow(`fenr_${contact.email.split('@')[0]}`, 'flow_quiet', contact.email, { nextDueAt: '2099-01-01T00:00:00.000Z' }));
+      return { added: 1 };
+    },
+    // The sunset pass marks a stored profile, through the real writeFlowProperty.
+    markSunset: (uid, bag) => flowHelpers.writeFlowProperty(uid, bag, 'p@example.test', { key: 'unengaged', value: true, valueType: 'boolean', update: 'set' }).ok,
+    deliverLetter: async () => {
+      calls += 1;
+      if (calls === 1) {
+        // A merchant's saves and a webhook land while this email is out, through the same writer.
+        const bag = server.userProgramBag('u1');
+        bag.flows.find((flow) => flow.id === 'flow_main').name = 'Renamed meanwhile';
+        bag.lists = [{ id: 'list_meanwhile', name: 'Saved during the send' }];
+        bag.postalAddress = '1 Main St, Springfield';
+        bag.timezone = 'America/New_York';
+        bag.library = [{ id: 'lib_meanwhile', name: 'Footer', block: { id: 'f', kind: 'text', text: 'A saved footer' } }];
+        bag.profiles['p@example.test'].properties.city = 'Austin';
+        bag.flowEnrollments = bag.flowEnrollments.filter((row) => row.id !== 'fenr_done');
+        bag.flowEnrollments.unshift(
+          programRow('fenr_webhook', 'flow_quiet', 'dupe@example.test', { nextDueAt: '2099-01-01T00:00:00.000Z' }),
+          programRow('fenr_other', 'flow_main', 'other@example.test', { nextDueAt: '2099-01-01T00:00:00.000Z' })
+        );
+        server.writeUserPrograms('u1', bag);
+        const stored = server.userProgramBag('u1');
+        editedDuringSend = stored.lists.length === 1 && stored.timezone === 'America/New_York' && stored.profiles['p@example.test']?.properties?.city === 'Austin';
+        await gate;
+      }
+      return { ok: true, status: 'sent' };
+    }
+  });
+  const pass = run('u1');
+  for (let i = 0; i < 300 && !calls; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(calls, 1, 'the pass never reached its send, so this proves nothing');
+  release();
+  const result = await pass;
+  assert.ok(editedDuringSend, 'the saves during the send were not stored, so this proves nothing');
+  assert.equal(result.sent, 1);
+
+  const bag = server.userProgramBag('u1');
+  assert.equal(bag.flows.find((flow) => flow.id === 'flow_main').name, 'Renamed meanwhile', 'a flow edited during the send was put back');
+  assert.deepEqual(bag.lists.map((row) => row.id), ['list_meanwhile'], 'a list saved during the send was lost');
+  assert.equal(bag.postalAddress, '1 Main St, Springfield', 'the postal address saved during the send was lost');
+  assert.equal(bag.timezone, 'America/New_York', 'the timezone saved during the send was lost');
+  assert.deepEqual(bag.library.map((row) => row.id), ['lib_meanwhile'], 'a saved block from during the send was lost');
+  assert.deepEqual(bag.profiles['p@example.test'].properties, { tier: 'gold', city: 'Austin', unengaged: true }, 'a field saved during the send, or the one the pass set, was lost');
+
+  const byId = new Map(bag.flowEnrollments.map((row) => [row.id, row]));
+  const moved = byId.get('fenr_moving');
+  assert.ok(moved, 'the enrolment the pass sent was dropped');
+  assert.deepEqual([moved.status, moved.stack, moved.lastError], ['active', [1], ''], 'the enrolment the pass sent was not moved on');
+  assert.ok(byId.has('fenr_webhook') && byId.has('fenr_other'), 'an enrolment added during the send was dropped');
+  assert.ok(!byId.has('fenr_done'), 'an enrolment removed during the send was put back');
+  assert.ok(byId.has('fenr_new'), 'an enrolment the pass made was not written');
+  assert.ok(!byId.has('fenr_dupe'), 'the pass enrolled a person a webhook had put in the same flow meanwhile, so the flow would go to them twice');
+  assert.equal(bag.flowEnrollments.filter((row) => row.flowId === 'flow_quiet' && row.email === 'dupe@example.test' && row.status === 'active').length, 1);
+});
+
+test('the custom flows\' sender still writes its whole copy when an enrolment has no id, so its move is never lost', async () => {
+  const noId = programRow('', 'flow_main', 'legacy@example.test');
+  delete noId.id;
+  const { server, state } = loadServer({ u1: { flows: [flowGraph('flow_main')], flowEnrollments: [noId] } });
+  const savesBefore = state.saves;
+  const result = await customFlowPass(server)('u1');
+  assert.equal(result.sent, 1);
+  // userProgramBag hands back the stored row objects themselves, so the pass's change shows in memory
+  // whether or not it saved; what reaches the disk and the hub is the save, so the save is what is checked.
+  assert.equal(state.saves, savesBefore + 1, 'the pass sent an email and saved nothing, so the next process sends it again');
+  const [row] = server.userProgramBag('u1').flowEnrollments;
+  assert.deepEqual(row.stack, [1], 'an enrolment with no id was sent and not moved on, so the next pass sends it again');
+});
+
+// ---- Review of the open list (2026-10-09): what a pass lays onto the record it reads after its sends ----
+
+// layFlowPass put the pass's copy of a row it moved over whatever the row had become meanwhile, so a
+// flow deleted during a send (its route stops the flow's active enrolments) had its enrolment put back
+// to active. In the running server the pass and the route usually hold the SAME row object (the store
+// is one cached object and userProgramBag copies the array, not the rows), so the stop survives there on
+// its own; the rule is for a record read again, which is what these copies are.
+test('a pass never puts back to active an enrolment that was stopped while it was sending', () => {
+  const row = programRow('fenr_moving', 'flow_main', 'buyer@example.test');
+  const before = new Map([[row.id, JSON.stringify(row)]]);
+  const bag = { flowEnrollments: [{ ...clone(row), stack: [1], nextDueAt: '2099-01-01T00:00:00.000Z' }], profileEdits: [] };
+  const latest = { flowEnrollments: [{ ...clone(row), status: 'stopped' }], profiles: {} };
+  assert.equal(flowHelpers.layFlowPass(latest, bag, before, new Set([row.id])), true);
+  assert.equal(latest.flowEnrollments.length, 1);
+  assert.equal(latest.flowEnrollments[0].status, 'stopped', 'the pass put back to active an enrolment stopped while it was sending');
+  // The control: a row nobody touched meanwhile takes the pass's move.
+  const untouched = { flowEnrollments: [clone(row)], profiles: {} };
+  flowHelpers.layFlowPass(untouched, bag, before, new Set([row.id]));
+  assert.deepEqual([untouched.flowEnrollments[0].status, untouched.flowEnrollments[0].stack], ['active', [1]], 'the enrolment the pass sent was not moved on');
+});
+
+// The pass enrols people into its own copy of the record and mails a new enrolment's first email in the
+// same pass. When someone put the same person in the same flow meanwhile (the list route starting a
+// list_added flow), the pass's row was dropped as the duplicate, so the row that had sent nothing stayed
+// and the first email went again on the next pass.
+test('an enrolment the custom flows\' sender made and already mailed is kept over one added for that person meanwhile, so the first email is not sent twice', async () => {
+  const graphRow = {
+    id: 'fenr_graph', flowId: 'flow_main', email: 'buyer@example.test', name: '', status: 'active',
+    enrolledAt: '2026-10-01T00:00:00.000Z', graph: { nodes: [], edges: [] }, nodeId: 'n_list'
+  };
+  const { server } = loadServer({ u1: { flows: [flowGraph('flow_main'), flowGraph('flow_list', { trigger: 'list_added' })], flowEnrollments: [graphRow] } });
+  assert.deepEqual(server.userProgramBag('u1').flows.map((flow) => flow.id), ['flow_main', 'flow_list'], 'the fixture flows did not survive cleaning, so this proves nothing');
+  const sends = [];
+  let routeAdded = false;
+  const deliverLetter = async (letter) => {
+    sends.push(`${letter.to}: ${letter.subject}`);
+    if (!routeAdded) {
+      // While this email is out, the same person is added to the list by hand, which starts flow_list on
+      // the stored record, where the pass's own row is not yet.
+      const bag = server.userProgramBag('u1');
+      bag.flowEnrollments.unshift(programRow('fenr_route', 'flow_list', 'buyer@example.test'));
+      server.writeUserPrograms('u1', bag);
+      routeAdded = true;
+    }
+    return { ok: true, status: 'sent' };
+  };
+  const run = customFlowPass(server, {
+    // The graph enrolment's list step adds the person to a list, which starts them in flow_list in the
+    // pass's own copy (performGraphAction, 'list_added', bag), and the pass goes round again to send it.
+    advanceGraphEnrollment: async (uid, bagIn, enr) => {
+      bagIn.flowEnrollments.unshift(programRow('fenr_pass', 'flow_list', 'buyer@example.test'));
+      enr.status = 'completed';
+      return { sent: 0, failed: 0, dirty: true, spawned: true };
+    },
+    deliverLetter
+  });
+  const result = await run('u1');
+  assert.ok(routeAdded, 'the pass never mailed the enrolment it made, so this proves nothing');
+  assert.equal(result.sent, 1);
+  const rows = server.userProgramBag('u1').flowEnrollments.filter((row) => row.flowId === 'flow_list' && row.email === 'buyer@example.test');
+  assert.deepEqual(rows.map((row) => [row.id, row.status, row.stack]), [['fenr_pass', 'active', [1]]], 'the row the pass had mailed was dropped for one added meanwhile that had sent nothing');
+  // The next pass finds nothing due for this person, so the first email is not sent again.
+  await customFlowPass(server, { deliverLetter })('u1');
+  assert.deepEqual(sends, ['buyer@example.test: One'], `the first email of flow_list went ${sends.length} times`);
+});
+
+// The control for the rule above: an enrolment the pass made that has mailed nothing yet is still the one
+// dropped when the person was put in the same flow meanwhile, so the flow goes to them once.
+test('an enrolment the custom flows\' sender made and has not mailed is still dropped for one added for that person meanwhile', () => {
+  const bag = { flowEnrollments: [programRow('fenr_pass', 'flow_list', 'buyer@example.test', { nextDueAt: '2099-01-01T00:00:00.000Z' })], profileEdits: [], passMailed: [] };
+  const latest = { flowEnrollments: [programRow('fenr_route', 'flow_list', 'buyer@example.test')], profiles: {} };
+  assert.equal(flowHelpers.layFlowPass(latest, bag, new Map(), new Set()), true);
+  assert.deepEqual(latest.flowEnrollments.map((row) => row.id), ['fenr_route']);
+});
+
+test('a graph enrolment the custom flows\' sender made and already mailed is kept over one added for that person meanwhile', async () => {
+  const graphRow = (id, flowId, extra = {}) => ({
+    id, flowId, email: 'buyer@example.test', name: '', status: 'active', enrolledAt: '2026-10-01T00:00:00.000Z', graph: { nodes: [], edges: [] }, nodeId: 'n_start', ...extra
+  });
+  const { server } = loadServer({ u1: { flows: [flowGraph('flow_main'), flowGraph('flow_list', { trigger: 'list_added' })], flowEnrollments: [graphRow('fenr_graph', 'flow_main')] } });
+  let routeAdded = false;
+  const run = customFlowPass(server, {
+    // The first graph enrolment's list step starts flow_list in the pass's copy; the next round mails it.
+    advanceGraphEnrollment: async (uid, bagIn, enr) => {
+      if (enr.id === 'fenr_graph') {
+        bagIn.flowEnrollments.unshift(graphRow('fenr_pass', 'flow_list'));
+        enr.status = 'completed';
+        return { sent: 0, failed: 0, dirty: true, spawned: true };
+      }
+      // While its email is out, the list route starts flow_list for the same person on the stored record.
+      const bag = server.userProgramBag('u1');
+      bag.flowEnrollments.unshift(graphRow('fenr_route', 'flow_list'));
+      server.writeUserPrograms('u1', bag);
+      routeAdded = true;
+      enr.nodeId = 'n_mail';
+      enr.waitUntil = '2099-01-01T00:00:00.000Z';
+      return { sent: 1, failed: 0, dirty: true, spawned: false };
+    }
+  });
+  const result = await run('u1');
+  assert.ok(routeAdded, 'the pass never mailed the graph enrolment it made, so this proves nothing');
+  assert.equal(result.sent, 1);
+  const rows = server.userProgramBag('u1').flowEnrollments.filter((row) => row.flowId === 'flow_list');
+  assert.deepEqual(rows.map((row) => [row.id, row.nodeId]), [['fenr_pass', 'n_mail']], 'the graph row the pass had mailed was dropped for one added meanwhile that had sent nothing');
 });

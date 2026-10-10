@@ -45,7 +45,7 @@ import { linesWithBothEnds } from './lib/lineEnds';
 import { slotForNewStep, defaultExit, type CanvasView, type AddRequest } from './lib/addStep';
 import { SIGN_OUT_QUESTION } from './lib/journeyAutosave';
 import { funnelReturnFor, returnStepId, returnBannerText, openAfterSave, linkStepToFlow, type FunnelReturn, type StepFlowLink } from './lib/editorReturn';
-import { leaveFlowEditorOk } from './lib/studioLeave';
+import { leaveStudioOk } from './lib/studioLeave';
 import { FunnelReturnBanner } from './components/campaign/FunnelReturnBanner';
 
 // Code-split heavy interior app and modal bundles to ensure sub-second public page loads
@@ -143,10 +143,10 @@ export const App: React.FC = () => {
   const [showShopifyModal, setShowShopifyModal] = useState(false);
   const [showShopifySyncModal, setShowShopifySyncModal] = useState(false);
   const [activeView, setActiveViewNow] = useState<ActiveAppView>('canvas');
-  // Email Studio Wave 8: every way out of Email Studio asks before it drops a flow edit that is not
-  // saved (src/lib/studioLeave.ts). Cancel keeps the studio and the edit.
+  // Email Studio Wave 8: every way out of Email Studio asks before it drops a flow edit or a broadcast
+  // draft that is not saved (src/lib/studioLeave.ts). Cancel keeps the studio and the edit.
   const setActiveView = (view: ActiveAppView) => {
-    if (view !== 'email-studio' && !leaveFlowEditorOk()) return;
+    if (view !== 'email-studio' && !leaveStudioOk()) return;
     setActiveViewNow(view);
   };
   // The editor round trip (#21): the step Email Studio was opened from, and the step whose Email
@@ -629,7 +629,7 @@ export const App: React.FC = () => {
   // on the step Email Studio was opened from, through the one step chooser, which also pans to it.
   const showCanvas = () => {
     // Asked before the return is spent, so Cancel leaves the banner and the studio as they were.
-    if (!leaveFlowEditorOk()) return;
+    if (!leaveStudioOk()) return;
     const stepId = returnStepId(project, funnelReturn);
     if (stepId) selectStep(stepId);
     setReturnFocusNodeId(stepId);

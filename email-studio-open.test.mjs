@@ -32,13 +32,14 @@ function between(src, start, end, name) {
 test('every row on All flows is one real button that opens the flow on its first email', () => {
   // Wave 4 (D3): the starter rows and starter cards this pinned are one list now. Each row is a
   // button, and it opens the editor on that flow with its first email chosen.
-  const row = between(list, 'const renderRow = (row: FlowRow) => {', 'const flowList =', 'a Flows list row');
+  const row = between(list, 'const renderRow = (row: FlowRow) => {', 'const groups = groupFlowRows(rows);', 'a Flows list row');
   assert.match(row, /<button\s+type="button"\s+data-flow-row=\{row\.id\}/);
   assert.ok(row.includes('onClick={() => onOpenFlow(row.id, row.firstEmailId || undefined)}'), 'a row does not open its flow on its first email');
   assert.doesNotMatch(row, /queue sequence/, 'a row still says "queue sequence"');
-  // Rows for every kind come from the one list: starters and built-ins are not drawn anywhere else.
-  assert.match(list, /\{flowList\.length > 0 && <ul aria-label="Flows" style=\{listStyle\}>\{flowList\.map\(renderRow\)\}<\/ul>\}/);
-  assert.match(list, /<ul aria-labelledby=\{orderHeadingId\} style=\{listStyle\}>\{orderList\.map\(renderRow\)\}<\/ul>/);
+  // Rows for every kind come from the one list, drawn group by group (open list, 2026-10-09): starters and
+  // built-ins are not drawn anywhere else, and every group draws its rows through the same renderRow.
+  assert.match(list, /\{group\.rows\.length > 0 && <ul aria-labelledby=\{headingOf\(group\.kind\)\} style=\{listStyle\}>\{group\.rows\.map\(renderRow\)\}<\/ul>\}/);
+  assert.equal((list.match(/\.map\(renderRow\)/g) || []).length, 1, 'rows are drawn in more than one place');
   // The intro no longer says the two built-ins are what the queue below sends.
   assert.ok(list.includes('A starter flow takes every new lead or checkout until you turn it off. Built-in flows stay off until you turn them on.'));
   assert.ok(!list.includes('Welcome and abandoned checkout already run from the queue below.'));

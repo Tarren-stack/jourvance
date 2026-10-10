@@ -88,7 +88,10 @@ import { setupEmailRoutes } from './server/routes/emailRoutes.mjs';
 import { setupEmailFlowContentRoutes } from './server/routes/emailFlowContentRoutes.mjs';
 import { cleanBroadcastDrafts, setupBroadcastDraftRoutes } from './server/routes/broadcastDraftRoutes.mjs';
 import { setupEmailFlowCreateRoutes } from './server/routes/emailFlowCreateRoutes.mjs';
-import { cleanAccountSequences, emailHasContent, isStarterDraft, mergeAccountSteps, starterFlowOn, storedWaitHours } from './email-flow-content.mjs';
+import {
+  HUB_DOCUMENT_MAX_BYTES, PROGRAM_RECORD_MAX_BYTES, cleanAccountSequences, emailHasContent, isStarterDraft, mergeAccountSteps, programRecordCheck,
+  programWriteRefusal, starterFlowOn, storedWaitHours
+} from './email-flow-content.mjs';
 import { mailCallbackPlan } from './server/mail-events.mjs';
 
 import { setupJourneyRoutes } from './server/routes/journeyRoutes.mjs';
@@ -1633,8 +1636,30 @@ function loadProgramStore() {
   return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 }
 
-function saveProgramStore(store) {
+// `changed` is the one account writeUserPrograms changed: `{ uid, previous, always }`, where `previous`
+// is that account's stored record before the change (undefined when it had none). Its record is held to
+// the size cap (email-flow-content.mjs, THE ACCOUNT RECORD'S SIZE): a refused write puts the stored
+// record back as it was, saves nothing and answers the refusal, which a route answers as 413 and a
+// background writer leaves at this log line. Without `changed` (mintCoupon) the store is saved as it is.
+function saveProgramStore(store, changed) {
+  if (changed && changed.uid) {
+    const check = programRecordCheck(store[changed.uid], changed.previous, { always: changed.always === true });
+    if (!check.ok) {
+      if (changed.previous === undefined) delete store[changed.uid];
+      else store[changed.uid] = changed.previous;
+      console.warn(`[Jourvance] Not saved: account ${changed.uid}'s email record would be ${check.bytes} bytes, over its ${check.maxBytes} byte cap. The stored copy is kept.`);
+      return check;
+    }
+    if (check.over) {
+      const why = changed.always === true ? 'it records an email already sent or stops mail' : 'it is smaller than the record it replaces';
+      const hub = check.bytes > HUB_DOCUMENT_MAX_BYTES ? ' It is over the hub document limit, so the hub copy will not take it.' : '';
+      console.warn(`[Jourvance] Account ${changed.uid}'s email record is ${check.bytes} bytes, over its ${PROGRAM_RECORD_MAX_BYTES} byte cap, and was saved because ${why}.${hub}`);
+    }
+    hubStorage.set('store.email_programs', 'email_programs.json', store);
+    return check;
+  }
   hubStorage.set('store.email_programs', 'email_programs.json', store);
+  return { ok: true };
 }
 
 function cleanBlocks(input, fallback) {
@@ -1813,8 +1838,14 @@ function cleanProfiles(input) {
 // what is stored for those, read here just before the write. A tick or an order send reads the bag,
 // awaits several sends, then writes it back; without this, an edit saved during those awaits was
 // replaced by the copy it read before it.
+//
+// `always: true` says the write records an email already sent (an enrolment moved on, a sent key) or
+// stops mail (a suppression, a deleted flow's enrolments): it is never refused for size. Every other write is
+// held to the account record's size cap (saveProgramStore). The answer is saveProgramStore's: `ok: false`
+// with a sentence when the write was refused and nothing was saved (programWriteRefusal makes it a 413).
 function writeUserPrograms(uid, bag, edits = {}) {
   const store = loadProgramStore();
+  const stored = store[uid];
   const previous = store[uid] && typeof store[uid] === 'object' ? store[uid] : {};
   const transactional = {};
   for (const row of bag.transactional || []) {
@@ -1854,7 +1885,7 @@ function writeUserPrograms(uid, bag, edits = {}) {
     predictionCheckedAt: String(bag.predictionCheckedAt || previous.predictionCheckedAt || '').slice(0, 40),
     attributionWindows: cleanAttributionWindows(bag.attributionWindows || previous.attributionWindows)
   };
-  saveProgramStore(store);
+  return saveProgramStore(store, { uid, previous: stored, always: edits.always === true });
 }
 
 function cleanFlow(input) {
@@ -1896,6 +1927,7 @@ async function enrollFlowsForTrigger(uid, trigger, contact, vars, context, bagIn
   const viaKlaviyo = klaviyoIsSender(uid);
   const named = context?.named === true && context?.flowId;
   let stitched = false;
+  let handedOff = 0;
   const stitchVisitor = (flow) => {
     if (!contact.visitorId) return;
     const open = bag.flowEnrollments.find((row) => row.flowId === flow.id && row.email === email && row.status === 'active' && !row.visitorId);
@@ -1940,6 +1972,7 @@ async function enrollFlowsForTrigger(uid, trigger, contact, vars, context, bagIn
           history: [{ at: new Date().toISOString(), type: 'klaviyo', detail: handed.detail || handed.status }]
         });
         added++;
+        handedOff++;
       } else if (handed.error) errors.push(handed.error);
       continue;
     }
@@ -1963,7 +1996,12 @@ async function enrollFlowsForTrigger(uid, trigger, contact, vars, context, bagIn
     if (bag.flowEnrollments.length > 2000) bag.flowEnrollments.length = 2000;
     added++;
   }
-  if ((added || stitched) && !bagIn) writeUserPrograms(uid, bag);
+  if ((added || stitched) && !bagIn) {
+    // A hand-off to Klaviyo already happened, so it is recorded whatever the size (writeUserPrograms,
+    // `always`). Any other enrolment refused over the record's size cap enrolled nobody.
+    const saved = writeUserPrograms(uid, bag, { always: handedOff > 0 });
+    if (saved?.ok === false) return { added: 0, errors: [...errors, saved.error], skipped, stitched: false };
+  }
   return { added, errors, skipped, stitched };
 }
 
@@ -2010,8 +2048,62 @@ async function sendFlowSms(email, phone, message) {
   return { ok: false, status: 'failed', error: 'The text service did not deliver this message.' };
 }
 
+// What a flow pass changed, laid onto `latest`, the record as it reads after the pass's awaits (open
+// list, 2026-10-09, the shape processAccountAutomations has had since Wave 8). `before` holds each
+// enrolment that was active when the pass began, as JSON by id (the only ones it moves), and `knownIds`
+// every enrolment id it began with. An enrolment the pass moved replaces the row with its id while that
+// row is still active, so one stopped meanwhile (a deleted flow's) stays stopped, and one removed
+// meanwhile is not put back. One it added goes on top, unless that person was put in the same flow
+// meanwhile (reentryBlocks' first rule, so nobody is sent the flow twice): then the row that has mailed
+// nothing goes, which is the pass's own unless it already mailed it (bag.passMailed), so a first email
+// is never sent again by the other row. Each profile field and
+// list the pass set or cleared (bag.profileEdits) is set or cleared on the latest row, so a save of the
+// same person's other fields stands. Answers false, changing nothing, when an enrolment has no id: the
+// caller then writes its whole copy, as before, so a change is never dropped and an email never sent twice.
+function layFlowPass(latest, bag, before, knownIds) {
+  const rows = Array.isArray(bag.flowEnrollments) ? bag.flowEnrollments : [];
+  if (rows.some((row) => !row || typeof row.id !== 'string' || !row.id)) return false;
+  const moved = new Map();
+  const added = [];
+  for (const row of rows) {
+    if (!knownIds.has(row.id)) added.push(row);
+    else if (before.has(row.id) && before.get(row.id) !== JSON.stringify(row)) moved.set(row.id, row);
+  }
+  const mailed = new Set(Array.isArray(bag.passMailed) ? bag.passMailed : []);
+  const displaced = new Set();
+  for (const row of added) {
+    if (!mailed.has(row.id)) continue;
+    for (const other of latest.flowEnrollments) {
+      if (other && !knownIds.has(other.id) && other.status === 'active' && other.flowId === row.flowId && other.email === row.email) displaced.add(other.id);
+    }
+  }
+  const kept = latest.flowEnrollments
+    .filter((row) => !(row && displaced.has(row.id)))
+    .map((row) => (row && moved.has(row.id) && row.status === 'active' ? moved.get(row.id) : row));
+  const fresh = added.filter((row) => !kept.some((other) => other && (other.id === row.id
+    || (row.status === 'active' && other.status === 'active' && other.flowId === row.flowId && other.email === row.email))));
+  latest.flowEnrollments = [...fresh, ...kept].slice(0, 2000);
+  for (const edit of Array.isArray(bag.profileEdits) ? bag.profileEdits : []) {
+    const was = latest.profiles[edit.email];
+    const row = { properties: { ...(was?.properties || {}) }, lists: [...(was?.lists || [])] };
+    if (edit.listId) {
+      if (edit.update === 'add' && !row.lists.includes(edit.listId)) row.lists = [...row.lists, edit.listId].slice(0, 50);
+      if (edit.update === 'remove') row.lists = row.lists.filter((id) => id !== edit.listId);
+    } else if (edit.update === 'clear') delete row.properties[edit.key];
+    else row.properties[edit.key] = edit.value;
+    latest.profiles[edit.email] = row;
+  }
+  return true;
+}
+
 async function processCustomFlows(uid) {
   const bag = userProgramBag(uid);
+  // This pass's own changes are told apart from saves made during its awaits (layFlowPass, at the end).
+  const before = new Map();
+  for (const row of bag.flowEnrollments) if (row?.status === 'active') before.set(row.id, JSON.stringify(row));
+  const knownIds = new Set(bag.flowEnrollments.map((row) => row?.id));
+  bag.profileEdits = [];
+  bag.passMailed = [];
   const orders = loadOrders().filter((order) => order.userId === uid && !isDemoRecord(order));
   let enrolled = markSunset(uid, bag, Date.now());
   const now = Date.now();
@@ -2079,6 +2171,7 @@ async function processCustomFlows(uid) {
         const step = await advanceGraphEnrollment(uid, bag, enr, orders, events, now);
         sent += step.sent;
         failed += step.failed;
+        if (step.sent) bag.passMailed.push(enr.id);
         if (step.dirty) dirty = true;
         if (step.spawned) spawned = true;
         continue;
@@ -2173,6 +2266,7 @@ async function processCustomFlows(uid) {
     }
     sent++;
     dirty = true;
+    bag.passMailed.push(enr.id);
     enr.lastError = '';
     const nxt = stackAfter(program, enr.stack);
     if (!nxt) enr.status = 'completed';
@@ -2184,7 +2278,15 @@ async function processCustomFlows(uid) {
     }
     if (!spawned) break;
   }
-  if (dirty) writeUserPrograms(uid, bag);
+  // Only this pass's own changes, onto the record as it reads now: the sends above were awaited, and
+  // writing `bag` back put the copy read before them over every save made meanwhile (a flow edited or
+  // turned on, a list, the postal address, the timezone, the saved blocks, a person's other fields, an
+  // enrolment a webhook added). It records emails already sent, so it is never refused for size.
+  if (dirty) {
+    const latest = userProgramBag(uid);
+    if (layFlowPass(latest, bag, before, knownIds)) writeUserPrograms(uid, latest, { always: true });
+    else writeUserPrograms(uid, bag, { always: true });
+  }
   return { sent, failed, active: bag.flowEnrollments.filter((row) => row.status === 'active').length };
 }
 
@@ -2262,6 +2364,8 @@ function writeFlowProperty(uid, bag, email, action) {
   if (action.update === 'clear') delete row.properties[action.key];
   else row.properties[action.key] = value;
   bag.profiles[email] = row;
+  // A flow pass lays each of these onto the record as it reads after its sends (layFlowPass).
+  if (Array.isArray(bag.profileEdits)) bag.profileEdits.push({ email, key: action.key, value, update: action.update === 'clear' ? 'clear' : 'set' });
   return { ok: true };
 }
 
@@ -2282,6 +2386,7 @@ function writeFlowList(uid, bag, email, action) {
     const row = bag.profiles[email] || { properties: {}, lists: [] };
     row.lists = next;
     bag.profiles[email] = row;
+    if (Array.isArray(bag.profileEdits) && next !== current) bag.profileEdits.push({ email, listId: action.listId, update: action.update });
   }
   return { ok: true, added: action.update === 'add' && !had };
 }
@@ -2768,7 +2873,7 @@ async function sendTransactional(uid, programId, { to, name, dedupeKey, vars, vi
     // above were awaited, and anything saved meanwhile stands.
     const fresh = userProgramBag(uid);
     if (!fresh.sentKeys.includes(dedupeKey)) fresh.sentKeys.push(dedupeKey);
-    writeUserPrograms(uid, fresh);
+    writeUserPrograms(uid, fresh, { always: true });
   }
   return result;
 }
@@ -2793,8 +2898,8 @@ function enrollAutomation(uid, automationId, contact, vars) {
     vars: vars || {},
     enrolledAt: new Date().toISOString()
   });
-  writeUserPrograms(uid, bag);
-  return true;
+  // Refused over the record's size cap: nobody was enrolled (saveProgramStore logged it).
+  return writeUserPrograms(uid, bag)?.ok !== false;
 }
 
 async function processAccountAutomations(uid) {
@@ -2895,11 +3000,12 @@ async function processAccountAutomations(uid) {
   // writes its sentKey. The sends above were awaited, and writing `fresh` back put the copy read before
   // them over every save made meanwhile: a built-in flow turned on or off, a list, the postal address,
   // the timezone, the saved blocks. An enrolment removed meanwhile is not put back.
-  if (untracked) writeUserPrograms(uid, fresh);
+  // It records emails already sent, so it is never refused for size (writeUserPrograms, `always`).
+  if (untracked) writeUserPrograms(uid, fresh, { always: true });
   else {
     const latest = userProgramBag(uid);
     latest.enrollments = latest.enrollments.map((row) => (row && touched.has(row.id) ? touched.get(row.id) : row));
-    writeUserPrograms(uid, latest);
+    writeUserPrograms(uid, latest, { always: true });
   }
   const flowTick = await processCustomFlows(uid);
   return {
@@ -3139,13 +3245,28 @@ async function processUserAutomationsTick(uid) {
       completedCount++;
     }
   };
+  // A due enrolment in a starter flow this account turned off is taken out of the flow (below).
+  const stopForFlowOffDrip = (enr, seq) => {
+    enr.status = 'stopped';
+    enr.stoppedAt = new Date().toISOString();
+    enr.stoppedReason = 'flow_off';
+    seq.activeEnrollments = Math.max(0, (seq.activeEnrollments || 1) - 1);
+  };
   for (const enr of dripsData.enrollments) {
-    if (holdForKlaviyo) break;
     if (enr.status !== 'active' || enr.userId !== uid) continue;
 
     const seq = dripsData.sequences.find(s => s.id === enr.sequenceId);
     if (!seq) continue;
     const steps = sequenceStepsFor(seq, programBag);
+    // While Klaviyo is the sender this loop sends and moves nothing, except that a due enrolment in a
+    // flow this account turned off is still taken out (open list, 2026-10-09). The hold used to stop the
+    // loop before that check, so a flow turned off under Klaviyo, then on again after the sender went
+    // back to Jourvance, sent everything that came due in between.
+    if (holdForKlaviyo) {
+      const due = new Date(enr.nextStepDueAt || enr.enrolledAt).getTime() <= now;
+      if (due && steps[enr.currentStepIndex] && !starterFlowOn(programBag, seq.id)) stopForFlowOffDrip(enr, seq);
+      continue;
+    }
 
     // 1. Smart Exit on Purchase Check
     if (seq.smartExitOnPurchase) {
@@ -3186,10 +3307,7 @@ async function processUserAutomationsTick(uid) {
         // due enrolments (processAccountAutomations), so Turn on never sends a backlog of the emails
         // people were due while it was off. One not yet due when it is turned back on goes on as before.
         if (!starterFlowOn(programBag, seq.id)) {
-          enr.status = 'stopped';
-          enr.stoppedAt = new Date().toISOString();
-          enr.stoppedReason = 'flow_off';
-          seq.activeEnrollments = Math.max(0, (seq.activeEnrollments || 1) - 1);
+          stopForFlowOffDrip(enr, seq);
           continue;
         }
         if (!hubReady || !enr.customerEmail) continue;
@@ -3861,7 +3979,8 @@ app.post('/api/email/flows/:id', requireUser, (req, res) => {
   const check = validateFlow(next);
   if (!check.ok) return res.status(400).json({ success: false, error: check.error });
   bag.flows[index] = next;
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   res.json({ success: true, flow: presentCustomFlow(next, bag, req.user.uid) });
 });
 
@@ -3871,7 +3990,8 @@ app.delete('/api/email/flows/:id', requireUser, (req, res) => {
   for (const row of bag.flowEnrollments) {
     if (row.flowId === req.params.id && row.status === 'active') row.status = 'stopped';
   }
-  writeUserPrograms(req.user.uid, bag);
+  // Deleting a flow stops mail, so it is never refused for size (writeUserPrograms, `always`).
+  writeUserPrograms(req.user.uid, bag, { always: true });
   res.json({ success: true });
 });
 
@@ -4057,7 +4177,8 @@ app.post('/api/email/flows/:id/suppress', requireUser, (req, res) => {
   });
   const emails = unengagedEmails(contacts);
   for (const email of emails) bag.suppressions = noteSuppression(bag.suppressions, email, 'sunset');
-  if (emails.length) writeUserPrograms(req.user.uid, bag);
+  // Suppressions stop mail, so they are never refused for size (writeUserPrograms, `always`).
+  if (emails.length) writeUserPrograms(req.user.uid, bag, { always: true });
   const message = emails.length
     ? `Suppressed ${emails.length} ${emails.length === 1 ? 'person' : 'people'} marked unengaged. Nothing was sent.`
     : 'Nobody marked unengaged is on this account, so nobody was suppressed.';
@@ -4315,7 +4436,10 @@ async function importKlaviyoFlows(uid, apiKey, catalogRows) {
     imported += 1;
     if (mapped.note) notes.push(`${label}: ${mapped.note}`);
   }
-  if (imported) writeUserPrograms(uid, bag);
+  if (imported) {
+    const saved = writeUserPrograms(uid, bag);
+    if (saved?.ok === false) return { seen: rows.length, imported: 0, leftOn, templatesCopied, notes: [saved.error, ...notes].slice(0, 16) };
+  }
   return { seen: rows.length, imported, leftOn, templatesCopied, notes: notes.slice(0, 16) };
 }
 

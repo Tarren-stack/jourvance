@@ -346,3 +346,25 @@ test('the not-connected line on Flows is a status, so it is not only a colour', 
   assert.ok(list.includes("<p role=\"status\" style={{ margin: 0, fontSize: 13, color: '#fbbf24' }}>{FLOWS_NOT_CONNECTED}</p>"), 'EmailFlowsList.tsx');
   assert.ok(map.includes("{!loadError && !hubConnected && <p role=\"status\" style={{ margin: 0, fontSize: 13, color: '#fbbf24' }}>{FLOWS_NOT_CONNECTED}</p>}"), 'EmailFlowMap.tsx');
 });
+
+// ---- Open list (2026-10-09): a refused manual enrol in the customer drawer says why ----
+
+test('the customer drawer says why Enroll did not add someone, in a status region beside the control, cleared on the next try', () => {
+  const drawer = read('./src/components/campaign/CustomerProfileDrawer.tsx');
+  const enroll = between(drawer, 'const handleManualEnroll = async () => {', 'const getInitials', 'the manual enrol');
+  // Cleared as the next attempt starts, before anything is sent.
+  assert.ok(enroll.indexOf("setEnrollSaid('');") > -1 && enroll.indexOf("setEnrollSaid('');") < enroll.indexOf("fetch('/api/drips/enroll'"), 'the last sentence is not cleared before the next attempt');
+  // A refusal says the server's own sentence (the route's 409 names why: the flow is off), never nothing.
+  assert.match(enroll, /\} else \{\s*\/\/[^\n]*\n\s*setEnrollSaid\(typeof data\.error === 'string' && data\.error \? data\.error : 'They were not added to that flow\.'\);/);
+  assert.match(enroll, /catch \{\s*setEnrollSaid\('The server did not answer, so they may not have been added\.'\);/);
+  // Always mounted under the control, so a sentence that appears is announced.
+  const picker = between(drawer, '{/* Manual Enroll Picker */}', '{/* Enrollments List */}', 'the enrol control');
+  assert.match(picker, /<p role="status" data-enroll-said=""[^>]*>\{enrollSaid\}<\/p>/);
+  assert.match(picker, /<select\s+aria-label="Flow to add them to"/, 'the flow picker has no name');
+  // The 409 the route answers is a sentence the drawer can show as it is.
+  const route = between(read('./server/routes/emailRoutes.mjs'), "app.post('/api/drips/enroll'", "app.post('/api/drips/enrollment-toggle'", 'the enrol route');
+  const said = route.match(/return res\.status\(409\)\.json\(\{ success: false, error: '([^']+)' \}\);/);
+  assert.ok(said, 'the enrol route no longer answers a turned-off flow with a 409 sentence');
+  assert.match(said[1], /turned off/);
+  assert.doesNotMatch(said[1], /\u2014| \u2013 /);
+});

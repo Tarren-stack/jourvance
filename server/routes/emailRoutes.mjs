@@ -12,7 +12,7 @@ import {
   SMART_EMAIL_HOURS, SMART_SMS_HOURS, isIanaTimezone
 } from '../../email-flows.mjs';
 import { emailTouchFields } from '../../email-map.mjs';
-import { emailHasContent } from '../../email-flow-content.mjs';
+import { emailHasContent, programWriteRefusal } from '../../email-flow-content.mjs';
 import {
   mailSecretOk, normalizeProviderEvent, readProviderEvents, secretsMatch
 } from '../mail-events.mjs';
@@ -30,10 +30,21 @@ function escapeHtml(str) {
 export const CAMPAIGN_EMAIL_EMPTY = 'This email has no words, picture or button yet, so nothing was sent. Add them in the builder first.';
 export const CAMPAIGN_DUPLICATE = 'This broadcast was already sent or scheduled, so it was not sent again. Look in All broadcasts.';
 export const CAMPAIGN_REQUEST_ID = 'This send was refused, because its request id is not up to 64 letters, digits, dashes or underscores. Nothing was sent.';
+/** What a broadcast left part way through its send by a stopped server says, once the scheduled sender finds it. */
+export const CAMPAIGN_INTERRUPTED = 'This broadcast stopped part way through sending and was not sent again, so some people may have it and some may not: check Results before you send it again.';
+/** A send that threw before it reached anyone (review of the open list, 2026-10-09). */
+export const CAMPAIGN_NOT_SENT = 'This broadcast stopped before anyone was mailed, so nothing was sent. You can send it again.';
+/** DELETE /api/email/campaigns/:id for a broadcast that started sending. */
+export const CAMPAIGN_STARTED = 'That broadcast started sending, so it was left in place.';
 
 export function setupEmailRoutes(app, ctx) {
   // The requestIds of sends still being answered, so a second copy of one is refused before the first is saved.
   const campaignRequestsInFlight = new Set();
+  // The broadcasts this process is mailing right now (open list, 2026-10-09). A broadcast is saved as
+  // 'sending' with `deliveringSince` BEFORE anyone is mailed, and saved again when its sends are done.
+  // One still marked that this set does not hold was left by a server that stopped part way through:
+  // the scheduled sender reports it (reportInterrupted) and never mails it again.
+  const campaignsDelivering = new Set();
   const {
     hub,
     hubReady,
@@ -234,21 +245,24 @@ app.post('/api/email/library', requireUser, (req, res) => {
     block
   };
   bag.library = cleanLibrary([...(bag.library || []), row]).slice(0, 40);
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   res.json({ success: true, library: bag.library });
 });
 
 app.delete('/api/email/library/:id', requireUser, (req, res) => {
   const bag = userProgramBag(req.user.uid);
   bag.library = (bag.library || []).filter((row) => row.id !== req.params.id);
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   res.json({ success: true, library: bag.library });
 });
 
 app.post('/api/email/postal', requireUser, (req, res) => {
   const bag = userProgramBag(req.user.uid);
   bag.postalAddress = String(req.body?.physicalAddress || '').replace(/\s+/g, ' ').trim().slice(0, 300);
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   res.json({ success: true, physicalAddress: bag.postalAddress });
 });
 
@@ -259,7 +273,8 @@ app.post('/api/email/timezone', requireUser, (req, res) => {
   }
   const bag = userProgramBag(req.user.uid);
   bag.timezone = zone;
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   res.json({ success: true, timezone: zone });
 });
 
@@ -275,7 +290,8 @@ function applyUnsubscribe(uid, email) {
   if (found) saveContacts(all);
   const bag = userProgramBag(uid);
   bag.suppressions = noteSuppression(bag.suppressions, email, 'unsubscribe');
-  writeUserPrograms(uid, bag);
+  // A person who asked not to be mailed is never refused for size (writeUserPrograms, `always`).
+  writeUserPrograms(uid, bag, { always: true });
   return found;
 }
 
@@ -330,7 +346,7 @@ app.post('/api/email/provider-event', (req, res) => {
     else if (event.type === 'hard_bounce' || event.type === 'soft_bounce' || event.type === 'complaint') {
       const bag = userProgramBag(event.uid);
       bag.suppressions = noteSuppression(bag.suppressions, event.email, event.type);
-      writeUserPrograms(event.uid, bag);
+      writeUserPrograms(event.uid, bag, { always: true });
     }
     recordEvent({
       type: event.type,
@@ -378,7 +394,8 @@ app.post('/api/email/programs/:id', requireUser, (req, res) => {
   }
   // A built-in flow's steps are written only when this call sent them, and an order email only from
   // this route or the flow-content route (writeUserPrograms keeps the stored ones for every other save).
-  writeUserPrograms(req.user.uid, bag, { steps: kind === 'automation' && Boolean(req.body?.steps), transactional: kind === 'transactional' });
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag, { steps: kind === 'automation' && Boolean(req.body?.steps), transactional: kind === 'transactional' }));
+  if (refused) return res.status(413).json(refused);
   res.json({ success: true, suite: suitePayload(req.user.uid) });
 });
 
@@ -740,7 +757,8 @@ app.post('/api/email/rfm-config', requireUser, async (req, res) => {
     autoWinbackEnabledAt: enabledAt
   });
   bag.rfmConfig = updated;
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
 
   // Synchronize contacts with new thresholds
   const allContacts = loadContacts();
@@ -1091,25 +1109,98 @@ function putCampaigns(rows) {
   saveCampaigns(campaigns);
 }
 
+// Mails a broadcast's due people, with its record saved first (open list, 2026-10-09). A crash part way
+// through used to lose the record, and with it the requestId that refuses a retry, so the retry mailed
+// everyone again; a scheduled one stayed 'scheduled' and the next pass mailed everyone again. The copy
+// saved first carries `deliveringSince`; the caller saves the finished one over it with saveDelivered,
+// which lets the claim go in the same step, so no pass can read the claim without its holder.
+async function deliverClaimed(uid, record, emailDue, smsDue, now) {
+  record.status = 'sending';
+  record.deliveringSince = new Date(now).toISOString();
+  campaignsDelivering.add(record.id);
+  putCampaigns([structuredClone(record)]);
+  try {
+    return await deliverCampaignParts(uid, record, emailDue, smsDue, now);
+  } catch (err) {
+    // Stopped part way: the copy saved first stays, and the scheduled sender reports it.
+    campaignsDelivering.delete(record.id);
+    throw err;
+  }
+}
+
+function saveDelivered(record) {
+  delete record.deliveringSince;
+  putCampaigns([record]);
+  campaignsDelivering.delete(record.id);
+}
+
+// A broadcast a stopped server left part way through: who it reached before the stop is not on the
+// record, so it is never sent again. It says so instead, and the merchant decides.
+function reportInterrupted(record) {
+  record.status = 'interrupted';
+  record.interruptedAt = new Date().toISOString();
+  record.nextAt = '';
+  record.lastError = CAMPAIGN_INTERRUPTED;
+  console.warn(`[Jourvance] Broadcast ${record.id} was left part way through its send by a server that stopped, so it was not sent again.`);
+}
+
+// A send that threw part way (an exception out of the compose or the delivery, not a refusal the service
+// answered; review of the open list, 2026-10-09). This process knows who it reached, so the record says
+// so at once, stopped and never sent again, instead of waiting for the next pass to find the claim.
+// Answers how many it reached. (The route removes one that reached nobody instead, as after a 502.)
+function saveThrown(record, err) {
+  const reached = (record.sentTo?.length || 0) + (record.smsSentTo?.length || 0);
+  record.status = 'interrupted';
+  record.interruptedAt = new Date().toISOString();
+  record.nextAt = '';
+  record.recipients = record.sentTo?.length || 0;
+  record.recipientsCount = record.recipients;
+  record.lastError = reached ? CAMPAIGN_INTERRUPTED : CAMPAIGN_NOT_SENT;
+  delete record.deliveringSince;
+  putCampaigns([record]);
+  campaignsDelivering.delete(record.id);
+  console.warn(`[Jourvance] Broadcast ${record.id} stopped part way through its send after reaching ${reached}, so it was not sent again: ${String(err?.message || err).slice(0, 200)}`);
+  return reached;
+}
+
 async function processDueCampaigns(uid) {
   const now = Date.now();
-  const campaigns = loadCampaigns();
   let sent = 0;
-  const changed = [];
-  for (const record of campaigns) {
-    if (record.userId !== uid || record.sendMode === 'shopify_push') continue;
+  // Each broadcast is read again just before it is decided on, never from a list read before the sends
+  // above it were awaited: meanwhile the route may have finished it, or another pass may have claimed or
+  // sent it (Send due emails now runs beside the timer), and a stale copy reported a finished send as
+  // stopped, or mailed a broadcast the other pass had just mailed.
+  const ids = loadCampaigns().filter((row) => row.userId === uid).map((row) => row.id);
+  for (const id of ids) {
+    const record = loadCampaigns().find((row) => row.id === id);
+    if (!record || record.userId !== uid || record.sendMode === 'shopify_push') continue;
     if (record.status !== 'scheduled' && record.status !== 'sending') continue;
+    if (record.deliveringSince) {
+      // Being mailed by this process right now, or left part way by one that stopped.
+      if (campaignsDelivering.has(record.id)) continue;
+      reportInterrupted(record);
+      delete record.deliveringSince;
+      putCampaigns([record]);
+      continue;
+    }
     if (record.nextAt && record.status === 'sending' && new Date(record.nextAt).getTime() > now) continue;
-    const emailDue = dueRecipients(record, now);
-    const smsRecord = { ...record, audience: record.smsAudience || [], sentTo: record.smsSentTo || [], skipped: record.smsSkipped || [] };
-    const smsDue = record.sms?.message ? dueRecipients(smsRecord, now) : { due: [] };
-    if (!emailDue.due.length && !smsDue.due.length) continue;
-    const result = await deliverCampaignParts(uid, record, emailDue.due, smsDue.due, now);
-    finishCampaign(record, now);
-    sent += result.sent;
-    changed.push(record);
+    // One broadcast that throws is saved as stopped and the pass goes on: it used to reject the whole
+    // pass, and with it the account's starter flows for that tick (processUserAutomationsTick).
+    const had = (record.sentTo?.length || 0) + (record.smsSentTo?.length || 0);
+    try {
+      const emailDue = dueRecipients(record, now);
+      const smsRecord = { ...record, audience: record.smsAudience || [], sentTo: record.smsSentTo || [], skipped: record.smsSkipped || [] };
+      const smsDue = record.sms?.message ? dueRecipients(smsRecord, now) : { due: [] };
+      if (!emailDue.due.length && !smsDue.due.length) continue;
+      const result = await deliverClaimed(uid, record, emailDue.due, smsDue.due, now);
+      finishCampaign(record, now);
+      sent += result.sent;
+      saveDelivered(record);
+    } catch (err) {
+      if (record.deliveringSince) sent += saveThrown(record, err) - had;
+      else console.warn(`[Jourvance] Broadcast ${record.id} was not sent this pass: ${String(err?.message || err).slice(0, 200)}`);
+    }
   }
-  if (changed.length) putCampaigns(changed);
   return { sent };
 }
 
@@ -1166,14 +1257,16 @@ app.post('/api/email/lists', requireUser, (req, res) => {
   if (bag.lists.length >= 50) return res.status(400).json({ success: false, error: 'This account already has 50 lists.' });
   const list = { id: `list_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name: String(req.body?.name || 'List').slice(0, 80), createdAt: new Date().toISOString() };
   bag.lists.unshift(list);
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   res.json({ success: true, list: { ...list, count: 0 } });
 });
 
 app.delete('/api/email/lists/:id', requireUser, (req, res) => {
   const bag = userProgramBag(req.user.uid);
   bag.lists = bag.lists.filter((list) => list.id !== req.params.id);
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   res.json({ success: true });
 });
 
@@ -1218,7 +1311,8 @@ app.post('/api/email/segments', requireUser, async (req, res) => {
   const cleaned = cleanSegment({ ...req.body, id });
   if (!cleaned.ok) return res.status(400).json({ success: false, error: cleaned.error });
   bag.segments.unshift(cleaned.segment);
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   const noted = await noteSegmentChanges(req.user.uid);
   res.json({ success: true, segment: { ...cleaned.segment, definition: segmentDefinition(cleaned.segment) }, entered: noted.byId[id] || 0 });
 });
@@ -1231,7 +1325,8 @@ app.post('/api/email/segments/:id', requireUser, async (req, res) => {
   const cleaned = cleanSegment({ ...bag.segments[index], ...req.body, id: req.params.id });
   if (!cleaned.ok) return res.status(400).json({ success: false, error: cleaned.error });
   bag.segments[index] = cleaned.segment;
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   const noted = await noteSegmentChanges(req.user.uid);
   res.json({ success: true, segment: cleaned.segment, entered: noted.byId[req.params.id] || 0 });
 });
@@ -1248,7 +1343,8 @@ app.delete('/api/email/segments/:id', requireUser, (req, res) => {
   const bag = userProgramBag(req.user.uid);
   bag.segments = bag.segments.filter((row) => row.id !== req.params.id);
   if (bag.segmentState) delete bag.segmentState[req.params.id];
-  writeUserPrograms(req.user.uid, bag);
+  const refused = programWriteRefusal(writeUserPrograms(req.user.uid, bag));
+  if (refused) return res.status(413).json(refused);
   res.json({ success: true });
 });
 
@@ -1259,6 +1355,9 @@ app.delete('/api/email/campaigns/:id', requireUser, (req, res) => {
   if (row.sentAt || (row.sentTo || []).length || (row.smsSentTo || []).length) {
     return res.status(400).json({ success: false, error: 'That broadcast already sent, so it was left in place.' });
   }
+  // Its sends may be going out now, or may have reached people before a server stopped; the record, and the
+  // requestId on it that refuses a retry, stay.
+  if (row.deliveringSince || row.status === 'interrupted') return res.status(400).json({ success: false, error: CAMPAIGN_STARTED });
   saveCampaigns(campaigns.filter((item) => item.id !== row.id));
   res.json({ success: true });
 });
@@ -1472,13 +1571,32 @@ app.post('/api/email/campaign/send', requireUser, async (req, res) => {
   const now = Date.now();
   const emailDue = dueRecipients(record, now);
   const smsDue = record.sms?.message ? dueRecipients({ ...record, audience: record.smsAudience, sentTo: [], skipped: [] }, now) : { due: [] };
-  const result = await deliverCampaignParts(req.user.uid, record, emailDue.due, smsDue.due, now);
+  // Saved before anyone is mailed, with its requestId (deliverClaimed), so a crash part way through
+  // leaves a record that refuses the retry (409) and that the scheduled sender reports, never resends.
+  let result;
+  try {
+    result = await deliverClaimed(req.user.uid, record, emailDue.due, smsDue.due, now);
+  } catch (err) {
+    // Threw part way: answered, never left hanging. Reached nobody: the record goes, as after a 502, so
+    // a retry may send. Reached someone: saved as stopped, so the retry is refused (saveThrown).
+    if (!(record.sentTo?.length || 0) && !(record.smsSentTo?.length || 0)) {
+      saveCampaigns(loadCampaigns().filter((row) => row.id !== record.id));
+      campaignsDelivering.delete(record.id);
+      console.warn(`[Jourvance] Broadcast ${record.id} stopped before anyone was mailed, so nothing was sent: ${String(err?.message || err).slice(0, 200)}`);
+      return res.status(500).json({ success: false, error: CAMPAIGN_NOT_SENT, sent: 0, followUp: null, followUpNote: FOLLOW_UP_NOTE });
+    }
+    const reached = saveThrown(record, err);
+    return res.status(500).json({ success: false, error: CAMPAIGN_INTERRUPTED, sent: reached, followUp: null, followUpNote: FOLLOW_UP_NOTE });
+  }
   if (!result.sent && result.failed && !result.skipped && !result.held) {
+    // Nobody was mailed, so the record goes, as it did before it was saved first: a retry may send.
+    saveCampaigns(loadCampaigns().filter((row) => row.id !== record.id));
+    campaignsDelivering.delete(record.id);
     return res.status(502).json({ success: false, error: result.lastError || 'The email service rejected the send.', failed: result.failed, followUp: null, followUpNote: FOLLOW_UP_NOTE });
   }
   finishCampaign(record, now);
   // Read again here, after the sends were awaited (putCampaigns), never the list read before them.
-  putCampaigns([record]);
+  saveDelivered(record);
   res.json({
     success: true,
     campaign: presentCampaign(record),

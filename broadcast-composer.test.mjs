@@ -17,7 +17,9 @@ import { cleanHoldout } from './email-map.mjs';
 import { smartSendConflict } from './email-predict.mjs';
 import { SMART_EMAIL_HOURS, SMART_SMS_HOURS } from './email-flows.mjs';
 import { emailHasContent } from './email-flow-content.mjs';
-import { CAMPAIGN_DUPLICATE, CAMPAIGN_EMAIL_EMPTY, CAMPAIGN_REQUEST_ID, setupEmailRoutes } from './server/routes/emailRoutes.mjs';
+import {
+  CAMPAIGN_DUPLICATE, CAMPAIGN_EMAIL_EMPTY, CAMPAIGN_INTERRUPTED, CAMPAIGN_NOT_SENT, CAMPAIGN_REQUEST_ID, CAMPAIGN_STARTED, setupEmailRoutes
+} from './server/routes/emailRoutes.mjs';
 import { cleanDraftSettings } from './server/routes/broadcastDraftRoutes.mjs';
 
 const {
@@ -116,8 +118,8 @@ const CONTACTS = [
 ];
 
 // `extra` replaces parts of the context: the fix round's 'now' sends need a hub and a delivery stand-in.
-async function serveSend(extra = {}) {
-  const saved = [];
+// `saved` is the campaign store; a second app handed the first one's stands in for the server after a restart.
+async function serveSend(extra = {}, saved = []) {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   // Wave 8: the handlers it hands back (processDueCampaigns, the scheduled sender) are kept for the tick test.
@@ -219,17 +221,23 @@ const OPTIONS = audienceOptions(
 );
 
 test('Send asks first, naming the count the server reported, and never a count nobody measured', () => {
+  // Open list (2026-10-09): who gets it and the count first, then what changes that, then the question,
+  // never "The server counted". A list, a Leave out and a holdout each make the count an upper bound.
   const now = confirmSendText(draftWith({ include: 'whales' }), OPTIONS);
-  assert.match(now, /^Send "Spring restock" now to VIP Whales \(Platinum\)\?/);
-  assert.match(now, /The server counted 3 contacts in this segment who accept marketing\./);
+  assert.equal(now, '3 people in VIP Whales (Platinum) will get "Spring restock" (the count the server reported of those who accept marketing). Send it now?');
   const list = confirmSendText(draftWith({ include: 'list_vip', sendWhen: 'clock', sendAt: '2030-01-15T09:30' }), OPTIONS);
-  assert.match(list, /^Schedule "Spring restock" for VIP list on 2030-01-15 at 09:30/);
-  assert.match(list, /The server counted 2 contacts on this list\. Anyone who cannot receive marketing is skipped\./);
+  assert.equal(list, 'Up to 2 people on VIP list will get "Spring restock" (the count the server reported of contacts on this list). Anyone who cannot receive marketing is skipped. Schedule it for 2030-01-15 at 09:30 in the account timezone (UTC when none is saved)?');
   const left = confirmSendText(draftWith({ include: 'all', exclude: 'whales', holdoutOn: true, holdoutPercent: 10, smsMessage: 'Hi' }), OPTIONS);
-  assert.match(left, /7 contacts/);
+  assert.match(left, /^Up to 7 people in All marketing will get "Spring restock" \(the count the server reported of those who accept marketing\)\./);
   assert.match(left, /Anyone in VIP Whales \(Platinum\) is left out, so it may reach fewer\./);
   assert.match(left, /10% are held out and get nothing\./);
-  assert.match(left, /The text message goes out with it\./);
+  assert.match(left, /The text message goes out with it\. Send it now\?$/);
+  assert.match(confirmSendText(draftWith({ include: 'whales', holdoutOn: true, holdoutPercent: 5 }), OPTIONS), /^Up to 3 people/, 'a holdout does not make the count an upper bound');
+  assert.match(confirmSendText(draftWith({ include: 'whales', sendWhen: 'smart' }), OPTIONS), / Schedule it for each person's hour\?$/);
+  assert.match(confirmSendText(draftWith({ include: 'whales', sendWhen: 'gradual', sendAt: '2030-01-15T09:30' }), OPTIONS), / Schedule it in batches from 2030-01-15 at 09:30 in the account timezone/);
+  // One person is a person, and a blank subject is "this broadcast", never a pair of empty quotes.
+  const one = audienceOptions([{ id: 'solo', name: 'Solo', count: 1 }], []);
+  assert.match(confirmSendText({ ...draftWith({ include: 'solo' }), subject: '  ' }, one), /^1 person in Solo will get this broadcast \(/);
   // A segment the server gave no number for, and one it did not list at all, say so and print no number.
   for (const include of ['odd', 'gone_segment']) {
     const unknown = confirmSendText(draftWith({ include }), OPTIONS);
@@ -238,7 +246,19 @@ test('Send asks first, naming the count the server reported, and never a count n
   }
   // With nothing loaded at all (the reads failed), still no number.
   assert.doesNotMatch(confirmSendText(draftWith({ include: 'all' }), []), /\d/);
-  for (const text of [now, list, left]) assert.doesNotMatch(text, /—| – /);
+  for (const text of [now, list, left]) {
+    assert.doesNotMatch(text, /—| – /);
+    assert.doesNotMatch(text, /The server counted/, 'the confirm still says "The server counted"');
+  }
+});
+
+test('the When option says Right away, so Send now is the button alone', () => {
+  const composer = read('./src/components/campaign/BroadcastComposer.tsx');
+  const table = composer.slice(composer.indexOf('const WHEN_LABEL'), composer.indexOf('};', composer.indexOf('const WHEN_LABEL')));
+  assert.match(table, /now: 'Right away',/);
+  assert.doesNotMatch(table, /Send now/, 'an option of When still says Send now');
+  // The button still says Send now for a send that goes at once, and Schedule otherwise.
+  assert.match(composer, /\(scheduled \? 'Schedule' : 'Send now'\)/);
 });
 
 test('a test goes to one address, as the html the preview route rendered from the blocks', () => {
@@ -485,7 +505,9 @@ test('a send saved while another is still mailing is kept, and its retry is stil
     await waitFor(() => delivered.length === 1, 'the first send reaching delivery');
     const second = await s.post(b);
     assert.equal(second.status, 200, JSON.stringify(second.body));
-    assert.deepEqual(s.saved.map((row) => row.requestId), ['req-quick-b']);
+    // Open list (2026-10-09): the first send's record is saved before it mails anyone, so it is already
+    // there, marked as sending, while its email is still out.
+    assert.deepEqual(s.saved.map((row) => [row.requestId, row.status]), [['req-quick-b', 'sent'], ['req-held-a', 'sending']]);
     release();
     assert.equal((await first).status, 200);
     assert.deepEqual(s.saved.map((row) => row.requestId).sort(), ['req-held-a', 'req-quick-b'], 'the first send, saved last, erased the second send\'s record');
@@ -613,4 +635,285 @@ test('source: the written drafts the composer starts from never call an email a 
   const drafts = composer.match(/setBroadcast(Subject|PreviewText|Body)\([^;]*\);/g) || [];
   assert.ok(drafts.length >= 20, `only ${drafts.length} written-draft lines were found, so this checks too little`);
   assert.deepEqual(drafts.filter((line) => /\bnotes?\b/i.test(line)), []);
+});
+
+// Open list (2026-10-09): a broadcast's record was saved only after its whole audience was mailed, so a
+// server that stopped part way through lost the record and its requestId, and the retry mailed everyone
+// again. It is saved first now, as 'sending'; one a stopped server left that way is reported by the
+// scheduled sender and refused to a retry, never sent again.
+test('a broadcast is saved before anyone is mailed; one a stopped server left part way is refused to a retry and reported, never resent', async () => {
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  const delivered = [];
+  const first = await serveSend(nowSendContext(delivered, gate));
+  let restarted = null;
+  try {
+    const body = campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip' }), undefined, 'req-before-send');
+    const sending = first.post(body);
+    await waitFor(() => delivered.length === 1, 'the send reaching delivery');
+    // Delivery has not answered, and the record is already stored, with the requestId.
+    assert.equal(first.saved.length, 1, 'nothing was stored before the audience was mailed');
+    const claim = first.saved[0];
+    assert.equal(claim.requestId, 'req-before-send');
+    assert.equal(claim.status, 'sending');
+    assert.match(String(claim.deliveringSince), /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(claim.sentTo, [], 'the stored copy claims a send that has not answered');
+    // In flight: the same requestId is refused, and the scheduled sender leaves it alone.
+    assert.deepEqual(await first.post(body), { status: 409, body: { success: false, duplicate: true, error: CAMPAIGN_DUPLICATE } });
+    assert.equal((await first.handlers.processDueCampaigns('u1')).sent, 0);
+    assert.equal(first.saved[0].status, 'sending', 'the scheduled sender touched a broadcast this process is still mailing');
+    assert.deepEqual(await first.call('DELETE', `/api/email/campaigns/${claim.id}`), { status: 400, body: { success: false, error: CAMPAIGN_STARTED } });
+
+    // The server stops here. A new one starts on the same store: nothing in it is mailing anything.
+    restarted = await serveSend(nowSendContext(delivered, Promise.resolve()), first.saved.map((row) => structuredClone(row)));
+    assert.deepEqual(await restarted.post(body), { status: 409, body: { success: false, duplicate: true, error: CAMPAIGN_DUPLICATE } }, 'a retry after the stop was not refused');
+    assert.equal((await restarted.handlers.processDueCampaigns('u1')).sent, 0);
+    assert.equal(delivered.length, 1, `the broadcast a stopped server left was mailed again: ${delivered.join(', ')}`);
+    const left = restarted.saved.find((row) => row.requestId === 'req-before-send');
+    assert.equal(left.status, 'interrupted');
+    assert.equal(left.lastError, CAMPAIGN_INTERRUPTED);
+    assert.equal(left.deliveringSince, undefined);
+    // Reported once, and never picked up again.
+    assert.equal((await restarted.handlers.processDueCampaigns('u1')).sent, 0);
+    assert.equal(delivered.length, 1);
+    assert.deepEqual(await restarted.post(body), { status: 409, body: { success: false, duplicate: true, error: CAMPAIGN_DUPLICATE } });
+    assert.deepEqual(await restarted.call('DELETE', `/api/email/campaigns/${left.id}`), { status: 400, body: { success: false, error: CAMPAIGN_STARTED } });
+    assert.doesNotMatch(CAMPAIGN_INTERRUPTED + CAMPAIGN_STARTED, /—| – /);
+
+    // The first server, had it lived: its send finishes and its record is the finished one.
+    release();
+    const done = await sending;
+    assert.equal(done.status, 200, JSON.stringify(done.body));
+    assert.equal(first.saved.length, 1);
+    assert.equal(first.saved[0].status, 'sent');
+    assert.equal(first.saved[0].deliveringSince, undefined, 'the finished record still says it is being mailed');
+    assert.deepEqual(first.saved[0].sentTo, ['whale@example.test']);
+    assert.equal((await first.post(body)).status, 409);
+  } finally {
+    release();
+    await first.close();
+    if (restarted) await restarted.close();
+  }
+});
+
+test('a scheduled broadcast is saved as sending before its people are mailed, and a stop part way is reported, never resent', async () => {
+  // A store that copies on every read and write, as a file does: a row changed in memory and never saved
+  // is not on it. (serveSend's own list hands back the stored row objects, so a change shows unsaved.)
+  const disk = { rows: [] };
+  const store = { loadCampaigns: () => structuredClone(disk.rows), saveCampaigns: (rows) => { disk.rows = structuredClone(rows); } };
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  const delivered = [];
+  const s = await serveSend({ ...nowSendContext(delivered, gate), ...store });
+  let restarted = null;
+  try {
+    const scheduled = await s.post(campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip', sendWhen: 'clock', sendAt: '2030-01-15T09:30' }), undefined, 'req-scheduled'));
+    assert.equal(scheduled.status, 200, JSON.stringify(scheduled.body));
+    assert.equal(disk.rows.length, 1);
+    disk.rows[0].sendAt = '2020-01-01T00:00:00.000Z';
+    const tick = s.handlers.processDueCampaigns('u1');
+    await waitFor(() => delivered.length === 1, 'the scheduled send reaching delivery');
+    assert.equal(disk.rows[0].status, 'sending', 'a scheduled broadcast was not saved as sending before its people were mailed');
+    assert.ok(disk.rows[0].deliveringSince);
+    // The server stops here; a new one starts on the same store.
+    restarted = await serveSend({ ...nowSendContext(delivered, Promise.resolve()), ...store });
+    assert.equal((await restarted.handlers.processDueCampaigns('u1')).sent, 0);
+    assert.equal(delivered.length, 1, 'a scheduled broadcast a stopped server left was mailed again');
+    assert.equal(disk.rows[0].status, 'interrupted');
+    assert.equal(disk.rows[0].lastError, CAMPAIGN_INTERRUPTED);
+    // Had the first server lived, its finished record is saved over the copy it saved first.
+    release();
+    assert.equal((await tick).sent, 1);
+    assert.equal(disk.rows[0].status, 'sent');
+    assert.equal(disk.rows[0].deliveringSince, undefined);
+  } finally {
+    release();
+    await s.close();
+    if (restarted) await restarted.close();
+  }
+});
+
+test('a send that reached nobody (502) leaves no record, as before it was saved first, so its retry may send', async () => {
+  const delivered = [];
+  const s = await serveSend({
+    ...nowSendContext(delivered, Promise.resolve()),
+    deliverLetter: async (letter) => { delivered.push(letter.to); return { ok: false, status: 'failed', error: 'The email service rejected the send.' }; }
+  });
+  try {
+    const body = campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip' }), undefined, 'req-all-failed');
+    const failed = await s.post(body);
+    assert.equal(failed.status, 502, JSON.stringify(failed.body));
+    assert.deepEqual(s.saved, [], 'a send that mailed nobody left its record behind');
+    assert.equal((await s.post(body)).status, 502, 'the retry of a send that reached nobody was refused as a duplicate');
+    assert.equal(delivered.length, 2);
+  } finally {
+    await s.close();
+  }
+});
+
+// Each delivery call waits for the gate at its own position (1 = the first email handed over), so a test
+// can hold one send and let another go.
+const heldSendContext = (delivered, gates) => {
+  let calls = 0;
+  return {
+    ...nowSendContext(delivered, Promise.resolve()),
+    deliverLetter: async (letter) => {
+      delivered.push(letter.to);
+      calls += 1;
+      if (gates[calls]) await gates[calls];
+      return { ok: true, status: 'sent', messageId: `msg_${calls}` };
+    }
+  };
+};
+
+test('two passes of the scheduled sender at once never mail one broadcast twice (Send due emails now runs beside the timer)', async () => {
+  let release = () => {};
+  const held = new Promise((resolve) => { release = resolve; });
+  const delivered = [];
+  const s = await serveSend(heldSendContext(delivered, { 1: held }));
+  try {
+    for (const requestId of ['req-due-one', 'req-due-two']) {
+      const res = await s.post(campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip', sendWhen: 'clock', sendAt: '2030-01-15T09:30' }), undefined, requestId));
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+    }
+    for (const row of s.saved) row.sendAt = '2020-01-01T00:00:00.000Z';
+    const first = s.handlers.processDueCampaigns('u1');
+    await waitFor(() => delivered.length === 1, 'the first pass reaching its first send');
+    // The second pass finds the first broadcast claimed and mails the other one.
+    assert.equal((await s.handlers.processDueCampaigns('u1')).sent, 1);
+    release();
+    assert.equal((await first).sent, 1, 'the first pass mailed the broadcast the second pass had already mailed');
+    assert.equal(delivered.length, 2, `${delivered.length} emails went out for two broadcasts to one person each`);
+    assert.deepEqual(s.saved.map((row) => [row.requestId, row.status, row.sentTo.length]).sort(), [['req-due-one', 'sent', 1], ['req-due-two', 'sent', 1]]);
+  } finally {
+    release();
+    await s.close();
+  }
+});
+
+test('a send the route finishes while the scheduled sender is mailing another is never reported as stopped', async () => {
+  let releaseNow = () => {};
+  let releaseScheduled = () => {};
+  const nowHeld = new Promise((resolve) => { releaseNow = resolve; });
+  const scheduledHeld = new Promise((resolve) => { releaseScheduled = resolve; });
+  const delivered = [];
+  const s = await serveSend(heldSendContext(delivered, { 1: nowHeld, 2: scheduledHeld }));
+  try {
+    const sendNow = s.post(campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip' }), undefined, 'req-route-now'));
+    await waitFor(() => delivered.length === 1, 'the route send reaching delivery');
+    const scheduled = await s.post(campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip', sendWhen: 'clock', sendAt: '2030-01-15T09:30' }), undefined, 'req-on-time'));
+    assert.equal(scheduled.status, 200, JSON.stringify(scheduled.body));
+    s.saved.find((row) => row.requestId === 'req-on-time').sendAt = '2020-01-01T00:00:00.000Z';
+    assert.deepEqual(s.saved.map((row) => row.requestId), ['req-on-time', 'req-route-now'], 'the pass would not reach the route send after the scheduled one, so this proves nothing');
+    const tick = s.handlers.processDueCampaigns('u1');
+    await waitFor(() => delivered.length === 2, 'the scheduled send reaching delivery');
+    releaseNow();
+    assert.equal((await sendNow).status, 200);
+    assert.equal(s.saved.find((row) => row.requestId === 'req-route-now').status, 'sent');
+    releaseScheduled();
+    assert.equal((await tick).sent, 1);
+    const routeRow = s.saved.find((row) => row.requestId === 'req-route-now');
+    assert.equal(routeRow.status, 'sent', `a finished send was reported as ${routeRow.status}: ${routeRow.lastError || ''}`);
+    assert.deepEqual(routeRow.sentTo, ['whale@example.test']);
+    assert.equal(s.saved.find((row) => row.requestId === 'req-on-time').status, 'sent');
+    assert.equal(delivered.length, 2);
+  } finally {
+    releaseNow();
+    releaseScheduled();
+    await s.close();
+  }
+});
+
+// Review of the open list (2026-10-09): a delivery that THREW (an exception out of the compose or the
+// send, not a refusal the service answered) left the request unanswered, raised an unhandledRejection,
+// and left a record saved as 'sending' whose retry was told it was already sent, even when nobody had
+// been mailed. In the scheduled sender one such broadcast rejected the whole pass, so the account's
+// starter flows were not run that tick.
+test('a send whose delivery throws is answered: one that reached someone is saved as stopped and refused a retry, one that reached nobody may be sent again', async () => {
+  const rejections = [];
+  const onRejection = (err) => rejections.push(String(err?.message || err));
+  process.on('unhandledRejection', onRejection);
+  const delivered = [];
+  let calls = 0;
+  let throwAt = 2;
+  const s = await serveSend({
+    ...nowSendContext(delivered, Promise.resolve()),
+    deliverLetter: async (letter) => {
+      calls += 1;
+      if (calls === throwAt) throw new Error('the delivery stand-in threw');
+      delivered.push(letter.to);
+      return { ok: true, status: 'sent', messageId: `msg_${calls}` };
+    }
+  });
+  try {
+    // Two whales: the first is mailed, the second throws.
+    const body = campaignSendBody(draftWith({ include: 'whales' }), undefined, 'req-threw-part-way');
+    const part = await s.post(body);
+    assert.equal(part.status, 500, JSON.stringify(part.body));
+    assert.deepEqual([part.body.success, part.body.error, part.body.sent], [false, CAMPAIGN_INTERRUPTED, 1]);
+    assert.equal(s.saved.length, 1);
+    const row = s.saved[0];
+    assert.deepEqual([row.status, row.lastError, row.deliveringSince], ['interrupted', CAMPAIGN_INTERRUPTED, undefined], 'the stopped send was not saved as stopped');
+    assert.deepEqual(row.sentTo, delivered, 'the record does not say who the send reached before it stopped');
+    // Someone has it, so the retry is refused and the scheduled sender never mails it again.
+    assert.deepEqual(await s.post(body), { status: 409, body: { success: false, duplicate: true, error: CAMPAIGN_DUPLICATE } });
+    assert.equal((await s.handlers.processDueCampaigns('u1')).sent, 0);
+    assert.equal(delivered.length, 1, `the stopped send was mailed again: ${delivered.join(', ')}`);
+
+    // Threw before anyone was mailed: no record is kept, so the same send may go again.
+    calls = 0;
+    throwAt = 1;
+    const none = campaignSendBody(draftWith({ include: 'whales', exclude: 'list_vip' }), undefined, 'req-threw-first');
+    const stopped = await s.post(none);
+    assert.equal(stopped.status, 500, JSON.stringify(stopped.body));
+    assert.deepEqual([stopped.body.success, stopped.body.error, stopped.body.sent], [false, CAMPAIGN_NOT_SENT, 0]);
+    assert.equal(s.saved.filter((r) => r.requestId === 'req-threw-first').length, 0, 'a send that reached nobody left a record that refuses its retry');
+    const again = await s.post(none);
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.equal(delivered.length, 2);
+    assert.doesNotMatch(CAMPAIGN_NOT_SENT, /—| – /);
+    assert.deepEqual(rejections, [], 'a thrown delivery escaped the route as an unhandled rejection');
+  } finally {
+    process.off('unhandledRejection', onRejection);
+    await s.close();
+  }
+});
+
+test('a scheduled broadcast whose delivery throws is saved as stopped with who it reached, and the pass goes on to the next one', async () => {
+  const disk = { rows: [] };
+  const store = { loadCampaigns: () => structuredClone(disk.rows), saveCampaigns: (rows) => { disk.rows = structuredClone(rows); } };
+  const delivered = [];
+  let throwFor = '';
+  let callsFor = 0;
+  const s = await serveSend({
+    ...nowSendContext(delivered, Promise.resolve()),
+    ...store,
+    deliverLetter: async (letter) => {
+      if (letter.campaignId === throwFor && ++callsFor === 2) throw new Error('the delivery stand-in threw');
+      delivered.push(`${letter.campaignId} ${letter.to}`);
+      return { ok: true, status: 'sent' };
+    }
+  });
+  try {
+    for (const [requestId, settings] of [['req-due-fine', { include: 'whales', exclude: 'list_vip' }], ['req-due-throws', { include: 'whales' }]]) {
+      const res = await s.post(campaignSendBody(draftWith({ ...settings, sendWhen: 'clock', sendAt: '2030-01-15T09:30' }), undefined, requestId));
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+    }
+    for (const row of disk.rows) row.sendAt = '2020-01-01T00:00:00.000Z';
+    const throws = disk.rows.find((row) => row.requestId === 'req-due-throws');
+    const fine = disk.rows.find((row) => row.requestId === 'req-due-fine');
+    assert.deepEqual(disk.rows.map((row) => row.requestId), ['req-due-throws', 'req-due-fine'], 'the throwing broadcast would not come first, so this proves nothing');
+    throwFor = throws.id;
+    const pass = await s.handlers.processDueCampaigns('u1');
+    assert.equal(pass.sent, 2, 'the pass did not go on past the broadcast that threw');
+    const stopped = disk.rows.find((row) => row.id === throws.id);
+    assert.deepEqual([stopped.status, stopped.lastError, stopped.deliveringSince, stopped.sentTo.length], ['interrupted', CAMPAIGN_INTERRUPTED, undefined, 1]);
+    assert.equal(disk.rows.find((row) => row.id === fine.id).status, 'sent');
+    // Never mailed again.
+    const before = delivered.length;
+    assert.equal((await s.handlers.processDueCampaigns('u1')).sent, 0);
+    assert.equal(delivered.length, before);
+  } finally {
+    await s.close();
+  }
 });

@@ -52,8 +52,9 @@ test('every drip enrollment write asks starterFlowOnFor first, and there are exa
 test('the helper reaches each route module: on its ctx literal in server.mjs, and taken from it in the module', () => {
   const server = read('./server.mjs');
   assert.match(server, /\nfunction starterFlowOnFor\(uid, seqId\) \{\n  return starterFlowOn\(userProgramBag\(uid\), seqId\);\n\}/);
-  // route-context-gate.test.mjs does not see a destructured name missing from its literal (planted: it
-  // stayed green with starterFlowOnFor taken out of shopifyCtx), so the literals are read here.
+  // route-context-gate.test.mjs did not see a destructured name missing from its literal (planted: it
+  // stayed green with starterFlowOnFor taken out of shopifyCtx) until its walker was fixed on 2026-10-09;
+  // it does now, and the literals are still read here as a second, narrower lock.
   for (const [literal, setup] of [['const shopifyCtx = {', 'setupShopifyRoutes(app, shopifyCtx);'], ['const emailCtx = {', 'setupEmailRoutes(app, emailCtx);'], ['const publicCtx = {', 'setupPublicRoutes(app, publicCtx);']]) {
     const start = server.indexOf(literal);
     const end = server.indexOf(setup, start);

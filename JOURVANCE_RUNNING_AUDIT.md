@@ -4,6 +4,81 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-08. DEPLOYED: jourvance.com serves 4b1cf75 (the motion pass, the countdown dip removed, on top of the lead-capture fix, the Sentinel and the page builder Waves 0 to 3). Render reported it live and the two earlier deploys deactivated; the Sentinel, policy and lead probes answer as before. A bundle fingerprint for the motion code was inconclusive (no lazy chunk names found), not failed. Read the newest section first.
 
+## 2026-10-09: Email Studio, the open list closed (except the flake)
+
+**Not done first.** The studio browser check's click-timeout flake has NO found cause: the
+investigator (Sonnet, on a `git archive` copy of 96583cc) ran the unchanged check 36 times under
+machine load averages up to 114 and a page CPU throttled 25x and never saw a red, so CPU load is
+ruled out as the trigger and the live-tree-edit hypothesis (an agent editing the script or the
+sources while a run is building) is untested; its hardening patch (a whole-run deadline, bounded
+teardown, per-step seconds) sits unapplied at the session scratchpad `openlist/flake/fix.diff`
+by the fix round's reading of its brief. The one red the reviewers saw this round was a missing
+built chunk during a run that overlapped another agent's build; the check now prints, on a red
+run only, what the preview answered for a file that did not load. Found in this round and still
+open: `POST /api/email/flows` and `POST /api/email/attribution-windows` answer 200 when the new
+record size cap refused the write (reported by the server builder, in files no builder held);
+`App.tsx` renders the lazy `BlueprintModal` on load with no error boundary, so a chunk that does
+not arrive after a deploy unmounts the whole app in an open tab (seen under a planted missing
+chunk); an interrupted broadcast reads "Not sent" in All broadcasts without its stored reason;
+the People row that opens the customer drawer is still a `div` with an `onClick`, so a keyboard
+cannot reach it. No screen reader was used. `server.mjs` was never booted.
+
+**Closed** (four builders in parallel, a Sonnet verifier, two Sonnet lenses, an Opus fix round,
+a second verify; every planted red reported in `openlist/audit-notes-*.md`):
+
+- `processCustomFlows` no longer writes its whole stale copy back: `layFlowPass` lays only the
+  pass's own changes (moved enrolments, added ones, profile fields and lists it set) onto the
+  record read after its sends; a row stopped meanwhile stays stopped, and a person a webhook
+  enrolled in the same flow meanwhile is not enrolled twice.
+- A broadcast is saved as `sending` with its `requestId` before anyone is mailed
+  (`deliverClaimed`, `saveDelivered` in `emailRoutes.mjs`); a retry with the same `requestId` is
+  409 in flight and after a crash; one a stopped server left mid-send is marked `interrupted`,
+  logged and never resent.
+- The account's program record has a 5,000,000-byte cap (under the hub's 6,400,000-byte document
+  limit named in `hub-sdk.js`), enforced in `saveProgramStore`: a refused write saves nothing;
+  the studio routes answer 413 naming what to delete; background writers keep the stored copy.
+- A due enrolment in a starter flow that is off is stopped even while Klaviyo is the sender.
+- `route-context-gate.test.mjs` now visits `const { ... } = ctx` declarators (the Wave 1 gap); the
+  two names with runtime defaults (`now`, `eventsKept`) are on a commented allowlist with a test
+  that fails if an entry stops being needed.
+- All flows is four groups under headings (Your flows with New flow and the empty sentence,
+  Starter flows, Built-in flows, Order emails), the hub group closed at the foot; the editor's
+  picker uses the same order.
+- A starter row says "On, nothing sends yet: every email is still a draft" or how many are
+  still drafts; Enrolled and revenue show only when they are numbers, with one sentence per list
+  for the rest.
+- The editor has a keyboard "Steps in this flow" list ("Email 2 of 3: <subject>", "Wait 24
+  hours") that selects a step and moves focus to its heading; map nodes carry the same names.
+- Leaving the studio with an unsaved broadcast draft asks in-app (`leaveStudioOk`, one shared
+  question for a flow edit or a draft), and a reload with an unsaved flow edit asks.
+- A manual enrol refused because the flow is off shows the server's sentence in the customer
+  drawer.
+- The composer's confirm names the people count the server reported in one sentence, and the
+  When option reads "Right away" so only the button says Send now.
+- `hubFlowId` and `exportFormat` are dropped from the blueprint type and data; nothing read them;
+  an old saved journey carrying them still loads (`blueprint-legacy-fields.test.mjs`).
+
+**Checks the main session re-ran** (VERIFIED, exit codes read directly, one after another):
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npm test` | 2736 tests, 2733 pass, 0 fail, 3 skipped (the live-server tests, `JOURVANCE_LIVE_TEST_URL` unset); exit 0 |
+| `node scripts/email-studio-browser-check.mjs` | 57 of 57 steps in each of two consecutive runs, exit 0 |
+| `node scripts/builder-browser-check.mjs` | 40 of 40 steps, exit 0 |
+| `npm run check:canvas` | overflow, drawers, save, a11y, runtime PASS; 24 of 24 keyboard checks; 62 contrast items unmeasured (not passes); exit 0 |
+| `npm run check:a11y` | 22 PASS, 0 FAIL; exit 0 |
+| `npx vite build` | exit 0 |
+
+**Reported by the agents, not re-run by the main session:** the planted reds (server: eleven,
+one of which stayed green on its first plant because the in-memory row was shared and was
+re-planted against the save itself; client: eight browser plants, one first red for the wrong
+reason and redone; blueprint: two; fix round: three), each restored and confirmed with `cmp`;
+the two review lenses (7 findings: one major refuted as a concurrent-build artefact with a
+diagnostic added, three server minors fixed with tests, three UX minors decided and left).
+
+---
+
 ## 2026-10-09: Email Studio, Waves 7 and 8: the canvas step and its flow are one thing; review, fixes, handoff
 
 **Not done first.** The Wave 7 builder (Opus) was cut off mid-run ("your computer went to sleep")

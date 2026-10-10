@@ -15,8 +15,9 @@ import { isStarterDraft, starterFlowOn } from './email-flow-content.mjs';
 // order-email-builder, delete-asks, panel-beside, panel-below).
 
 const {
-  FLOW_TAGS, FLOWS_FAILED, FLOWS_NOT_CONNECTED, FLOWS_SIGN_IN, START_ALIASES, START_WORDS,
-  draftCountText, emailCount, emailCountText, flowRows, flowsListLoad, starterOffNotice, startsWhenText, switchRequest, switchText
+  FLOW_GROUPS, FLOW_TAGS, FLOWS_FAILED, FLOWS_FIGURES_UNCOUNTED, FLOWS_NOT_CONNECTED, FLOWS_SIGN_IN, START_ALIASES, START_WORDS,
+  emailCount, emailCountText, figuresLeftOut, flowRows, flowStateText, flowStepName, flowStepOrder, flowsListLoad, groupFlowRows,
+  starterOffNotice, startsWhenText, stateWarns, switchRequest, switchText, waitWords
 } = await import('./src/lib/emailFlowsList.ts');
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -312,7 +313,7 @@ test('the Flows screens say email, never the retired "letter" (D2)', () => {
   }
 });
 
-test('Wave 2: a starter row counts its emails the server marks as drafts, and says so beside On', () => {
+test('Wave 2 and the open list: a starter row counts its draft emails, and its state says what that means', () => {
   const { flows, triggers } = payload();
   const rows = flowRows(flows, triggers);
   // Counted from the server's marks on the real payload: Welcome's three seeds are drafts, nothing else is.
@@ -323,18 +324,33 @@ test('Wave 2: a starter row counts its emails the server marks as drafts, and sa
   assert.deepEqual(rows.filter((row) => row.drafts > 0).map((row) => [row.id, row.drafts]), [['drip_seq_default', 3]]);
   // A mark on a step that sends nothing is not an email, and only `true` is a mark.
   assert.equal(flowRows([{ id: 's', name: 'S', kind: 'sequence', nodes: [{ id: 'a', type: 'email', starterDraft: true }, { id: 'b', type: 'delay', starterDraft: true }, { id: 'c', type: 'email', starterDraft: 'true' }] }], triggers)[0].drafts, 1);
-  assert.equal(draftCountText(1), '1 is still the starter draft, so it is not sent');
-  assert.equal(draftCountText(3), '3 are still starter drafts, so they are not sent');
-  // The row says it in its meta line, which is the row button's description, only when there is one.
+  // Open list: On alone only when the sender would send its emails. Welcome, as seeded, sends nothing.
+  const welcome = rows.find((row) => row.id === 'drip_seq_default');
+  assert.equal(welcome.on, true);
+  assert.equal(flowStateText(welcome), 'On, nothing sends yet: every email is still a draft');
+  assert.equal(flowStateText({ on: true, emails: 3, drafts: 2 }), 'On, 2 of 3 emails are still drafts and are not sent');
+  assert.equal(flowStateText({ on: true, emails: 3, drafts: 1 }), 'On, 1 of 3 emails is still a draft and is not sent');
+  assert.equal(flowStateText({ on: true, emails: 3, drafts: 0 }), 'On');
+  assert.equal(flowStateText({ on: false, emails: 3, drafts: 3 }), 'Off, and every email is still a draft');
+  assert.equal(flowStateText({ on: false, emails: 3, drafts: 2 }), 'Off, 2 of 3 emails are still drafts');
+  assert.equal(flowStateText({ on: false, emails: 2, drafts: 0 }), 'Off');
+  // Every other row on the real payload reads plain On or Off.
+  for (const row of rows.filter((item) => item.drafts === 0)) assert.equal(flowStateText(row), row.on ? 'On' : 'Off', row.name);
+  assert.equal(stateWarns(welcome), true);
+  assert.equal(stateWarns({ on: false, drafts: 3 }), false);
+  assert.equal(stateWarns({ on: true, drafts: 0 }), false);
+  for (const text of [flowStateText(welcome), flowStateText({ on: true, emails: 3, drafts: 2 }), flowStateText({ on: false, emails: 3, drafts: 3 })]) assert.doesNotMatch(text, /\u2014| \u2013 /);
+  // The row says it where it says On, in the state itself, and the old separate drafts sentence is gone.
   const meta = between(list, '<span id={metaId}', '</span>\n        </button>', 'the row meta');
-  assert.match(meta, /\{row\.drafts > 0 && <> · <span data-flow-drafts=\{row\.id\}[^>]*>\{draftCountText\(row\.drafts\)\}<\/span><\/>\}/);
-  assert.ok(meta.indexOf('draftCountText') > meta.indexOf('emailCountText(row.emails)'), 'the draft count is not beside the email count');
+  assert.match(meta, /<strong data-flow-state=\{row\.id\}[^>]*>\{flowStateText\(row\)\}<\/strong>/);
+  assert.ok(meta.indexOf('flowStateText(row)') < meta.indexOf('emailCountText(row.emails)'), 'the state is not said before the email count');
+  assert.doesNotMatch(list, /draftCountText|data-flow-drafts/, 'the separate drafts sentence is still drawn');
 });
 
 test('Wave 2: Turn off on a starter flow says what happens to the people in it, from the list and from the editor', () => {
   const said = starterOffNotice('Welcome sequence');
   assert.equal(said, 'Welcome sequence is off. Nobody new joins it, and anyone already in it whose next email comes due while it is off leaves it, so turning it back on sends nothing they missed.');
-  for (const text of [said, draftCountText(1), draftCountText(2)]) assert.doesNotMatch(text, /\u2014| \u2013 /);
+  for (const text of [said, flowStateText({ on: true, emails: 2, drafts: 1 }), flowStateText({ on: true, emails: 2, drafts: 2 })]) assert.doesNotMatch(text, /\u2014| \u2013 /);
   // The list says it for a starter row only; other kinds keep their own sentence.
   const toggle = between(list, 'const toggle = async (row: FlowRow) => {', 'const renderRow', 'toggle');
   assert.ok(toggle.includes("row.kind === 'sequence' ? starterOffNotice(row.name) : `${row.name} is off.`"), 'the list does not say what Turn off does to a starter flow');
@@ -344,4 +360,119 @@ test('Wave 2: Turn off on a starter flow says what happens to the people in it, 
   const state = between(map, "{current.kind === 'sequence' && (() => {", '})()}', 'the header state');
   assert.match(state, /<span data-flow-header-state=\{current\.id\}[^>]*>\{on \? 'On for this account' : 'Off for this account'\}<\/span>/);
   assert.ok(state.indexOf('data-flow-header-state') < state.indexOf('data-flow-header-switch'), 'the state is not said before the switch');
+});
+
+// ---- Open list (2026-10-09) ----
+
+test('All flows is four groups in a fixed order, each its own list under its heading, every row once', () => {
+  const { flows, triggers } = payload();
+  const rows = flowRows(flows, triggers);
+  const groups = groupFlowRows(rows);
+  assert.deepEqual(groups.map((group) => group.heading), ['Your flows', 'Starter flows', 'Built-in flows', 'Order emails']);
+  assert.deepEqual(FLOW_GROUPS.map((group) => group.kind), ['flow', 'sequence', 'automation', 'order']);
+  // Every row is in exactly one group, once, and inside a group the server's order is kept.
+  const listed = groups.flatMap((group) => group.rows.map((row) => row.id));
+  assert.equal(listed.length, rows.length);
+  assert.equal(new Set(listed).size, rows.length);
+  for (const group of groups) {
+    const want = flows.filter((flow) => flow.kind === group.kind).map((flow) => flow.id);
+    assert.deepEqual(group.rows.map((row) => row.id), want, `${group.heading} is not the server's order`);
+    assert.ok(group.rows.length > 0, `${group.heading} is empty on the real payload`);
+  }
+  // The starter flows come before the built-in flows even though the server sends the built-in ones first.
+  assert.ok(flows.findIndex((flow) => flow.kind === 'automation') < flows.findIndex((flow) => flow.kind === 'sequence'), 'the payload no longer sends built-in flows first, so the reorder is not shown');
+  // The component: one list per group, named by its heading, and New flow in Your flows' heading row.
+  assert.match(list, /\{group\.rows\.length > 0 && <ul aria-labelledby=\{headingOf\(group\.kind\)\} style=\{listStyle\}>\{group\.rows\.map\(renderRow\)\}<\/ul>\}/);
+  assert.match(list, /<h3 id=\{headingOf\(group\.kind\)\} style=\{groupHeading\}>\{group\.heading\}<\/h3>\s*\{newFlow\}/, 'New flow is not beside the Your flows heading');
+  assert.equal((list.match(/\{newFlow\}/g) || []).length, 1, 'New flow is drawn more than once');
+  assert.doesNotMatch(list, /aria-label="Flows"/, 'the old one list of every flow is still drawn');
+  // The editor's picker lists the groups in the same order.
+  const picker = between(map, 'const FLOW_PICKER_GROUPS', '\n];', 'the picker groups');
+  assert.deepEqual([...picker.matchAll(/label: '([^']+)'/g)].map((m) => m[1]), FLOW_GROUPS.map((group) => group.heading));
+});
+
+test('a row shows Enrolled and revenue only when counted, and the list says once why the others are not there', () => {
+  const { flows, triggers } = payload();
+  const rows = flowRows(flows, triggers);
+  // The real payload: no account flow has anyone yet (null), and no starter revenue is traced.
+  assert.equal(figuresLeftOut(rows, () => null), true);
+  // Every account flow counted and every starter flow's revenue known: nothing left out, except the built-in
+  // flows, which the flow map never counts, so the sentence stays while they are listed.
+  const counted = rows.map((row) => (row.kind === 'flow' ? { ...row, enrolled: 4 } : row));
+  assert.equal(figuresLeftOut(counted, () => 12.5), true, 'a built-in row with no count is not said');
+  // Counted account flows and the order emails (which show no figure at all) leave nothing out.
+  const ownOnly = counted.filter((row) => row.kind === 'flow' || row.kind === 'order');
+  assert.equal(figuresLeftOut(ownOnly, () => null), false, 'counted rows and order emails still say a figure is left out');
+  // A starter row never shows Enrolled (the flow map sends no count for it), so it is always said, revenue or not.
+  const starter = counted.find((row) => row.kind === 'sequence');
+  assert.equal(figuresLeftOut([...ownOnly, starter], () => 12.5), true, 'a starter row with no Enrolled is not said');
+  assert.equal(figuresLeftOut([{ id: 'a', kind: 'flow', group: 'flows', enrolled: 0 }], () => null), false, 'a measured 0 is not a figure left out');
+  assert.equal(figuresLeftOut([{ id: 'a', kind: 'flow', group: 'flows', enrolled: Number.NaN }], () => null), true);
+  assert.doesNotMatch(FLOWS_FIGURES_UNCOUNTED, /—| – |Unavailable/);
+  // The component prints a figure only through the counted guard, and says the sentence once, from a loaded list.
+  const meta = between(list, '<span id={metaId}', '</span>\n        </button>', 'the row meta');
+  assert.match(meta, /\{row\.group === 'flows' && counted\(row\.enrolled\) && <> · Enrolled \{statText\(row\.enrolled\)\}<\/>\}/);
+  assert.match(meta, /\{seq && counted\(seq\.attributedSales\) && <> · Last-touch revenue \{statText\(seq\.attributedSales/);
+  assert.equal((list.match(/FLOWS_FIGURES_UNCOUNTED\}/g) || []).length, 1, 'the figures sentence is printed more than once');
+  assert.match(list, /\{load\.state === 'loaded' && figuresLeftOut\(rows, revenueOf\) && \(/);
+});
+
+test('every step of a flow has a name, the same on the map and in the step list, in the order a person meets them', () => {
+  const { flows } = payload();
+  const welcome = flows.find((flow) => flow.id === 'drip_seq_default');
+  const steps = flowStepOrder(welcome.nodes, welcome.edges);
+  assert.deepEqual(steps.map((node) => node.id), welcome.nodes.map((node) => node.id), 'a chain is not walked in its own order');
+  const seed = sequences.find((seq) => seq.id === 'drip_seq_default');
+  const names = steps.map((node) => flowStepName(node, welcome.nodes, 'Someone joins'));
+  assert.equal(names[0], 'Starts when: Someone joins');
+  const emailNames = names.filter((name) => name.startsWith('Email '));
+  assert.deepEqual(emailNames, seed.steps.map((step, i) => `Email ${i + 1} of ${seed.steps.length}: ${step.subject}, starter draft`));
+  const waits = names.filter((name) => name.startsWith('Wait '));
+  assert.deepEqual(waits, seed.steps.slice(1).filter((step) => step.delayHours).map((step) => `Wait ${step.delayHours === 1 ? '1 hour' : `${step.delayHours} hours`}`));
+  assert.ok(waits.length >= 1, 'the Welcome flow has no wait to name');
+  // Each kind the editor names, and the ones it leaves to the editor.
+  const nodes = [{ id: 't', type: 'trigger' }, { id: 'a', type: 'email', subject: 'Hi', status: 'paused' }, { id: 'b', type: 'email', subject: '', klaviyoFlowId: 'K1' }, { id: 's', type: 'sms', message: 'Hello there' }, { id: 'c', type: 'condition' }, { id: 'x', type: 'ab' }];
+  assert.equal(flowStepName(nodes[0], nodes), 'Start');
+  assert.equal(flowStepName(nodes[1], nodes), 'Email 1 of 2: Hi, paused');
+  assert.equal(flowStepName(nodes[2], nodes), 'Email 2 of 2: No subject yet, Klaviyo');
+  assert.equal(flowStepName(nodes[3], nodes), 'Text 1 of 1: Hello there');
+  assert.equal(flowStepName(nodes[4], nodes), '');
+  assert.equal(flowStepName(nodes[5], nodes), '', 'an A/B step is counted as an email here, unlike the step heading');
+  assert.equal(flowStepName({ id: 'l', type: 'email', subject: 'x'.repeat(200) }, [{ id: 'l', type: 'email' }]).length, 'Email 1 of 1: '.length + 80);
+  assert.equal(waitWords({ delayHours: 24 }), '24 hours');
+  assert.equal(waitWords({ delayHours: 1 }), '1 hour');
+  assert.equal(waitWords({ delayMinutes: 90 }), '90 minutes');
+  assert.equal(waitWords({ mode: 'clock', clockHour: 9, clockMinute: 5, weekdays: [1, 3] }), 'until 09:05 on Monday, Wednesday');
+  // A branch: both arms after the check, each once, and a step nothing leads to last.
+  const branchy = flowStepOrder(
+    [{ id: 'lost', type: 'email' }, { id: 'e2', type: 'email' }, { id: 'c', type: 'condition' }, { id: 't', type: 'trigger' }, { id: 'e1', type: 'email' }],
+    [{ source: 't', target: 'c' }, { source: 'c', target: 'e1' }, { source: 'c', target: 'e2' }, { source: 'e1', target: 'e2' }]
+  );
+  assert.deepEqual(branchy.map((node) => node.id), ['t', 'c', 'e1', 'e2', 'lost']);
+  for (const name of [...names, waitWords({ mode: 'clock', clockHour: 9, weekdays: [1] })]) assert.doesNotMatch(name, /—| – /);
+});
+
+test('the editor names each map step and lists the steps as buttons that select one and mark it aria-current', () => {
+  // The map: each node's aria-label is the step's name.
+  const layoutFn = between(map, 'function layout(', 'const SmsCount', 'layout');
+  assert.match(layoutFn, /ariaLabel: stepNameOf\(flow, node, startsWhen\),/);
+  assert.match(map, /function stepNameOf\(flow: FlowView, node: FlowNode, startsWhen: string\) \{\s*return flowStepName\(node, flow\.nodes, startsWhen\) \|\| `\$\{titleOf\(node\)\}: \$\{detailOf\(node\)\}`;/);
+  assert.match(map, /layout\(current, selected, nodeSizes\.current, startsWhen\)/, 'the map is laid out without the start words');
+  // The list: one button per step, in walk order, named by stepNameOf; Enter or a click is selectNode, which
+  // moves focus to the step heading; the chosen one is aria-current="step".
+  const steps = between(map, '<ol aria-labelledby="flow-steps-label"', '</ol>', 'the step list');
+  assert.match(steps, /\{orderedSteps\.map\(\(node\) => \{/);
+  assert.match(steps, /aria-current=\{chosen \? 'step' : undefined\}/);
+  assert.match(steps, /onClick=\{\(\) => selectNode\(node\.id\)\}/);
+  assert.match(steps, /\{stepNameOf\(current, node, startsWhen\)\}\s*<\/button>/);
+  assert.match(map, /const orderedSteps = useMemo\(\(\) => current \? flowStepOrder\(current\.nodes, current\.edges\) : \[\], \[current\]\);/);
+  assert.match(map, /<p id="flow-steps-label"[^>]*>Steps in this flow<\/p>/);
+  const select = between(map, 'const selectNode = (id: string) => {', '};', 'selectNode');
+  assert.ok(select.includes('setStepFocus((count) => count + 1);'), 'choosing a step no longer moves focus to its heading');
+  // Not by colour alone: the chosen button has a bar and a heavier weight.
+  const style = between(map, 'const stepButton = (chosen: boolean)', '};\n};', 'the step button style');
+  // The bar is wider than the others' edge (4px against the 1px side), not only another colour.
+  assert.match(style, /const side = '1px solid [^']+';/);
+  assert.match(style, /borderLeft: chosen \? '4px solid #f472b6' : side,/);
+  assert.match(style, /fontWeight: chosen \? 700 : 500/);
 });

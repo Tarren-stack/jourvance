@@ -702,3 +702,31 @@ before it merges, because it changes what live leads receive.
 | 6 | done 2026-10-09 | same audit entry: studioLoad rules, one line per list, vocabulary pin; tsc exit 0, npm test 2666 (2663 pass, 0 fail, 3 skipped), studio browser check 48 of 48 three times, builder check 40 of 40, vite build exit 0, all re-run by the main session; the studio check flaked for the agents (cause unknown) |
 | 7 | done 2026-10-09 (re-run by the main session: tsc exit 0, npm test 2702 with 0 fail, studio check 51 of 51 twice, builder 40 of 40, check:canvas and check:a11y green, vite build exit 0) | not committed; the Wave 7 fix round's notes (session scratchpad `waves78/audit-notes-wave7-fix.md`) report its own planted reds; seen by the Wave 8 fix round on the tree that holds Waves 7 and 8: tsc exit 0, npm test 2702 (2699 pass, 0 fail, 3 skipped), studio browser check 51 of 51 (canvas-build-flow among them) in each of the three runs after the last code change, check:canvas exit 0 (16 scenarios, 24 of 24 keyboard checks, 62 contrast pairs unmeasured), check:a11y exit 0 (22 PASS, 0 FAIL), builder check 40 of 40 |
 | 8 | done 2026-10-09, same re-run | not committed; notes for the audit in the session scratchpad (`waves78/audit-notes-wave8.md`); `JOURNEY_UI_HANDOFF.md` has its Email Studio section. Seven majors fixed, each with a test seen red under a planted fault and restored (cmp); of ten minors seven fixed or partly fixed, three left open with reasons. Counts: tsc exit 0, the touched test files plus route-context-gate 107 of 107, npm test 2702 (2699 pass, 0 fail, 3 skipped), studio browser check 51 of 51 three times (one run took 373 s, cause unknown), check:canvas, check:a11y and the builder check as in row 7 |
+
+## Open list, 2026-10-09
+
+Re-run by the main session and committed (audit entry "the open list closed"). Each item of the "Still open" list in the audit's Waves 7 and 8 entry, as the working
+tree stands after the open-list builders and their fix round. "Done" means the code is in the tree and
+its tests ran green; the runs, counts and planted reds are in the session scratchpad
+(`openlist/audit-notes-*.md`), and what a builder reported and the fix round did not re-run is marked
+there as reported.
+
+| Item | State | Where, and why |
+|---|---|---|
+| All flows had no grouping | done | `groupFlowRows` and `FLOW_GROUPS` (`src/lib/emailFlowsList.ts`): Your flows, Starter flows, Built-in flows and Order emails, each a heading over its own list in `EmailFlowsList.tsx` |
+| A starter row read On while all its emails were drafts | done | `flowStateText`: "On, nothing sends yet: every email is still a draft", or how many are still drafts, in amber when the sender skips any. A review noted the line wraps on a phone; it is left as it is, because nothing is cut off, and nothing measures the row's height at 390 |
+| The custom-flow sender wrote its whole stale copy back | done | `layFlowPass` (`server.mjs`) lays only the pass's own changes onto the record read after its sends. From the review, two more rules: a row stopped meanwhile (a deleted flow's) stays stopped, and a row the pass made and already mailed is kept over one added for the same person meanwhile (`bag.passMailed`), so a first email is not sent twice |
+| A crash mid-send lost a broadcast's record | done | `deliverClaimed` saves the record as sending before anyone is mailed, and one a stopped server left is reported `interrupted` and refused a retry. From the review, a delivery that throws: the route answers 500 instead of hanging, saves who it reached as stopped, or removes the record when it reached nobody so a retry may send (`CAMPAIGN_NOT_SENT`); one scheduled broadcast that throws no longer stops the account's whole pass |
+| Leaving the studio with an unsaved broadcast draft did not ask | done | `leaveStudioOk` (`src/lib/studioLeave.ts`) on App's two ways out of the studio, with the composer reporting its unsaved state. The one question for a flow edit and a draft at once is unit-tested only |
+| `hubFlowId` and `exportFormat` were neither mapped nor dropped | done, dropped | Nothing read them; removed from `src/data/ecomBlueprints.ts` and `src/types/journey.ts`, and an old saved journey that carries them still loads (`blueprint-legacy-fields.test.mjs`). The Wave 7 bullet above that says to map or drop them is history |
+| The studio browser check flaked about one run in five | still open | Cause unknown. 36 runs under machine load and a throttled page never went red (reported by the flake investigation). One review run went red: "open" timed out on a detached button, and the page reported `Failed to fetch dynamically imported module` for the `BlueprintModal` chunk. A concurrent rebuild is ruled out for that run: the check builds into a temp dir of its own, and the run's later contexts passed, which they do not when the file is missing (planted). Aborting that one request in the first context gives the same shape (6 of 57 steps, the same runtime error). A red run now says what the preview answered for each asset and whether the file is still in its build output. The flake investigation's hardening patch (a whole-run deadline, a bounded teardown, seconds per step) is not applied, because it fixes no shown cause; it waits for the owner |
+
+Found in this round and still open:
+
+- `POST /api/email/flows` and `POST /api/email/attribution-windows` answer 200 when the account
+  record's size cap refused the write (reported by the server builder; in files no builder held).
+- App renders the lazy `BlueprintModal` on load with no error boundary, so a chunk that does not
+  arrive unmounts the whole app, as a deploy that replaces chunk names can make happen (seen under
+  the planted missing chunk; not fixed).
+- An interrupted broadcast reads "Not sent" in All broadcasts, with its `lastError` not shown
+  (reported by the server builder, not checked).

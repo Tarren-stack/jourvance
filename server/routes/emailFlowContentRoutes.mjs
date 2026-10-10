@@ -42,7 +42,7 @@
  * order emails (subject, blocks and whether it is on), so a background tick or an order send that read
  * the record before this save and writes after it cannot put the old emails back.
  */
-import { ACCOUNT_SEQUENCE_LIMIT, WAIT_HOURS_MAX, emailHasContent, stepsFromChain } from '../../email-flow-content.mjs';
+import { ACCOUNT_SEQUENCE_LIMIT, WAIT_HOURS_MAX, emailHasContent, programWriteRefusal, stepsFromChain } from '../../email-flow-content.mjs';
 import { blocksWouldClip } from '../../email-doc.mjs';
 
 export const FLOW_CONTENT_NOT_FOUND = 'That flow is not on this account.';
@@ -137,7 +137,8 @@ export function setupEmailFlowContentRoutes(app, ctx) {
     const row = bag.transactional.find((item) => item && item.id === letter.id);
     if (typeof mail.subject === 'string' && mail.subject.trim()) row.subject = mail.subject.trim().slice(0, 200);
     row.blocks = blocks;
-    writeUserPrograms(uid, bag, { transactional: true });
+    const refused = programWriteRefusal(writeUserPrograms(uid, bag, { transactional: true }));
+    if (refused) return res.status(413).json(refused);
     const fresh = userProgramBag(uid);
     const saved = (fresh.transactional || []).find((item) => item && item.id === letter.id) || row;
     return res.json({ success: true, flow: presentOrderEmailRow(saved) });
@@ -157,7 +158,8 @@ export function setupEmailFlowContentRoutes(app, ctx) {
     const was = held.includes(id) && own[id] && typeof own[id] === 'object' ? own[id] : {};
     own[id] = { steps: Array.isArray(was.steps) ? was.steps : [], enabled: body.enabled };
     bag.sequences = own;
-    writeUserPrograms(uid, bag, { sequences: true });
+    const refused = programWriteRefusal(writeUserPrograms(uid, bag, { sequences: true }));
+    if (refused) return res.status(413).json(refused);
     return res.json({ success: true, flow: presentSequenceRow(found.sequence, userProgramBag(uid)) });
   };
 
@@ -214,11 +216,13 @@ export function setupEmailFlowContentRoutes(app, ctx) {
         else if (off) own[id] = { steps: [], enabled: false };
         else delete own[id];
         bag.sequences = own;
-        writeUserPrograms(uid, bag, { sequences: true });
+        const refused = programWriteRefusal(writeUserPrograms(uid, bag, { sequences: true }));
+        if (refused) return res.status(413).json(refused);
       } else {
         const row = bag.automations.find((item) => item && item.id === id);
         row.steps = steps;
-        writeUserPrograms(uid, bag, { steps: true });
+        const refused = programWriteRefusal(writeUserPrograms(uid, bag, { steps: true }));
+        if (refused) return res.status(413).json(refused);
       }
 
       // The answer is drawn from the record as it now reads, in the shape of a flow-map row.

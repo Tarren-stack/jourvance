@@ -3,6 +3,7 @@ import { auth, authHeaders } from '../../lib/firebase';
 import { withNote } from '../../lib/emailStats';
 import { settleRead, sendFlowWrite } from '../../lib/flowMapLoad';
 import { retryLabel } from '../../lib/studioLoad';
+import { noteBroadcastUnsaved, warnBeforeUnload } from '../../lib/studioLeave';
 import {
   audienceOptions, blocksHaveContent, bodyBlocks, campaignSendBody, confirmSendText, draftFromStored, draftHasContent, draftRequestBody,
   draftSnapshot, emptyBroadcastDraft, lintSummary, looksLikeAddress, previewKey, testSendBody,
@@ -103,13 +104,14 @@ export function useBroadcastDraft(): BroadcastDraftState {
   const unsaved = dirty && draftHasContent(draft);
   useEffect(() => {
     if (!unsaved) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
   }, [unsaved]);
+  // Open list: leaving Email Studio drops this draft too (it lives in the studio, which unmounts), so
+  // App's ways out ask first, in one question with an unsaved flow edit (studioLeave.ts leaveStudioOk).
+  // The studio's own tabs keep the draft and do not ask. Cleared when the studio closes.
+  useEffect(() => { noteBroadcastUnsaved(unsaved); }, [unsaved]);
+  useEffect(() => () => noteBroadcastUnsaved(false), []);
   return {
     draft,
     dirty,
@@ -158,8 +160,9 @@ const Pick: React.FC<{ id: string; text: string; style?: React.CSSProperties; ch
   </div>
 );
 
+// Open list: the option says when, and the button alone says Send now, so the two never share a name.
 const WHEN_LABEL: Record<BroadcastWhen, string> = {
-  now: 'Send now',
+  now: 'Right away',
   clock: 'At a clock time',
   gradual: 'Gradual',
   smart: 'At each person’s hour'

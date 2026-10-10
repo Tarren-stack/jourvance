@@ -6,22 +6,24 @@ import { FLOW_MAP_WRITE_UNREACHABLE, sendFlowWrite, settleRead } from '../../lib
 import { StudioListLine } from './StudioListLine';
 import { statText } from '../../lib/emailStats';
 import {
-  FLOWS_EMPTY, FLOWS_NOT_CONNECTED, SENDS_AN_EMAIL, draftCountText, emailCountText, flowRows, flowsListLoad, noOwnFlows, starterOffNotice, switchRequest, switchText, type FlowRow, type FlowsListLoad
+  FLOWS_EMPTY, FLOWS_FIGURES_UNCOUNTED, FLOWS_NOT_CONNECTED, SENDS_AN_EMAIL, emailCountText, figuresLeftOut, flowRows, flowStateText, flowsListLoad, groupFlowRows,
+  noOwnFlows, starterOffNotice, stateWarns, switchRequest, switchText, type FlowRow, type FlowsListLoad
 } from '../../lib/emailFlowsList';
 import type { DripSequence } from '../../types/journey';
 
 /**
- * Flows, All flows (EMAIL_STUDIO_PLAN.md Wave 4): one list of every flow, from one read of
- * GET /api/email/flow-map. The account's own flows, the built-in flows and the starter flows come
- * first, then the four order emails as their own group. Each row is one button that opens the flow
+ * Flows, All flows (EMAIL_STUDIO_PLAN.md Wave 4): every flow, from one read of GET /api/email/flow-map,
+ * in four groups, each its own list under its own heading (open list, 2026-10-09): Your flows (with New
+ * flow), Starter flows, Built-in flows, Order emails (groupFlowRows). Each row is one button that opens the flow
  * editor on that flow with its first email chosen (D3). Every row has Turn on or Turn off beside it (a
  * built-in flow's and an order email's notes on the map send the reader here); a starter flow's is for
  * this account only (Wave 2). New flow (D1's primary action) makes a flow and
  * opens it on its first email, so designing an email from scratch is one click from this list.
  *
  * The row model (what each row says) is src/lib/emailFlowsList.ts. A starter row's revenue is the
- * sequence list HubEmailSuite already reads, printed through statText, so a figure nobody measured
- * reads Unavailable.
+ * sequence list HubEmailSuite already reads. A figure shows only when the server sent a number; the list
+ * says once, under its heading, that the others are not counted (FLOWS_FIGURES_UNCOUNTED), rather than
+ * printing Unavailable on every row.
  */
 
 type ListLoad = FlowsListLoad | { state: 'loading' };
@@ -55,6 +57,8 @@ const tagStyle: React.CSSProperties = {
 };
 
 const listStyle: React.CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 };
+const groupStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
+const groupHeading: React.CSSProperties = { margin: 0, fontSize: 15, color: '#f3f4f6' };
 
 export const EmailFlowsList: React.FC<{
   /** Opens the flow editor on a flow, on the given step. */
@@ -152,6 +156,9 @@ export const EmailFlowsList: React.FC<{
     }
   };
 
+  const revenueOf = (id: string) => sequences.find((item) => item.id === id)?.attributedSales;
+  const counted = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
   const renderRow = (row: FlowRow) => {
     const seq = row.kind === 'sequence' ? sequences.find((item) => item.id === row.id) : undefined;
     const nameId = `${ids}-${row.id}-name`;
@@ -174,11 +181,12 @@ export const EmailFlowsList: React.FC<{
             {row.tag && <span id={tagId} style={tagStyle}>{row.tag}</span>}
           </span>
           <span id={metaId} style={{ fontSize: 12, color: '#d1d5db', lineHeight: 1.5 }}>
-            Starts when: {row.startsWhen} · <strong style={{ color: row.on ? '#6ee7b7' : '#d1d5db' }}>{row.on ? 'On' : 'Off'}</strong> · {emailCountText(row.emails)}
-            {/* Wave 2: a flow that reads On while the sender skips its starter drafts says so here. */}
-            {row.drafts > 0 && <> · <span data-flow-drafts={row.id} style={{ color: '#fbbf24' }}>{draftCountText(row.drafts)}</span></>}
-            {row.group === 'flows' && <> · Enrolled {statText(row.enrolled)}</>}
-            {seq && <> · Last-touch revenue {statText(seq.attributedSales, (n) => `$${n.toLocaleString()}`)}</>}
+            {/* Open list: the state says when an On flow sends nothing yet because its emails are still the
+                starter drafts the sender skips (flowStateText), in words and not by colour alone. */}
+            Starts when: {row.startsWhen} · <strong data-flow-state={row.id} style={{ color: stateWarns(row) ? '#fbbf24' : row.on ? '#6ee7b7' : '#d1d5db' }}>{flowStateText(row)}</strong> · {emailCountText(row.emails)}
+            {/* A figure only when the server counted it; FLOWS_FIGURES_UNCOUNTED says once why the others are not here. */}
+            {row.group === 'flows' && counted(row.enrolled) && <> · Enrolled {statText(row.enrolled)}</>}
+            {seq && counted(seq.attributedSales) && <> · Last-touch revenue {statText(seq.attributedSales, (n) => `$${n.toLocaleString()}`)}</>}
           </span>
         </button>
         <button
@@ -199,9 +207,14 @@ export const EmailFlowsList: React.FC<{
     );
   };
 
-  const flowList = rows.filter((row) => row.group === 'flows');
-  const orderList = rows.filter((row) => row.group === 'order');
-  const orderHeadingId = `${ids}-order-heading`;
+  const groups = groupFlowRows(rows);
+  const headingOf = (kind: string) => `${ids}-group-${kind}`;
+  // The New flow button: Your flows' own action, and the one filled button on All flows (D1).
+  const newFlow = (
+    <button type="button" aria-disabled={creating} onClick={create} style={{ ...solidBtn, minHeight: 44, opacity: creating ? 0.6 : 1 }}>
+      {creating ? 'Creating' : 'New flow'}
+    </button>
+  );
 
   return (
     <section aria-labelledby={`${ids}-heading`} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -214,10 +227,6 @@ export const EmailFlowsList: React.FC<{
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* D1: New flow is this destination's one primary action. */}
-          <button type="button" aria-disabled={creating} onClick={create} style={{ ...solidBtn, minHeight: 44, opacity: creating ? 0.6 : 1 }}>
-            {creating ? 'Creating' : 'New flow'}
-          </button>
           <button
             type="button"
             onClick={() => { read(); onRefresh?.(); }}
@@ -243,22 +252,40 @@ export const EmailFlowsList: React.FC<{
       {load.state === 'loaded' && !hubConnected && (
         <p role="status" style={{ margin: 0, fontSize: 13, color: '#fbbf24' }}>{FLOWS_NOT_CONNECTED}</p>
       )}
-      {/* D6: said only of a list that loaded; a failed read says its failure above and never this. */}
-      {load.state === 'loaded' && noOwnFlows(rows) && (
-        <p data-studio-state="empty" style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>{FLOWS_EMPTY}</p>
+      {/* Open list: once per list, never per row, why a row shows no Enrolled or revenue figure. */}
+      {load.state === 'loaded' && figuresLeftOut(rows, revenueOf) && (
+        <p data-flows-figures="" style={{ margin: 0, fontSize: 12, color: '#9ca3af', maxWidth: 720 }}>{FLOWS_FIGURES_UNCOUNTED}</p>
       )}
 
-      {flowList.length > 0 && <ul aria-label="Flows" style={listStyle}>{flowList.map(renderRow)}</ul>}
-
-      {orderList.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-          <h3 id={orderHeadingId} style={{ margin: 0, fontSize: 15, color: '#f3f4f6' }}>Order emails</h3>
-          <p style={{ margin: 0, fontSize: 13, color: '#9ca3af', maxWidth: 720 }}>
-            The emails a customer gets for an order, a fulfillment, a cancellation and a refund. Each one stays off until you turn it on. Shopify keeps sending its own copy until you turn that notification off in Shopify admin. Jourvance does not change those Shopify settings.
-          </p>
-          <ul aria-labelledby={orderHeadingId} style={listStyle}>{orderList.map(renderRow)}</ul>
-        </div>
-      )}
+      {/* Open list: four groups in a fixed order, each a list named by its heading. Your flows is drawn
+          whatever the read did, so New flow is always there; the others only when they hold a row. */}
+      {groups.map((group) => {
+        if (group.kind !== 'flow' && group.rows.length === 0) return null;
+        return (
+          <div key={group.kind} data-flow-group={group.kind} style={{ ...groupStyle, marginTop: group.kind === 'flow' ? 0 : 8 }}>
+            {group.kind === 'flow' ? (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <h3 id={headingOf(group.kind)} style={groupHeading}>{group.heading}</h3>
+                  {newFlow}
+                </div>
+                {/* D6: said only of a list that loaded; a failed read says its failure above and never this. */}
+                {load.state === 'loaded' && noOwnFlows(rows) && (
+                  <p data-studio-state="empty" style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>{FLOWS_EMPTY}</p>
+                )}
+              </>
+            ) : (
+              <h3 id={headingOf(group.kind)} style={groupHeading}>{group.heading}</h3>
+            )}
+            {group.kind === 'order' && (
+              <p style={{ margin: 0, fontSize: 13, color: '#9ca3af', maxWidth: 720 }}>
+                The emails a customer gets for an order, a fulfillment, a cancellation and a refund. Each one stays off until you turn it on. Shopify keeps sending its own copy until you turn that notification off in Shopify admin. Jourvance does not change those Shopify settings.
+              </p>
+            )}
+            {group.rows.length > 0 && <ul aria-labelledby={headingOf(group.kind)} style={listStyle}>{group.rows.map(renderRow)}</ul>}
+          </div>
+        );
+      })}
 
     </section>
   );

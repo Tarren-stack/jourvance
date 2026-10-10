@@ -22,7 +22,7 @@
  * A save that changes an existing draft is allowed at the count cap.
  */
 import crypto from 'node:crypto';
-import { emailHasContent } from '../../email-flow-content.mjs';
+import { emailHasContent, programWriteRefusal } from '../../email-flow-content.mjs';
 import { blocksWouldClip } from '../../email-doc.mjs';
 
 export const BROADCAST_DRAFT_LIMIT = 20;
@@ -166,7 +166,8 @@ export function setupBroadcastDraftRoutes(app, ctx) {
     if (draftBytes(draft) > BROADCAST_DRAFT_MAX_BYTES) return res.status(413).json({ success: false, error: DRAFT_TOO_LARGE });
     if (index < 0 && drafts.length >= BROADCAST_DRAFT_LIMIT) return res.status(400).json({ success: false, error: DRAFT_FULL });
     bag.broadcastDrafts = index < 0 ? [draft, ...drafts] : drafts.map((row, i) => (i === index ? draft : row));
-    writeUserPrograms(uid, bag, { broadcastDrafts: true });
+    const refused = programWriteRefusal(writeUserPrograms(uid, bag, { broadcastDrafts: true }));
+    if (refused) return res.status(413).json(refused);
     const stored = userProgramBag(uid).broadcastDrafts || [];
     const saved = stored.find((row) => row.id === draft.id);
     if (!saved) return res.status(500).json({ success: false, error: 'This draft was not saved. Try again in a minute.' });
@@ -179,7 +180,8 @@ export function setupBroadcastDraftRoutes(app, ctx) {
     const drafts = Array.isArray(bag.broadcastDrafts) ? bag.broadcastDrafts : [];
     if (!drafts.some((row) => row.id === req.params.id)) return notFound(res);
     bag.broadcastDrafts = drafts.filter((row) => row.id !== req.params.id);
-    writeUserPrograms(uid, bag, { broadcastDrafts: true });
+    const refused = programWriteRefusal(writeUserPrograms(uid, bag, { broadcastDrafts: true }));
+    if (refused) return res.status(413).json(refused);
     res.json({ success: true, drafts: newestFirst(userProgramBag(uid).broadcastDrafts || []), limit: BROADCAST_DRAFT_LIMIT });
   });
 }

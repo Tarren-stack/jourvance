@@ -21,6 +21,16 @@ import * as acorn from 'acorn';
 // Allowlist of free names that are legitimately not declared. Expected to stay empty.
 const ALLOWED_FREE = new Set([]);
 
+// Names a route module takes from ctx that server.mjs deliberately does not pass, each with the
+// fallback the module uses when it is absent. Only tests pass these. Any OTHER name a module takes
+// from ctx and server.mjs does not pass fails the gate, and an entry here that the gate no longer
+// meets fails too (the last test), so this list cannot hide a new miss or outlive its reason.
+const CTX_DEFAULTED = new Map([
+  ['server/routes/journeyRoutes.mjs:now', 'destructured as `now = () => Date.now()`; tests hand in a fixed clock'],
+  ['server/routes/analyticsRoutes.mjs:eventsKept', 'read as `Number(eventsKept) > 0 ? Number(eventsKept) : 20000` where the stats route uses it; tests hand in a small number']
+]);
+const defaultedSeen = new Set();
+
 const GLOBALS = new Set(`console process Buffer URL URLSearchParams fetch setTimeout clearTimeout setInterval
 clearInterval setImmediate clearImmediate JSON Math Date Promise Object Array Number String Map Set Error
 TypeError RangeError SyntaxError ReferenceError EvalError URIError AggregateError RegExp encodeURIComponent
@@ -167,7 +177,9 @@ function walkRefs(ast, onRef, onNode) {
         visit(node.value, scope);
         return;
       case 'VariableDeclaration':
-        for (const d of node.declarations) { pattern(d.id, scope); visit(d.init, scope); }
+        // Each declarator is shown to onNode too: `const { a } = ctx` is a VariableDeclarator, and
+        // without this the destructure check below never saw one (open list, 2026-10-09).
+        for (const d of node.declarations) { if (onNode) onNode(d, scope); pattern(d.id, scope); visit(d.init, scope); }
         return;
       case 'MemberExpression':
         visit(node.object, scope);
@@ -291,6 +303,7 @@ function problems() {
     }
     if (info.setups.length && !ctxLit && info.uses) out.push(`${file}: no setup call with a context literal found in server.mjs for ${info.setups.join(', ')}`);
     for (const { name, line } of info.ctxNames) {
+      if (ctxLit && !passed.has(name) && CTX_DEFAULTED.has(`${file}:${name}`)) { defaultedSeen.add(`${file}:${name}`); continue; }
       if (ctxLit && !passed.has(name)) out.push(`${file}:${line}: ${name} is destructured from ctx but server.mjs does not pass it (${contexts.get(info.setups[0])?.label})`);
     }
     void taken;
@@ -326,4 +339,29 @@ export function setupXRoutes(app, ctx) {
   const free = [];
   walkRefs(ast, (n, line, node, scope) => { if (!scope.has(n) && !GLOBALS.has(n)) free.push(n); });
   assert.deepEqual(free.sort(), ['missingOne', 'missingTwo']);
+});
+
+test('a name destructured from ctx (`const { ... } = ctx`) is collected, so one server.mjs never passes is found', () => {
+  // The walker never showed a VariableDeclarator to onNode, so this destructure was never read and a
+  // name missing from a ctx literal stayed green (planted with starterFlowOnFor out of shopifyCtx).
+  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'ctx-gate-'));
+  const file = path.join(dir, 'probe.mjs');
+  fs.writeFileSync(file, `export function setupProbeRoutes(app, ctx) {
+  const { requireUser, notPassed, withDefault = () => 1 } = ctx;
+  app.get('/p', requireUser, (req, res) => res.json({ a: notPassed(), b: withDefault() }));
+}
+`);
+  try {
+    const names = analyseModule(file).ctxNames.map((n) => n.name).sort();
+    assert.deepEqual(names, ['notPassed', 'requireUser', 'withDefault']);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('every name allowed to fall back to its own default is still one a module takes from ctx and server.mjs does not pass', () => {
+  defaultedSeen.clear();
+  assert.deepEqual(problems(), []);
+  const stale = [...CTX_DEFAULTED.keys()].filter((key) => !defaultedSeen.has(key));
+  assert.deepEqual(stale, [], `allowlisted but no longer met, so take them out of CTX_DEFAULTED: ${stale.join(', ')}`);
 });

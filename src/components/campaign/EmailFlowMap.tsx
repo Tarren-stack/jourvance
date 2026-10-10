@@ -6,9 +6,9 @@ import { chooseFlowId, LINKED_FLOW_MISSING } from '../../lib/editorReturn';
 import { moneyText, statText, withNote } from '../../lib/emailStats';
 import { BlockEditor, type MailBlock } from './EmailBlocks';
 import { FLOW_MAP_UNREACHABLE, FLOW_MAP_WRITE_UNREACHABLE, retryFlowMapArgs, sendFlowWrite, settleRead } from '../../lib/flowMapLoad';
-import { FLOWS_NOT_CONNECTED, STARTER_DRAFT_NOTE, flowsListLoad, starterOffNotice, startsWhenText } from '../../lib/emailFlowsList';
+import { FLOWS_NOT_CONNECTED, STARTER_DRAFT_NOTE, flowStepName, flowStepOrder, flowsListLoad, starterOffNotice, startsWhenText } from '../../lib/emailFlowsList';
 import { retryLabel } from '../../lib/studioLoad';
-import { FLOW_UNSAVED_LEAVE, noteFlowUnsaved } from '../../lib/studioLeave';
+import { FLOW_UNSAVED_LEAVE, noteFlowUnsaved, warnBeforeUnload } from '../../lib/studioLeave';
 import { EmailStepPreview } from './EmailStepPreview';
 
 type FlowPath = { id: string; label?: string; else?: boolean; clauses?: { kind: string; field?: string; op?: string; value?: string; event?: string; since?: string; done?: boolean; note?: string }[]; note?: string };
@@ -102,11 +102,12 @@ const FALLBACK_TRIGGERS: TriggerChoice[] = [
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-// The flow picker's groups, in the Flows list's order. A kind the map does not know is the account's own.
+// The flow picker's groups, in the Flows list's order (emailFlowsList.ts FLOW_GROUPS, open list: starter
+// flows before built-in flows). A kind the map does not know is the account's own.
 const FLOW_PICKER_GROUPS: { kind: FlowView['kind']; label: string }[] = [
   { kind: 'flow', label: 'Your flows' },
-  { kind: 'automation', label: 'Built-in flows' },
   { kind: 'sequence', label: 'Starter flows' },
+  { kind: 'automation', label: 'Built-in flows' },
   { kind: 'order', label: 'Order emails' }
 ];
 const pickerKind = (flow: FlowView): FlowView['kind'] => (FLOW_PICKER_GROUPS.some((group) => group.kind === flow.kind) ? flow.kind : 'flow');
@@ -210,6 +211,27 @@ function stepHeadingText(flow: FlowView, node: FlowNode) {
   return titleOf(node);
 }
 
+/**
+ * Open list: a step's name, on the map (its node's aria-label) and in the step list beside it: "Email 2 of
+ * 3: <subject>", "Wait 24 hours" (emailFlowsList.ts flowStepName), or the step's kind and what its box says.
+ */
+function stepNameOf(flow: FlowView, node: FlowNode, startsWhen: string) {
+  return flowStepName(node, flow.nodes, startsWhen) || `${titleOf(node)}: ${detailOf(node)}`;
+}
+
+/**
+ * A button in the step list: the chosen one carries a 4px bar where the others have a 1px edge, and a heavier
+ * weight, as well as a tint, so it is never told by colour alone. The padding takes up the 3px, so nothing moves.
+ */
+const stepButton = (chosen: boolean): React.CSSProperties => {
+  const side = '1px solid rgba(255,255,255,0.14)';
+  return {
+    width: '100%', minHeight: 44, padding: chosen ? '8px 12px' : '8px 12px 8px 15px', borderRadius: 8, textAlign: 'left', overflowWrap: 'anywhere', cursor: 'pointer',
+    borderTop: side, borderRight: side, borderBottom: side, borderLeft: chosen ? '4px solid #f472b6' : side,
+    background: chosen ? 'rgba(244,114,182,0.08)' : 'transparent', color: '#e5e7eb', fontSize: 12, fontWeight: chosen ? 700 : 500
+  };
+};
+
 /** A whole number of hours from 1 to 2160. The sender reads 0 as 24, so 0 is refused. */
 function waitHoursOk(hours: number | undefined) {
   return typeof hours === 'number' && Number.isInteger(hours) && hours >= 1 && hours <= 2160;
@@ -219,7 +241,7 @@ const WAIT_RANGE = 'Enter a whole number of hours from 1 to 2160.';
 
 type NodeSize = { width: number; height: number };
 
-function layout(flow: FlowView, selectedId = '', sizes?: Map<string, NodeSize>): { nodes: Node[]; edges: Edge[] } {
+function layout(flow: FlowView, selectedId = '', sizes?: Map<string, NodeSize>, startsWhen = ''): { nodes: Node[]; edges: Edge[] } {
   const depth = new Map<string, number>();
   const shift = new Map<string, number>();
   const trigger = flow.nodes.find((node) => node.type === 'trigger');
@@ -247,6 +269,8 @@ function layout(flow: FlowView, selectedId = '', sizes?: Map<string, NodeSize>):
       type: 'mail',
       position: { x: 280 + (shift.get(node.id) || 0), y: 16 + (depth.get(node.id) || 0) * 128 },
       data: { title: titleOf(node), detail: detailOf(node), kind: node.type, paths: node.paths },
+      // A step is named by what it is and where it sits, never by its subject alone (open list).
+      ariaLabel: stepNameOf(flow, node, startsWhen),
       draggable: false,
       selectable: true,
       selected: node.id === selectedId,
@@ -430,9 +454,12 @@ export const EmailFlowMap: React.FC<{
   };
 
   const current = draft && draft.id === currentId ? draft : flows.find((flow) => flow.id === currentId) || null;
-  const graph = useMemo(() => current ? layout(current, selected, nodeSizes.current) : { nodes: [], edges: [] }, [current, selected]);
+  const startsWhen = current ? startsWhenText(current.trigger, triggers) : '';
+  const graph = useMemo(() => current ? layout(current, selected, nodeSizes.current, startsWhen) : { nodes: [], edges: [] }, [current, selected, startsWhen]);
   const selectedNode = current?.nodes.find((node) => node.id === selected) || null;
   const triggerHelp = triggers.find((trigger) => trigger.id === current?.trigger);
+  // Open list: the flow's steps in the order a person meets them, for the keyboard list beside the map.
+  const orderedSteps = useMemo(() => current ? flowStepOrder(current.nodes, current.edges) : [], [current]);
   // The flow on screen is not the one last loaded: an edit that is not saved yet. Every load and
   // every choice puts the loaded object itself back in draft.
   const unsaved = Boolean(draft && draft.id === currentId && flows.find((flow) => flow.id === draft.id) !== draft);
@@ -440,6 +467,13 @@ export const EmailFlowMap: React.FC<{
   // (src/lib/studioLeave.ts: Email Studio's tabs and App's view switch read it). Cleared on unmount.
   useEffect(() => { noteFlowUnsaved(unsaved); }, [unsaved]);
   useEffect(() => () => noteFlowUnsaved(false), []);
+  // Open list: a reload or a closed tab drops the edit too, so the browser asks first while there is one,
+  // the way the broadcast composer already does (studioLeave.ts warnBeforeUnload).
+  useEffect(() => {
+    if (!unsaved) return;
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [unsaved]);
 
   const choose = (id: string) => {
     // Choosing another flow drops the edits on screen, so it asks first.
@@ -854,6 +888,34 @@ export const EmailFlowMap: React.FC<{
           <div data-flow-map="panel" style={{ minWidth: 0, ...(beside ? { flex: '1 1 0' } : {}) }}>
           {(current?.editable || current?.contentEditable) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+              {/* Open list: every step of the flow as a named button, in order, so a keyboard user chooses an
+                  email without walking the map's boxes. Enter or a click selects it, the same as on the map,
+                  and moves focus to the step heading below; the chosen one is marked aria-current and by a
+                  bar and a heavier weight, never by colour alone. */}
+              {orderedSteps.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <p id="flow-steps-label" style={{ ...label, margin: 0 }}>Steps in this flow</p>
+                  <ol aria-labelledby="flow-steps-label" data-flow-steps={current.id} style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {orderedSteps.map((node) => {
+                      const chosen = node.id === selected;
+                      return (
+                        <li key={node.id}>
+                          <button
+                            type="button"
+                            data-flow-step={node.id}
+                            aria-current={chosen ? 'step' : undefined}
+                            onClick={() => selectNode(node.id)}
+                            // Four longhand sides, not ghostBtn's border shorthand: the left side changes with the choice.
+                            style={stepButton(chosen)}
+                          >
+                            {stepNameOf(current, node, startsWhen)}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              )}
               {current.editable && (
               <>
               {/* Wave 4: the flow's own settings stay closed until asked for, so the step being edited

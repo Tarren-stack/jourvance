@@ -284,3 +284,49 @@ export function cleanAccountSequences(input, cleanSteps) {
   }
   return out;
 }
+
+/**
+ * THE ACCOUNT RECORD'S SIZE (open list, 2026-10-09). One account's whole email record (its flows,
+ * enrolments, profiles, saved blocks, drafts, segments, sent keys) is ONE hub document
+ * (hub-storage.mjs: `store.email_programs` is a map, put per account as `{ _jourvanceAccount, value }`),
+ * and the hub app store refuses a document over 6,400,000 bytes (hub-sdk.js, `store.docs.put`, 413).
+ * Over that, the record was still written to this server's disk and memory, so nothing looked wrong,
+ * and the hub kept its older copy: the next deploy, on an empty disk, brought that older copy back.
+ *
+ * The cap is 5,000,000 bytes of the record as JSON in UTF-8, which leaves 1,400,000 bytes under the
+ * hub's limit for the wrapper and for the writes that are never refused (below). A write that would
+ * leave the record over the cap AND larger than it was is refused with PROGRAM_RECORD_FULL, and nothing
+ * is saved; one that leaves it smaller always lands, so deleting always works, even on a record from
+ * before the cap. A write marked `always` records an email already sent, or stops mail (a suppression,
+ * a deleted flow's enrolments); it is never refused for size, because refusing it sends that email again
+ * on the next pass, or mails someone who said stop. It is logged when it lands over the cap.
+ */
+export const HUB_DOCUMENT_MAX_BYTES = 6400000;
+export const PROGRAM_RECORD_MAX_BYTES = 5000000;
+export const PROGRAM_RECORD_FULL = "This was not saved, because this account's email data is at its size limit: delete flows, saved blocks, broadcast drafts or segments you no longer use, then try again.";
+
+/** Bytes of a record as JSON in UTF-8, the way the hub counts a document. */
+export function programRecordBytes(record) {
+  const text = JSON.stringify(record === undefined ? null : record);
+  return typeof Buffer !== 'undefined' ? Buffer.byteLength(text, 'utf8') : new TextEncoder().encode(text).length;
+}
+
+/**
+ * Whether `next` may replace `previous` (the stored record, or undefined). Answers
+ * `{ ok: true, bytes, over }`, where `over` says it lands over the cap (an `always` write, or one
+ * smaller than a record that was already over), or `{ ok: false, reason: 'too_large', bytes, maxBytes,
+ * error }`.
+ */
+export function programRecordCheck(next, previous, { always = false, maxBytes = PROGRAM_RECORD_MAX_BYTES } = {}) {
+  const bytes = programRecordBytes(next);
+  if (bytes <= maxBytes) return { ok: true, bytes, over: false };
+  if (always) return { ok: true, bytes, over: true };
+  if (previous !== undefined && bytes <= programRecordBytes(previous)) return { ok: true, bytes, over: true };
+  return { ok: false, reason: 'too_large', bytes, maxBytes, error: PROGRAM_RECORD_FULL };
+}
+
+/** The body of the 413 a route answers when writeUserPrograms refused its write, or null when it landed. */
+export function programWriteRefusal(saved) {
+  if (!saved || saved.ok !== false) return null;
+  return { success: false, error: saved.error || PROGRAM_RECORD_FULL, bytes: saved.bytes, maxBytes: saved.maxBytes };
+}

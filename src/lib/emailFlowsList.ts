@@ -163,16 +163,147 @@ export function switchRequest(row: Pick<FlowRow, 'id' | 'toggleKind'>, next: boo
   return { url: `/api/email/programs/${id}`, body: { kind: row.toggleKind, enabled: next } };
 }
 
-/** D6: what the step panel says on a starter email the server reports as still the seeded draft. */
-export const STARTER_DRAFT_NOTE = 'This email is still the starter draft, so it is skipped and not sent. Edit it and save to send it.';
+// ---- Open list (2026-10-09): All flows in groups, a row's state, the figures it shows ----
 
 /**
- * Wave 2: what a row says when some of its emails are still the starter draft, so a flow that reads On
- * while the sender skips its emails says so on the list, not only inside the editor.
+ * All flows in groups, each its own list under its own heading, in this order: the account's own flows
+ * (with New flow), the starter flows, the built-in flows, then the order emails. The hub's flows (export
+ * only) are not rows: HubEmailSuite draws them as a closed group under this list. Within a group the rows
+ * keep the order the server sent them in, so every row is in exactly one group, once.
  */
-export function draftCountText(count: number): string {
-  return count === 1 ? '1 is still the starter draft, so it is not sent' : `${count} are still starter drafts, so they are not sent`;
+export const FLOW_GROUPS: readonly { kind: FlowListKind; heading: string }[] = [
+  { kind: 'flow', heading: 'Your flows' },
+  { kind: 'sequence', heading: 'Starter flows' },
+  { kind: 'automation', heading: 'Built-in flows' },
+  { kind: 'order', heading: 'Order emails' }
+];
+
+export function groupFlowRows<T extends Pick<FlowRow, 'kind'>>(rows: readonly T[]): { kind: FlowListKind; heading: string; rows: T[] }[] {
+  return FLOW_GROUPS.map((group) => ({ ...group, rows: rows.filter((row) => row.kind === group.kind) }));
 }
+
+/**
+ * A row's state in words. On alone is said only when the sender would send its emails: a starter flow
+ * that is on while every email in it is still the seeded draft sends nothing, and the row says so, and
+ * one with some drafts says how many. Off says the drafts too, so turning it on is not a surprise.
+ */
+export function flowStateText(row: Pick<FlowRow, 'on' | 'emails' | 'drafts'>): string {
+  const word = row.on ? 'On' : 'Off';
+  const drafts = Math.max(0, Math.min(row.drafts, row.emails));
+  if (!drafts) return word;
+  if (drafts === row.emails) return row.on ? 'On, nothing sends yet: every email is still a draft' : 'Off, and every email is still a draft';
+  const part = drafts === 1 ? `1 of ${row.emails} emails is still a draft` : `${drafts} of ${row.emails} emails are still drafts`;
+  return row.on ? `On, ${part} and ${drafts === 1 ? 'is' : 'are'} not sent` : `Off, ${part}`;
+}
+
+/** True when the sender skips at least one of a row's emails while the row reads On. */
+export function stateWarns(row: Pick<FlowRow, 'on' | 'drafts'>): boolean {
+  return row.on && row.drafts > 0;
+}
+
+/**
+ * Said once under All flows, never per row: a row shows Enrolled and Last-touch revenue only when the
+ * server sent a number. The flow map sends an enrolled count for an account's own flows only, and null
+ * there until someone has joined (email-map.mjs enrollmentCount); a starter flow's revenue is null until
+ * an order is traced to one of its emails (server.mjs sequenceRevenue).
+ */
+export const FLOWS_FIGURES_UNCOUNTED = "A figure shows on a row only once it is counted. Enrolled counts the people in your own flows; Last-touch revenue shows once an order is traced to a starter flow's email.";
+
+/** Whether the list leaves out a figure on any row, so FLOWS_FIGURES_UNCOUNTED is said. */
+export function figuresLeftOut(rows: readonly Pick<FlowRow, 'id' | 'kind' | 'group' | 'enrolled'>[], revenueOf: (id: string) => number | null | undefined): boolean {
+  const counted = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
+  return rows.some((row) => (row.group === 'flows' && !counted(row.enrolled)) || (row.kind === 'sequence' && !counted(revenueOf(row.id))));
+}
+
+// ---- The steps of one flow, named (the editor's step list and the map's steps) ----
+
+/** The fields of a flow step its name is made from (email-flows.mjs node shape). */
+export interface FlowStepInput {
+  id: string;
+  type: string;
+  subject?: string;
+  message?: string;
+  status?: string;
+  klaviyoFlowId?: string;
+  starterDraft?: boolean;
+  delayHours?: number;
+  delayMinutes?: number | null;
+  mode?: string;
+  clockHour?: number;
+  clockMinute?: number;
+  weekdays?: number[];
+}
+
+const WEEKDAY_WORDS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+const clip = (text: unknown, max = 80): string => {
+  const words = String(text ?? '').replace(/\s+/g, ' ').trim();
+  return words.length > max ? `${words.slice(0, max - 1).trimEnd()}…` : words;
+};
+
+/** How long a Wait step waits, in words: "24 hours", "1 hour", "90 minutes", or "until 09:00 on Monday". */
+export function waitWords(node: Pick<FlowStepInput, 'mode' | 'delayHours' | 'delayMinutes' | 'clockHour' | 'clockMinute' | 'weekdays'>): string {
+  if (node.mode === 'clock') {
+    const time = `${String(node.clockHour || 0).padStart(2, '0')}:${String(node.clockMinute || 0).padStart(2, '0')}`;
+    const days = (Array.isArray(node.weekdays) ? node.weekdays : []).map((day) => WEEKDAY_WORDS[day]).filter(Boolean).join(', ');
+    return `until ${time}${days ? ` on ${days}` : ''}`;
+  }
+  const minutes = typeof node.delayMinutes === 'number' && Number.isFinite(node.delayMinutes) ? node.delayMinutes : (Number(node.delayHours) || 0) * 60;
+  if (minutes % 60 === 0) return minutes === 60 ? '1 hour' : `${minutes / 60} hours`;
+  return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+}
+
+/**
+ * One step's name, the same on the map and in the step list: "Email 2 of 3: <subject>" (with what the
+ * map box also says: its status, Klaviyo, starter draft), "Wait 24 hours", "Text 1 of 2: <message>",
+ * "Starts when: <start>". Counted the way the step panel's heading counts ("Email 2 of 3"), so the
+ * button and the heading it moves focus to agree. Any other kind answers '' and the editor names it.
+ */
+export function flowStepName(node: FlowStepInput, nodes: readonly FlowStepInput[], startsWhen = ''): string {
+  const list = Array.isArray(nodes) ? nodes.filter(Boolean) : [];
+  const nth = (type: string): [number, number] => {
+    const same = list.filter((item) => item.type === type);
+    return [same.findIndex((item) => item.id === node.id) + 1, same.length];
+  };
+  if (node.type === 'trigger') return startsWhen ? `Starts when: ${startsWhen}` : 'Start';
+  if (node.type === 'email') {
+    const [at, of] = nth('email');
+    const marks = [node.status && node.status !== 'live' ? node.status : '', node.klaviyoFlowId ? 'Klaviyo' : '', node.starterDraft === true ? 'starter draft' : ''].filter(Boolean);
+    return `Email ${at} of ${of}: ${clip(node.subject) || 'No subject yet'}${marks.length ? `, ${marks.join(', ')}` : ''}`;
+  }
+  if (node.type === 'delay') return `Wait ${waitWords(node)}`;
+  if (node.type === 'sms') {
+    const [at, of] = nth('sms');
+    return `Text ${at} of ${of}: ${clip(node.message) || 'No message yet'}`;
+  }
+  return '';
+}
+
+/**
+ * The steps in the order a person meets them: from the start along each step's edges, each branch in
+ * the order its edges are listed, then any step nothing leads to, in the order the flow lists them.
+ * Each step once.
+ */
+export function flowStepOrder<T extends { id: string; type: string }>(nodes: readonly T[], edges: readonly { source: string; target: string }[]): T[] {
+  const list = (Array.isArray(nodes) ? nodes : []).filter((node) => node && typeof node.id === 'string');
+  const byId = new Map(list.map((node) => [node.id, node]));
+  const out: T[] = [];
+  const seen = new Set<string>();
+  const start = list.find((node) => node.type === 'trigger');
+  const queue = start ? [start.id] : [];
+  while (queue.length) {
+    const id = queue.shift() as string;
+    if (seen.has(id) || !byId.has(id)) continue;
+    seen.add(id);
+    out.push(byId.get(id) as T);
+    for (const edge of Array.isArray(edges) ? edges : []) if (edge && edge.source === id) queue.push(edge.target);
+  }
+  for (const node of list) if (!seen.has(node.id)) { seen.add(node.id); out.push(node); }
+  return out;
+}
+
+/** D6: what the step panel says on a starter email the server reports as still the seeded draft. */
+export const STARTER_DRAFT_NOTE = 'This email is still the starter draft, so it is skipped and not sent. Edit it and save to send it.';
 
 /**
  * Wave 2: what Turn off says for a starter flow. Nobody new joins it (every enrollment point asks), and

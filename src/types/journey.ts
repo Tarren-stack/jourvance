@@ -236,8 +236,6 @@ export interface SequenceNodeData extends Record<string, unknown> {
   label: string;
   sequenceTitle: string;
   steps: SequenceStep[];
-  hubFlowId?: string;
-  exportFormat?: 'hub' | 'klaviyo' | 'shopify-email';
   klaviyoFlowId?: string;
   klaviyoFlowName?: string;
   klaviyoWhen?: 'lead_capture' | 'exit_intent' | 'checkout_abandonment' | 'order_paid';

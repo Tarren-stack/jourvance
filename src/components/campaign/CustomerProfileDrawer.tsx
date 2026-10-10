@@ -133,6 +133,9 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
   const [availableSequences, setAvailableSequences] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedEnrollSeqId, setSelectedEnrollSeqId] = useState('');
   const [enrolling, setEnrolling] = useState(false);
+  // Open list: what the last Enroll attempt said when it did not add them (a 409 while the flow is off,
+  // any other refusal, or no answer). Cleared when the next attempt starts.
+  const [enrollSaid, setEnrollSaid] = useState('');
 
   useEffect(() => {
     if (!customerEmail) return;
@@ -277,6 +280,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
   const handleManualEnroll = async () => {
     if (!contact || !selectedEnrollSeqId || enrolling) return;
     setEnrolling(true);
+    setEnrollSaid('');
 
     try {
       const headers = await authHeaders();
@@ -291,7 +295,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
         })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success && data.enrollment) {
         const seq = availableSequences.find(s => s.id === selectedEnrollSeqId);
         const newEnrollment: CustomerEnrollment = {
@@ -299,8 +303,15 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
           sequenceName: seq?.name || selectedEnrollSeqId,
           totalSteps: 3
         };
-        setEnrollments(prev => [newEnrollment, ...prev]);
+        // Someone already in the flow comes back as their own row: listed once, and the server says so.
+        setEnrollments(prev => [newEnrollment, ...prev.filter(enr => enr.id !== newEnrollment.id)]);
+        if (typeof data.message === 'string') setEnrollSaid(data.message);
+      } else {
+        // The server's own sentence (a flow turned off answers 409 and names where to turn it on).
+        setEnrollSaid(typeof data.error === 'string' && data.error ? data.error : 'They were not added to that flow.');
       }
+    } catch {
+      setEnrollSaid('The server did not answer, so they may not have been added.');
     } finally {
       setEnrolling(false);
     }
@@ -847,6 +858,7 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
                   {/* Manual Enroll Picker */}
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '12px', backgroundColor: '#1e293b', borderRadius: '10px' }}>
                     <select
+                      aria-label="Flow to add them to"
                       value={selectedEnrollSeqId}
                       onChange={(e) => setSelectedEnrollSeqId(e.target.value)}
                       style={{
@@ -886,6 +898,8 @@ export const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
                       <span>{enrolling ? 'Enrolling…' : 'Enroll in Flow'}</span>
                     </button>
                   </div>
+                  {/* Open list: always mounted beside the control, so the sentence is announced when it appears. */}
+                  <p role="status" data-enroll-said="" style={{ margin: 0, fontSize: '12px', color: '#fbbf24', lineHeight: 1.45 }}>{enrollSaid}</p>
 
                   {/* Enrollments List */}
                   {enrollments.length === 0 ? (

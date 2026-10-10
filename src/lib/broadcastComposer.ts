@@ -228,38 +228,44 @@ function whenText(sendAt: string): string {
 }
 
 /**
- * The question Send or Schedule asks first. It names the audience and the count the server reported
- * for it, and when the server reported none it says so; it never fills in a number nobody measured.
- * A segment's count is the people in it who accept marketing (GET /api/email/segments); a list's is
- * every contact on it (GET /api/email/lists), and campaign/send skips anyone who cannot receive it.
+ * The question Send or Schedule asks first. It says who gets the email, with the count the server reported
+ * for them, then what changes that, then asks: "3 people in VIP Whales (Platinum) will get "Spring
+ * restock" (the count the server reported of those who accept marketing). Send it now?". When the server
+ * reported no count it says so and never fills in a number nobody measured. A segment's count is the people
+ * in it who accept marketing (GET /api/email/segments); a list's is every contact on it (GET
+ * /api/email/lists), and campaign/send skips anyone who cannot receive it, so a list, a Leave out and a
+ * holdout each make the count an upper bound ("Up to").
  */
 export function confirmSendText(draft: BroadcastDraft, options: AudienceOption[]): string {
   const s = draft.settings;
-  const subject = draft.subject.trim() || 'this broadcast';
+  const what = draft.subject.trim() ? `"${draft.subject.trim()}"` : 'this broadcast';
   const target = options.find((row) => row.id === s.include);
   const name = target?.name || s.include;
-  const lead = s.sendWhen === 'now'
-    ? `Send "${subject}" now to ${name}?`
+  const ask = s.sendWhen === 'now'
+    ? 'Send it now?'
     : s.sendWhen === 'smart'
-      ? `Schedule "${subject}" for ${name}, at each person's hour?`
+      ? "Schedule it for each person's hour?"
       : s.sendWhen === 'gradual'
-        ? `Schedule "${subject}" for ${name}, in batches from ${whenText(s.sendAt)} in the account timezone (UTC when none is saved)?`
-        : `Schedule "${subject}" for ${name} on ${whenText(s.sendAt)} in the account timezone (UTC when none is saved)?`;
+        ? `Schedule it in batches from ${whenText(s.sendAt)} in the account timezone (UTC when none is saved)?`
+        : `Schedule it for ${whenText(s.sendAt)} in the account timezone (UTC when none is saved)?`;
   let count: string;
   if (target && target.count !== null) {
+    const upTo = target.kind === 'list' || Boolean(s.exclude) || s.holdoutOn ? 'Up to ' : '';
+    const people = plural(target.count, 'person', 'people');
     count = target.kind === 'list'
-      ? `The server counted ${plural(target.count, 'contact', 'contacts')} on this list. Anyone who cannot receive marketing is skipped.`
-      : `The server counted ${plural(target.count, 'contact', 'contacts')} in this segment who accept marketing.`;
+      ? `${upTo}${people} on ${name} will get ${what} (the count the server reported of contacts on this list). Anyone who cannot receive marketing is skipped.`
+      : `${upTo}${people} in ${name} will get ${what} (the count the server reported of those who accept marketing).`;
   } else {
-    count = `The server has not reported how many people are in ${name}, so the number who get it is not known here.`;
+    count = `The server has not reported how many people are in ${name}, so the number who get ${what} is not known here.`;
   }
-  const parts = [lead, count];
+  const parts = [count];
   if (s.exclude) {
     const left = options.find((row) => row.id === s.exclude)?.name || s.exclude;
     parts.push(`Anyone in ${left} is left out, so it may reach fewer.`);
   }
   if (s.holdoutOn) parts.push(`${s.holdoutPercent}% are held out and get nothing.`);
   if (s.smsMessage.trim()) parts.push('The text message goes out with it.');
+  parts.push(ask);
   return parts.join(' ');
 }
 
