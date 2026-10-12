@@ -1,5 +1,6 @@
 import { authHeaders } from './firebase';
 import type { ServerAnswer } from './saveOutcome';
+import type { AssistantScreen } from './assistant';
 
 /** The question can take a while: the hub's brain is asked and retrieval runs first. */
 export const ASSISTANT_ASK_TIMEOUT_MS = 60_000;
@@ -29,8 +30,11 @@ async function call(method: string, path: string, body: unknown, timeoutMs: numb
   }
 }
 
-export const fetchThread = (signal?: AbortSignal) => call('GET', '/api/ai/assistant/thread', undefined, OTHER_TIMEOUT_MS, signal);
-export const ask = (message: string, signal?: AbortSignal) => call('POST', '/api/ai/assistant/ask', { message }, ASSISTANT_ASK_TIMEOUT_MS, signal);
+// GET has no body, so the screen rides in the query as one JSON value.
+export const fetchThread = (screen?: AssistantScreen, signal?: AbortSignal) =>
+  call('GET', '/api/ai/assistant/thread' + (screen ? `?screen=${encodeURIComponent(JSON.stringify(screen))}` : ''), undefined, OTHER_TIMEOUT_MS, signal);
+export const ask = (message: string, screen?: AssistantScreen, signal?: AbortSignal) =>
+  call('POST', '/api/ai/assistant/ask', { message, ...(screen ? { screen } : {}) }, ASSISTANT_ASK_TIMEOUT_MS, signal);
 export const saveNotes = (notes: string) => call('POST', '/api/ai/assistant/notes', { notes }, OTHER_TIMEOUT_MS);
 export const sendFeedback = (answerId: string, rating: 'up' | 'down') =>
   call('POST', '/api/ai/assistant/feedback', { answerId, rating }, OTHER_TIMEOUT_MS);

@@ -4,6 +4,68 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-09. DEPLOYED: jourvance.com serves 7678443 (the Email Studio rebuild, Waves 1 to 8, and the open list closed) per the Render API; the Sentinel, policy and lead probes answer as before. Read the newest section first.
 
+## 2026-10-12: Ask Jourvance wave 2, training off real user data and full AI grounding
+
+**Limits first.** Not deployed; not pushed. The hub side (learn quality, the replaceable studio
+file, chat history, the write-side shadow refusal, the `crm-action` gate) is VERIFIED in the hub
+repo and still UNCOMMITTED there (the hub's rule is to commit only when the owner asks), so on the
+live hub today: every per-user training send is refused and recorded as "The AI service did not
+take the file.", the assistant's account reads fall back to app grounding, and a Helpful rating
+reaches the old learn route (no dedupe, no cap). The hub's own full `npm run smoke` stops at a
+PRE-EXISTING red in `smoke:email` (43 account-scope checks), proven unrelated by running the same
+harness on a clean worktree of HEAD (same 43 failures); the harnesses after it were run one by one
+where this wave could touch them (`smoke:api` 182, `smoke:ui` 10, the unit aggregate 1,456). No
+live Vertex call was made anywhere; the live evaluation script was exercised only against loopback
+mocks and spent no credits. Residuals recorded: nine attacker accounts with twenty visits each can
+narrow one account's rate band to about ten points in the shared patterns file (the bands and the
+ten-account minimum are the bound, not a proof); the once-a-day training guard is held on the
+user's record and one process; the hub's per-corpus replace lock is one process wide; the stats
+route's own order predicate (page ownership alone) is unchanged and named in a comment.
+
+**What shipped (spoke).** One AI call helper (`server/aiCall.mjs`) so copy, journey drafts, page
+rewrites and the assistant all ground on the user's sub-brain with one refusal mapping, one
+timeout rule and one CONTEXT rule (an account's own `business-profile.md` and `what-worked.md`
+may be used as facts; every other passage is background on writing only). Per-user training:
+`compileWhatWorked` renders a facts-only document from 90 days of the user's own funnel events,
+orders, contacts and email stats (one pass, 200 journeys at most, under 16,000 characters, non-finite
+figures skipped, identifiers scrubbed) and sends it to the user's hub corpus through the replace
+route once a day when its sha changed, lazily after `GET thread` and from the operator route
+`POST /api/ai/assistant/admin/train` (hashed uids only, a per-run cap, a dry run that writes
+nothing). App-level patterns: ten-point bands over buckets of at least ten accounts with twenty
+visits each, no totals, no identifiers, one send a month claimed first with `onlyIfNewer`. Screen
+context on `ask` and `thread` (validated, foreign journey ids dropped, the open journey listed
+first), per-screen suggestions, and "Ask about this" buttons on the leak finder and the attribution
+toolbar. An evaluation harness: 30 golden questions pinned in CI against the real context pack and
+guide, and `npm run eval:assistant` for the operator, which scores live answers for invented
+numbers, em dashes, length and a named screen and refuses to run without the key and `--spend`.
+Also fixed, pre-existing: a crafted bearer token (`bnVsbA.bnVsbA.x`) hung `verifyIdToken` and every
+guarded route; it answers 401 and 404 now.
+
+**What shipped (hub, uncommitted).** `POST /api/brain/learn` requires a rating, scrubs the shared
+pattern (NFKC, digits in any script, emails, links, phones, control characters; niche, model and
+params too), dedupes for 30 days with the claim taken atomically with the day's slot and released
+on a failed ingest, caps each app at `BRAIN_LEARN_PER_DAY` (200) with 429 and Retry-After, and bills
+a duplicate nothing. `POST /api/brain/studio/replace` (ingest first, then delete the listed old
+copies, 503 on an unreadable listing, one replace at a time per corpus, 2 credits under the existing
+`brain.ingest` entry). Every studio write route now refuses a shadowed partition with the read
+side's sentence. `compile-subagent-knowledge` on `/api/ai/crm-action` is admin-only for `main` and
+app-only for a key. `/api/brain/chat` takes `messages` and `maxTokens`, byte-identical without
+them. SDK dist gains `brain.studio.*`, re-vendored into this spoke byte for byte. A stale reseal
+expectation that stopped the hub's unit aggregate before any boot harness is fixed.
+
+**How it was built.** Four builders in parallel (hub, spoke server, spoke client, evaluation), then
+an adversary on each repo, then a fix round each. Adversary findings fixed: concurrent identical
+learns slipping past the dedupe into main; Unicode digits and `params` newlines reaching main; the
+replace route overwriting another app's partition from the write side; a failed ingest after the
+delete leaving zero copies; four fake accounts pinning the exact median in the patterns file; a
+2.5-second synchronous compile per user; `undeleted` read as landed; caps evaluated on a failed
+record read; the monthly guard sending twice; foreign orders on a reused slug; the crafted token
+hang. Every new test was seen red by a planted fault by its builder (DELEGATED, not re-run by me).
+
+**Verification by the main session on the final trees (VERIFIED).**
+- Spoke: `npx tsc --noEmit` exit 0; `npm test` exit 0, 2,925 tests, 2,922 passed, 0 failed, 3 skipped (the live-server checks); `npm run build` exit 0; `npm run check:assistant` exit 0, 365 assertions, 0 findings; `node --test assistant-eval.test.mjs` 32 passed; `npm run eval:assistant` refuses without a key (exit 2) and prints the 90-credit cost first; a sandboxed boot (no `.env`, no data, hub off): `GET thread` with a foreign journey id in `screen` answers 200 with the id dropped, `POST ask` 503 `ai-unavailable`, `admin/train` 404 for a user token and for no token, 200 with zero counts for the operator dry run, the crafted token 401 and 404; the port closed after the kill and no `assistant-threads.json` reached the working tree.
+- Hub: `npm run lint` exit 0; `npm run test:unit` exit 0, 1,456 tests, 0 failed; `test:brain-studio` 80, `test:price-card` 17, `test:doc-inventory` 9, `test:hub-collections` 8, `test:reseal` 39; `npm run smoke:api` all 182 checks; `smoke:ui` all 10; the spoke's `hub-sdk.js` byte-identical to the dist (`cmp`).
+
 ## 2026-10-11: Ask Jourvance, the assistant bubble, one sub-brain per user, and the flywheel
 
 **Limits first.** Not deployed; deployment was not checked. The hub side of this feature (a

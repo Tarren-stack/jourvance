@@ -14,6 +14,8 @@ import {
   type FunnelTimeframe
 } from '../../lib/leakFinder';
 import { rangeLabel, shortDate } from '../../lib/journeyMetrics';
+import { askAssistant } from '../../lib/assistant';
+import { useAskReady } from '../assistant/useAskReady';
 
 interface Props {
   journeyId: string;
@@ -35,6 +37,7 @@ const lineStyle: React.CSSProperties = { fontSize: '13px', color: '#CBD5E1', mar
 export const JourneyLeakFinder: React.FC<Props> = ({ journeyId, nodes, edges, timeframe, onSelectStep }) => {
   const [answer, setAnswer] = useState<FunnelAnswer | null>(null);
   const [retry, setRetry] = useState(0);
+  const askReady = useAskReady();
 
   // Moving a card replaces the nodes array, so the request keys on the journey's shape, not on
   // the arrays themselves.
@@ -216,6 +219,28 @@ export const JourneyLeakFinder: React.FC<Props> = ({ journeyId, nodes, edges, ti
                 {summary.buttonLabel}
               </button>
             )}
+            {summary.nodeId && askReady && (() => {
+              const leak = funnel?.rows.find(r => r.nodeId === summary.nodeId);
+              if (!leak) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => askAssistant(`Why does ${leak.label} lose people in this journey?`, { view: 'attribution', journeyId, step: { kind: String(leak.kind ?? ''), name: leak.label } })}
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#E0E7FF',
+                    backgroundColor: 'rgba(99, 102, 241, 0.18)',
+                    border: '1px solid rgba(129, 140, 248, 0.45)',
+                    borderRadius: '8px',
+                    padding: '7px 12px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Ask why this step loses people
+                </button>
+              );
+            })()}
           </section>
         )}
       </>

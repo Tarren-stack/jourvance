@@ -36,9 +36,18 @@ export const PANEL_COPY = {
   'panel.title': 'Ask Jourvance',
   'panel.intro': 'Ask about your numbers, your emails, or how to do something in Jourvance.',
   'thread.empty': 'No questions yet. Ask one below.',
-  'suggest.numbers': 'How many leads did my journeys get in the last 30 days?',
-  'suggest.email': 'How many emails have I sent, opened and clicked?',
-  'suggest.howto': 'How do I publish a funnel?',
+  'suggest.canvas.1': 'How many visits and leads did this journey get in the last 30 days?',
+  'suggest.canvas.2': 'What should I work on next to get more leads from this journey?',
+  'suggest.canvas.3': 'How do I publish this journey?',
+  'suggest.email.1': 'How many emails have I sent, and what are my open and click rates?',
+  'suggest.email.2': 'What should I send next to the people on my list?',
+  'suggest.email.3': 'How do I build an email flow?',
+  'suggest.attribution.1': 'Which journey brought in the most revenue in the last 30 days?',
+  'suggest.attribution.2': 'Which journey should I put more effort into?',
+  'suggest.attribution.3': 'What is the difference between last touch and first touch?',
+  'suggest.public.1': 'How many leads did my journeys get in the last 30 days?',
+  'suggest.public.2': 'What should I set up first to get my first lead?',
+  'suggest.public.3': 'How do I publish a funnel?',
   'input.label': 'Your question',
   'input.placeholder': 'Type your question',
   'input.tooLong': 'Questions can be up to 1,000 characters.',
@@ -86,6 +95,75 @@ export const PANEL_EXTRA = {
   'notes.failed': 'Your notes did not save. Your text is still in the box. Try again.',
   'clear.failed': 'The conversation was not cleared. Try again.'
 } as const;
+
+/** The screen the person is on, sent with every ask and thread call (server: `screen`, strings capped at 120). */
+export type ScreenView = 'canvas' | 'email-studio' | 'attribution' | 'public';
+export interface AssistantScreen {
+  view: ScreenView;
+  journeyId?: string;
+  journeyName?: string;
+  step?: { kind: string; name: string };
+}
+export const SCREEN_TEXT_MAX = 120;
+const SCREEN_VIEWS: readonly ScreenView[] = ['canvas', 'email-studio', 'attribution', 'public'];
+
+const cutScreenText = (v: unknown): string => {
+  if (typeof v !== 'string') return '';
+  const cut = v.trim().slice(0, SCREEN_TEXT_MAX);
+  // Never leave half of a surrogate pair at the end.
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+};
+
+/**
+ * The screen object for a call. An unknown view is `public`; strings are cut at 120; an empty id or
+ * name is left out; a step with neither a kind nor a name is dropped. The public pages belong to no
+ * journey, so they carry none.
+ */
+export function screenFor(input: { view?: unknown; journeyId?: unknown; journeyName?: unknown; step?: unknown } | null | undefined): AssistantScreen {
+  const raw = input && typeof input === 'object' ? input : {};
+  const view = SCREEN_VIEWS.includes(raw.view as ScreenView) ? (raw.view as ScreenView) : 'public';
+  const screen: AssistantScreen = { view };
+  if (view === 'public') return screen;
+  const journeyId = cutScreenText(raw.journeyId);
+  const journeyName = cutScreenText(raw.journeyName);
+  if (journeyId) screen.journeyId = journeyId;
+  if (journeyName) screen.journeyName = journeyName;
+  const step = raw.step && typeof raw.step === 'object' ? (raw.step as Record<string, unknown>) : null;
+  if (step) {
+    const kind = cutScreenText(step.kind);
+    const name = cutScreenText(step.name);
+    if (kind || name) screen.step = { kind, name };
+  }
+  return screen;
+}
+
+const SUGGESTION_SETS = {
+  canvas: ['suggest.canvas.1', 'suggest.canvas.2', 'suggest.canvas.3'],
+  'email-studio': ['suggest.email.1', 'suggest.email.2', 'suggest.email.3'],
+  attribution: ['suggest.attribution.1', 'suggest.attribution.2', 'suggest.attribution.3'],
+  public: ['suggest.public.1', 'suggest.public.2', 'suggest.public.3']
+} as const;
+
+/** The three suggested-question keys for a view; anything unknown reads as the public set. */
+export function suggestionKeys(view: unknown): readonly (keyof typeof PANEL_COPY)[] {
+  return SUGGESTION_SETS[SCREEN_VIEWS.includes(view as ScreenView) ? (view as ScreenView) : 'public'];
+}
+
+/** "Ask about this": a window event a screen sends and Ask Jourvance listens for. */
+export const ASK_EVENT = 'jv-ask';
+/** Set on <html> while the assistant is mounted; a sender renders its button only while it is there. */
+export const ASK_READY_ATTR = 'data-jv-ask-ready';
+export interface AskEventDetail { question: string; screen?: Partial<AssistantScreen> }
+
+export function askAssistantReady(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.hasAttribute(ASK_READY_ATTR);
+}
+
+/** Opens the panel with the question in the box. Sends nothing to the server by itself. */
+export function askAssistant(question: string, screen?: Partial<AssistantScreen>): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<AskEventDetail>(ASK_EVENT, { detail: { question, ...(screen ? { screen } : {}) } }));
+}
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 

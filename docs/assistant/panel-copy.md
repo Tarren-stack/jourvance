@@ -9,9 +9,18 @@ Final strings. Copy them verbatim. `{wait}` and `{reason}` are filled in at run 
 | panel.title | Ask Jourvance |
 | panel.intro | Ask about your numbers, your emails, or how to do something in Jourvance. |
 | thread.empty | No questions yet. Ask one below. |
-| suggest.numbers | How many leads did my journeys get in the last 30 days? |
-| suggest.email | How many emails have I sent, opened and clicked? |
-| suggest.howto | How do I publish a funnel? |
+| suggest.canvas.1 | How many visits and leads did this journey get in the last 30 days? |
+| suggest.canvas.2 | What should I work on next to get more leads from this journey? |
+| suggest.canvas.3 | How do I publish this journey? |
+| suggest.email.1 | How many emails have I sent, and what are my open and click rates? |
+| suggest.email.2 | What should I send next to the people on my list? |
+| suggest.email.3 | How do I build an email flow? |
+| suggest.attribution.1 | Which journey brought in the most revenue in the last 30 days? |
+| suggest.attribution.2 | Which journey should I put more effort into? |
+| suggest.attribution.3 | What is the difference between last touch and first touch? |
+| suggest.public.1 | How many leads did my journeys get in the last 30 days? |
+| suggest.public.2 | What should I set up first to get my first lead? |
+| suggest.public.3 | How do I publish a funnel? |
 | input.label | Your question |
 | input.placeholder | Type your question |
 | input.tooLong | Questions can be up to 1,000 characters. |
@@ -49,5 +58,6 @@ Final strings. Copy them verbatim. `{wait}` and `{reason}` are filled in at run 
 - `limit.template`: `{wait}` is the server's own wait text: `1 minute`, `12 minutes` or `1 hour`, the same words `limitMessage` builds. The apostrophe in the template is a curly one, as in the house sentence.
 - `notes.saved` shows only when the server says the AI service took the notes. Otherwise show `notes.savedLocalOnly` with the server's reason in `{reason}`. If there is no reason, drop the `{reason}` slot and its space.
 - `unavailable.line` is for the reason `ai-unavailable`. It has no Retry button, because retrying cannot help.
+- `suggest.<view>.1..3` are the three questions the panel offers for the screen the person is on: `canvas`, `email-studio` (key `email`), `attribution` and `public` (home, about, blog, contact). Each asks only what the assistant can answer from the facts it is given: journeys, visits, leads, orders and revenue per journey for the last 30 days, email totals and rates, and the contact count. None promises a per-email or per-page figure.
 - Reading level: written to Grade 6 to 8. Every line is one to three short sentences.
 - Screen reader: `busy.line` and the answer go in the polite log. `feedback.group` is the accessible name of the Helpful and Not helpful pair.

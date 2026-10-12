@@ -8,6 +8,8 @@ import type { Workspace, JourneyNode, JourneyEdge, AttributionReport, Attributio
 import { authHeaders } from '../../lib/firebase';
 import { extractPricingFromNodes, DEFAULT_FORECAST, calculateFunnelForecast, sellsThroughCheckout } from '../../lib/funnelForecaster';
 import { JourneyLeakFinder } from './JourneyLeakFinder';
+import { askAssistant } from '../../lib/assistant';
+import { useAskReady } from '../assistant/useAskReady';
 
 /** A finite number from the report, or null when it was not measured. */
 function measuredNumber(v: unknown): number | null {
@@ -37,6 +39,7 @@ export const AttributionReports: React.FC<Props> = ({
 }) => {
   const [model, setModel] = useState<AttributionModelType>('last_touch');
   const [timeframe, setTimeframe] = useState<'7d' | '30d' | 'all'>('30d');
+  const askReady = useAskReady();
   const [report, setReport] = useState<AttributionReport | null>(null);
   const [loading, setLoading] = useState(true);
   // True when the last request for this model and range failed. The cards then
@@ -379,6 +382,32 @@ export const AttributionReports: React.FC<Props> = ({
             <Download size={13} />
             <span>{downloadingCsv ? 'Exporting...' : 'Export CSV'}</span>
           </button>
+
+          {/* Ask Jourvance about the range on screen */}
+          {askReady && (
+            <button
+              type="button"
+              onClick={() => askAssistant(
+                `What do my attribution numbers for ${timeframe === '7d' ? 'the last 7 days' : timeframe === '30d' ? 'the last 30 days' : 'all time'} say?`,
+                { view: 'attribution', journeyId }
+              )}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '7px 14px',
+                borderRadius: '8px',
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                color: '#CBD5E1',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Ask about these numbers
+            </button>
+          )}
 
           {/* Simulator Shortcut */}
           {onOpenShopifySync && (

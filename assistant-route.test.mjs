@@ -11,10 +11,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
-import { setupAiAssistantRoutes, threadDocName, ACCOUNT_REFUSAL, ACCOUNT_REFUSAL_MS, PROFILE_PATH, THREAD_FILE, THREAD_CACHE_USERS, REASONS, bounded, threadLocks } from './server/routes/aiAssistantRoutes.mjs';
+import { setupAiAssistantRoutes, threadDocName, ACCOUNT_REFUSAL, ACCOUNT_REFUSAL_MS, PROFILE_PATH, REPLACE_PATH, PATTERNS_DOC, THREAD_FILE, THREAD_CACHE_USERS, REASONS, bounded, threadLocks } from './server/routes/aiAssistantRoutes.mjs';
 import * as auth from './server/routes/authWorkspaceRoutes.mjs';
 import { LIMITS } from './server/assistantContext.mjs';
 import { limitMessage } from './server/routes/aiJourneyRoutes.mjs';
+// The account-scope memory is one per process now (server/aiCall.mjs); each mounted app starts fresh,
+// as it did when the memory lived in the route module.
+import { resetAccountRefusalForTest } from './server/aiCall.mjs';
 
 const EM = '\u2014';
 const START = Date.UTC(2026, 9, 11, 12, 0, 0);
@@ -93,6 +96,7 @@ async function serve({
   profilePost = { success: true },
   seed = {},
   docsGet,
+  docsPut,
   workspaces = () => [WORKSPACE],
   journeys = () => ({ journeys: [JOURNEY], complete: true }),
   events = () => [],
@@ -104,18 +108,30 @@ async function serve({
   timeouts,
   cacheSeed,
   extraDeps = {},
+  replacePost = { success: true, file: { id: 'f1' }, replaced: 1 },
+  ingest = { success: true, file: { id: 'p1' } },
   hub: hubOverride
 } = {}) {
+  resetAccountRefusalForTest();
   const clock = { t: START };
-  const calls = { brain: [], learn: [], profile: [], get: [], put: [] };
+  // `profile` holds the profile posts only; the training send (a different hub path) has its own list.
+  const calls = { brain: [], learn: [], profile: [], replace: [], ingest: [], get: [], put: [] };
   const store = new Map(Object.entries(seed));
+  const stamps = new Map();
   const answer = (v, ...args) => (typeof v === 'function' ? v(...args) : v);
   const hub = hubOverride !== undefined ? hubOverride : {
     brain: {
       chat: async (prompt, opts) => { calls.brain.push({ prompt, opts }); return answer(brain, prompt, opts, calls); },
-      learn: async (body) => { calls.learn.push(body); return answer(learn, body); }
+      learn: async (body) => { calls.learn.push(body); return answer(learn, body); },
+      ingest: async (body) => { calls.ingest.push(body); return answer(ingest, body); }
     },
-    api: { post: async (p, body) => { calls.profile.push({ path: p, body }); return answer(profilePost, body); } },
+    api: {
+      post: async (p, body) => {
+        if (p === PROFILE_PATH) { calls.profile.push({ path: p, body }); return answer(profilePost, body); }
+        calls.replace.push({ path: p, body });
+        return answer(replacePost, body);
+      }
+    },
     store: {
       docs: {
         get: async (name) => {
@@ -123,7 +139,18 @@ async function serve({
           if (docsGet) return docsGet(name, store);
           return store.has(name) ? { name, document: structuredClone(store.get(name)) } : { error: 'No such document.', status: 404 };
         },
-        put: async (name, document) => { calls.put.push({ name, document: structuredClone(document) }); store.set(name, structuredClone(document)); return { name, rev: calls.put.length }; }
+        // The hub's conditional write: with onlyIfNewer, a stored stamp at least as new is a 409 stale.
+        put: async (name, document, opts = {}) => {
+          if (docsPut) return docsPut(name, document, opts, store);
+          const stored = Date.parse(stamps.get(name) || '');
+          if (opts?.onlyIfNewer && Number.isFinite(stored) && stored >= Date.parse(opts.sourceUpdatedAt)) {
+            return { error: 'The store already holds a copy at least as new as this one, so it was not written.', status: 409, stale: true };
+          }
+          calls.put.push({ name, document: structuredClone(document), opts });
+          store.set(name, structuredClone(document));
+          if (opts?.sourceUpdatedAt) stamps.set(name, opts.sourceUpdatedAt);
+          return { name, rev: calls.put.length };
+        }
       }
     }
   };
@@ -141,6 +168,12 @@ async function serve({
       const who = USERS[String(req.headers.authorization || '').replace(/^Bearer /, '')];
       if (!who) return res.status(401).json({ success: false, error: 'Sign in to continue.' });
       req.user = { ...who };
+      next();
+    },
+    // The operator is the bearer 'OP'; anyone else gets the 404 requireOperator answers.
+    requireOperator: (req, res, next) => {
+      if (String(req.headers.authorization || '') !== 'Bearer OP') return res.status(404).json({ success: false, error: 'Not found.' });
+      req.user = { uid: 'uOp', email: 'operator@example.com' };
       next();
     },
     hub,
@@ -186,6 +219,7 @@ async function serve({
     clear: (who) => call('DELETE', '/thread', undefined, who),
     notes: (notes, who) => call('POST', '/notes', { notes }, who),
     feedback: (answerId, rating, who) => call('POST', '/feedback', { answerId, rating }, who),
+    train: (body, who = 'OP') => call('POST', '/admin/train', body, who),
     call,
     close: () => { open.delete(close); return close(); }
   };
@@ -794,10 +828,404 @@ test('a hub read that fails falls back to this server’s copy and never saves o
   await s.close();
 });
 
+// ---- W2.S S2: the screen the user is on ----
+
+const DAY_MS = 86400000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(pred, ms = 3000, what = 'the condition') {
+  const end = Date.now() + ms;
+  while (!pred()) {
+    if (Date.now() > end) assert.fail(`timed out waiting for ${what}`);
+    await sleep(5);
+  }
+}
+const screenQuery = (screen) => `/thread?screen=${encodeURIComponent(JSON.stringify(screen))}`;
+const factsIn = (system) => JSON.parse(system.match(/^FACTS \(data\): (.*)$/m)[1]);
+const screenIn = (system) => system.match(/^SCREEN \(data\): (.*)$/m)[1];
+
+test('the screen: ask reads it from the body, thread from the query, a journey id is kept only when it is the user’s, and a bad shape is dropped, never a 400', async () => {
+  const J2 = { ...JOURNEY, id: 'j2', name: 'Winter Wheel Class', updatedAt: new Date(START - 10 * DAY_MS).toISOString() };
+  const B = { ...JOURNEY, id: 'jB', userId: 'uB', name: 'B Private Funnel' };
+  const s = await serve({ journeys: (uid) => ({ journeys: uid === 'uA' ? [JOURNEY, J2] : [B], complete: true }) });
+  const owned = { view: 'canvas', journeyId: 'j2', journeyName: 'Winter Wheel Class', step: { kind: 'lead-form', name: 'Sign up' } };
+  let r = await s.call('POST', '/ask', { message: 'How is this one doing?', screen: owned });
+  assert.equal(r.status, 200);
+  let system = s.calls.brain.at(-1).opts.system;
+  assert.deepEqual(JSON.parse(screenIn(system)), owned);
+  let facts = factsIn(system);
+  assert.equal(facts.journeys[0].name, 'Winter Wheel Class', 'the journey on screen is first in FACTS');
+  assert.equal(facts.last30Days.journeys[0].name, 'Winter Wheel Class', 'and first in last30Days');
+
+  // Another user's journey id, named on the screen, is dropped and changes no order.
+  r = await s.call('POST', '/ask', { message: 'And this one?', screen: { view: 'canvas', journeyId: 'jB', journeyName: 'Shown name' } });
+  assert.equal(r.status, 200);
+  system = s.calls.brain.at(-1).opts.system;
+  assert.deepEqual(JSON.parse(screenIn(system)), { view: 'canvas', journeyName: 'Shown name' });
+  assert.ok(!system.includes('B Private Funnel'));
+  assert.equal(factsIn(system).journeys[0].name, 'Spring Glaze Sale');
+
+  // Every bad shape is dropped silently: the question is answered without a screen.
+  for (const bad of [{ view: 'admin' }, 'canvas', '{"view":"canvas"}', [{ view: 'canvas' }], 7, null, { journeyId: 'j2' }]) {
+    r = await s.call('POST', '/ask', { message: 'How do I publish?', screen: bad });
+    assert.equal(r.status, 200, JSON.stringify(bad));
+    assert.equal(screenIn(s.calls.brain.at(-1).opts.system), 'None.', JSON.stringify(bad));
+  }
+  r = await s.call('POST', '/ask', { message: 'Long?', screen: { view: 'email-studio', journeyName: 'n'.repeat(400), step: { kind: 'k'.repeat(400), name: 'x' } } });
+  const long = JSON.parse(screenIn(s.calls.brain.at(-1).opts.system));
+  assert.equal(long.journeyName.length, 120);
+  assert.equal(long.step.kind.length, 120);
+
+  // GET thread: one JSON value in the query, the same validator.
+  let t = await s.call('GET', screenQuery({ view: 'attribution', journeyId: 'j1', journeyName: 'Spring Glaze Sale' }));
+  assert.equal(t.status, 200);
+  assert.deepEqual(t.body.screen, { view: 'attribution', journeyId: 'j1', journeyName: 'Spring Glaze Sale' });
+  t = await s.call('GET', screenQuery({ view: 'canvas', journeyId: 'jB' }));
+  assert.deepEqual(t.body.screen, { view: 'canvas' }, 'another user’s journey id is dropped on GET too');
+  for (const q of ['/thread?screen=%7Bnot%20json', `/thread?screen=${encodeURIComponent('x'.repeat(3000))}`, screenQuery({ view: 'nope' }), '/thread?screen=a&screen=b', '/thread']) {
+    t = await s.call('GET', q);
+    assert.equal(t.status, 200, q);
+    assert.equal(t.body.screen, null, q);
+  }
+  // The bracket form a query parser makes is read too.
+  t = await s.call('GET', '/thread?screen[view]=email-studio&screen[journeyId]=j1');
+  assert.deepEqual(t.body.screen, { view: 'email-studio', journeyId: 'j1' });
+  await s.close();
+});
+
+// ---- W2.S S3: training off this account's own data ----
+
+const visit = (uid, journeyId, visitorId, extra = {}) => ({ userId: uid, journeyId, type: 'page_view', visitorId, at: new Date(START - 2 * DAY_MS).toISOString(), ...extra });
+const A_EVENTS = [
+  visit('uA', 'j1', 'v1'), visit('uA', 'j1', 'v2'), visit('uA', 'j1', 'v3'), visit('uA', 'j1', 'v3'),
+  { userId: 'uA', journeyId: 'j1', type: 'lead', visitorId: 'v1', email: 'rosa.customer@example.com', name: 'Rosa Customer', at: new Date(START - DAY_MS).toISOString() },
+  visit('uB', 'jB', 'b1'), visit('uB', 'jB', 'b2')
+];
+const B_JOURNEY = { ...JOURNEY, id: 'jB', userId: 'uB', name: 'B Private Funnel' };
+const ownJourneys = (uid) => ({ journeys: uid === 'uA' ? [JOURNEY] : uid === 'uB' ? [B_JOURNEY] : [], complete: true });
+
+test('training: after GET thread answers, what-worked.md goes to this user’s own corpus, once a day, and only when it changed', async () => {
+  let events = [...A_EVENTS];
+  let statsCalls = 0;
+  const s = await serve({
+    events: () => events,
+    journeys: ownJourneys,
+    contacts: (uid) => (uid === 'uA' ? [{ email: 'rosa.customer@example.com', name: 'Rosa Customer', phone: '+1 555 0100 222', firstSeenAt: new Date(START - 3 * DAY_MS).toISOString() }] : []),
+    emailStats: () => { statsCalls += 1; return { sent: 10, opened: 4, clicked: 2, unsubscribed: null, revenue: null }; },
+    pages: { 'spring-glaze-sale': { slug: 'spring-glaze-sale', userId: 'uA', journeyId: 'j1' } }
+  });
+  const t = await s.thread();
+  assert.equal(t.status, 200);
+  assert.deepEqual(t.body.trainingOnHub, { durable: false, reason: 'Nothing has been sent yet.' }, 'the answer went before any send');
+  await until(() => s.store.get(threadDocName('uA'))?.trainingOnHub?.durable === true, 3000, 'the training record');
+  assert.equal(s.calls.replace.length, 1);
+  const sent = s.calls.replace[0];
+  assert.equal(sent.path, REPLACE_PATH);
+  assert.equal(REPLACE_PATH, '/api/brain/studio/replace');
+  assert.deepEqual(Object.keys(sent.body).sort(), ['accountId', 'appId', 'content', 'filename']);
+  assert.deepEqual([sent.body.appId, sent.body.accountId, sent.body.filename], ['jourvance', 'uA', 'what-worked.md']);
+  const md = sent.body.content;
+  assert.ok(md.includes('### Spring Glaze Sale'));
+  assert.ok(md.includes('Visits: 3 people. Leads: 1 people, a lead rate of 33.3%.'), md);
+  assert.ok(md.includes('Sent: 10. Opened: 4, an open rate of 40%.'));
+  for (const leak of ['rosa', 'Rosa Customer', '555', 'B Private Funnel', 'uB', 'b1', 'shpat_ROUTE_SECRET', 'kilnhaus']) assert.ok(!md.includes(leak), `${leak} reached the file`);
+  const doc = s.store.get(threadDocName('uA'));
+  assert.match(doc.trainingSha, /^[0-9a-f]{64}$/);
+  assert.deepEqual(doc.trainingDays, { '2026-10-11': 1 });
+  assert.deepEqual(doc.trainingOnHub, { durable: true, at: new Date(START).toISOString(), sha: doc.trainingSha });
+  assert.deepEqual((await s.thread()).body.trainingOnHub, doc.trainingOnHub, 'GET thread returns the record');
+
+  // The same day: GET thread starts nothing more (only its own thread read).
+  const gets = s.calls.get.length;
+  await s.thread();
+  await sleep(60);
+  assert.equal(s.calls.get.length, gets + 1);
+  assert.equal(s.calls.replace.length, 1);
+
+  // The next day with the same figures: checked again, and nothing sent (the sha is unchanged).
+  s.clock.t += DAY_MS;
+  const before = statsCalls;
+  await s.thread();
+  await until(() => statsCalls > before, 3000, 'the next day’s check');
+  await sleep(60);
+  assert.equal(s.calls.replace.length, 1, 'an unchanged file is not sent again');
+
+  // A day later a figure moved: sent again, as the same file name.
+  s.clock.t += DAY_MS;
+  events = [...events, visit('uA', 'j1', 'v4', { at: new Date(s.clock.t - DAY_MS).toISOString() })];
+  await s.thread();
+  await until(() => s.calls.replace.length === 2, 3000, 'the changed file');
+  assert.notEqual(s.calls.replace[1].body.content, md);
+  assert.equal(s.calls.replace[1].body.filename, 'what-worked.md');
+  await until(() => s.store.get(threadDocName('uA'))?.trainingSha !== doc.trainingSha, 3000, 'the new sha');
+
+  // Another user's GET trains only their own file.
+  await s.thread('B');
+  await until(() => s.calls.replace.length === 3, 3000, 'B’s file');
+  assert.equal(s.calls.replace[2].body.accountId, 'uB');
+  assert.ok(s.calls.replace[2].body.content.includes('B Private Funnel'));
+  assert.ok(!s.calls.replace[2].body.content.includes('Spring Glaze Sale'));
+  assert.ok(s.store.get(threadDocName('uB')).trainingOnHub.durable);
+  await s.close();
+});
+
+test('training never delays the thread answer and never throws: a send that never settles, and loaders that throw', async () => {
+  const rejections = [];
+  const onRejection = (err) => rejections.push(err);
+  process.on('unhandledRejection', onRejection);
+  try {
+    const s = await serve({ events: () => A_EVENTS, journeys: ownJourneys, replacePost: NEVER, timeouts: { ...SHORT, profile: 1500 } });
+    const t0 = Date.now();
+    const t = await s.thread();
+    assert.equal(t.status, 200);
+    assert.ok(Date.now() - t0 < 1000, `the answer waited ${Date.now() - t0} ms on the send`);
+    await until(() => s.calls.replace.length === 1, 3000, 'the send that never settles');
+    await quiet(() => until(() => s.store.get(threadDocName('uA'))?.trainingOnHub, 5000, 'the timed out record'));
+    assert.deepEqual(s.store.get(threadDocName('uA')).trainingOnHub, { durable: false, at: new Date(START).toISOString(), reason: 'The AI service did not answer in time.' });
+    assert.equal(s.store.get(threadDocName('uA')).trainingSha, '', 'a send that did not land records no sha');
+    await s.close();
+
+    const broken = await serve({ events: () => { throw new Error('The event log could not be read'); }, journeys: () => { throw new Error('hub down'); } });
+    const b = await quiet(() => broken.thread());
+    assert.equal(b.status, 200);
+    await sleep(80);
+    assert.equal(broken.calls.replace.length, 0, 'a partial read sends nothing');
+    await broken.close();
+    assert.deepEqual(rejections, []);
+  } finally {
+    process.off('unhandledRejection', onRejection);
+  }
+});
+
+test('training: a refused send is recorded and counted for the day, and a partial read is never sent', async () => {
+  const refused = 'Data flow "brainIngest" is disabled for this app in the Connectors panel.';
+  const s = await serve({ events: () => A_EVENTS, journeys: ownJourneys, replacePost: { error: refused, status: 403 } });
+  await s.thread();
+  await quiet(() => until(() => s.store.get(threadDocName('uA'))?.trainingOnHub, 3000, 'the refusal record'));
+  const doc = s.store.get(threadDocName('uA'));
+  assert.deepEqual(doc.trainingOnHub, { durable: false, at: new Date(START).toISOString(), reason: 'The AI service did not take the file.' });
+  assert.deepEqual(doc.trainingDays, { '2026-10-11': 1 }, 'the attempt counts');
+  assert.equal((await s.thread()).body.trainingOnHub.reason, 'The AI service did not take the file.');
+  const again = await s.train({ userIds: ['uA'] });
+  assert.equal(again.status, 200);
+  assert.deepEqual(again.body.users.map((u) => [u.sent, u.reason]), [[false, 'This account was already sent today.']]);
+  assert.equal(s.calls.replace.length, 1, 'no second send the same day');
+  await s.close();
+
+  const partial = await serve({ events: () => A_EVENTS, journeys: () => ({ journeys: [JOURNEY], complete: false }) });
+  const r = await partial.train({ userIds: ['uA'] });
+  assert.deepEqual(r.body.users.map((u) => [u.sent, u.reason]), [[false, "Some of this account's data could not be read."]]);
+  assert.equal(r.body.counts.skipped, 1);
+  assert.equal(partial.calls.replace.length, 0);
+  await partial.close();
+});
+
+// ---- The operator's training run ----
+
+test('admin/train is the operator’s alone: 404 for a user and for no token, 400 for a bad body', async () => {
+  const s = await serve({ events: () => A_EVENTS, journeys: ownJourneys });
+  for (const who of ['A', 'B', null]) {
+    const r = await s.train({ dryRun: true }, who);
+    assert.equal(r.status, 404, String(who));
+    assert.equal(r.body.success, false);
+  }
+  assert.equal(s.calls.get.length + s.calls.replace.length + s.calls.put.length, 0, 'nothing was read or sent');
+  for (const bad of [{ limit: 0 }, { limit: 501 }, { limit: 2.5 }, { limit: '10' }, { userIds: 'uA' }, { userIds: [5] }, { userIds: [''] }, { userIds: ['x'.repeat(129)] }]) {
+    const r = await s.train(bad);
+    assert.equal(r.status, 400, JSON.stringify(bad).slice(0, 40));
+    assert.match(r.body.error, /^[A-Z][^.]*\.$/);
+  }
+  await s.close();
+
+  // A server that mounts no operator guard serves the route to nobody.
+  const bare = await serve({ extraDeps: { requireOperator: undefined } });
+  assert.equal((await bare.train({ dryRun: true })).status, 404);
+  await bare.close();
+});
+
+test('admin/train: a dry run sends and writes nothing and names every account by a hash; a run sends; limit and userIds are honoured', async () => {
+  const s = await serve({ events: () => [...A_EVENTS, visit('uA', 'j1', 'v9')], journeys: ownJourneys });
+  let r = await s.train({ dryRun: true });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.success, true);
+  assert.equal(r.body.dryRun, true);
+  assert.deepEqual(r.body.counts, { accounts: 2, sent: 0, wouldSend: 2, unchanged: 0, skipped: 0, failed: 0 });
+  assert.equal(r.body.users.length, 2);
+  for (const u of r.body.users) {
+    assert.match(u.uid, /^u_[0-9a-f]{16}$/);
+    assert.deepEqual([u.sent, u.reason], [false, 'This was a dry run.']);
+  }
+  assert.notEqual(r.body.users[0].uid, r.body.users[1].uid);
+  const blob = JSON.stringify(r.body);
+  for (const raw of ['uA', 'uB', '@', 'rosa', 'Spring Glaze Sale']) assert.ok(!blob.includes(raw), `${raw} in the operator answer`);
+  assert.equal(s.calls.replace.length + s.calls.put.length, 0, 'a dry run sends and writes nothing');
+
+  r = await s.train({});
+  assert.deepEqual(r.body.counts, { accounts: 2, sent: 2, wouldSend: 0, unchanged: 0, skipped: 0, failed: 0 });
+  assert.deepEqual(r.body.users.map((u) => u.sent), [true, true]);
+  assert.deepEqual(s.calls.replace.map((c) => c.body.accountId).sort(), ['uA', 'uB']);
+  assert.equal(r.body.users[0].uid, (await s.train({ dryRun: true })).body.users[0].uid, 'the hash is stable');
+
+  s.clock.t += DAY_MS;
+  r = await s.train({});
+  assert.deepEqual(r.body.counts, { accounts: 2, sent: 0, wouldSend: 0, unchanged: 2, skipped: 0, failed: 0 });
+  assert.equal(r.body.users[0].reason, 'Nothing changed since the last send.');
+
+  r = await s.train({ limit: 1, dryRun: true });
+  assert.equal(r.body.counts.accounts, 1, 'limit caps the run');
+  r = await s.train({ userIds: ['uB', 'uB'], dryRun: true });
+  assert.equal(r.body.counts.accounts, 1, 'userIds are taken once each');
+  await s.close();
+
+  const blind = await serve({ events: () => { throw new Error('The event log could not be read'); } });
+  r = await quiet(() => blind.train({}));
+  assert.equal(r.status, 503);
+  assert.equal(r.body.retryable, true);
+  await blind.close();
+});
+
+// ---- S3b: the app patterns, operator only ----
+
+function patternAccounts(n) {
+  const uids = Array.from({ length: n }, (_, i) => `acct${i}`);
+  const events = uids.flatMap((uid, i) => [
+    ...Array.from({ length: 30 }, (_, k) => visit(uid, `j-${uid}`, `${uid}-v${k}`)),
+    ...Array.from({ length: i + 1 }, (_, k) => ({ userId: uid, journeyId: `j-${uid}`, type: 'lead', visitorId: `${uid}-v${k}`, email: `person${k}@${uid}.example`, at: new Date(START - DAY_MS).toISOString() }))
+  ]);
+  const journeyOf = (uid) => ({
+    id: `j-${uid}`,
+    userId: uid,
+    name: `Private ${uid} Funnel`,
+    goal: 'leads',
+    nodes: [{ id: 'a', type: 'ad-source', data: { platform: 'meta' } }, { id: 'b', type: 'landing-page', data: { slug: `slug-${uid}` } }],
+    updatedAt: new Date(START - DAY_MS).toISOString()
+  });
+  return {
+    events: () => events,
+    journeys: (uid) => ({ journeys: uids.includes(uid) ? [journeyOf(uid)] : [], complete: true }),
+    emailStats: () => ({ sent: 100, opened: 30, clicked: 3, unsubscribed: null, revenue: null }),
+    pages: Object.fromEntries(uids.map((uid) => [`slug-${uid}`, { slug: `slug-${uid}`, userId: uid, journeyId: `j-${uid}`, domain: `${uid}.example` }]))
+  };
+}
+
+test('admin/train with patterns: ten accounts make a group, the dry run shows it, the send goes to the app corpus once a month, nine accounts send nothing', async () => {
+  const s = await serve(patternAccounts(10));
+  let r = await s.train({ dryRun: true, patterns: true });
+  assert.equal(r.status, 200);
+  const p = r.body.patterns;
+  assert.deepEqual([p.sent, p.reason, p.filename, p.groups, p.accounts], [false, 'This was a dry run.', 'jourvance-patterns-2026-10.md', 1, 10]);
+  assert.ok(p.content.includes('## Goal leads, Meta\nAccounts: 10 or more.\nMedian lead rate:'), p.content);
+  for (const raw of ['acct', 'Private', 'slug-', '.example', 'person']) assert.ok(!JSON.stringify(r.body).includes(raw), `${raw} in the operator answer`);
+  assert.equal(s.calls.ingest.length, 0);
+  assert.equal(s.store.get(PATTERNS_DOC), undefined, 'a dry run claims no month');
+
+  r = await s.train({ patterns: true });
+  assert.equal(r.body.patterns.sent, true);
+  assert.equal(s.calls.ingest.length, 1);
+  assert.deepEqual(Object.keys(s.calls.ingest[0]).sort(), ['content', 'filename', 'scope']);
+  assert.deepEqual([s.calls.ingest[0].scope, s.calls.ingest[0].filename], ['app', 'jourvance-patterns-2026-10.md']);
+  assert.ok(!/acct|Private|slug-|\.example|person/.test(s.calls.ingest[0].content));
+  assert.equal(s.store.get(PATTERNS_DOC).filename, 'jourvance-patterns-2026-10.md');
+
+  r = await s.train({ patterns: true });
+  assert.deepEqual([r.body.patterns.sent, r.body.patterns.reason], [false, "This month's patterns were already sent."]);
+  assert.equal(s.calls.ingest.length, 1, 'never stacked twice in a month');
+  await s.close();
+
+  const nine = await serve(patternAccounts(9));
+  r = await nine.train({ patterns: true });
+  assert.deepEqual([r.body.patterns.sent, r.body.patterns.reason, r.body.patterns.groups], [false, 'No group had enough accounts to share.', 0]);
+  assert.equal(nine.calls.ingest.length, 0);
+  await nine.close();
+});
+
+// ---- Adversary round (2026-10-12) ----
+
+test('patterns: the month is claimed before the send, so an overlapping run never sends twice', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const s = await serve({ ...patternAccounts(10), ingest: () => gate });
+  const first = s.train({ patterns: true });
+  await until(() => s.calls.ingest.length === 1, 3000, 'the first send to start');
+  const second = await s.train({ patterns: true });
+  assert.equal(second.body.patterns.sent, false);
+  assert.ok(["This month's patterns were already sent.", "Another run holds this month's patterns."].includes(second.body.patterns.reason), second.body.patterns.reason);
+  release({ success: true, file: { id: 'p1' } });
+  assert.equal((await first).body.patterns.sent, true);
+  assert.equal(s.calls.ingest.length, 1, 'one file for the month');
+  const claim = s.calls.put.find((c) => c.name === PATTERNS_DOC);
+  assert.deepEqual([claim.opts.onlyIfNewer, claim.opts.sourceUpdatedAt], [true, '2026-10-01T00:00:00.000Z'], 'claimed with the first instant of the month');
+  await s.close();
+
+  // A store answer that is neither a document nor a 404 sends nothing.
+  const vague = await serve({ ...patternAccounts(10), docsGet: (name, store) => (name === PATTERNS_DOC ? { success: true } : (store.has(name) ? { name, document: structuredClone(store.get(name)) } : { error: 'No such document.', status: 404 })) });
+  let r = await vague.train({ patterns: true });
+  assert.deepEqual([r.body.patterns.sent, r.body.patterns.reason], [false, "Whether this month's patterns were sent could not be checked."]);
+  assert.equal(vague.calls.ingest.length, 0);
+  await vague.close();
+
+  // A claim the store refuses as stale is another run's: nothing is sent.
+  const raced = await serve({ ...patternAccounts(10), docsPut: (name, document, opts, store) => {
+    if (name === PATTERNS_DOC) return { error: 'The store already holds a copy at least as new as this one, so it was not written.', status: 409, stale: true };
+    store.set(name, structuredClone(document));
+    return { name, rev: 1 };
+  } });
+  r = await raced.train({ patterns: true });
+  assert.deepEqual([r.body.patterns.sent, r.body.patterns.reason], [false, "Another run holds this month's patterns."]);
+  assert.equal(raced.calls.ingest.length, 0);
+  await raced.close();
+});
+
+test('training: a replace that kept an old copy is not landed and is never recorded as sent', async () => {
+  const s = await serve({ events: () => A_EVENTS, journeys: ownJourneys, replacePost: { success: true, undeleted: 1 } });
+  await s.thread();
+  await quiet(() => until(() => s.store.get(threadDocName('uA'))?.trainingOnHub, 3000, 'the record'));
+  const doc = s.store.get(threadDocName('uA'));
+  assert.deepEqual(doc.trainingOnHub, { durable: false, at: new Date(START).toISOString(), reason: 'The AI service kept an old copy of the file.' });
+  assert.equal(doc.trainingSha, '', 'a stale copy on the hub records no sha, so a later day sends again');
+  assert.equal((await s.thread()).body.trainingOnHub.reason, 'The AI service kept an old copy of the file.');
+  await s.close();
+});
+
+test('training: nothing is sent unless the saved record was read, and the day is claimed by a save that landed', async () => {
+  // The thread read fails: no send, and the operator hears why.
+  const unread = await serve({ events: () => A_EVENTS, journeys: ownJourneys, docsGet: () => ({ error: 'HTTP 503', status: 503 }) });
+  let r = await quiet(() => unread.train({ userIds: ['uA'] }));
+  assert.deepEqual(r.body.users.map((u) => [u.sent, u.reason]), [[false, 'The saved record could not be read.']]);
+  // A dry run says so too, rather than promising a send it could not make.
+  r = await quiet(() => unread.train({ userIds: ['uA'], dryRun: true }));
+  assert.deepEqual(r.body.users.map((u) => [u.sent, u.reason]), [[false, 'The saved record could not be read.']]);
+  assert.equal(r.body.counts.wouldSend, 0);
+  await quiet(() => unread.thread());
+  await sleep(80);
+  assert.equal(unread.calls.replace.length, 0, 'neither the run nor GET thread sent');
+  await unread.close();
+
+  // The save that claims the day is refused: no send.
+  const refused = await serve({ events: () => A_EVENTS, journeys: ownJourneys, docsPut: () => ({}) });
+  r = await quiet(() => refused.train({ userIds: ['uA'] }));
+  assert.deepEqual(r.body.users.map((u) => [u.sent, u.reason]), [[false, 'The saved record could not be read.']]);
+  assert.equal(refused.calls.replace.length, 0);
+  await refused.close();
+});
+
+test('a loader that never settles is bounded, so a run answers and the account is not held', async () => {
+  const s = await serve({ events: () => NEVER(), orders: () => NEVER(), contacts: () => NEVER(), journeys: ownJourneys, timeouts: SHORT });
+  const run = () => Promise.race([quiet(() => s.train({ userIds: ['uA'] })), sleep(3000).then(() => 'hung')]);
+  const r = await run();
+  assert.notEqual(r, 'hung', 'the run answered');
+  assert.deepEqual(r.body.users.map((u) => [u.sent, u.reason]), [[false, "Some of this account's data could not be read."]]);
+  const again = await run();
+  assert.notEqual(again, 'hung');
+  assert.notEqual(again.body.users[0].reason, 'A send for this account was already running.', 'the account was let go');
+  await s.close();
+});
+
 test('every reason the routes answered was one bare cause, and the named ones were all reached', () => {
   // assertBareReasons ran inside every request above; this proves it saw the reasons that matter.
   const seen = new Set(reasonsSeen);
-  for (const r of [REASONS.noHub, REASONS.timeout, REASONS.saveUnconfirmed, REASONS.workspacesIncomplete, REASONS.profileCap, REASONS.profileRefused, REASONS.shareCap, REASONS.shareRefused]) {
+  for (const r of [REASONS.noHub, REASONS.timeout, REASONS.saveUnconfirmed, REASONS.workspacesIncomplete, REASONS.profileCap, REASONS.profileRefused, REASONS.shareCap, REASONS.shareRefused,
+    REASONS.trainingRefused, REASONS.trainingSentToday, REASONS.trainingUnchanged, REASONS.dataIncomplete, REASONS.dryRun, REASONS.patternsNone, REASONS.patternsSentThisMonth,
+    REASONS.trainingStaleCopy, REASONS.recordUnread, REASONS.patternsClaimed, REASONS.patternsUnchecked]) {
     assert.ok(seen.has(r), `never answered: ${r}`);
   }
   for (const r of Object.values(REASONS)) {

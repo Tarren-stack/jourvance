@@ -1144,7 +1144,16 @@ export const App: React.FC = () => {
       {/* Lazy-Loaded Modals & Drawers, each in its own boundary (`each`): one whose file did not arrive leaves the others working. */}
       <ChunkBoundary floating each>
         {/* Ask Jourvance: the assistant bubble and panel, on both shells */}
-        <AskJourvance user={user} onOpenAuth={() => setShowAuthModal(true)} businessType={project.businessType} />
+        <AskJourvance
+          user={user}
+          onOpenAuth={() => setShowAuthModal(true)}
+          businessType={project.businessType}
+          view={activePage === 'canvas' ? activeView : 'public'}
+          journeyId={project.id}
+          journeyName={project.name}
+          stepKind={activeView === 'canvas' ? selectedNode?.type : undefined}
+          stepName={activeView === 'canvas' ? String((selectedNode?.data as { label?: unknown } | undefined)?.label ?? '') : undefined}
+        />
 
         {/* Live Funnel Simulation Modal */}
         {showLiveModal && (

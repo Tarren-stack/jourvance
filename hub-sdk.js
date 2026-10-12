@@ -724,6 +724,24 @@ export function createHubClient(config = {}) {
       // pass the same accountId (e.g. accountId:"prop-123" → a per-listing/per-customer corpus).
       // Main-corpus ingestion stays hub-admin only. (metered)
       ingest: (body = {}) => post("/api/brain/ingest/text", { appId, accountId, ...body }),
+      // One account's own sub-brain inside this app (brain-biz-<appId>-<accountId>), for a
+      // spoke that keeps many businesses or users under one appId. Each call names the
+      // account (body.accountId, or the acct argument), falling back to this client's own
+      // accountId. Nothing here reads or writes main or the app brain.
+      studio: {
+        // { success, files:[{ id, filename, sizeBytes? }] }
+        files: (acct) => get("/api/brain/studio/files?appId=" + encodeURIComponent(appId) + "&accountId=" + encodeURIComponent(acct || accountId || "")),
+        // Append a file. { accountId, filename, content, mimeType? } (2 credits)
+        ingest: (body = {}) => post("/api/brain/studio/ingest", { appId, accountId, ...body }),
+        // Delete every file of exactly this name in the account's sub-brain, then ingest it.
+        // { accountId, filename, content, mimeType? } -> { success, file, replaced } (2 credits).
+        // business-profile.md is refused here; use profile().
+        replace: (body = {}) => post("/api/brain/studio/replace", { appId, accountId, ...body }),
+        // Replace business-profile.md. { accountId, content } (free)
+        profile: (body = {}) => post("/api/brain/studio/profile", { appId, accountId, ...body }),
+        // Remove one file by the id files() returned.
+        remove: (id, acct) => badSegment("brain file id", id) || del("/api/brain/studio/files/" + encodeURIComponent(id) + "?appId=" + encodeURIComponent(appId) + "&accountId=" + encodeURIComponent(acct || accountId || "")),
+      },
       // Historical-data training: compile this app's stored history (A/B winners, email
       // stats, social posts, telemetry, SEO) into "what worked" docs in its own corpus.
       training: {

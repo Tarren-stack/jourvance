@@ -16,7 +16,7 @@ ones a session will meet, with where each is enforced:
   Verification is `npx tsc --noEmit`, `npm test`, then BOOT `node server.mjs`, call the changed
   route, and load the page in a browser. A typecheck proves nothing about wiring.
 - **No em dash in generated copy.** Model output is stripped in code at the route boundary
-  (`cleanModelStrings` in `server/routes/aiJourneyRoutes.mjs`, used by both `/api/ai/*` routes)
+  (`cleanModelStrings` in `server/aiCall.mjs`, re-exported by `server/routes/aiJourneyRoutes.mjs`, applied by every `/api/ai/*` route through `brainChat`)
   and the prompt names the rule as a first line of defence. Never rewrite text a merchant typed.
 - **Honest degradation.** A missing variable, key or connection answers 400 or 503 naming what to
   set, or falls open to local-only behaviour that says so. Never fake data, never pretend a paid

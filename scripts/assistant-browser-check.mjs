@@ -41,7 +41,7 @@ const say = line => console.log(line);
 // The words the browser must show, read from the panel-copy table so a reworded string fails here.
 const COPY = {};
 for (const line of fs.readFileSync(path.join(ROOT, 'docs/assistant/panel-copy.md'), 'utf8').split('\n')) {
-  const m = line.match(/^\| ([A-Za-z]+\.[A-Za-z]+) \| (.*) \|$/);
+  const m = line.match(/^\| ([A-Za-z0-9.]+\.[A-Za-z0-9]+) \| (.*) \|$/);
   if (m) COPY[m[1]] = m[2];
 }
 
@@ -81,7 +81,7 @@ async function openPage(browser, { origin, viewport, path: urlPath, stub = null,
     let u;
     try { u = new URL(req.url()); } catch { return route.abort(); }
     if (u.origin !== origin) { blocked.push(req.url()); return route.abort(); }
-    if (u.pathname.startsWith('/api/ai/assistant/') && stub) return stub(route, req, u);
+    if ((u.pathname.startsWith('/api/ai/assistant/') || u.pathname === '/api/funnel/stats') && stub) return stub(route, req, u);
     if (u.pathname === '/api' || u.pathname.startsWith('/api/') || u.pathname === '/p' || u.pathname.startsWith('/p/')) {
       blocked.push(req.url());
       return route.abort();
@@ -151,6 +151,7 @@ async function realApp(browser, origin, shots) {
         const bubble = page.locator('.jv-assistant-bubble');
         await bubble.waitFor({ state: 'visible', timeout: 20000 });
         check(`${tag}: the bubble is visible`, await bubble.isVisible());
+        check(`${tag}: the page says the assistant is mounted (data-jv-ask-ready on <html>)`, await page.evaluate(() => document.documentElement.hasAttribute('data-jv-ask-ready')));
         check(`${tag}: the bubble is named "${COPY['bubble.ariaLabel']}"`, (await bubble.getAttribute('aria-label')) === COPY['bubble.ariaLabel']);
         check(`${tag}: aria-expanded is false while closed`, (await bubble.getAttribute('aria-expanded')) === 'false');
         const panel = page.locator('.jv-assistant-panel');
@@ -328,14 +329,24 @@ function harnessPlugin() {
     import { createRoot } from 'react-dom/client';
     import '/src/index.css';
     import AskJourvance from '/src/components/assistant/AskJourvance.tsx';
+    import { AttributionReports } from '/src/components/analytics/AttributionReports.tsx';
+    import { DEFAULT_LEAD_CAPTURE_PROJECT } from '/src/lib/defaultBlueprint.ts';
     window.__authCalls = 0;
     window.__panelKeysSeenByDocument = 0;
     document.addEventListener('keydown', e => { if (e.target && e.target.closest && e.target.closest('.jv-assistant-panel')) window.__panelKeysSeenByDocument++; });
     const params = new URLSearchParams(location.search);
     const user = params.get('signedOut') ? null : { uid: 'user-1', email: 'owner@example.com' };
-    createRoot(document.getElementById('root')).render(
-      React.createElement(AskJourvance, { user, onOpenAuth: () => { window.__authCalls++; }, businessType: 'E-Commerce Brand' })
-    );
+    const screen = {};
+    for (const k of ['view', 'journeyId', 'journeyName', 'stepKind', 'stepName']) if (params.get(k)) screen[k] = params.get(k);
+    const children = params.get('noAsk') ? [] : [React.createElement(AskJourvance, { key: 'ask', user, onOpenAuth: () => { window.__authCalls++; }, businessType: 'E-Commerce Brand', ...screen })];
+    // The attribution screen's own components, so the two buttons are the shipped ones. They show only while the assistant is mounted.
+    if (params.get('mount') === 'attribution') {
+      const nodes = DEFAULT_LEAD_CAPTURE_PROJECT.nodes;
+      const edges = DEFAULT_LEAD_CAPTURE_PROJECT.edges;
+      children.push(React.createElement('div', { key: 'attr', style: { padding: 16, maxWidth: 900 } },
+        React.createElement(AttributionReports, { workspace: null, nodes, edges, journeyId: params.get('journeyId') || '' })));
+    }
+    createRoot(document.getElementById('root')).render(React.createElement(React.Fragment, null, ...children));
   `;
   return {
     name: 'assistant-harness',
@@ -394,7 +405,7 @@ async function harness(browser, origin, shots) {
       check(`${tag}: the intro is shown: "${COPY['panel.intro']}"`, await panel.getByText(COPY['panel.intro'], { exact: true }).isVisible());
       check(`${tag}: the duplicate empty line "${COPY['thread.empty']}" is not drawn under the suggestions`, (await panel.getByText(COPY['thread.empty'], { exact: true }).count()) === 0);
       check(`${tag}: Close is the top element at its own centre`, (await closeOnTop(page)).onTop);
-      for (const k of ['suggest.numbers', 'suggest.email', 'suggest.howto']) {
+      for (const k of ['suggest.public.1', 'suggest.public.2', 'suggest.public.3']) {
         check(`${tag}: the suggestion "${COPY[k]}" is a button`, await panel.getByRole('button', { name: COPY[k], exact: true }).isVisible());
         sawText(COPY[k]);
       }
@@ -406,8 +417,8 @@ async function harness(browser, origin, shots) {
       check(`${tag}: Send is aria-disabled while the box is empty, and not disabled`, (await sendBtn.getAttribute('aria-disabled')) === 'true' && (await sendBtn.getAttribute('disabled')) === null);
 
       // A suggestion fills the box and sends nothing.
-      await panel.getByRole('button', { name: COPY['suggest.howto'], exact: true }).click();
-      check(`${tag}: a suggestion fills the box`, (await input.inputValue()) === COPY['suggest.howto']);
+      await panel.getByRole('button', { name: COPY['suggest.public.3'], exact: true }).click();
+      check(`${tag}: a suggestion fills the box`, (await input.inputValue()) === COPY['suggest.public.3']);
       check(`${tag}: a suggestion sends nothing`, calls.filter(c => c.key === 'POST /api/ai/assistant/ask').length === 0);
       check(`${tag}: focus moves to the box after a suggestion`, (await active(page)).tag === 'TEXTAREA');
 
@@ -638,6 +649,179 @@ async function harness(browser, origin, shots) {
 
 // ---- Part 0: the build put it in its own chunk ----
 
+// ---- Part 3: the screen, the per-view suggestions and "Ask about this" (harness, hub stubbed) ----
+
+const FUNNEL_BODY = {
+  success: true, journeyId: 'j-1', days: 30, from: '2026-09-11', to: '2026-10-11', partialSince: null,
+  stats: { nodes: { 'node-ad-1': { clicks: 1200 }, 'node-page-1': { visitors: 1000 }, 'node-form-1': { submissions: 40 }, 'node-seq-1': { flowEnrolled: 30 } } },
+  coverage: Object.fromEntries(['node-ad-1', 'node-page-1', 'node-form-1', 'node-seq-1'].map(id => [id, { measured: true }]))
+};
+
+async function screens(browser, origin, shots) {
+  const stubFor = () => makeStub((key, n) => {
+    if (key === 'GET /api/ai/assistant/thread') return json(200, THREAD);
+    if (key === 'POST /api/ai/assistant/ask') return json(200, answerFor(`a-${n}`, 'Your leads are in the funnel report.'));
+    if (key === 'POST /api/funnel/stats') return json(200, FUNNEL_BODY);
+    return json(404, { success: false });
+  });
+  const sugKeys = v => [1, 2, 3].map(i => COPY[`suggest.${v}.${i}`]);
+
+  // (a) The suggestions follow the screen, on the canvas and on the public page, and the ask carries it.
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    const tag = `screen ${viewport.width}x${viewport.height}`;
+    say(tag);
+    const { stub, calls, refusals } = stubFor();
+    const q = '?view=canvas&journeyId=j-1&journeyName=Spring%20launch&stepKind=landing-page&stepName=Lead%20Capture%20Lander';
+    const { context, page, consoleErrors } = await openPage(browser, { origin, viewport, path: `/__assistant-harness.html${q}`, stub, scriptedRefusals: refusals });
+    try {
+      await page.locator('.jv-assistant-bubble').click();
+      const panel = page.locator('.jv-assistant-panel');
+      await panel.waitFor({ state: 'visible' });
+      await panel.getByRole('button', { name: COPY['suggest.canvas.1'], exact: true }).waitFor({ state: 'visible' });
+      for (const text of sugKeys('canvas')) { check(`${tag}: the canvas suggestion "${text}" is a button`, await panel.getByRole('button', { name: text, exact: true }).isVisible()); sawText(text); }
+      for (const text of sugKeys('public')) check(`${tag}: the public suggestion "${text}" is not offered on the canvas`, (await panel.getByRole('button', { name: text, exact: true }).count()) === 0);
+      await panel.getByRole('button', { name: COPY['suggest.canvas.3'], exact: true }).click();
+      await page.keyboard.press('Enter');
+      await panel.getByText('Your leads are in the funnel report.', { exact: true }).waitFor({ state: 'visible' });
+      const asked = calls.find(c => c.key === 'POST /api/ai/assistant/ask');
+      check(`${tag}: the thread call carried the screen`, calls.some(c => c.key === 'GET /api/ai/assistant/thread'));
+      check(`${tag}: the ask carried screen.view "canvas"`, asked?.body?.screen?.view === 'canvas', JSON.stringify(asked?.body));
+      check(`${tag}: the ask carried the journey id`, asked?.body?.screen?.journeyId === 'j-1' && asked?.body?.screen?.journeyName === 'Spring launch', JSON.stringify(asked?.body?.screen));
+      check(`${tag}: the ask carried the selected step`, asked?.body?.screen?.step?.kind === 'landing-page' && asked?.body?.screen?.step?.name === 'Lead Capture Lander', JSON.stringify(asked?.body?.screen));
+      check(`${tag}: no console error`, consoleErrors.length === 0, consoleErrors.join(' | '));
+    } catch (err) {
+      findings.push(`${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+      say(`  FAIL ${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+    } finally { await context.close(); }
+  }
+  {
+    const tag = 'screen public page';
+    say(tag);
+    const { stub, calls, refusals } = stubFor();
+    const { context, page } = await openPage(browser, { origin, viewport: { width: 1440, height: 900 }, path: '/__assistant-harness.html?view=public&journeyId=j-1', stub, scriptedRefusals: refusals });
+    try {
+      await page.locator('.jv-assistant-bubble').click();
+      const panel = page.locator('.jv-assistant-panel');
+      await panel.getByRole('button', { name: COPY['suggest.public.1'], exact: true }).waitFor({ state: 'visible' });
+      for (const text of sugKeys('public')) check(`${tag}: the public suggestion "${text}" is a button`, await panel.getByRole('button', { name: text, exact: true }).isVisible());
+      for (const text of sugKeys('canvas')) check(`${tag}: the canvas suggestion "${text}" is not offered here`, (await panel.getByRole('button', { name: text, exact: true }).count()) === 0);
+      await panel.getByRole('button', { name: COPY['suggest.public.3'], exact: true }).click();
+      await page.keyboard.press('Enter');
+      await panel.locator('.jv-assistant-log').getByText('Your leads are in the funnel report.').waitFor({ state: 'visible' });
+      const asked = calls.find(c => c.key === 'POST /api/ai/assistant/ask');
+      check(`${tag}: the public page asks with screen.view "public" and no journey`, asked?.body?.screen?.view === 'public' && !('journeyId' in asked.body.screen), JSON.stringify(asked?.body?.screen));
+    } catch (err) {
+      findings.push(`${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+      say(`  FAIL ${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+    } finally { await context.close(); }
+  }
+
+  // (b) The attribution screen's two buttons open the panel with the question in the box, and send nothing.
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    const tag = `ask about this ${viewport.width}x${viewport.height}`;
+    say(tag);
+    const { stub, calls, refusals } = stubFor();
+    const q = '?mount=attribution&view=attribution&journeyId=j-1&journeyName=Spring%20launch';
+    const { context, page, consoleErrors } = await openPage(browser, { origin, viewport, path: `/__assistant-harness.html${q}`, stub, scriptedRefusals: refusals });
+    try {
+      const panel = page.locator('.jv-assistant-panel');
+      const numbers = page.getByRole('button', { name: 'Ask about these numbers', exact: true });
+      await numbers.waitFor({ state: 'visible', timeout: 15000 });
+      check(`${tag}: "Ask about these numbers" is a visible <button type="button">`, (await numbers.getAttribute('type')) === 'button' && (await numbers.textContent()).trim() === 'Ask about these numbers');
+      sawText('Ask about these numbers');
+      check(`${tag}: the panel is closed before the click`, !(await panel.isVisible()));
+      await numbers.click();
+      await panel.waitFor({ state: 'visible' });
+      const input = panel.getByLabel(COPY['input.label']);
+      await input.waitFor({ state: 'visible' });
+      // The thread loads first on the first open; the question lands in the box once it has.
+      await page.waitForFunction(() => (document.querySelector('.jv-assistant-panel textarea') || {}).value, null, { timeout: 8000 }).catch(() => {});
+      await page.waitForTimeout(100);
+      const text = await input.inputValue();
+      check(`${tag}: the box holds a question naming the range: "${text}"`, text === 'What do my attribution numbers for the last 30 days say?', text);
+      sawText(text);
+      check(`${tag}: focus is in the box`, (await active(page)).tag === 'TEXTAREA' && (await active(page)).inPanel, JSON.stringify(await active(page)));
+      check(`${tag}: pressing the button sent nothing`, calls.filter(c => c.key === 'POST /api/ai/assistant/ask').length === 0);
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: path.join(shots, `ask-numbers-${viewport.width}.png`) });
+      await page.keyboard.press('Enter');
+      await panel.getByText('Your leads are in the funnel report.', { exact: true }).waitFor({ state: 'visible' });
+      let asked = calls.filter(c => c.key === 'POST /api/ai/assistant/ask').at(-1);
+      check(`${tag}: the ask carried screen.view "attribution" and the journey id`, asked?.body?.screen?.view === 'attribution' && asked?.body?.screen?.journeyId === 'j-1', JSON.stringify(asked?.body?.screen));
+      check(`${tag}: and the question the box held`, asked?.body?.message === text, asked?.body?.message);
+
+      // The leak finder's button, beside the named drop.
+      await page.keyboard.press('Escape');
+      await panel.waitFor({ state: 'hidden' });
+      const leakBtn = page.getByRole('button', { name: 'Ask why this step loses people', exact: true });
+      await leakBtn.scrollIntoViewIfNeeded();
+      await leakBtn.waitFor({ state: 'visible', timeout: 15000 });
+      check(`${tag}: "Ask why this step loses people" is a visible <button type="button">`, (await leakBtn.getAttribute('type')) === 'button');
+      sawText('Ask why this step loses people');
+      await leakBtn.click();
+      await panel.waitFor({ state: 'visible' });
+      await page.waitForFunction(() => (document.querySelector('.jv-assistant-panel textarea') || {}).value, null, { timeout: 8000 }).catch(() => {});
+      const text2 = await input.inputValue();
+      check(`${tag}: the box holds a question naming the step: "${text2}"`, text2 === 'Why does Client Intake Form lose people in this journey?', text2);
+      sawText(text2);
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: path.join(shots, `ask-leak-${viewport.width}.png`) });
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.querySelectorAll('.jv-assistant-panel [role="log"] *').length > 0 && [...document.querySelectorAll('.jv-assistant-panel [role="log"] p, .jv-assistant-panel [role="log"] div')].filter(e => e.children.length === 0 && e.textContent === 'Your leads are in the funnel report.').length >= 2, null, { timeout: 8000 });
+      asked = calls.filter(c => c.key === 'POST /api/ai/assistant/ask').at(-1);
+      check(`${tag}: that ask carried the leaking step`, asked?.body?.screen?.step?.name === 'Client Intake Form' && asked?.body?.screen?.view === 'attribution', JSON.stringify(asked?.body?.screen));
+      // The step is for that one question: the next ask goes back to the mount's own reading.
+      await input.fill('And what else?');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => [...document.querySelectorAll('.jv-assistant-panel [role="log"] *')].filter(e => e.children.length === 0 && e.textContent === 'Your leads are in the funnel report.').length >= 3, null, { timeout: 8000 });
+      asked = calls.filter(c => c.key === 'POST /api/ai/assistant/ask').at(-1);
+      check(`${tag}: the next ask no longer names the step`, asked?.body?.message === 'And what else?' && !asked?.body?.screen?.step, JSON.stringify(asked?.body));
+      check(`${tag}: no console error`, consoleErrors.length === 0, consoleErrors.join(' | '));
+    } catch (err) {
+      findings.push(`${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+      say(`  FAIL ${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+      await page.screenshot({ path: path.join(shots, `failed-${tag.replace(/[^a-z0-9]+/gi, '-')}.png`) }).catch(() => {});
+    } finally { await context.close(); }
+  }
+
+  // (c) Signed out: the button opens the panel on its sign-in line, with no box to fill. Unmounted: no button.
+  {
+    const tag = 'ask about this, assistant not mounted';
+    say(tag);
+    const { stub, refusals } = stubFor();
+    const { context, page } = await openPage(browser, { origin, viewport: { width: 1440, height: 900 }, path: '/__assistant-harness.html?mount=attribution&view=attribution&journeyId=j-1&noAsk=1', stub, scriptedRefusals: refusals });
+    try {
+      await page.getByText('Export CSV').first().waitFor({ state: 'visible', timeout: 15000 });
+      await page.waitForTimeout(800);
+      check(`${tag}: the toolbar is drawn but has no "Ask about these numbers"`, (await page.getByRole('button', { name: 'Ask about these numbers' }).count()) === 0);
+      check(`${tag}: and the leak finder has no "Ask why this step loses people"`, (await page.getByRole('button', { name: 'Ask why this step loses people' }).count()) === 0);
+      check(`${tag}: <html> carries no ready mark`, !(await page.evaluate(() => document.documentElement.hasAttribute('data-jv-ask-ready'))));
+    } catch (err) {
+      findings.push(`${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+      say(`  FAIL ${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+    } finally { await context.close(); }
+  }
+  {
+    const tag = 'ask about this signed out';
+    say(tag);
+    const { stub, calls, refusals } = stubFor();
+    const { context, page } = await openPage(browser, { origin, viewport: { width: 1440, height: 900 }, path: '/__assistant-harness.html?mount=attribution&view=attribution&journeyId=j-1&signedOut=1', stub, scriptedRefusals: refusals });
+    try {
+      const numbers = page.getByRole('button', { name: 'Ask about these numbers', exact: true });
+      await numbers.waitFor({ state: 'visible', timeout: 15000 });
+      await numbers.click();
+      const panel = page.locator('.jv-assistant-panel');
+      await panel.waitFor({ state: 'visible' });
+      check(`${tag}: the panel opens on "${COPY['signedOut.line']}"`, await panel.getByText(COPY['signedOut.line'], { exact: true }).isVisible());
+      check(`${tag}: there is no question box`, (await panel.getByLabel(COPY['input.label']).count()) === 0);
+      check(`${tag}: nothing was sent to the assistant`, calls.filter(c => c.key.includes('/api/ai/assistant/')).length === 0, JSON.stringify(calls.map(c => c.key)));
+    } catch (err) {
+      findings.push(`${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+      say(`  FAIL ${tag}: could not run (${String(err?.message || err).split('\n')[0]})`);
+    } finally { await context.close(); }
+  }
+}
+
 function chunkChecks(outDir) {
   const assets = path.join(outDir, 'assets');
   const js = fs.readdirSync(assets).filter(f => f.endsWith('.js'));
@@ -709,6 +893,7 @@ async function main(cleanup) {
   await smallScreens(browser, origin, shots);
   await withCanvas(browser, origin, DEFAULT_LEAD_CAPTURE_PROJECT);
   await harness(browser, harnessOrigin, shots);
+  await screens(browser, harnessOrigin, shots);
 
   say('');
   say(`Assertions: ${asserted}. Findings: ${findings.length}.`);

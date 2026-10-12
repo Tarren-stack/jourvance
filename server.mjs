@@ -415,6 +415,7 @@ setupAiJourneyRoutes(app, { requireUser, hub, hubReady, aiBudgetLeft, aiBudgetRe
 // here would be a TDZ ReferenceError at boot. The functions below are hoisted declarations.
 setupAiAssistantRoutes(app, {
   requireUser,
+  requireOperator,
   hub,
   hubReady,
   hubAppId: process.env.APP_ID || 'jourvance',

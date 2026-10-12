@@ -9,9 +9,10 @@ import {
   limitText,
   notesOutcome,
   readAskOutcome,
-  readThread
+  readThread,
+  suggestionKeys
 } from '../../lib/assistant';
-import type { AssistantMessage } from '../../lib/assistant';
+import type { AssistantMessage, AssistantScreen } from '../../lib/assistant';
 import { FOCUSABLE_SELECTOR, nextTrapIndex } from '../../lib/a11y';
 import { ask, clearThread, fetchThread, saveNotes, sendFeedback } from '../../lib/assistantClient';
 
@@ -22,6 +23,12 @@ interface Props {
   onClose: () => void;
   onOpenAuth: () => void;
   onAnswer: () => void;
+  /** The screen the person is on, sent with the thread and every question. */
+  screen: AssistantScreen;
+  /** A question another screen handed over ("Ask about this"): n counts the hand-overs. */
+  prefill: { n: number; text: string };
+  /** Said once a question has gone, so a screen that was only for that question is let go. */
+  onAsked: () => void;
 }
 
 type Problem =
@@ -31,13 +38,12 @@ type Problem =
 
 type NotesLine = { tone: 'ok' | 'warn' | 'bad'; text: string } | null;
 
-const SUGGESTIONS = ['suggest.numbers', 'suggest.email', 'suggest.howto'] as const;
 const fmt = (n: number) => n.toLocaleString('en-US');
 const countText = (n: number, max: number) =>
   PANEL_EXTRA['count.template'].replace('{n}', fmt(n)).replace('{max}', fmt(max));
 
 /** The Ask Jourvance panel. Look and place are the .jv-assistant-* rules in index.css; palette C is AiJourneyBuilder's. */
-export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, onOpenAuth, onAnswer }) => {
+export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, onOpenAuth, onAnswer, screen, prefill, onAsked }) => {
   const base = useId().replace(/[^A-Za-z0-9_-]/g, '');
   const titleId = `jv-assistant-title-${base}`;
   const inputId = `jv-assistant-input-${base}`;
@@ -109,6 +115,18 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
     if (loaded) setSettled(true);
   }, [loaded]);
 
+  // "Ask about this": the question lands in the box and the box takes focus. Nothing is sent. Signed
+  // out there is no box, so the panel simply stays open on its sign-in line.
+  const prefillSeen = useRef(0);
+  useEffect(() => {
+    if (!prefill.n || !prefill.text || prefill.n === prefillSeen.current || !open) return;
+    if (!signedIn) { prefillSeen.current = prefill.n; return; }
+    if (!loaded || unavailable) return;
+    prefillSeen.current = prefill.n;
+    setInput(prefill.text);
+    window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
+  }, [prefill, open, signedIn, loaded, unavailable]);
+
   // A pending clear confirm never outlives the panel being open.
   useEffect(() => {
     if (!open) setConfirmClear(false);
@@ -120,7 +138,7 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
     started.current = true;
     const controller = new AbortController();
     abortRef.current = controller;
-    void fetchThread(controller.signal).then(answer => {
+    void fetchThread(screen, controller.signal).then(answer => {
       if (!mounted.current) return;
       const thread = readThread(answer?.body);
       setMessages(thread.messages);
@@ -181,10 +199,11 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
     setProblem(null);
     setClearLine('');
     setBusy(true);
+    onAsked();
     nearBottom.current = true;
     const controller = new AbortController();
     abortRef.current = controller;
-    const outcome = readAskOutcome(await ask(question, controller.signal));
+    const outcome = readAskOutcome(await ask(question, screen, controller.signal));
     if (!mounted.current) return;
     setBusy(false);
     if (outcome.kind === 'answer') {
@@ -420,7 +439,7 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
               <div className="jv-assistant-empty">
                 <p className="jv-assistant-text">{PANEL_COPY['panel.intro']}</p>
                 <div className="jv-assistant-suggest">
-                  {SUGGESTIONS.map(key => (
+                  {suggestionKeys(screen.view).map(key => (
                     <button
                       key={key}
                       type="button"

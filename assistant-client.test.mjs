@@ -15,7 +15,13 @@ import {
   feedbackLine,
   focusTargetOnOpen,
   limitText,
-  waitWords
+  waitWords,
+  screenFor,
+  suggestionKeys,
+  SCREEN_TEXT_MAX,
+  ASK_EVENT,
+  ASK_READY_ATTR,
+  askAssistantReady
 } from './src/lib/assistant.ts';
 
 const answerBody = { success: true, source: 'hub-brain', answer: { id: 'a1', role: 'assistant', text: 'Open the journey, then Publish.', at: '2026-10-11T10:00:00Z', grounding: 'app' } };
@@ -148,4 +154,61 @@ test('waitWords says the same words as the server\'s limitMessage for every wait
   for (const seconds of [1, 59, 60, 61, 119, 120, 720, 3540, 3541, 3600]) {
     assert.ok(limitMessage(seconds).endsWith(`Try again in ${waitWords(seconds)}.`), String(seconds));
   }
+});
+
+test('screenFor: an unknown or missing view is public, and public carries no journey', () => {
+  for (const view of [undefined, null, 'home', 42, '', 'Canvas', {}]) assert.deepEqual(screenFor({ view, journeyId: 'j1', journeyName: 'N', step: { kind: 'page', name: 'P' } }), { view: 'public' }, String(view));
+  assert.deepEqual(screenFor(undefined), { view: 'public' });
+  assert.deepEqual(screenFor(null), { view: 'public' });
+  assert.deepEqual(screenFor({ view: 'public', journeyId: 'j1' }), { view: 'public' });
+});
+
+test('screenFor: the three app views keep the journey and the step', () => {
+  for (const view of ['canvas', 'email-studio', 'attribution']) {
+    assert.deepEqual(screenFor({ view, journeyId: 'j1', journeyName: 'Spring launch', step: { kind: 'page', name: 'Landing' } }), { view, journeyId: 'j1', journeyName: 'Spring launch', step: { kind: 'page', name: 'Landing' } }, view);
+  }
+});
+
+test('screenFor: every string is trimmed and cut at 120, and no half surrogate is left', () => {
+  assert.equal(SCREEN_TEXT_MAX, 120);
+  const long = 'x'.repeat(300);
+  const s = screenFor({ view: 'canvas', journeyId: long, journeyName: '  ' + long, step: { kind: long, name: long } });
+  for (const v of [s.journeyId, s.journeyName, s.step.kind, s.step.name]) assert.equal(v.length, 120);
+  const emoji = 'a'.repeat(119) + '\u{1F600}';
+  const cut = screenFor({ view: 'canvas', journeyName: emoji }).journeyName;
+  assert.equal(cut, 'a'.repeat(119));
+  assert.ok(!/[\uD800-\uDBFF]$/.test(cut));
+});
+
+test('screenFor: an empty or non-string id or name is left out, and a missing step is dropped', () => {
+  assert.deepEqual(screenFor({ view: 'canvas', journeyId: '', journeyName: '   ' }), { view: 'canvas' });
+  assert.deepEqual(screenFor({ view: 'canvas', journeyId: 7, journeyName: {} }), { view: 'canvas' });
+  for (const step of [undefined, null, 'page', {}, { kind: '', name: ' ' }, { kind: 3, name: null }]) {
+    assert.ok(!('step' in screenFor({ view: 'canvas', step })), JSON.stringify(step));
+  }
+  assert.deepEqual(screenFor({ view: 'canvas', step: { kind: 'page' } }).step, { kind: 'page', name: '' });
+});
+
+test('suggestionKeys: three rows per view, all in the copy table, different between views, unknown reads as public', () => {
+  const seen = new Set();
+  for (const view of ['canvas', 'email-studio', 'attribution', 'public']) {
+    const keys = suggestionKeys(view);
+    assert.equal(keys.length, 3, view);
+    for (const k of keys) {
+      assert.equal(typeof PANEL_COPY[k], 'string', k);
+      assert.ok(PANEL_COPY[k].length > 10, k);
+      assert.ok(!seen.has(k), `${k} is used by two views`);
+      seen.add(k);
+    }
+  }
+  assert.deepEqual(suggestionKeys('canvas'), ['suggest.canvas.1', 'suggest.canvas.2', 'suggest.canvas.3']);
+  assert.deepEqual(suggestionKeys('email-studio'), ['suggest.email.1', 'suggest.email.2', 'suggest.email.3']);
+  assert.deepEqual(suggestionKeys('nowhere'), suggestionKeys('public'));
+  assert.deepEqual(suggestionKeys(undefined), suggestionKeys('public'));
+});
+
+test('the ask event and the ready attribute have the names the senders and the listener share', () => {
+  assert.equal(ASK_EVENT, 'jv-ask');
+  assert.equal(ASK_READY_ATTR, 'data-jv-ask-ready');
+  assert.equal(askAssistantReady(), false, 'no document here, so not ready');
 });

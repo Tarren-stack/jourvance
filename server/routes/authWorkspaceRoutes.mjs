@@ -18,6 +18,9 @@ import { batchGetAll } from '../../hub-storage.mjs';
 // enforced in code at the route boundary, because a model reintroduces em dashes however the
 // prompt is worded.
 import { cleanModelStrings } from './aiJourneyRoutes.mjs';
+// One AI call helper for every route (ASK_JOURVANCE_PLAN.md W2.S S1): bounded, account-scoped with
+// the app-grounding fallback, and the shared CONTEXT rule for the system text.
+import { brainChat, CONTEXT_RULE } from '../aiCall.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,6 +75,10 @@ export async function verifyIdToken(token) {
     header = JSON.parse(b64url(parts[0]).toString('utf8'));
     payload = JSON.parse(b64url(parts[1]).toString('utf8'));
   } catch { return null; }
+  // A part that decodes to null, a number, a string or an array is not a token. Reading a field of
+  // null threw outside the try, so requireUser and requireOperator never answered.
+  const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  if (!isObject(header) || !isObject(payload)) return null;
   if (header.alg !== 'RS256' || !header.kid) return null;
 
   let certs;
@@ -384,6 +391,13 @@ export function templateCopy(nodeType, offerHeadline) {
   };
 }
 
+/** The system text for /api/ai/copy: the shared CONTEXT rule, and the copy rules in the prompt. */
+export const COPY_SYSTEM = [
+  'You write short marketing copy for one step of a customer journey.',
+  CONTEXT_RULE,
+  'Never invent prices, discounts, guarantees, reviews, ratings, customer counts or results.'
+].join('\n');
+
 const AI_COPY_PER_HOUR = Number(process.env.AI_COPY_PER_HOUR) || 30;
 const aiCopyCalls = new Map();
 export function aiBudgetLeft(uid) {
@@ -470,8 +484,9 @@ export function setupAuthWorkspaceRoutes(app, ctx) {
           `Write high-converting ${kind} copy for a ${businessType || 'business'} whose offer is "${offerHeadline || 'their offer'}". ` +
           `Goal: ${goal || 'capture leads'}. Concise, punchy, conversion-focused. Plain sentences, no em dashes or spaced en dashes. ` +
           `Reply with JSON only, exactly these keys: ${fields.join(', ')}.`;
-        const answer = await hub.brain.chat(prompt, { json: true });
-        if (answer?.success && typeof answer.text === 'string') {
+        // A refusal, a timeout or an unreadable answer falls back to the template below, labelled so.
+        const answer = await brainChat({ hub, hubReady, uid: req.user.uid, prompt, system: COPY_SYSTEM, json: true, label: 'The AI copy call' });
+        if (answer.ok) {
           const cleanJson = answer.text
             .trim()
             .replace(/^\`\`\`(?:json)?\s*/i, '')

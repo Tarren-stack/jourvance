@@ -1,0 +1,319 @@
+{
+  "version": 1,
+  "note": "Golden questions for Ask Jourvance. expectSections are guide headings guideSectionsFor must pick (a subset); expectFacts are FACTS keys that must be present in the pack.",
+  "questions": [
+    {
+      "id": "num-leads-30d",
+      "question": "How many leads did I get in the last 30 days?",
+      "expectSections": [
+        "Attribution reports"
+      ],
+      "expectFacts": [
+        "last30Days"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-orders-named",
+      "question": "How many orders did Spring Glaze Sale bring in this month?",
+      "expectSections": [],
+      "expectFacts": [
+        "journeys",
+        "last30Days"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-revenue",
+      "question": "How much revenue did my funnels make this month?",
+      "expectSections": [],
+      "expectFacts": [
+        "last30Days"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-visits",
+      "question": "How many people visited my pages in the last 30 days?",
+      "expectSections": [
+        "Attribution reports"
+      ],
+      "expectFacts": [
+        "last30Days"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-emails-sent-opened",
+      "question": "How many emails have I sent and how many were opened?",
+      "expectSections": [
+        "Email Studio"
+      ],
+      "expectFacts": [
+        "email"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-contacts",
+      "question": "How many contacts do I have?",
+      "expectSections": [
+        "Email Studio"
+      ],
+      "expectFacts": [
+        "email"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-best-journey",
+      "question": "Which of my journeys is getting the most leads?",
+      "expectSections": [
+        "Attribution reports"
+      ],
+      "expectFacts": [
+        "journeys",
+        "last30Days"
+      ],
+      "expectScreenName": true
+    },
+    {
+      "id": "num-store-plan",
+      "question": "What is my Shopify store called and which plan am I on?",
+      "expectSections": [
+        "Shopify connect and sync",
+        "Billing (Starter and Pro)"
+      ],
+      "expectFacts": [
+        "business"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-published",
+      "question": "Is my Spring Glaze Sale journey published?",
+      "expectSections": [
+        "Publish and custom domains"
+      ],
+      "expectFacts": [
+        "journeys"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-unsubscribed",
+      "question": "How many people unsubscribed from my emails?",
+      "expectSections": [
+        "Email Studio"
+      ],
+      "expectFacts": [
+        "email"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-email-revenue",
+      "question": "How much revenue did my emails bring in?",
+      "expectSections": [
+        "Email Studio"
+      ],
+      "expectFacts": [
+        "email"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-steps-count",
+      "question": "How many steps does Summer Class Waitlist have?",
+      "expectSections": [
+        "Journey canvas and steps"
+      ],
+      "expectFacts": [
+        "journeys"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "num-email-clicks",
+      "question": "How many clicks did my emails get?",
+      "expectSections": [
+        "Email Studio"
+      ],
+      "expectFacts": [
+        "email"
+      ],
+      "expectScreenName": false
+    },
+    {
+      "id": "use-publish",
+      "question": "How do I publish my funnel page?",
+      "expectSections": [
+        "Publish and custom domains"
+      ],
+      "expectFacts": [],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-domain",
+      "question": "How do I connect a custom domain to my page?",
+      "expectSections": [
+        "Publish and custom domains"
+      ],
+      "expectFacts": [],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-shopify",
+      "question": "How do I connect my Shopify store?",
+      "expectSections": [
+        "Shopify connect and sync"
+      ],
+      "expectFacts": [
+        "business"
+      ],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-flow",
+      "question": "How do I set up a welcome email flow?",
+      "expectSections": [
+        "Email Studio"
+      ],
+      "expectFacts": [],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-broadcast",
+      "question": "How do I send a broadcast to my contacts?",
+      "expectSections": [
+        "Email Studio"
+      ],
+      "expectFacts": [
+        "email"
+      ],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-blueprint",
+      "question": "What is a blueprint and how do I save mine?",
+      "expectSections": [
+        "Blueprints and the library"
+      ],
+      "expectFacts": [],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-draft-ai",
+      "question": "How do I draft my journey with AI?",
+      "expectSections": [
+        "Draft with AI and the hourly limit"
+      ],
+      "expectFacts": [],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-ai-limit",
+      "question": "Why does it say I hit the hourly AI limit?",
+      "expectSections": [
+        "Draft with AI and the hourly limit"
+      ],
+      "expectFacts": [],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-billing",
+      "question": "What does Pro cost and how do I upgrade?",
+      "expectSections": [
+        "Billing (Starter and Pro)"
+      ],
+      "expectFacts": [
+        "business"
+      ],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-workspace",
+      "question": "How do I switch to another workspace?",
+      "expectSections": [
+        "Account and workspaces"
+      ],
+      "expectFacts": [
+        "business"
+      ],
+      "expectScreenName": true
+    },
+    {
+      "id": "use-ab-split",
+      "question": "What does the A/B splitter do?",
+      "expectSections": [
+        "Journey canvas and steps"
+      ],
+      "expectFacts": [],
+      "expectScreenName": true
+    },
+    {
+      "id": "out-ad-spend",
+      "question": "How much did I spend on Facebook ads this month?",
+      "expectSections": [
+        "Attribution reports",
+        "What Jourvance does not do"
+      ],
+      "expectFacts": [
+        "last30Days"
+      ],
+      "expectScreenName": true,
+      "mustNotClaim": "ad spend"
+    },
+    {
+      "id": "out-cancel",
+      "question": "Where is the cancel button for my subscription?",
+      "expectSections": [
+        "Billing (Starter and Pro)",
+        "What Jourvance does not do"
+      ],
+      "expectFacts": [
+        "business"
+      ],
+      "expectScreenName": true,
+      "mustNotClaim": "cancel button"
+    },
+    {
+      "id": "out-refund",
+      "question": "Can you refund my last charge?",
+      "expectSections": [],
+      "expectFacts": [],
+      "expectScreenName": false,
+      "mustNotClaim": "refund"
+    },
+    {
+      "id": "out-competitor",
+      "question": "Is Jourvance better than ClickFunnels?",
+      "expectSections": [],
+      "expectFacts": [],
+      "expectScreenName": false,
+      "mustNotClaim": "better than"
+    },
+    {
+      "id": "out-edit-journey",
+      "question": "Please change the headline on my landing page to Spring Sale.",
+      "expectSections": [
+        "Journey canvas and steps"
+      ],
+      "expectFacts": [
+        "journeys"
+      ],
+      "expectScreenName": true,
+      "mustNotClaim": "changed the headline"
+    },
+    {
+      "id": "out-sms",
+      "question": "Does Jourvance send text messages to my customers?",
+      "expectSections": [
+        "What Jourvance does not do"
+      ],
+      "expectFacts": [],
+      "expectScreenName": true,
+      "mustNotClaim": "sends text messages"
+    }
+  ]
+}

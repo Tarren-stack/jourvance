@@ -84,7 +84,7 @@ async function serve({ hubReady = true, brain, budget = true, hub, retryAfter } 
   };
   const close = () => new Promise(r => { server.closeAllConnections?.(); server.close(() => r()); });
   open.add(close);
-  return { post, calls, close: () => { open.delete(close); return close(); } };
+  return { post, calls, url, close: () => { open.delete(close); return close(); } };
 }
 
 // A failed assertion skips a test's own close, and an open server would keep the run alive.
@@ -362,4 +362,53 @@ test('the route file carries no em dash or spaced en dash', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('./server/routes/aiJourneyRoutes.mjs', import.meta.url), 'utf8');
   assert.ok(!src.includes(EM) && !src.includes(EN));
+});
+
+// ---- W2.S S1: both routes go through brainChat (server/aiCall.mjs) ----
+
+test('journey-plan and builder-rewrite name the signed-in user as the account, and on the account refusal ask once more without it', async () => {
+  const { resetAccountRefusalForTest, ACCOUNT_REFUSAL, CONTEXT_RULE } = await import('./server/aiCall.mjs');
+  resetAccountRefusalForTest();
+  try {
+    let refuse = false;
+    const plan = JSON.stringify(filledPlan(BRIEF));
+    const s = await serve({
+      brain: (prompt, opts) => {
+        if (refuse && Object.hasOwn(opts, 'accountId')) return { error: ACCOUNT_REFUSAL, status: 403 };
+        return { success: true, text: prompt.startsWith('Rewrite') ? '{"text":"Clay, made simple"}' : plan };
+      }
+    });
+    const r = await s.post(BRIEF);
+    assert.equal(r.status, 200);
+    assert.equal(s.calls.brain.length, 1);
+    assert.equal(s.calls.brain[0].opts.accountId, 'u1', 'the draft names the user as the account');
+    assert.ok(s.calls.brain[0].opts.system.includes(CONTEXT_RULE));
+
+    const rewriteUrl = s.url.replace('/api/ai/journey-plan', '/api/ai/builder-rewrite');
+    const rewrite = async () => {
+      const res = await fetch(rewriteUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer t' }, body: JSON.stringify({ kind: 'heading', text: 'Clay' }) });
+      return { status: res.status, body: await res.json() };
+    };
+    let w = await rewrite();
+    assert.equal(w.status, 200);
+    assert.equal(s.calls.brain[1].opts.accountId, 'u1', 'the rewrite names the user as the account');
+    assert.ok(s.calls.brain[1].opts.system.includes(CONTEXT_RULE));
+
+    // The hub that cannot read a partition yet: one retry without the account, and the answer stands.
+    refuse = true;
+    const before = s.calls.brain.length;
+    const refused = await quiet(() => s.post(BRIEF));
+    assert.equal(refused.status, 200);
+    assert.equal(refused.body.source, 'hub-brain');
+    assert.equal(s.calls.brain.length, before + 2, 'exactly one retry');
+    assert.ok(!Object.hasOwn(s.calls.brain[before + 1].opts, 'accountId'));
+    // Remembered for the process: the rewrite asks without the account at once.
+    w = await rewrite();
+    assert.equal(w.status, 200);
+    assert.equal(s.calls.brain.length, before + 3);
+    assert.ok(!Object.hasOwn(s.calls.brain[before + 2].opts, 'accountId'));
+    await s.close();
+  } finally {
+    resetAccountRefusalForTest();
+  }
 });

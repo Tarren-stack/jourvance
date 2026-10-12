@@ -12,6 +12,8 @@ const entry = read('./src/components/assistant/AskJourvance.tsx');
 const lib = read('./src/lib/assistant.ts');
 const css = read('./src/index.css');
 const app = read('./src/App.tsx');
+const leak = read('./src/components/analytics/JourneyLeakFinder.tsx');
+const attribution = read('./src/components/analytics/AttributionReports.tsx');
 const copy = read('./docs/assistant/panel-copy.md');
 const components = { 'AssistantBubble.tsx': bubble, 'AssistantPanel.tsx': panel, 'AskJourvance.tsx': entry };
 const all = bubble + panel + entry;
@@ -48,11 +50,12 @@ test('stacking is 25 on both, never 45', () => {
 });
 
 test('every Text cell of panel-copy.md appears verbatim in src/lib/assistant.ts', () => {
-  const cells = copy.split('\n').filter(l => /^\| [A-Za-z]+\.[A-Za-z]+ \|/.test(l)).map(l => {
+  const cells = copy.split('\n').filter(l => /^\| [A-Za-z0-9.]+\.[A-Za-z0-9]+ \|/.test(l)).map(l => {
     const m = l.match(/^\| (\S+) \| (.*) \|$/);
     return { key: m[1], text: m[2] };
   });
-  assert.ok(cells.length >= 37, 'the table has at least its 37 rows');
+  assert.ok(cells.length >= 46, 'the table has at least its 46 rows (37 plus the 12 per-view suggestions, less the 3 retired)');
+  assert.equal(cells.filter(c => /^suggest\.(canvas|email|attribution|public)\.[123]$/.test(c.key)).length, 12, 'twelve per-view suggestion rows');
   for (const { key, text } of cells) {
     assert.ok(lib.includes(`'${key}': '${text.replace(/'/g, "\\'")}'`), `${key} is verbatim in assistant.ts`);
   }
@@ -175,4 +178,54 @@ test('App.tsx lazy-imports and mounts it exactly once each, inside the floating 
   assert.ok(boundary > 0 && mount > boundary && mount < close);
   assert.ok(app.includes('onOpenAuth={() => setShowAuthModal(true)}'));
   assert.ok(app.includes('businessType={project.businessType}'));
+});
+
+test('the per-view suggestion rows carry no em dash, no spaced en dash and no exclamation mark', () => {
+  const rows = copy.split('\n').filter(l => /^\| suggest\.[a-z]+\.[123] \|/.test(l));
+  assert.equal(rows.length, 12);
+  for (const r of rows) assert.ok(!/[\u2014!]|\s\u2013\s/.test(r), r);
+  assert.ok(!/suggest\.(numbers|howto)\b|suggest\.email \|/.test(copy), 'the old three rows are retired');
+  assert.ok(!panel.includes("'suggest.numbers'"));
+});
+
+test('"Ask about this": the listener and both senders use the one event constant, and no one spells the name out', () => {
+  assert.ok(entry.includes('window.addEventListener(ASK_EVENT, onAsk)'));
+  assert.ok(entry.includes('window.removeEventListener(ASK_EVENT, onAsk)'));
+  assert.ok(lib.includes("export const ASK_EVENT = 'jv-ask'"));
+  assert.ok(lib.includes('new CustomEvent<AskEventDetail>(ASK_EVENT,'));
+  assert.ok(leak.includes('askAssistant(') && leak.includes("from '../../lib/assistant'"));
+  assert.ok(attribution.includes('askAssistant(') && attribution.includes("from '../../lib/assistant'"));
+  for (const [name, src] of [['AskJourvance', entry], ['Leak', leak], ['Attribution', attribution]]) assert.ok(!src.includes("'jv-ask'"), name);
+});
+
+test('both Ask buttons are real <button type="button"> with visible text, and show only while the assistant is mounted', () => {
+  for (const [name, src, text] of [['leak finder', leak, 'Ask why this step loses people'], ['attribution', attribution, 'Ask about these numbers']]) {
+    const at = src.indexOf('askAssistant(');
+    assert.ok(at > 0, name);
+    const open = src.lastIndexOf('<button', at);
+    assert.ok(/<button\s+type="button"/.test(src.slice(open, open + 40)), `${name}: type="button"`);
+    const end = src.indexOf('</button>', at);
+    assert.ok(src.slice(at, end).includes('\n' ) && new RegExp('>\\s*' + text + '\\s*<').test(src.slice(at, end + 9)), `${name}: visible text "${text}"`);
+    assert.ok(!/aria-label=/.test(src.slice(open, end)), `${name}: the name is the visible text`);
+    assert.ok(src.includes('useAskReady()') && /askReady\s*&&/.test(src), `${name}: hidden while the assistant is not mounted`);
+  }
+  assert.ok(entry.includes('root.setAttribute(ASK_READY_ATTR') && entry.includes('root.removeAttribute(ASK_READY_ATTR)'), 'set on mount, removed on unmount');
+});
+
+test('App.tsx hands the mount the view, the journey and the selected step, and mounts it once', () => {
+  assert.equal((app.match(/<AskJourvance\b/g) || []).length, 1);
+  const mount = app.slice(app.indexOf('<AskJourvance'), app.indexOf('/>', app.indexOf('<AskJourvance')));
+  for (const prop of ["view={activePage === 'canvas' ? activeView : 'public'}", 'journeyId={project.id}', 'journeyName={project.name}', 'stepKind=', 'stepName=']) assert.ok(mount.includes(prop), prop);
+  assert.ok(mount.includes('selectedNode?.type') && mount.includes('.label'));
+});
+
+test('the panel sends the screen with the thread and the question, and the question box takes the hand-over without sending', () => {
+  assert.ok(panel.includes('fetchThread(screen, controller.signal)'));
+  assert.ok(panel.includes('ask(question, screen, controller.signal)'));
+  assert.ok(panel.includes('suggestionKeys(screen.view)'));
+  const effect = panel.slice(panel.indexOf('prefillSeen'), panel.indexOf('prefillSeen') + 900);
+  assert.ok(effect.includes('setInput(prefill.text)') && !/\bsend\(/.test(effect), 'it fills the box and sends nothing');
+  const client = fs.readFileSync(new URL('./src/lib/assistantClient.ts', import.meta.url), 'utf8');
+  assert.ok(client.includes("{ message, ...(screen ? { screen } : {}) }"));
+  assert.ok(client.includes('?screen=${encodeURIComponent(JSON.stringify(screen))}'));
 });
