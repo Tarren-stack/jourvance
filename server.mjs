@@ -101,6 +101,7 @@ import { setupJourneyListRoutes } from './server/routes/journeyListRoutes.mjs';
 import { listJourneyDocs, summarizeJourney } from './server/journeyList.mjs';
 import { setupAnalyticsRoutes } from './server/routes/analyticsRoutes.mjs';
 import { setupAiJourneyRoutes } from './server/routes/aiJourneyRoutes.mjs';
+import { setupAiAssistantRoutes } from './server/routes/aiAssistantRoutes.mjs';
 import { setupBillingRoutes, billingAccounts, planName } from './server/billing.mjs';
 import {
   setupAuthWorkspaceRoutes,
@@ -110,6 +111,7 @@ import {
   requireOperator,
   verifyIdToken,
   listWorkspaces,
+  listWorkspacesDetailed,
   loadWorkspace,
   saveWorkspace,
   presentWorkspace,
@@ -408,6 +410,24 @@ setupAuthWorkspaceRoutes(app, {
 // POST /api/ai/journey-plan (#25): one AI draft of a journey's copy. Signed-in only, and it
 // draws on the same per-user hourly budget as /api/ai/copy above. No template fallback.
 setupAiJourneyRoutes(app, { requireUser, hub, hubReady, aiBudgetLeft, aiBudgetRetryAfter });
+// Ask Jourvance (ASK_JOURVANCE_PLAN.md section 3): /api/ai/assistant/*, on its own hourly budget.
+// publicPageCache is a const declared further down, so it is handed over as a getter: reading it
+// here would be a TDZ ReferenceError at boot. The functions below are hoisted declarations.
+setupAiAssistantRoutes(app, {
+  requireUser,
+  hub,
+  hubReady,
+  hubAppId: process.env.APP_ID || 'jourvance',
+  listWorkspacesDetailed,
+  listJourneys,
+  loadEvents,
+  loadOrders,
+  contactsForUser,
+  messageStatsFor,
+  publicPageCache: () => publicPageCache,
+  guidePath: path.join(__dirname, 'docs/assistant/jourvance-guide.md'),
+  dataDir: __dirname
+});
 setupBillingRoutes(app, {
   requireUser,
   listWorkspaces,

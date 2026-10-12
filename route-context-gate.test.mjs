@@ -27,6 +27,8 @@ const ALLOWED_FREE = new Set([]);
 // meets fails too (the last test), so this list cannot hide a new miss or outlive its reason.
 const CTX_DEFAULTED = new Map([
   ['server/routes/journeyRoutes.mjs:now', 'destructured as `now = () => Date.now()`; tests hand in a fixed clock'],
+  ['server/routes/aiAssistantRoutes.mjs:now', 'destructured as `now = () => Date.now()`; tests hand in a fixed clock for the hour budget, the daily caps and the account-scope memory'],
+  ['server/routes/aiAssistantRoutes.mjs:timeouts', 'destructured as `timeouts = TIMEOUTS`; tests hand in short bounds so a hub call that never settles is seen to time out'],
   ['server/routes/analyticsRoutes.mjs:eventsKept', 'read as `Number(eventsKept) > 0 ? Number(eventsKept) : 20000` where the stats route uses it; tests hand in a small number']
 ]);
 const defaultedSeen = new Set();

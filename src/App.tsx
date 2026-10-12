@@ -69,6 +69,7 @@ const SaveBlueprintModal = lazy(() => import('./components/modals/SaveBlueprintM
 const JourneyLibraryDialog = lazy(() => import('./components/modals/JourneyLibraryDialog').then(m => ({ default: m.JourneyLibraryDialog })));
 const AiJourneyBuilder = lazy(() => import('./components/modals/AiJourneyBuilder').then(m => ({ default: m.AiJourneyBuilder })));
 const LaunchPlaybookModal = lazy(() => import('./components/modals/LaunchPlaybookModal').then(m => ({ default: m.LaunchPlaybookModal })));
+const AskJourvance = lazy(() => import('./components/assistant/AskJourvance'));
 
 const SuspenseLoader: React.FC<{ label?: string }> = ({ label = 'Loading studio...' }) => (
   <div style={{
@@ -1142,6 +1143,9 @@ export const App: React.FC = () => {
 
       {/* Lazy-Loaded Modals & Drawers, each in its own boundary (`each`): one whose file did not arrive leaves the others working. */}
       <ChunkBoundary floating each>
+        {/* Ask Jourvance: the assistant bubble and panel, on both shells */}
+        <AskJourvance user={user} onOpenAuth={() => setShowAuthModal(true)} businessType={project.businessType} />
+
         {/* Live Funnel Simulation Modal */}
         {showLiveModal && (
           <LiveFunnelModal

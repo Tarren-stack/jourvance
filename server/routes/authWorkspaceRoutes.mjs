@@ -261,7 +261,14 @@ export function workspaceByShopDomain(domain) {
   return null;
 }
 
-export async function listWorkspaces(uid) {
+/**
+ * The user's workspaces as { workspaces, complete, reason? }. complete is false whenever the hub is
+ * ready and its list or a batch read failed or answered an error: the answer is then this server's
+ * cached copy, and the default workspace is NOT created, because a placeholder made from a failed
+ * read was later taken as the account's real business (Ask Jourvance review, 2026-10-11).
+ */
+export async function listWorkspacesDetailed(uid) {
+  let reason = '';
   if (hubReady && hub?.store?.docs) {
     try {
       const listed = await hub.store.docs.list();
@@ -276,11 +283,16 @@ export async function listWorkspaces(uid) {
           const hubWs = byId.get(ws.id);
           if (!hubWs || String(ws.updatedAt || '') > String(hubWs.updatedAt || '')) byId.set(ws.id, sanitizeWorkspace(ws));
         }
-        if (byId.size) return [...byId.values()];
+        if (byId.size) return { workspaces: [...byId.values()], complete: true };
+      } else {
+        reason = String(listed?.error || 'The workspace list did not answer.');
       }
-    } catch {}
+    } catch (e) {
+      reason = String(e?.message || 'The workspace list did not answer.');
+    }
   }
   let userWs = Object.values(workspaceCache).filter(w => w.userId === uid).map(sanitizeWorkspace);
+  if (reason) return { workspaces: userWs, complete: false, reason };
   if (!userWs.length) {
     const defaultWs = {
       id: `ws-${Date.now().toString(36)}`,
@@ -298,7 +310,12 @@ export async function listWorkspaces(uid) {
     persistWorkspaces();
     userWs = [defaultWs];
   }
-  return userWs;
+  return { workspaces: userWs, complete: true };
+}
+
+/** The workspaces alone, for every caller that does not need to know whether the read was complete. */
+export async function listWorkspaces(uid) {
+  return (await listWorkspacesDetailed(uid)).workspaces;
 }
 
 export async function loadWorkspace(uid, wsId) {

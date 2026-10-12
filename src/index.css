@@ -809,3 +809,459 @@ button[data-person-row]:focus-visible {
   animation: none !important;
   transition: none !important;
 }
+
+/* Ask Jourvance (src/components/assistant): the bubble and its non-modal panel. Both sit at z-index
+   25 (set on the elements): above the map's floating tools (20), below the journey toolbar (30), the
+   header (31) and every modal, so their menus open over the panel. Palette C is AiJourneyBuilder's. */
+.jv-assistant-bubble {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 52px;
+  height: 52px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  /* Transparent, not none: forced colours paints it, so the bubble keeps an edge there. */
+  border: 2px solid transparent;
+  background: linear-gradient(135deg, #EC4899 0%, #8B5CF6 100%);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4);
+  cursor: pointer;
+  transition: box-shadow 150ms ease-out, transform 150ms ease-out;
+}
+
+.jv-assistant-bubble:hover {
+  box-shadow: 0 6px 22px rgba(236, 72, 153, 0.55);
+}
+
+.jv-assistant-bubble:active {
+  transform: scale(0.96);
+}
+
+.jv-assistant-bubble:focus-visible,
+.jv-assistant-panel :focus-visible {
+  outline: 2px solid #A5B4FC;
+  outline-offset: 2px;
+}
+
+.jv-assistant-bubble:focus-visible {
+  outline-offset: 3px;
+}
+
+.jv-assistant-dot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #FBBF24;
+  box-shadow: 0 0 0 2px #0F172A;
+}
+
+.jv-assistant-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.jv-assistant-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 84px;
+  width: 380px;
+  max-width: calc(100vw - 16px);
+  height: min(600px, calc(100dvh - 156px));
+  max-height: calc(100dvh - 120px);
+  display: flex;
+  flex-direction: column;
+  background: #0F172A;
+  color: #E2E8F0;
+  border: 1px solid #64748B;
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  animation: jvAssistantIn 160ms ease-out;
+}
+
+.jv-assistant-panel[hidden] {
+  display: none;
+}
+
+@keyframes jvAssistantIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.jv-assistant-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid #334155;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.jv-assistant-head-icon {
+  color: #C4B5FD;
+  flex: none;
+}
+
+.jv-assistant-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #F8FAFC;
+}
+
+.jv-assistant-head .jv-assistant-btn:not(.jv-assistant-icon-btn) {
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.jv-assistant-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jv-assistant-foot {
+  flex: none;
+  padding: 12px 16px 16px;
+  border-top: 1px solid #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jv-assistant-text {
+  margin: 0;
+  font-size: 14px;
+}
+
+.jv-assistant-help {
+  margin: 0;
+  font-size: 13px;
+  color: #94A3B8;
+}
+
+.jv-assistant-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #E2E8F0;
+}
+
+.jv-assistant-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #94A3B8;
+}
+
+.jv-assistant-warn-text {
+  font-size: 12px;
+  color: #FCA5A5;
+}
+
+.jv-assistant-btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  color: #E2E8F0;
+  border: 1px solid #64748B;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jv-assistant-btn[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.jv-assistant-head .jv-assistant-clear {
+  border-color: transparent;
+  color: #94A3B8;
+}
+
+.jv-assistant-confirm {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #334155;
+  background: #2A1215;
+}
+
+.jv-assistant-icon-btn {
+  padding: 0;
+  border-color: transparent;
+}
+
+.jv-assistant-primary {
+  background: #4F46E5;
+  border-color: #4F46E5;
+  color: #FFFFFF;
+}
+
+.jv-assistant-danger {
+  background: #2A1215;
+  border-color: #FCA5A5;
+  color: #FCA5A5;
+}
+
+.jv-assistant-field {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: #1E293B;
+  color: #F1F5F9;
+  border: 1px solid #64748B;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  resize: none;
+}
+
+.jv-assistant-field::placeholder {
+  color: #94A3B8;
+}
+
+.jv-assistant-input {
+  min-height: 44px;
+  max-height: 130px;
+}
+
+.jv-assistant-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.jv-assistant-send {
+  flex: none;
+}
+
+.jv-assistant-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.jv-assistant-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 0 12px;
+}
+
+.jv-assistant-notes[open] {
+  padding-bottom: 12px;
+}
+
+.jv-assistant-summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jv-assistant-summary::-webkit-details-marker {
+  display: none;
+}
+
+.jv-assistant-chev {
+  flex: none;
+  transition: transform 150ms ease-out;
+}
+
+.jv-assistant-notes[open] .jv-assistant-chev {
+  transform: rotate(90deg);
+}
+
+.jv-assistant-empty,
+.jv-assistant-log,
+.jv-assistant-suggest {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jv-assistant-suggest {
+  gap: 8px;
+}
+
+.jv-assistant-suggestion {
+  justify-content: flex-start;
+  text-align: left;
+  font-weight: 500;
+  padding: 8px 12px;
+}
+
+.jv-assistant-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jv-assistant-bubble-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  background: #1E293B;
+  border-radius: 10px;
+}
+
+.jv-assistant-msg--user {
+  align-items: flex-end;
+}
+
+.jv-assistant-msg--user .jv-assistant-bubble-text {
+  max-width: 85%;
+  background: #1B1833;
+  border-radius: 12px 12px 4px 12px;
+}
+
+.jv-assistant-feedback {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.jv-assistant-toggle[aria-pressed="true"] {
+  background: #1B1833;
+  border-color: #818CF8;
+  color: #C4B5FD;
+}
+
+.jv-assistant-busy {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #CBD5E1;
+}
+
+.jv-assistant-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #1E293B;
+  color: #E2E8F0;
+}
+
+.jv-assistant-line[hidden] {
+  display: none;
+}
+
+.jv-assistant-line--warn {
+  background: #1F1B0E;
+  color: #FBBF24;
+}
+
+.jv-assistant-line--bad {
+  background: #2A1215;
+  color: #FCA5A5;
+}
+
+.jv-assistant-line--ok {
+  color: #E2E8F0;
+}
+
+@media (max-width: 719px) {
+  .jv-assistant-bubble[data-sheet-open="true"] {
+    display: none;
+  }
+
+  .jv-assistant-panel {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    height: 70vh;
+    height: 70dvh;
+    max-height: calc(100dvh - 120px);
+    border-radius: 14px 14px 0 0;
+    border-bottom: none;
+    animation-duration: 200ms;
+    animation-name: jvAssistantSheetIn;
+  }
+
+  .jv-assistant-field {
+    font-size: 16px;
+  }
+}
+
+@keyframes jvAssistantSheetIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Signed out the panel is one sentence and a button, so it is only as tall as that. After the
+   sheet rule above, so it wins at every width. */
+.jv-assistant-panel[data-signed-out="true"] {
+  height: auto;
+}
+
+/* Below 720px the sheet covers the foot of the page: keep what is focused scrolled clear of it. */
+@media (max-width: 719px) {
+  html:has(.jv-assistant-panel:not([hidden])) {
+    scroll-padding-bottom: 72dvh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jv-assistant-panel,
+  .jv-assistant-bubble {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media print {
+  .jv-assistant-bubble,
+  .jv-assistant-panel {
+    display: none;
+  }
+}

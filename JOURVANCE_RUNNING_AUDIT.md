@@ -4,6 +4,67 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-09. DEPLOYED: jourvance.com serves 7678443 (the Email Studio rebuild, Waves 1 to 8, and the open list closed) per the Render API; the Sentinel, policy and lead probes answer as before. Read the newest section first.
 
+## 2026-10-11: Ask Jourvance, the assistant bubble, one sub-brain per user, and the flywheel
+
+**Limits first.** Not deployed; deployment was not checked. The hub side of this feature (a
+partition read on `/api/brain/query` and `/api/brain/chat`, with an exact shadow check) is
+VERIFIED in the hub repo but UNCOMMITTED there, because the hub's rule is to commit only when
+the owner asks; until it is committed and deployed, every `ask` that names the user as the
+account is refused by the live hub and the spoke falls back to app grounding (the thread answers
+`accountBrain.readable: false`). The live Vertex retrieval chain was not exercised anywhere (no
+credentials): what is pinned is the pure corpus-name derivation and the route wiring. No screen
+reader, no real phone keyboard, no Safari or Firefox. The 3 live-server tests stay skipped
+(`JOURVANCE_LIVE_TEST_URL` unset). `design-state.md` was not updated (it carries another pass's
+uncommitted work); the brief is self-contained. Three bottom-right overlaps are known and recorded
+in `ASK_JOURVANCE_PLAN.md` section 4.1, owner's call; `interactive-widget` on the viewport meta is
+a global follow-up. `listWorkspaces` no longer fabricates a default workspace when the hub list
+fails on a cold cache (it used to persist a phantom workspace during an outage); `/api/workspaces`
+answers an empty list for that user until the hub answers.
+
+**What shipped.** A floating bubble on both shells opens a non-modal panel (card from 720px,
+bottom sheet below) where a signed-in user asks about their business and about the app.
+Server: `server/routes/aiAssistantRoutes.mjs` (thread, ask, notes, feedback, clear), with the
+context pack, the business profile markdown, the hourly budget and the allowlist sharing rule in
+`server/assistantContext.mjs` and `server/assistantGuide.mjs`; `docs/assistant/jourvance-guide.md`
+is the guide the assistant answers app questions from (spoke-side slice by word overlap) and
+`assistant-guide.test.mjs` fails the build on any backticked label that is not in `src/components`.
+Each user's notes and business facts are written to their own hub corpus
+(`brain-biz-jourvance-<uid>`, free, replaced on change, hash-skipped, 10 a day). A Helpful rating
+shares ONLY the question, rebuilt from an allowlist of guide vocabulary with every other word
+replaced, digits as N and no quote characters, to `hub.brain.learn` under the app's own account:
+the hub copies 220 characters of it verbatim into the shared main corpus, so nothing a business
+would mind another tenant retrieving can reach it. The answer is never shared. The system text
+labels FACTS, NOTES (typed, not measured), GUIDE and the conversation as data and treats retrieved
+CONTEXT as untrusted. The contract is `ASK_JOURVANCE_PLAN.md`; the brief is
+`docs/designpowers/briefs/2026-10-11-ask-jourvance.md`; the copy is `docs/assistant/panel-copy.md`.
+
+**How it was built.** Planned and reviewed by the main session; built by Opus and Sonnet agents in
+waves (brief, guide and copy, server, hub, client, guide gate), then an adversary on the server, an
+adversary on the hub, a design critic and an accessibility reviewer, then a fix round. Findings
+fixed in the fix rounds: the denylist scrub leaked free text and a quoted instruction into the
+shared corpus (replaced by the allowlist rule); the hub's first partition read let app `aura`
+read `aura-redproof`'s partitions and legacy corpus by naming `redproof-...`, and the reverse
+(an exact shadow check over the registry, both directions, 403 with one sentence, 503 with
+Retry-After when the registry cannot be read); a hub outage defeated the names gate and pushed a
+placeholder business name over the user's hub profile (`listWorkspacesDetailed` answers
+`complete`); no deadline inside the route (bounded hub calls, lock released in finally); the
+desktop card ran under the studio header on a short viewport so Close was unreachable (card
+anchored at bottom 84px, max-height); the non-modal panel on the dialog stack stopped Escape in
+the step dock (panel off the stack; Tab trapped only in sheet mode); `maxLength` cut text
+silently; the whole history was announced on first open; a title with nowrap painted over Clear
+at 320. Every new test was seen red by a planted fault by its builder (DELEGATED; the plant tables
+are in the agents' reports, not re-run by me).
+
+**Verification by the main session, on the final tree (VERIFIED).**
+- `npx tsc --noEmit`: exit 0.
+- `node --test --test-timeout=20000 assistant-context.test.mjs assistant-scrub.test.mjs assistant-guide-slice.test.mjs assistant-route.test.mjs`: exit 0; 47 tests, 47 passed.
+- `node --test assistant-client.test.mjs assistant-ui.test.mjs assistant-guide.test.mjs`: 42 tests, 42 passed.
+- `npm test`: exit 0; 2,843 tests, 2,840 passed, 0 failed, 3 skipped (baseline before this work: 2,750 / 2,747 / 0 / 3).
+- `npm run build`: exit 0; a separate lazy chunk `AskJourvance-*.js` (20.64 kB).
+- `npm run check:assistant`: exit 0; 302 assertions, 0 findings, at 1440x900, 390x844, 844x390 and 320x568, signed-out on the real app and signed-in on a harness against a stubbed hub (Firebase sign-in cannot be faked, so the signed-in panel was never driven inside the real app).
+- Sandboxed boot of a copy of the tree (no `.env`, no data files, `HUB_API_KEY=` empty, port 3978): `GET /api/ai/assistant/thread` 200 with `available:false`; `POST ask` 503 `ai-unavailable`; both 401 without a token; an empty question 400; notes and DELETE 200 with `durable:false` and a plain reason. Port closed after the kill; no `assistant-threads.json` in the working tree.
+- Hub repo, uncommitted: `npm run lint` exit 0; `npm run test:brain-studio` 31 tests, 31 passed; `npm run test:doc-inventory` 9 passed; `npm run smoke:api` all 168 checks passed, no orphan server.
+
 ## 2026-10-11: Homepage canvas release verification
 
 **Limits first:** 3 live-server tests remain skipped (`JOURVANCE_LIVE_TEST_URL` unset).

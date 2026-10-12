@@ -42,3 +42,4 @@ shots/
 /.agent/rules/*
 !/.agent/rules/truth-protocol.md
 builder_library.json
+assistant-threads.json

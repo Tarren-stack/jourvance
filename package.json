@@ -12,7 +12,8 @@
     "start": "node server.mjs",
     "test": "node --test",
     "check:canvas": "node scripts/canvas-browser-check.mjs",
-    "check:a11y": "node scripts/a11y-browser-check.mjs"
+    "check:a11y": "node scripts/a11y-browser-check.mjs",
+    "check:assistant": "node scripts/assistant-browser-check.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
