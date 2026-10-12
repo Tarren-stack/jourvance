@@ -104,7 +104,7 @@ test('a tap on a card, and only a tap, asks the map to keep it on screen', () =>
   assert.match(click, /e\.detail > 0 && !onControl\) setTapRequest\(t => t \+ 1\)/);
   // FocusSelectedStep runs it, so it stays the one pan that follows the selection (#7, #21).
   assert.match(CANVAS, /<FocusSelectedStep nodeId=\{selectedNodeId\} request=\{focusRequest \?\? 0\} tap=\{tapRequest\} \/>/);
-  const focus = CANVAS.slice(CANVAS.indexOf('function FocusSelectedStep'), CANVAS.indexOf('function SemanticZoom'));
+  const focus = CANVAS.slice(CANVAS.indexOf('function FocusSelectedStep'), CANVAS.indexOf('function MapMoved'));
   assert.match(focus, /useKeepTappedStepOnScreen\(nodeId, tap\);/);
   const reveal = CANVAS.slice(CANVAS.indexOf('function useKeepTappedStepOnScreen'), CANVAS.indexOf('function FocusSelectedStep'));
   assert.match(reveal, /if \(!tap \|\| !nodeId \|\| !flow\) return;/, 'a first fit or a return from Email Studio never asks');

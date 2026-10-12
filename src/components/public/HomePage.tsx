@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
+import './HomeCanvasPreview.css';
 import {
   ArrowRight,
   Play,
@@ -24,6 +25,8 @@ import {
   Check,
   X
 } from 'lucide-react';
+
+const HomeCanvasPreview = lazy(() => import('./HomeCanvasPreview').then(module => ({ default: module.HomeCanvasPreview })));
 
 interface HomePageProps {
   onNavigate: (page: 'home' | 'about' | 'blog' | 'contact' | 'canvas') => void;
@@ -62,7 +65,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
       <section
         style={{
           position: 'relative',
-          padding: '5rem 2rem 4rem',
+          padding: '5rem clamp(1rem, 4vw, 2rem) 4rem',
           textAlign: 'center',
           maxWidth: '1200px',
           margin: '0 auto',
@@ -202,193 +205,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             </button>
           </div>
 
-          {/* ── INTERACTIVE CANVAS VISUAL MOCKUP ── */}
-          <div
-            style={{
-              position: 'relative',
-              borderRadius: '16px',
-              padding: '1.75rem',
-              background: 'rgba(17, 24, 39, 0.75)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 40px rgba(99, 102, 241, 0.15)',
-              textAlign: 'left'
-            }}
-          >
-            {/* Top Toolbar Bar */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingBottom: '1.25rem',
-                marginBottom: '1.5rem',
-                borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#EF4444' }} />
-                <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#F59E0B' }} />
-                <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#10B981' }} />
-                <span style={{ marginLeft: '0.5rem', fontSize: '0.8rem', fontWeight: 600, color: '#94A3B8' }}>
-                  Lead Capture Blueprint (Interactive Preview)
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <span
-                  style={{
-                    fontSize: '0.75rem',
-                    color: '#10B981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                    padding: '0.2rem 0.6rem',
-                    borderRadius: '6px',
-                    fontWeight: 600
-                  }}
-                >
-                  Funnel Health: 94% Optimal
-                </span>
-                <button
-                  onClick={() => onNavigate('canvas')}
-                  style={{
-                    background: 'none',
-                    border: '1px solid rgba(99, 102, 241, 0.4)',
-                    color: '#818CF8',
-                    padding: '0.25rem 0.65rem',
-                    borderRadius: '6px',
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Edit Canvas →
-                </button>
-              </div>
-            </div>
-
-            {/* 4 Connected Pipeline Cards */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
-                gap: '1.25rem',
-                position: 'relative'
-              }}
-            >
-              {/* Card 1: Ad Creative */}
-              <div
-                style={{
-                  backgroundColor: '#1E293B',
-                  borderRadius: '12px',
-                  padding: '1.15rem',
-                  border: '1px solid rgba(99, 102, 241, 0.3)',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#818CF8', fontWeight: 800 }}>
-                    Step 1 • Traffic
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 700 }}>10.0% CTR</span>
-                </div>
-                <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.4rem', color: '#FFFFFF' }}>
-                  Meta Video & Hook Ad
-                </h4>
-                <p style={{ fontSize: '0.75rem', color: '#94A3B8', lineHeight: 1.4, marginBottom: '0.75rem' }}>
-                  "Scale your client pipeline without 5 messy tools."
-                </p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748B', paddingTop: '0.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <span>1,200 Impressions</span>
-                  <span>120 Clicks</span>
-                </div>
-              </div>
-
-              {/* Card 2: Landing Page */}
-              <div
-                style={{
-                  backgroundColor: '#1E293B',
-                  borderRadius: '12px',
-                  padding: '1.15rem',
-                  border: '1px solid rgba(56, 189, 248, 0.3)',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#38BDF8', fontWeight: 800 }}>
-                    Step 2 • Lander
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 700 }}>25.0% Opt-In</span>
-                </div>
-                <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.4rem', color: '#FFFFFF' }}>
-                  Single-Offer Page
-                </h4>
-                <p style={{ fontSize: '0.75rem', color: '#94A3B8', lineHeight: 1.4, marginBottom: '0.75rem' }}>
-                  Grounded headline, 3 value points, verified proof badge.
-                </p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748B', paddingTop: '0.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <span>120 Visitors</span>
-                  <span>30 Inquiries</span>
-                </div>
-              </div>
-
-              {/* Card 3: Lead Form */}
-              <div
-                style={{
-                  backgroundColor: '#1E293B',
-                  borderRadius: '12px',
-                  padding: '1.15rem',
-                  border: '1px solid rgba(16, 185, 129, 0.3)',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#10B981', fontWeight: 800 }}>
-                    Step 3 • Intake
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 700 }}>60.0% Submit</span>
-                </div>
-                <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.4rem', color: '#FFFFFF' }}>
-                  3-Field Smart Form
-                </h4>
-                <p style={{ fontSize: '0.75rem', color: '#94A3B8', lineHeight: 1.4, marginBottom: '0.75rem' }}>
-                  Friction-free: Full Name, Work Email, Phone Number.
-                </p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748B', paddingTop: '0.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <span>30 Views</span>
-                  <span>18 Leads</span>
-                </div>
-              </div>
-
-              {/* Card 4: Follow-up Sequence */}
-              <div
-                style={{
-                  backgroundColor: '#1E293B',
-                  borderRadius: '12px',
-                  padding: '1.15rem',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#F59E0B', fontWeight: 800 }}>
-                    Step 4 • Nurture
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 700 }}>68% Open Rate</span>
-                </div>
-                <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.4rem', color: '#FFFFFF' }}>
-                  Automated Sequence
-                </h4>
-                <p style={{ fontSize: '0.75rem', color: '#94A3B8', lineHeight: 1.4, marginBottom: '0.75rem' }}>
-                  Letter 1 (0m) → Letter 2 (+24h) → Letter 3 (+48h).
-                </p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748B', paddingTop: '0.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <span>18 Enrolled</span>
-                  <span>12 Booked</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <Suspense fallback={<div className="home-canvas-preview-loading" role="status">Loading canvas example...</div>}>
+            <HomeCanvasPreview onOpenCanvas={() => onNavigate('canvas')} />
+          </Suspense>
         </div>
       </section>
 

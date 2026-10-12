@@ -4,6 +4,116 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-09. DEPLOYED: jourvance.com serves 7678443 (the Email Studio rebuild, Waves 1 to 8, and the open list closed) per the Render API; the Sentinel, policy and lead probes answer as before. Read the newest section first.
 
+## 2026-10-11: Homepage canvas release verification
+
+**Limits first:** 3 live-server tests remain skipped (`JOURVANCE_LIVE_TEST_URL` unset).
+The unit suite is green, never seen red by fault injection in this release pass.
+Deployment was not checked. The user explicitly requested commit and push.
+
+Only the canvas preview, its shared zoom component, corresponding test adjustments,
+and this task's documentation are staged. Earlier founder-copy edits in HomePage,
+BlogPage, ContactPage, PublicFooter, design-state and the audit remain in the working
+tree; the earlier founder-voice brief is not included.
+
+Validation used an export of the exact staged tree at
+`/private/tmp/jv-home-release-lfdvyiu0/generated-projects/jourvance`, with existing
+dependencies linked and no `.env`:
+
+- `npx tsc --noEmit`: exit 0.
+- Vite `build()` with a fresh empty `envDir`: exit 0, output
+  `/private/tmp/jv-home-release-dist`. Existing large-chunk warning remains.
+- First isolated `npm test`: 2,743 passed, 1 failed, 6 skipped. An existing test
+  unconditionally reads ignored `drips.json`; three other checks need local stores.
+  Copied only `drips.json` and `public_pages.json` from the working tree into the
+  temporary test directory. Neither data file is staged or sent to the browser server.
+- Final isolated `npm test`: exit 0; 2,750 tests, 2,747 passed, 0 failed, 3 skipped.
+  Log: `/private/tmp/jv-home-release-tests-final.log`.
+- `node /private/tmp/jv-home-release-browser.mjs`: exit 0, 168 assertions passed on
+  the staged build at 1440, 390, 640 and 320px. Same framing, keyboard, scrolling,
+  accessible descriptions, read-only and saved-journey preservation checks as above.
+  The connection negative control was observed red and then restored. Booted an
+  isolated copy of actual `server.mjs`; GET `/` returned the built app. This server
+  had no `.env`, local account files or credentials; outside/API requests were blocked.
+  Log: `/private/tmp/jv-home-release-browser.log`. Viewed its desktop screenshot.
+- `git fetch origin main` succeeded; pre-commit `HEAD...origin/main` was `0 0`.
+- Staged scope and whitespace checked before commit. Final commit/push outcome and
+  remote alignment are reported after the push, separately from deployment.
+
+## 2026-10-11: Real canvas example on the homepage
+
+**Limits first:** 3 live-server tests were skipped because `JOURVANCE_LIVE_TEST_URL`
+was unset. The unit suite is green, never seen red by fault injection in this pass.
+No production services, deployed site, screen-reader speech, Safari or Firefox were
+checked. No full automated accessibility scan was run. Not committed or pushed;
+deployment was not checked.
+
+The owner asked to replace the mockup under the hero with an example of the actual
+canvas. `HomeCanvasPreview.tsx` now renders an isolated copy of the starter journey
+using the editor's AdNode, PageNode, FormNode, SequenceNode, ConversionEdge,
+EdgeLabelLayout, and metric builder. It has no storage or API client. The default
+blueprint content stays unchanged; only the example's positions form two rows.
+The invented health and performance figures from the old mockup are removed.
+Unavailable measurements remain unavailable and the example is labeled read-only.
+
+- Desktop starts with the whole map. Narrow screens start on a full-size card.
+  Native buttons inspect each of the four steps or return to the overview.
+- The inert diagram has a visible accessible text alternative. Selected form
+  fields and email subjects/delays come from the same starter data as the cards.
+- The studio CTA uses the existing navigation and preserves the saved journey.
+- SemanticZoom was extracted unchanged into `canvas/SemanticZoom.tsx` and imported
+  by both surfaces. Its two existing source tests were updated for the new location.
+- HomePage lazy-loads the preview with a reserved-height fallback. The final build
+  produces a separate `HomeCanvasPreview` chunk; load-time impact was not measured.
+- Existing founder/public-copy edits remain. Comparing the homepage from the
+  Founder story marker through EOF with the pre-task snapshot found byte equality.
+
+### Verification performed by the main agent
+
+- `npx tsc --noEmit`: exit 0 after the final implementation changes.
+- `npm test` with localhost access: exit 0; 2,750 tests, 2,747 passed, 0 failed,
+  0 cancelled, 3 skipped. Log: `/private/tmp/jv-home-canvas-tests-final.log`.
+- Vite `build()` with a fresh empty `envDir`, output
+  `/private/tmp/jv-home-canvas-dist`: exit 0. No project `.env` was read.
+  The existing large-chunk warning remains.
+- `node /private/tmp/jv-home-canvas-check.mjs`: exit 0, **168 assertions passed**.
+  Booted a temporary copy of actual `server.mjs` with no `.env`, account data or
+  inherited credentials. Server fetch was disabled; Chrome blocked API and outside
+  requests. Real GET `/` returned 200 and built application HTML.
+- Chrome at 1440, 390, 640 and 320 CSS pixels: real heading, four actual cards and
+  three connections; each selected card wholly inside the frame at zoom 1; native
+  Tab order, Enter activation, pressed state, visible focus and 44px targets;
+  form fields and email waits in accessible text; overview restoration; no document
+  width overflow; wheel scroll moves the homepage; Delete cannot alter the example;
+  stored journey identity/name preserved; studio navigation and its graph render.
+  All contexts used reduced motion; framing duration is zero. The 640px context
+  used device scale 2 as a reflow model, not browser-menu 200% zoom.
+- Browser negative control: removed a real connection from the DOM, observed the
+  three-connection assertion reject it, reloaded, and confirmed the connection returned.
+  The step-framing assertion also caught an implementation fault before it was fixed.
+- No uncaught browser errors in the four successful homepage scenarios. Viewed
+  desktop overview and phone follow-up screenshots. Artifacts:
+  `/private/tmp/jv-home-canvas-shots/`; log: `/private/tmp/jv-home-canvas-browser.log`.
+- Compared extracted SemanticZoom to HEAD's function: unchanged except `export`.
+- `git diff --check`: exit 0. Truth Protocol copies remain byte-identical.
+
+### Findings addressed during verification
+
+The sandbox's initial unit run failed on denied localhost ports; the allowed rerun
+passed. Initial read-only controlled nodes never completed React Flow's measured
+state, so step framing failed; using isolated defaultNodes/defaultEdges corrected
+it. At 320px, the original hero padding clipped full-size cards; responsive padding
+fixed containment. Source reviewers found missing text equivalents and eager canvas
+imports; both were fixed and the reviewers confirmed the source changes. Their
+reviews were source/screenshot reviews, not independent browser executions.
+
+Browser-harness assertions were corrected to accept journey-specific canvas routes
+and the app's actual scroll container/pointer position. One successful assertion run
+stalled at cleanup: the temporary server's SIGTERM cleanup handler left it alive.
+That process was stopped; the final harness explicitly terminates its own temporary
+server and exits 0. No server lifecycle code was changed in the app.
+
+Brief and plan: `docs/designpowers/briefs/2026-10-11-home-canvas.md`.
+
 ## 2026-10-09: Email Studio, the four items the open-list round found
 
 **Not done first.** Some assertions inside the new tests were never seen failing on their own

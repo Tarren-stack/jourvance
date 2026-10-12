@@ -109,7 +109,9 @@ test('--jv-zoom is the zoom rounded down, so the CSS floor check can only hide a
 // ---- Wiring ----
 
 test('the canvas writes the zoom onto the map without re-rendering a card', () => {
-  const src = read('src/components/canvas/JourneyCanvas.tsx');
+  const canvas = read('src/components/canvas/JourneyCanvas.tsx');
+  const src = read('src/components/canvas/SemanticZoom.tsx');
+  assert.match(canvas, /import \{ SemanticZoom \} from '\.\/SemanticZoom';/);
   const start = src.indexOf('function SemanticZoom()');
   assert.ok(start > 0, 'a SemanticZoom component');
   const body = src.slice(start, src.indexOf('\n}\n', start));
@@ -126,7 +128,7 @@ test('the canvas writes the zoom onto the map without re-rendering a card', () =
   assert.match(body, /setProperty\('--jv-caption-scale', String\(v\.captionScale\)\)/, 'T02: captions and badges read it');
   assert.match(body, /setProperty\('--jv-compact-title-scale', String\(v\.compactTitleScale\)\)/, 'U02: the compact name reads it');
   assert.match(body, /const key = `\$\{v\.detail\} \$\{v\.titleScale\} \$\{v\.compactTitleScale\} \$\{v\.handleHitPx\} \$\{v\.zoom\} \$\{v\.captionScale\}`;/, 'a new zoom step is written');
-  const flow = src.slice(src.indexOf('<ReactFlow\n'), src.indexOf('</ReactFlow>'));
+  const flow = canvas.slice(canvas.indexOf('<ReactFlow\n'), canvas.indexOf('</ReactFlow>'));
   assert.equal((flow.match(/<SemanticZoom \/>/g) || []).length, 1, 'rendered once, inside <ReactFlow>');
 });
 

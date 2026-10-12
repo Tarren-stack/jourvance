@@ -25,6 +25,7 @@ import {
 } from '@xyflow/react';
 import { Sparkles, EyeOff, Workflow, Undo2, X, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import type { JourneyNode, JourneyEdge, JourneyNodeData, CanvasViewMode, NodeType } from '../../types/journey';
+import { SemanticZoom } from './SemanticZoom';
 import { AdNode } from './nodes/AdNode';
 import { PageNode } from './nodes/PageNode';
 import { FormNode } from './nodes/FormNode';
@@ -93,7 +94,7 @@ import { newStamp } from '../../lib/stepDefaults';
 import { StepPicker } from './StepPicker';
 import { canvasFitOptions } from '../../lib/editorReturn';
 import { MINIMAP_SIZE, overlayFitPadding, wholeMapFit } from '../../lib/fitRoom';
-import { COARSE_POINTER_QUERY, handleTargetsTight, semanticZoomVars } from '../../lib/semanticZoom';
+import { COARSE_POINTER_QUERY, handleTargetsTight } from '../../lib/semanticZoom';
 import { mapToolsCompact, noticePlace, revealShift, unionBox, visibleBand, NOTICE_DOCK_GAP, REVEAL_MAX_WAIT_MS, REVEAL_MIN_WAIT_MS, REVEAL_QUIET_MS } from '../../lib/tapReveal';
 
 // Arrowheads keep one size whatever the line width, and take the line's colour.
@@ -479,51 +480,6 @@ function FocusSelectedStep({ nodeId, request, tap = 0 }: { nodeId: string | null
     // setCenter and store are stable for the life of the provider.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeId, ready, request, tap]);
-
-  return null;
-}
-
-/**
- * Semantic zoom (F3, src/lib/semanticZoom.ts). Writes the zoom's detail level and sizes onto the
- * .react-flow element as data-jv-detail, --jv-title-scale (and the compact name's
- * --jv-compact-title-scale, U02), --jv-handle-hit, --jv-zoom and
- * --jv-caption-scale, which index.css reads to swap each card's detail rows for its summary, to size
- * the handles' hit areas and to keep line captions and design-check badges 11px on screen (T02). It
- * subscribes to the store rather than calling useStore, and writes at most once per animation frame,
- * so a zoom frame re-renders no card (and not even this component). Must render inside <ReactFlow>,
- * which provides the store.
- */
-function SemanticZoom() {
-  const store = useStoreApi();
-
-  React.useEffect(() => {
-    let frame = 0;
-    let written = '';
-    const write = () => {
-      frame = 0;
-      const { transform, domNode } = store.getState();
-      if (!domNode) return;
-      const v = semanticZoomVars(transform[2]);
-      const key = `${v.detail} ${v.titleScale} ${v.compactTitleScale} ${v.handleHitPx} ${v.zoom} ${v.captionScale}`;
-      if (key === written && domNode.dataset.jvDetail === v.detail) return;
-      written = key;
-      domNode.dataset.jvDetail = v.detail;
-      domNode.style.setProperty('--jv-title-scale', String(v.titleScale));
-      domNode.style.setProperty('--jv-compact-title-scale', String(v.compactTitleScale));
-      domNode.style.setProperty('--jv-handle-hit', `${v.handleHitPx}px`);
-      domNode.style.setProperty('--jv-zoom', String(v.zoom));
-      domNode.style.setProperty('--jv-caption-scale', String(v.captionScale));
-    };
-    write();
-    const unsubscribe = store.subscribe((s, prev) => {
-      if (s.transform[2] === prev.transform[2] && s.domNode === prev.domNode) return;
-      if (!frame) frame = requestAnimationFrame(write);
-    });
-    return () => {
-      unsubscribe();
-      if (frame) cancelAnimationFrame(frame);
-    };
-  }, [store]);
 
   return null;
 }

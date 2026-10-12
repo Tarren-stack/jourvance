@@ -49,3 +49,28 @@ No wording changes are needed from this review."
 No About-copy blocker found. CSS zoom on the existing app shell overflowed; the
 corrected harness models browser-zoom reflow using a narrower CSS viewport. This is
 not a whole-site accessibility or product audit; untested areas are named in the audit.
+
+## 2026-10-11: Homepage canvas example
+
+Owner direction: replace the mockup below the hero with an example of the real canvas.
+Brief and plan: [Homepage canvas](docs/designpowers/briefs/2026-10-11-home-canvas.md).
+Use the actual cards, connections, starter graph, metrics, and semantic zoom in an
+isolated read-only React Flow instance. Named step controls and text descriptions
+provide keyboard and screen-reader access. Mobile opens on a full-size step.
+Existing public founder-copy work is preserved. Verification: typecheck and isolated
+build exit 0; final unit suite 2,747 passed and 3 skipped (green, never fault-planted);
+168 Chrome assertions passed at 1440, 390, 640 and 320px. Viewed desktop and phone
+screenshots. Browser behavior checks caught framing and narrow-width defects before
+the fix; removing an edge also made the connection assertion reject the diagram.
+No live services, screen-reader speech, full accessibility scanner or deployment check.
+Full evidence and omissions are in the running audit's 2026-10-11 section.
+
+Designpowers review handoff: preview_review flagged eager module loading and 320px
+clipping; preview_accessibility flagged missing accessible card details. Codex fixed
+all three, reran the browser checks, and both reviewers confirmed the source fixes.
+No unresolved findings from this scoped review. No commit or push in this pass.
+
+Release follow-up, 2026-10-11: owner requested commit and push. The isolated staged
+version passed typecheck/build, 2,747 tests (3 live-server skips), and 168 Chrome
+assertions. Earlier founder-copy edits remain outside this commit. Deployment is
+not verified. See the running audit's release-verification section for evidence.
