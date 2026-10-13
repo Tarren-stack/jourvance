@@ -9,8 +9,14 @@
 // compileAppPatterns renders `jourvance-patterns-YYYY-MM.md` for Jourvance's APP corpus: ten point
 // bands around the medians, by journey goal and traffic source, for a group of at least
 // PATTERN_MIN_USERS accounts with PATTERN_MIN_ACCOUNT_VISITS visits each, and no total or exact
-// figure. It reads only numbers and two fixed lists of words, so no uid, name, email, slug or domain
-// in its input can reach its output.
+// figure. A band is printed only when leaving out any ONE account keeps the median in the same band,
+// so the printed band never depends on one account's figure (W3.C). It reads only numbers and two
+// fixed lists of words, so no uid, name, email, slug or domain in its input can reach its output.
+//
+// compileShapeLearns (W3.C) turns each journey that earned at least SHAPE_MIN_VISITS visits and
+// SHAPE_MIN_ORDERS orders into one learn for the hub's shared brain: a prompt built only from fixed
+// words (the goal, the traffic source, the twelve step variants of src/lib/stepKinds.ts, a count
+// spelled out) and a ten point band. Nothing typed by the user, no name, slug, id, url or exact figure.
 //
 // This file carries no em dash and no en dash, in strings or in comments.
 
@@ -24,8 +30,11 @@ export const WHAT_WORKED_MAX_CHARS = 16000;
 export const TRAINING_WINDOW_DAYS = 90;
 /** At most one what-worked.md send per user per UTC day. */
 export const TRAINING_PER_DAY = 1;
-/** k-anonymity for the app patterns: a group needs this many accounts, each with this many visits. */
-export const PATTERN_MIN_USERS = 10;
+/**
+ * k-anonymity for the app patterns: a group needs this many accounts, each with this many visits.
+ * 25 since W3.C (it was 10): a colluder needs 24 accounts of their own, each with real visits.
+ */
+export const PATTERN_MIN_USERS = 25;
 export const PATTERN_MIN_ACCOUNT_VISITS = 20;
 /** A rate whose middle half spreads wider than this many points prints "varies widely". */
 export const PATTERN_WIDE_IQR = 40;
@@ -33,6 +42,40 @@ export const PATTERN_WIDE_IQR = 40;
 export const TRAINING_JOURNEYS_MAX = 200;
 export const PATTERN_GOALS = Object.freeze(['leads', 'sales']);
 export const PATTERN_PLATFORMS = Object.freeze(['meta', 'google', 'tiktok', 'organic']);
+
+// ---- Shape learns (W3.C) ----
+/** The learn kind every journey shape is sent as. */
+export const SHAPE_KIND = 'journey-shape';
+/**
+ * A journey teaches its shape only with this many visits and this many orders inside the window, so
+ * the band is a measurement and not noise: the 95% interval around 5 orders in 50 visits runs from 4.3
+ * to 21.4 points, wider than the ten point band it would print; around 20 in 200 it runs from 6.6 to
+ * 14.9 (W3.C adversary round).
+ */
+export const SHAPE_MIN_VISITS = 200;
+export const SHAPE_MIN_ORDERS = 20;
+/** At most this many shape learns per user per UTC day (claimed on the thread before any send). */
+export const SHAPE_LEARNS_PER_DAY = 3;
+/**
+ * At most this many shape learns per UTC day for the whole app, claimed in one app-store document, so
+ * shapes can never use up the hub's per-app learn cap (200 a day) and starve the question shares.
+ */
+export const SHAPE_LEARNS_APP_PER_DAY = 100;
+/** A shape this spoke sent is not sent again for this many days. */
+export const SHAPE_RESEND_DAYS = 30;
+/** The thread keeps this many sent shapes: SHAPE_LEARNS_PER_DAY for SHAPE_RESEND_DAYS days. */
+export const SHAPE_LEARNS_KEPT = 90;
+/** The niche of a journey whose businessType is not one of BUSINESS_TYPES. */
+export const SHAPE_GENERAL_NICHE = 'general';
+/**
+ * The business types a shape's niche may name. Jourvance has no fixed list: a journey's businessType
+ * is free text (the Draft with AI brief is a text input, src/components/modals/AiJourneyBuilder.tsx),
+ * so anything else is 'general' and nothing a user typed can become a niche. The app's own defaults
+ * differ by screen (App.tsx stamps 'E-Commerce Brand' on a new journey, defaultBlueprint.ts uses
+ * 'Professional & Local Services', SequenceEditor.tsx falls back to 'E-Commerce Store'); this list
+ * holds the one value W3.C named, and widening it is a product decision.
+ */
+export const BUSINESS_TYPES = Object.freeze(['E-Commerce Store']);
 
 const DAY_MS = 86400000;
 /** The date in the window line. The sha is taken with this token in place, so a day passing alone never re-sends. */
@@ -290,7 +333,9 @@ const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
  * - unavailable: the inputs that could not be read (null in, named here, never counted as 0);
  * - row: the numbers compileAppPatterns reads (goal, platform, visits, leads, orders per journey,
  *   and the email counts), or null when anything was unavailable;
- * - journeys: how many journey sections the file holds.
+ * - journeys: how many journey sections the file holds;
+ * - figures: figuresByJourney's Map for the journeys considered, so compileShapeLearns reads the same
+ *   counts without a second pass over the events.
  * Only the TRAINING_JOURNEYS_MAX most recently updated journeys are considered, the events, orders
  * and pages are each read once, and sections are cut by running length, so the cost is one pass.
  * `journeysComplete: false` means the journey store answered only part of the list.
@@ -336,7 +381,7 @@ export function compileWhatWorked({
         journeys: figures.map(({ j, f }) => ({ goal: journeyGoal(j), platform: journeyPlatform(j), visits: f.visits, leads: f.leads, orders: f.orders })),
         email: { sent: finite(emailStats.sent), opened: finite(emailStats.opened), clicked: finite(emailStats.clicked) }
       };
-  if (nothing) return { content: '', sha: '', unavailable, row, journeys: 0 };
+  if (nothing) return { content: '', sha: '', unavailable, row, journeys: 0, figures: byJourney };
 
   const head = [
     '# What worked for this account',
@@ -374,13 +419,22 @@ export function compileWhatWorked({
   let content = template.replace(DATE_TOKEN, date);
   // The budget above holds room for every fixed part, so this only guards a future change.
   if (content.length > WHAT_WORKED_MAX_CHARS) content = content.slice(0, WHAT_WORKED_MAX_CHARS);
-  return { content, sha: sha256(template), unavailable, row, journeys: sections.length };
+  return { content, sha: sha256(template), unavailable, row, journeys: sections.length, figures: byJourney };
 }
 
 // ---- The app patterns (S3b) ----
 
 const PLATFORM_WORDS = { meta: 'Meta', google: 'Google', tiktok: 'TikTok', organic: 'organic traffic', none: 'no ad step' };
 const count = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+
+const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+/** A whole number from 0 to 99 in words ("twenty-five"), or '' for anything else. */
+export function numberWord(n) {
+  if (!Number.isInteger(n) || n < 0 || n > 99) return '';
+  if (n < 20) return ONES[n];
+  return n % 10 ? `${TENS[Math.floor(n / 10)]}-${ONES[n % 10]}` : TENS[n / 10];
+}
 
 /** The value at quantile p of sorted numbers, interpolated between neighbours. */
 function quantile(sorted, p) {
@@ -391,18 +445,36 @@ function quantile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
 
+/** The ten point band that holds one value, floored to ten and kept inside 0 to 100: "20 to 30%". */
+export function bandLabel(value) {
+  const lo = Math.min(90, Math.max(0, Math.floor(value / 10) * 10));
+  return `${lo} to ${lo + 10}%`;
+}
+
 /**
- * The printed form of one rate across a group's accounts: the ten point band that holds the median
- * ("20 to 30%"), or "varies widely" when the middle half of the accounts spreads wider than
- * PATTERN_WIDE_IQR points. Never the median itself, so no one account's figure can be read back.
+ * The printed form of one rate across a group's accounts. Two rules, in this order:
+ * - "varies widely" when the middle half of the accounts spreads wider than PATTERN_WIDE_IQR points;
+ * - the ten point band that holds the median ("20 to 30%"), printed only when the median of every
+ *   set left after taking out any ONE account falls in that same band; otherwise "varies".
+ * Never the median itself. The second rule (W3.C) means the printed band is the band every group
+ * without one account agrees on, so a band can never be the one a single account decided: a colluder
+ * who places the other accounts on both sides of a band edge, so that one victim's value picks the
+ * band, gets "varies". What it cannot hide is WHETHER a band prints: around a colluder's chosen edge
+ * that choice can still turn on the victim's value (one yes or no per rate a month), which
+ * assistant-training.test.mjs pins as a named residual. A single value has no stable band: "varies".
  */
 export function rateBand(values) {
   const v = values.filter((x) => typeof x === 'number' && Number.isFinite(x)).sort((a, b) => a - b);
   if (!v.length) return null;
   if (quantile(v, 0.75) - quantile(v, 0.25) > PATTERN_WIDE_IQR) return 'varies widely';
-  const m = quantile(v, 0.5);
-  const lo = Math.min(90, Math.max(0, Math.floor(m / 10) * 10));
-  return `${lo} to ${lo + 10}%`;
+  const band = bandLabel(quantile(v, 0.5));
+  for (let i = 0; i < v.length; i++) {
+    // Taking out equal values leaves the same set, so each distinct value is tried once.
+    if (i > 0 && v[i] === v[i - 1]) continue;
+    const rest = v.slice(0, i).concat(v.slice(i + 1));
+    if (!rest.length || bandLabel(quantile(rest, 0.5)) !== band) return 'varies';
+  }
+  return band;
 }
 
 /**
@@ -416,8 +488,9 @@ export function rateBand(values) {
  * k-anonymity, after an adversary showed four accounts at 0% and 100% around one victim print the
  * victim's exact median: a group is kept only with PATTERN_MIN_USERS distinct accounts, each with at
  * least PATTERN_MIN_ACCOUNT_VISITS visits (an account under that neither counts nor shapes a median);
- * the file prints no total and no exact figure, only "10 or more" accounts and a ten point band per
- * rate, or "varies widely"; the email bands need the same number of accounts that sent email.
+ * the file prints no total and no exact figure, only "25 or more" accounts and a ten point band per
+ * rate that survives leaving out any one account (rateBand), or "varies", or "varies widely"; the
+ * email bands need the same number of accounts that sent email.
  */
 export function compileAppPatterns(perUser, { now = Date.now() } = {}) {
   const month = dayKey(now).slice(0, 7);
@@ -478,18 +551,18 @@ export function compileAppPatterns(perUser, { now = Date.now() } = {}) {
   const out = [
     `# Jourvance patterns for ${month}`,
     '',
-    'Medians across Jourvance accounts over the last ninety days, by journey goal and traffic source. A group is listed only when it holds at least ten accounts with at least twenty visits each. Each figure is a ten point band that holds the median, or "varies widely" when the middle half of the accounts spreads wider than forty points. Lead and order rates are shares of visits; email rates are shares of emails sent.'
+    `Medians across Jourvance accounts over the last ninety days, by journey goal and traffic source. A group is listed only when it holds at least ${numberWord(PATTERN_MIN_USERS)} accounts with at least ${numberWord(PATTERN_MIN_ACCOUNT_VISITS)} visits each. Each figure is a ten point band that holds the median, printed only when leaving out any one account keeps the median in that same band; otherwise it reads "varies", so no single account can decide a band. A figure reads "varies widely" when the middle half of the accounts spreads wider than ${numberWord(PATTERN_WIDE_IQR)} points. Lead and order rates are shares of visits; email rates are shares of emails sent. A group of colluding accounts that outnumbers the honest ones can learn an honest account's band over several months; the rule here raises the cost, it does not remove it.`
   ];
   for (const g of kept) {
     const opens = g.accounts.map((a) => a.openRate).filter((x) => x !== null);
     const clicks = g.accounts.map((a) => a.clickRate).filter((x) => x !== null);
     out.push('', `## Goal ${g.goal}, ${PLATFORM_WORDS[g.platform]}`);
-    out.push('Accounts: 10 or more.');
+    out.push(`Accounts: ${PATTERN_MIN_USERS} or more.`);
     out.push(`Median lead rate: ${rateBand(g.accounts.map((a) => a.leadRate))}. Median order rate: ${rateBand(g.accounts.map((a) => a.orderRate))}.`);
     if (opens.length >= PATTERN_MIN_USERS) {
       out.push(`Median email open rate: ${rateBand(opens)}. Median email click rate: ${clicks.length >= PATTERN_MIN_USERS ? rateBand(clicks) : 'not shown'}.`);
     } else {
-      out.push('Email rates: not shown, fewer than ten of these accounts sent email.');
+      out.push(`Email rates: not shown, fewer than ${numberWord(PATTERN_MIN_USERS)} of these accounts sent email.`);
     }
   }
   return { filename, content: out.join('\n').trim() + '\n', groups: kept.length, accounts: rows.length };
@@ -509,4 +582,202 @@ export function activeAccounts({ events, orders, now = Date.now() } = {}) {
   for (const e of Array.isArray(events) ? events : []) if (e && inWindow(e.at)) add(e.userId, 1);
   for (const o of Array.isArray(orders) ? orders : []) if (o && inWindow(o.createdAt)) add(o.userId, 0);
   return [...tally.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([uid]) => uid);
+}
+
+// ---- Shape learns: results teach the main brain (W3.C) ----
+
+// The twelve step variants, a SERVER copy of stepVariant in src/lib/stepKinds.ts (a browser module the
+// server cannot import). assistant-training.test.mjs pins this copy equal to that function over every
+// node type and every sequenceType, so the two cannot drift. Maps, so a saved sequenceType such as
+// 'constructor' cannot reach an object's prototype.
+export const STEP_VARIANTS = Object.freeze(['ad', 'page', 'form', 'nurture', 'upsell-rescue', 'cart-recovery', 'winback', 'review', 'thank-you', 'upsell', 'downsell', 'split']);
+const SEQUENCE_VARIANTS = new Map([
+  ['upsell_recovery', 'upsell-rescue'],
+  ['checkout_recovery', 'cart-recovery'],
+  ['at_risk_winback', 'winback'],
+  ['fulfillment_review', 'review'],
+  ['lead_nurture', 'nurture']
+]);
+const TYPE_VARIANTS = new Map([
+  ['ad-source', 'ad'],
+  ['landing-page', 'page'],
+  ['lead-form', 'form'],
+  ['thank-you', 'thank-you'],
+  ['ab-split', 'split']
+]);
+
+/** The step's variant name, exactly as stepVariant in src/lib/stepKinds.ts answers it, or null. */
+export function stepVariantOf(type, data) {
+  const d = data && typeof data === 'object' ? data : {};
+  const t = typeof type === 'string' ? type : d.type;
+  if (typeof t !== 'string') return null;
+  if (t === 'upsell') return d.offerType === 'downsell' ? 'downsell' : 'upsell';
+  // An unknown or missing sequenceType is a nurture sequence, as SequenceNode draws it.
+  if (t === 'follow-up-sequence') return SEQUENCE_VARIANTS.get(String(d.sequenceType)) ?? 'nurture';
+  return TYPE_VARIANTS.get(t) ?? null;
+}
+
+// The canvas order is the app's own: orderSteps in src/lib/stepNavigation.ts (the order the step
+// finder and the Previous and Next walk use): the main path first, then retention flows, each left to
+// right, then top to bottom, then by id so ties never shuffle. Copied here (the server cannot import
+// it) and pinned equal to it in the test. One difference, for determinism only: a position that is
+// not a finite number reads as 0, where the client's comparison would answer NaN for it.
+const RETENTION_SEQUENCES = new Set(['upsell_recovery', 'checkout_recovery', 'at_risk_winback']);
+const isRetentionStep = (data) => Boolean(data?.isRetentionBranch || RETENTION_SEQUENCES.has(String(data?.sequenceType)));
+const coord = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const idOf = (n) => (typeof n?.id === 'string' ? n.id : '');
+
+/** A journey's nodes in canvas order (see above). */
+export function canvasOrder(nodes) {
+  return (Array.isArray(nodes) ? nodes.filter(isPlainObject) : []).sort((a, b) => {
+    const group = Number(isRetentionStep(a.data)) - Number(isRetentionStep(b.data));
+    if (group !== 0) return group;
+    const x = Math.round(coord(a.position?.x)) - Math.round(coord(b.position?.x));
+    if (x !== 0) return x;
+    const y = coord(a.position?.y) - coord(b.position?.y);
+    if (y !== 0) return y;
+    const ia = idOf(a);
+    const ib = idOf(b);
+    return ia < ib ? -1 : ia > ib ? 1 : 0;
+  });
+}
+
+const SHAPE_SOURCE_WORDS = Object.freeze({ meta: 'Meta', google: 'Google', tiktok: 'TikTok', organic: 'organic traffic', none: 'an unnamed source' });
+const SHAPE_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SHA_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * A rate's ten point band in words, with no digit: "thirty to forty", "zero to ten", "ninety to one
+ * hundred". The hub turns every digit run of a shared pattern into N (scrubLearnPattern), so a band in
+ * digits reached the main brain as "N to N" and every band of one shape folded into one dedupe key.
+ */
+export function bandWords(value) {
+  const lo = Math.min(90, Math.max(0, Math.floor(value / 10) * 10));
+  const hi = lo + 10;
+  return `${numberWord(lo)} to ${hi === 100 ? 'one hundred' : numberWord(hi)}`;
+}
+
+/** A step count as the prompt says it: the number in words up to twenty, "more than twenty" above. */
+export function stepCountWord(n) {
+  return n > 20 ? 'more than twenty' : numberWord(n);
+}
+
+/** An order rate in percent, orders capped at visits, the way compileAppPatterns reads one. */
+const orderRateOf = (f) => (Math.min(f.orders, f.visits) / f.visits) * 100;
+
+/**
+ * One learn row per journey that earned at least SHAPE_MIN_VISITS visits and SHAPE_MIN_ORDERS orders
+ * in the window, from figuresByJourney's Map (compileWhatWorked answers it as `figures`, so the events
+ * are read once; the window is already applied there, so `now` is not read again here). Answers
+ * { rows: [{ kind, niche, prompt, rating, sha, journeyId }], skipped: { fewVisits, fewOrders, noShape } }.
+ *
+ * The prompt is built ONLY from fixed words and a band, and holds no digit:
+ *   "Orders per hundred visits: <band>. A <goal> journey from <source> with <count> steps: <variant>
+ *   then <variant>."
+ * the order rate's ten point band in words (bandWords), FIRST so the hub's 220 character cut never
+ * drops it; goal from PATTERN_GOALS (else 'general'), source from PATTERN_PLATFORMS, the variants of
+ * stepVariantOf in canvasOrder (a step of no known type is left out), and the count in words. No
+ * name, slug, id, url, headline, exact figure, digit or anything typed.
+ * rating: 5 when this journey's order rate is at least twice the median order rate of this account's
+ * journeys with SHAPE_MIN_VISITS or more visits (a median of at least two journeys), else 4.
+ * niche: the journey's businessType when it is one of `businessTypes`, else 'general'.
+ * sha: sha256 of kind, niche and prompt, one per line; two journeys of the same shape are one row.
+ * Rows come highest rating first, then highest order rate, then journey id.
+ */
+export function compileShapeLearns({ uid, journeys, figures, businessTypes = BUSINESS_TYPES } = {}) {
+  const skipped = { fewVisits: 0, fewOrders: 0, noShape: 0 };
+  const byId = figures instanceof Map ? figures : new Map();
+  const allowed = new Set((Array.isArray(businessTypes) ? businessTypes : []).filter((t) => typeof t === 'string' && t));
+  const own = (Array.isArray(journeys) ? journeys : [])
+    .filter((j) => isPlainObject(j) && j.userId === uid && typeof j.id === 'string' && j.id && byId.has(j.id));
+  const measured = own.map((j) => ({ j, f: byId.get(j.id) || {} }));
+
+  // The account's median order rate, over its journeys with enough visits and a readable order count.
+  const rates = measured
+    .filter(({ f }) => count(f.visits) !== null && f.visits >= SHAPE_MIN_VISITS && count(f.orders) !== null)
+    .map(({ f }) => orderRateOf(f))
+    .sort((a, b) => a - b);
+  const median = rates.length >= 2 ? quantile(rates, 0.5) : null;
+
+  const candidates = [];
+  for (const { j, f } of measured) {
+    if (count(f.visits) === null || f.visits < SHAPE_MIN_VISITS) { skipped.fewVisits += 1; continue; }
+    if (count(f.orders) === null || f.orders < SHAPE_MIN_ORDERS) { skipped.fewOrders += 1; continue; }
+    const steps = canvasOrder(j.nodes).map((n) => stepVariantOf(n.type, n.data)).filter(Boolean);
+    if (!steps.length) { skipped.noShape += 1; continue; }
+    const rate = orderRateOf(f);
+    const goal = journeyGoal(j) || 'general';
+    const source = SHAPE_SOURCE_WORDS[journeyPlatform(j) || 'none'];
+    // The band first, so the hub's 220 character cut of a shared pattern never drops it; no digit anywhere.
+    const prompt = `Orders per hundred visits: ${bandWords(rate)}. A ${goal} journey from ${source} with ${stepCountWord(steps.length)} ${steps.length === 1 ? 'step' : 'steps'}: ${steps.join(' then ')}.`;
+    const type = typeof j.businessType === 'string' ? j.businessType.trim() : '';
+    const niche = allowed.has(type) ? type : SHAPE_GENERAL_NICHE;
+    const rating = median !== null && rate >= 2 * median ? 5 : 4;
+    candidates.push({ row: { kind: SHAPE_KIND, niche, prompt, rating, sha: sha256(`${SHAPE_KIND}\n${niche}\n${prompt}`), journeyId: j.id }, rate });
+  }
+  candidates.sort((a, b) => b.row.rating - a.row.rating || b.rate - a.rate || (a.row.journeyId < b.row.journeyId ? -1 : a.row.journeyId > b.row.journeyId ? 1 : 0));
+  const seen = new Set();
+  const rows = [];
+  for (const { row } of candidates) {
+    if (seen.has(row.sha)) continue;
+    seen.add(row.sha);
+    rows.push(row);
+  }
+  return { rows, skipped };
+}
+
+const shapeDayMs = (day) => Date.parse(`${day}T00:00:00.000Z`);
+
+/**
+ * A thread's shapeLearns cleaned to sha keys and real 'YYYY-MM-DD' days. Given `now`, a day after
+ * today is dropped (it would hold a shape back past the thirty days), and so is one SHAPE_RESEND_DAYS
+ * or more old, before the newest SHAPE_LEARNS_KEPT are kept; without `now` (cleanThread has no
+ * clock) only the count is cut, newest first, so the age rule is applied wherever a decision is made.
+ */
+export function cleanShapeLearns(value, now) {
+  if (!isPlainObject(value)) return {};
+  const today = now === undefined ? null : shapeDayMs(dayKey(now));
+  const entries = Object.entries(value).filter(([sha, day]) => {
+    if (!SHA_RE.test(sha) || typeof day !== 'string' || !SHAPE_DAY_RE.test(day)) return false;
+    const ms = shapeDayMs(day);
+    // A day that will not parse, or one Date rolls over ('2026-02-30'), is not a day.
+    if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== day) return false;
+    return today === null || (ms <= today && today - ms < SHAPE_RESEND_DAYS * DAY_MS);
+  });
+  entries.sort((a, b) => (a[1] < b[1] ? 1 : a[1] > b[1] ? -1 : a[0] < b[0] ? -1 : 1));
+  return Object.fromEntries(entries.slice(0, SHAPE_LEARNS_KEPT));
+}
+
+/** True when this sha was sent today or on a day less than SHAPE_RESEND_DAYS ago. */
+export function shapeSentRecently(shapeLearns, sha, now = Date.now()) {
+  return Object.hasOwn(cleanShapeLearns(shapeLearns, now), sha);
+}
+
+/** shapeLearns with this sha stamped today, aged entries pruned first, then the newest SHAPE_LEARNS_KEPT kept. */
+export function recordShapeLearn(shapeLearns, sha, now = Date.now()) {
+  return cleanShapeLearns({ ...cleanShapeLearns(shapeLearns, now), [sha]: dayKey(now) }, now);
+}
+
+/**
+ * Today's shape count on a thread: 0 when there is no count for today, and the whole cap, never a
+ * zero, for anything that is not a finite number of 0 or more (null, '', [], false, a string) or a
+ * shapeDays that is not a plain object at all (an array, a string).
+ */
+function shapesUsedToday(doc, now) {
+  const days = isPlainObject(doc) ? doc.shapeDays : undefined;
+  if (days === undefined) return 0;
+  if (!isPlainObject(days)) return SHAPE_LEARNS_PER_DAY;
+  if (!Object.hasOwn(days, dayKey(now))) return 0;
+  const used = days[dayKey(now)];
+  return typeof used === 'number' && Number.isFinite(used) && used >= 0 ? used : SHAPE_LEARNS_PER_DAY;
+}
+
+/** How many shape learns this thread may still send today. */
+export function shapeSlotsLeft(doc, now = Date.now()) {
+  return Math.max(0, SHAPE_LEARNS_PER_DAY - shapesUsedToday(doc, now));
+}
+
+/** shapeDays with today's count raised by n and every other day dropped (countDaily, for n slots). */
+export function claimShapeDays(doc, n, now = Date.now()) {
+  return { [dayKey(now)]: shapesUsedToday(doc, now) + n };
 }

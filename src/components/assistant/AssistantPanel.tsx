@@ -4,15 +4,20 @@ import {
   ASSISTANT_LIMITS,
   PANEL_COPY,
   PANEL_EXTRA,
+  actionKey,
+  actionRunnable,
   feedbackLine,
   focusTargetOnOpen,
+  latestAnswerId,
   limitText,
+  markActionRun,
   notesOutcome,
   readAskOutcome,
   readThread,
+  showsActionButtons,
   suggestionKeys
 } from '../../lib/assistant';
-import type { AssistantMessage, AssistantScreen } from '../../lib/assistant';
+import type { ActionResult, AssistantAction, AssistantActionView, AssistantMessage, AssistantScreen } from '../../lib/assistant';
 import { FOCUSABLE_SELECTOR, nextTrapIndex } from '../../lib/a11y';
 import { ask, clearThread, fetchThread, saveNotes, sendFeedback } from '../../lib/assistantClient';
 
@@ -29,6 +34,41 @@ interface Props {
   prefill: { n: number; text: string };
   /** Said once a question has gone, so a screen that was only for that question is let go. */
   onAsked: () => void;
+  /**
+   * Runs one suggested action through the app (W3.A). Without it the actions show as plain lines.
+   * Called only from a button press, never on render, on open or from the question box.
+   */
+  onAction?: (action: AssistantAction) => Promise<ActionResult> | ActionResult;
+  /** Says a result out loud from outside the panel, for when focus leaves it (AskJourvance's status). */
+  onAnnounce?: (text: string) => void;
+}
+
+const ACTION_FAILED: ActionResult = { ok: false, line: PANEL_COPY['action.failed'], tone: 'bad' };
+// The main heading of each view, found by its own words, so the heading of the view that was on
+// screen before is never the one that takes focus.
+const VIEW_HEADING: Record<Exclude<AssistantActionView, 'canvas'>, RegExp> = { 'email-studio': /Email Studio/, attribution: /Attribution/ };
+
+/**
+ * After the sheet closes on a successful "open", focus goes to that view's main heading (the map,
+ * for the canvas) once it is drawn, since the view may still be loading. Nothing moves when the
+ * person has put focus somewhere else meanwhile.
+ */
+function focusViewHeading(view: AssistantActionView): void {
+  let tries = 0;
+  const attempt = () => {
+    const a = document.activeElement;
+    if (a && a !== document.body && !a.hasAttribute('data-assistant-bubble')) return;
+    const target = view === 'canvas'
+      ? document.getElementById('journey-map')
+      : Array.from(document.querySelectorAll<HTMLElement>('.jv-workspace-main h1')).find(h => VIEW_HEADING[view].test(h.textContent || '')) ?? null;
+    if (target && target.getClientRects().length > 0) {
+      if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+      target.focus();
+      return;
+    }
+    if (++tries < 100) window.setTimeout(attempt, 50);
+  };
+  window.setTimeout(attempt, 0);
 }
 
 type Problem =
@@ -43,7 +83,7 @@ const countText = (n: number, max: number) =>
   PANEL_EXTRA['count.template'].replace('{n}', fmt(n)).replace('{max}', fmt(max));
 
 /** The Ask Jourvance panel. Look and place are the .jv-assistant-* rules in index.css; palette C is AiJourneyBuilder's. */
-export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, onOpenAuth, onAnswer, screen, prefill, onAsked }) => {
+export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, onOpenAuth, onAnswer, screen, prefill, onAsked, onAction, onAnnounce }) => {
   const base = useId().replace(/[^A-Za-z0-9_-]/g, '');
   const titleId = `jv-assistant-title-${base}`;
   const inputId = `jv-assistant-input-${base}`;
@@ -71,6 +111,15 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
   const [lineSeen, setLineSeen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearLine, setClearLine] = useState('');
+  // A suggested action that ran is replaced by its result line, keyed `${messageId}:${index}`, so it
+  // cannot run twice from the same message. Kept for this page load only.
+  const [actionLines, setActionLines] = useState<Record<string, ActionResult>>({});
+  const [focusLine, setFocusLine] = useState('');
+  const runningAction = useRef(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  // The answers that came back from a question asked in this page load. Only these offer buttons; an
+  // answer read back with the thread shows its actions as lines, so a stored action never runs again.
+  const [liveAnswers, setLiveAnswers] = useState<ReadonlySet<string>>(() => new Set());
 
   // Not on the dialog stack (a11y.ts): the panel sits beside a map and its step dock, and a dialog
   // on the stack stopped Escape closing the dock beneath it. Focus in and out is handled here.
@@ -162,6 +211,17 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
     el.style.height = `${Math.min(el.scrollHeight, 130)}px`;
   }, [input, open, loaded, unavailable]);
 
+  // The button that ran is gone, so focus moves to the line that took its place, but only when it
+  // would otherwise be lost: an action that put focus somewhere on purpose keeps it there (a new step
+  // takes focus on the map, as the header's Add Step gives it).
+  useEffect(() => {
+    if (!focusLine) return;
+    const a = document.activeElement;
+    if (a && a !== document.body && !panelRef.current?.contains(a)) return;
+    const line = Array.from(panelRef.current?.querySelectorAll<HTMLElement>('[data-action-line]') ?? []).find(el => el.dataset.actionLine === focusLine);
+    line?.focus({ preventScroll: true });
+  }, [focusLine]);
+
   // A notes result under a long notes box can be below the fold of the body.
   useEffect(() => {
     if (notesLine) notesLineRef.current?.scrollIntoView?.({ block: 'nearest' });
@@ -207,6 +267,7 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
     if (!mounted.current) return;
     setBusy(false);
     if (outcome.kind === 'answer') {
+      setLiveAnswers(ids => new Set(ids).add(outcome.message.id));
       setMessages(m => [...m, outcome.message]);
       onAnswer();
       return;
@@ -247,6 +308,40 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
     if (body.success === true && value === 'up' && line) setLineSeen(true);
   };
 
+  // Only a press runs an action. A handler that throws, or answers nothing readable, is action.failed.
+  // The bookkeeping is actionRunnable and markActionRun (src/lib/assistant.ts), both given this key.
+  const runAction = async (messageId: string, index: number, action: AssistantAction) => {
+    const key = actionKey(messageId, index);
+    if (!onAction || runningAction.current || !actionRunnable(actionLines, key)) return;
+    runningAction.current = true;
+    setActionBusy(true);
+    let result: ActionResult;
+    try {
+      const r = await onAction(action);
+      result = r && typeof r.ok === 'boolean' && typeof r.line === 'string' && r.line.trim()
+        ? { ok: r.ok, line: r.line, tone: r.tone === 'ok' || r.tone === 'warn' || r.tone === 'bad' ? r.tone : r.ok ? 'ok' : 'bad' }
+        : ACTION_FAILED;
+    } catch {
+      result = ACTION_FAILED;
+    }
+    runningAction.current = false;
+    if (!mounted.current) return;
+    setActionBusy(false);
+    setActionLines(lines => markActionRun(lines, key, result));
+    // Below 720px the sheet covers the page, so a successful open or add-step closes it and the result
+    // is on screen: focus goes to the new step (the map gives it focus, as the header's Add Step does)
+    // or to the view's main heading. A new step takes focus at every width. When focus leaves the
+    // panel the result is said from outside it; otherwise focus moves to the line, which is not live.
+    const sheet = typeof window !== 'undefined' && window.innerWidth < 720;
+    const closes = sheet && result.ok && (action.kind === 'add-step' || action.kind === 'open');
+    if (closes) {
+      onClose();
+      if (action.kind === 'open') focusViewHeading(action.view);
+    }
+    if (closes || (result.ok && action.kind === 'add-step')) onAnnounce?.(result.line);
+    else setFocusLine(key);
+  };
+
   const save = async () => {
     if (notesSaving || notesOver) return;
     setNotesSaving(true);
@@ -272,6 +367,7 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
     }
     setMessages([]);
     setRatingLines({});
+    setActionLines({});
     // Clearing the conversation does not lift the hourly limit.
     setProblem(p => (p && p.kind === 'limit' ? p : null));
     setClearLine(PANEL_COPY['clear.done']);
@@ -324,6 +420,8 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
   };
 
   const sendBlocked = busy || limited || !input.trim() || over;
+  // Only the newest answer's actions are buttons; older ones are plain lines.
+  const latestId = latestAnswerId(messages);
 
   return (
     <div
@@ -335,7 +433,6 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
       aria-labelledby={titleId}
       hidden={!open}
       data-signed-out={signedIn ? 'false' : 'true'}
-      style={{ zIndex: 25 }}
       onKeyDown={onKeyDown}
       onKeyUp={e => e.stopPropagation()}
     >
@@ -461,6 +558,51 @@ export const AssistantPanel: React.FC<Props> = ({ id, open, signedIn, onClose, o
                 <article key={m.id} className={`jv-assistant-msg jv-assistant-msg--${m.role}`}>
                   <span className="jv-assistant-sr">{m.role === 'user' ? PANEL_EXTRA['speaker.you'] : PANEL_EXTRA['speaker.assistant']}</span>
                   <div className="jv-assistant-bubble-text">{m.text}</div>
+                  {m.role === 'assistant' && !!m.actions?.length && (
+                    showsActionButtons(m.id, latestId, liveAnswers) && onAction ? (
+                      <div role="group" aria-label={PANEL_COPY['action.group']} className="jv-assistant-actions">
+                        {m.actions.map((a, i) => {
+                          const key = actionKey(m.id, i);
+                          const done = actionLines[key];
+                          // Not live: focus moves to this line, and the log already holds it.
+                          return done ? (
+                            <p
+                              key={key}
+                              role="status"
+                              aria-live="off"
+                              tabIndex={-1}
+                              data-action-line={key}
+                              className={`jv-assistant-action-line jv-assistant-action-line--${done.tone ?? (done.ok ? 'ok' : 'bad')}`}
+                            >
+                              {done.line}
+                            </p>
+                          ) : (
+                            <button
+                              key={key}
+                              type="button"
+                              className="jv-assistant-btn jv-assistant-action"
+                              aria-disabled={actionBusy}
+                              onClick={() => void runAction(m.id, i, a)}
+                            >
+                              {a.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <ul className="jv-assistant-suggested">
+                        {m.actions.map((a, i) => {
+                          // An action that already ran shows what it did, not the suggestion.
+                          const done = actionLines[actionKey(m.id, i)];
+                          return done ? (
+                            <li key={actionKey(m.id, i)} className={`jv-assistant-action-line jv-assistant-action-line--${done.tone ?? (done.ok ? 'ok' : 'bad')}`}>{done.line}</li>
+                          ) : (
+                            <li key={actionKey(m.id, i)}>{PANEL_COPY['action.suggested']} {a.label}</li>
+                          );
+                        })}
+                      </ul>
+                    )
+                  )}
                   {m.role === 'assistant' && !m.id.startsWith('local-') && (
                     <>
                       <div role="group" aria-label={PANEL_COPY['feedback.group']} className="jv-assistant-feedback">

@@ -116,7 +116,7 @@ test('the golden file: 30 questions, unique ids, the mix the plan asks for, and 
   assert.equal(qs.length, 30);
   assert.equal(new Set(qs.map((q) => q.id)).size, 30, 'ids are unique');
   const headings = new Set(loadGuideSections(GUIDE_PATH).map((s) => s.heading));
-  assert.equal(headings.size, 10, 'the guide has ten sections');
+  assert.equal(headings.size, 11, 'the guide has eleven sections');
   for (const q of qs) {
     assert.equal(typeof q.question, 'string', q.id);
     assert.ok(q.question.trim().length > 5, q.id);

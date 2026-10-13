@@ -49,6 +49,8 @@ test('POST /api/ai/copy names the user as the account, carries the CONTEXT rule,
     assert.equal(r.status, 200);
     assert.equal(r.body.source, 'hub-brain');
     assert.equal(r.body.copy.headline, 'Clay, made simple');
+    // W3.B: the hub-brain answer says what the hub grounded it on.
+    assert.equal(r.body.grounding, 'account', 'the hub-brain answer carries its grounding');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].opts.accountId, 'dev-test-user-id');
     assert.equal(calls[0].opts.json, true);
@@ -59,6 +61,7 @@ test('POST /api/ai/copy names the user as the account, carries the CONTEXT rule,
     reply = (prompt, opts) => (Object.hasOwn(opts, 'accountId') ? { error: ACCOUNT_REFUSAL, status: 403 } : { success: true, text: '{"headline":"H","body":"B","cta":"C"}' });
     r = await post();
     assert.equal(r.body.source, 'hub-brain');
+    assert.equal(r.body.grounding, 'app', 'asked without the account, so grounded on the app');
     assert.equal(calls.length, 3, 'exactly one retry');
     assert.ok(!Object.hasOwn(calls[2].opts, 'accountId'));
 
@@ -70,6 +73,7 @@ test('POST /api/ai/copy names the user as the account, carries the CONTEXT rule,
       assert.equal(r.body.success, true);
       assert.equal(r.body.source, 'template');
       assert.equal(typeof r.body.copy.headline, 'string');
+      assert.ok(!Object.hasOwn(r.body, 'grounding'), 'template copy was grounded on nothing and never says it was');
     }
   } finally {
     console.warn = warn;

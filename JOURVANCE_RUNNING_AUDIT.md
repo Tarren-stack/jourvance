@@ -4,6 +4,107 @@ Living notes. Newest pass is at the top. Add a dated section when something is c
 
 Checked: 2026-10-09. DEPLOYED: jourvance.com serves 7678443 (the Email Studio rebuild, Waves 1 to 8, and the open list closed) per the Render API; the Sentinel, policy and lead probes answer as before. Read the newest section first.
 
+## 2026-10-13: Ask Jourvance wave 3, the assistant acts, Email Studio drafts through the brain, results teach the main brain
+
+**Limits first.** Not deployed; not pushed. The hub side of this wave (the `smoke:email` crash fix in
+`server-email.ts`, six files) is VERIFIED in the hub repo and UNCOMMITTED there with the earlier waves'
+fifteen files (the hub's rule is to commit only when the owner asks). `npm run check:canvas` went RED
+during this wave with one finding absent from a clean worktree of HEAD (a step-finder chip at 1440 failed
+the target-spacing rule because the step dock lifted the assistant bubble at every width); a bisect pinned
+it to one line, the lift is now gated on the dock being stacked under the map, and the check is green
+again on the final tree (the overlap check gained the 768 and 1280 assertions that would have caught it). No live Vertex
+call was made anywhere; every AI path was driven against loopback stubs. No screen reader was run: the
+"announced once" claims for the new status lines are INFERRED from the DOM, not heard. The AI Polish
+card does NOT show a grounding line: both candidate sentences measured two lines in the drawer at 320,
+and the plan's rule was one line or nothing (the `/api/ai/copy` answer still carries `grounding`).
+
+**Residuals recorded, named by an adversary and accepted:** the shared patterns file cannot be made
+collusion-proof by a deterministic rule: twenty-four colluding accounts alone in a goal-and-source
+group with one honest account learn that account's ten point band in four monthly files and its value
+to within a point in seven (the twenty-five account minimum and the leave-one-out stability rule raise
+the cost; they do not remove it; the file's own paragraph says so). A journey-shape learn is a
+fingerprint: anyone who knows a journey's step sequence can learn its order-rate band (ten points, in
+words) and that it had at least 200 visits and 20 orders; accepted as the price of the flywheel. An
+unconditional thread save (a question, a notes save) landing between a training run's read and its
+claim clears the conditional stamp, so that one claim is not refused (two servers sharing one store
+measured three learns and one file a day after the fix, against six and two before). The hourly AI
+budget's expire-first trim can still evict a user at the limit when 5,000 newer users call inside the
+hour. The model's answer text can still claim an action ran when none did (only the prompt forbids it;
+the result line under the button is the truth). On the hub, the app-wide email branches run inside no
+guard, so an unexpected throw there still ends the process; the app-wide send-step answers a held
+letter 400; the per-corpus replace lock is one process wide. Aura's own create-time learns send the
+campaign title and the ad headline verbatim to the main brain; that is Aura's fix to make.
+
+**What shipped in the spoke** (`ASK_JOURVANCE_PLAN.md`, "Wave 3", is the contract):
+
+- **Actions with confirmation (W3.A).** The assistant answers JSON `{ answer, actions }`; the server
+  validates each action against a fixed vocabulary (open a view; add a step of a NodeType to the screen's
+  journey; rename the screen's journey to a 1 to 80 character name with at least one letter or digit and
+  no control, format, private-use, surrogate, separator, invisible-filler or quote character), keeps at
+  most three, drops the rest silently, and BUILDS every button label itself from the user's own journey
+  names and the step names (a stored label is rebuilt on every read; a journey that is gone drops its
+  action). The client shows buttons only on an answer that arrived in this page load, only on the newest
+  answer, runs one only on click, only while the canvas is the active page and view for journey kinds,
+  through the app's existing handlers; a run replaces the button with a result line that names what ran
+  ("Added a landing page step. Undo is in the editor toolbar."); in sheet mode a successful open or
+  add-step closes the sheet so the result is on screen. Section 6 of the plan changed accordingly.
+- **Email Studio drafting through the brain (W3.B).** `POST /api/ai/email-draft` (`requireUser`, the
+  shared hourly budget, `brainChat` with the user as the account, JSON, no template fallback) and a
+  "Draft this email with AI" control in the broadcast composer and on a flow's email step: a brief of up
+  to 300 characters, a proposal headed "Draft. Not in your email yet." with Keep and Discard at its top,
+  a grounding line that is true in both directions ("Uses your business profile, when the AI has it." or
+  "Uses general guidance, not your profile."). Keep fills the subject, keeps a typed preview when the
+  draft has none, appends paragraphs within the 24 block cap and never replaces a block the user wrote;
+  a late reply after the broadcast changed identity is dropped; template tags, bracket placeholders and
+  links never come back from the model. A Sentinel 429 shows no Retry.
+- **Results teach the main brain (W3.C).** For each journey with at least 200 visits and 20 orders in
+  the window, one learn built ONLY from enumerations and a band in words ("Orders per hundred visits:
+  thirty to forty. A sales journey from TikTok with four steps: ad then page then downsell then
+  thank-you."), rating 4, or 5 at twice the account's median; sent on the app's own account through
+  `hub.brain.learn`, three a user a day and one hundred an app a day, each claim a conditional put, each
+  sha kept 30 days, nothing sent from a capped event log. `PATTERN_MIN_USERS` is 25 and a band prints
+  only when no single account can move it.
+- **The overlaps and the viewport meta (W3.D).** `interactive-widget=resizes-content`; the bubble
+  rises to 87 px while the edge inspector, the docked canvas notice or the step dock shows; the sheet
+  sits above the editor toolbar; the mobile nav trigger hides while the sheet is open; short phone
+  viewports relax the sheet's height caps. `npm run check:overlaps` measures it.
+- **Also fixed:** `node server.mjs` now exits on SIGTERM and SIGINT after its synchronous flush (it
+  used to register a listener and never exit, so a deploy left the old process until the host killed
+  it); a crafted thread document can no longer put model text on a button.
+
+**What shipped in the hub (uncommitted):** check 23 of `smoke:email` crashed the process (an account
+event with no database reached `reliableEmail.isStopped`, which threw, unhandled, in an async route).
+`durableFlowStopped` has two states (no database on a non-production host answers false and the shard's
+own stops apply; a database whose read fails, or a null database on a production host where the
+credential did not parse, is `durable_unavailable`: the recipient is held, never sent, and the row does
+not advance); every account route handler is wrapped so a throw answers 503 with `Retry-After`; the track
+route reads every series' stop before it claims the event id; a signed hard bounce is recorded before the
+hub-message `continue`; a letter SendGrid accepted stays sent when its receipt cannot be settled; the
+scheduler logs one line per pass. The hub's full `npm run smoke` passes for the first time since the
+2026-09-26 commit that introduced the crash.
+
+**Verification by the main session (VERIFIED, on the final trees, exit codes read directly):**
+
+| Check | Result |
+|---|---|
+| Spoke `npx tsc --noEmit` | exit 0 |
+| Spoke `npm test` | 3,056 tests, 3,053 passed, 0 failed, 3 skipped (the live-server checks) |
+| Spoke `npm run build` | exit 0 |
+| Spoke `npm run check:assistant` | 464 assertions, 0 findings |
+| Spoke `npm run check:overlaps` | 102 assertions, 0 findings |
+| Spoke `npm run check:email-draft` | 69 assertions, 0 findings |
+| Spoke `npm run check:canvas` | exit 0 on the final tree (overflow, drawers, save, a11y, runtime all PASS) |
+| Spoke sandboxed boot (`scratchpad/boot-probe3.mjs`, no `.env`, no key) | draft route 401 / 400 / 400 / 503 per contract, crafted token 401, ask 503, operator dry run 200 with `shapes`, user token on the operator route 404, SIGTERM exit code 0 in 6 ms, port closed, no stray file |
+| Spoke `hub-sdk.js` | byte-identical to the hub dist (`cmp`) |
+| Em dash scan | none in the wave's 44 spoke files or the hub's added lines |
+| Hub `npm run lint` | exit 0 |
+| Hub `npm run smoke` (full chain) | exit 0: unit aggregate 1,485 node:test tests, 0 failed, 0 skipped; route smoke 182; credits 97; email 67; sms 47; scopes 60; wordpress 32; calendar 32; maps-leads 54; domains 47; render-domains 41; media 35; media-broker 46; UI 10; forms and store "all checks passed" |
+
+DELEGATED, not re-run by me: every builder's planted-fault table (W3.A 36 unit plants and 3 browser
+plants, W3.B 35 and 38, W3.C 36 and 20, W3.D 4 plus 1, W3.H 9 and 11, the SIGTERM fix 1); the adversaries'
+probes (five reviewers, probes under the session scratchpad); the design and accessibility measurements.
+Each reviewer was given the code and told to break it, not given the builder's conclusion.
+
 ## 2026-10-12: Ask Jourvance wave 2, training off real user data and full AI grounding
 
 **Limits first.** Not deployed; not pushed. The hub side (learn quality, the replaceable studio

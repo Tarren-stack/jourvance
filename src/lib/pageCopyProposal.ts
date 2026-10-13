@@ -58,8 +58,12 @@ const EMAIL_ANSWER_KEYS: Record<EmailCopyField, string> = {
   body: 'body'
 };
 
+// What the hub grounded real AI copy on: this account's own corpus, or only the app and shared ones.
+export type CopyGrounding = 'account' | 'app';
+
+// `grounding` is present only when the answer named one (the hub-brain branch of /api/ai/copy).
 export type CopyAnswerRead<F extends CopyField = PageCopyField> =
-  | { kind: 'suggestion'; copy: SuggestedCopy<F> }
+  | { kind: 'suggestion'; copy: SuggestedCopy<F>; grounding?: CopyGrounding }
   | { kind: 'unavailable'; message: string };
 
 export interface CopyRow<F extends CopyField = CopyField> {
@@ -158,7 +162,8 @@ function readAnswer<F extends CopyField>(
   if (Object.keys(copy).length === 0) {
     return { kind: 'unavailable', message: `The AI answer was empty. ${NOTHING_CHANGED}` };
   }
-  return { kind: 'suggestion', copy };
+  const grounding = body.grounding === 'account' || body.grounding === 'app' ? (body.grounding as CopyGrounding) : undefined;
+  return grounding ? { kind: 'suggestion', copy, grounding } : { kind: 'suggestion', copy };
 }
 
 export function readCopyAnswer(answer: RawAnswer): CopyAnswerRead<PageCopyField> {

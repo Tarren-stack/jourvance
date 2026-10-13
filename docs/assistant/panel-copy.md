@@ -51,6 +51,13 @@ Final strings. Copy them verbatim. `{wait}` and `{reason}` are filled in at run 
 | clear.confirmNo | Keep it |
 | clear.done | Conversation cleared. |
 | close.label | Close |
+| action.group | Suggested actions |
+| action.done.open | Opened. |
+| action.done.add-step | Added a {step} step. Undo is in the editor toolbar. |
+| action.done.rename-journey | Renamed to "{name}". Undo is in the editor toolbar. |
+| action.notOpen | That journey is not open any more. Open it and ask again. |
+| action.failed | That did not run. Nothing changed. |
+| action.suggested | Suggested: |
 
 ## Notes for the builder
 
@@ -61,3 +68,4 @@ Final strings. Copy them verbatim. `{wait}` and `{reason}` are filled in at run 
 - `suggest.<view>.1..3` are the three questions the panel offers for the screen the person is on: `canvas`, `email-studio` (key `email`), `attribution` and `public` (home, about, blog, contact). Each asks only what the assistant can answer from the facts it is given: journeys, visits, leads, orders and revenue per journey for the last 30 days, email totals and rates, and the contact count. None promises a per-email or per-page figure.
 - Reading level: written to Grade 6 to 8. Every line is one to three short sentences.
 - Screen reader: `busy.line` and the answer go in the polite log. `feedback.group` is the accessible name of the Helpful and Not helpful pair.
+- Actions (W3.A): an answer may carry up to three suggested actions. Each button's text is its `label`, built on the server from the action and the person's own journey name ("Open Email Studio", or "Add a landing page step to" and the name of the journey, or "Rename this journey to" and the new name in quotes), never from the model's words. `action.group` is the accessible name of the group of buttons. Only the newest answer, and only one that came back from a question asked since the page loaded, shows them as buttons; an older answer, or one read back with the conversation, shows each as a plain line, `action.suggested` then the label, or the result when that action already ran. After a button runs it is replaced by one result line: `action.done.<kind>` when it ran (`{step}` is the step's name with "a" or "an" before it, `{name}` the new name), `action.notOpen` in the warning colour when the journey it names is not the one on the canvas now, `action.failed` when it threw or the person chose to stay where they were. Below 720px a successful open or add-step closes the sheet so the result is on screen. Nothing runs on its own: not on load, not on open, not on Enter in the question box.

@@ -95,6 +95,7 @@ import { StepPicker } from './StepPicker';
 import { canvasFitOptions } from '../../lib/editorReturn';
 import { MINIMAP_SIZE, overlayFitPadding, wholeMapFit } from '../../lib/fitRoom';
 import { COARSE_POINTER_QUERY, handleTargetsTight } from '../../lib/semanticZoom';
+import { useBottomSurface } from '../../lib/bottomSurface';
 import { mapToolsCompact, noticePlace, revealShift, unionBox, visibleBand, NOTICE_DOCK_GAP, REVEAL_MAX_WAIT_MS, REVEAL_MIN_WAIT_MS, REVEAL_QUIET_MS } from '../../lib/tapReveal';
 
 // Arrowheads keep one size whatever the line width, and take the line's colour.
@@ -1493,6 +1494,8 @@ export const JourneyCanvas: React.FC<Props> = ({
   // once a frame.
   const noticeBoxRef = useRef<HTMLDivElement>(null);
   const [noticeAt, setNoticeAt] = useState<number | 'docked' | null>(null);
+  // Docked at the window foot, the notice's Dismiss shares the corner with the Ask Jourvance bubble, which lifts clear of it.
+  useBottomSurface(ruleNotice !== null && noticeAt === 'docked');
   const noticeShown = useRef(false);
   noticeShown.current = ruleNotice !== null;
   const noticeCard = useRef<string | null>(null);

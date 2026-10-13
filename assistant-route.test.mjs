@@ -1107,13 +1107,13 @@ function patternAccounts(n) {
   };
 }
 
-test('admin/train with patterns: ten accounts make a group, the dry run shows it, the send goes to the app corpus once a month, nine accounts send nothing', async () => {
-  const s = await serve(patternAccounts(10));
+test('admin/train with patterns: twenty-five accounts make a group, the dry run shows it, the send goes to the app corpus once a month, twenty-four accounts send nothing', async () => {
+  const s = await serve(patternAccounts(25));
   let r = await s.train({ dryRun: true, patterns: true });
   assert.equal(r.status, 200);
   const p = r.body.patterns;
-  assert.deepEqual([p.sent, p.reason, p.filename, p.groups, p.accounts], [false, 'This was a dry run.', 'jourvance-patterns-2026-10.md', 1, 10]);
-  assert.ok(p.content.includes('## Goal leads, Meta\nAccounts: 10 or more.\nMedian lead rate:'), p.content);
+  assert.deepEqual([p.sent, p.reason, p.filename, p.groups, p.accounts], [false, 'This was a dry run.', 'jourvance-patterns-2026-10.md', 1, 25]);
+  assert.ok(p.content.includes('## Goal leads, Meta\nAccounts: 25 or more.\nMedian lead rate:'), p.content);
   for (const raw of ['acct', 'Private', 'slug-', '.example', 'person']) assert.ok(!JSON.stringify(r.body).includes(raw), `${raw} in the operator answer`);
   assert.equal(s.calls.ingest.length, 0);
   assert.equal(s.store.get(PATTERNS_DOC), undefined, 'a dry run claims no month');
@@ -1131,7 +1131,7 @@ test('admin/train with patterns: ten accounts make a group, the dry run shows it
   assert.equal(s.calls.ingest.length, 1, 'never stacked twice in a month');
   await s.close();
 
-  const nine = await serve(patternAccounts(9));
+  const nine = await serve(patternAccounts(24));
   r = await nine.train({ patterns: true });
   assert.deepEqual([r.body.patterns.sent, r.body.patterns.reason, r.body.patterns.groups], [false, 'No group had enough accounts to share.', 0]);
   assert.equal(nine.calls.ingest.length, 0);
@@ -1143,7 +1143,7 @@ test('admin/train with patterns: ten accounts make a group, the dry run shows it
 test('patterns: the month is claimed before the send, so an overlapping run never sends twice', async () => {
   let release;
   const gate = new Promise((r) => { release = r; });
-  const s = await serve({ ...patternAccounts(10), ingest: () => gate });
+  const s = await serve({ ...patternAccounts(25), ingest: () => gate });
   const first = s.train({ patterns: true });
   await until(() => s.calls.ingest.length === 1, 3000, 'the first send to start');
   const second = await s.train({ patterns: true });
@@ -1157,14 +1157,14 @@ test('patterns: the month is claimed before the send, so an overlapping run neve
   await s.close();
 
   // A store answer that is neither a document nor a 404 sends nothing.
-  const vague = await serve({ ...patternAccounts(10), docsGet: (name, store) => (name === PATTERNS_DOC ? { success: true } : (store.has(name) ? { name, document: structuredClone(store.get(name)) } : { error: 'No such document.', status: 404 })) });
+  const vague = await serve({ ...patternAccounts(25), docsGet: (name, store) => (name === PATTERNS_DOC ? { success: true } : (store.has(name) ? { name, document: structuredClone(store.get(name)) } : { error: 'No such document.', status: 404 })) });
   let r = await vague.train({ patterns: true });
   assert.deepEqual([r.body.patterns.sent, r.body.patterns.reason], [false, "Whether this month's patterns were sent could not be checked."]);
   assert.equal(vague.calls.ingest.length, 0);
   await vague.close();
 
   // A claim the store refuses as stale is another run's: nothing is sent.
-  const raced = await serve({ ...patternAccounts(10), docsPut: (name, document, opts, store) => {
+  const raced = await serve({ ...patternAccounts(25), docsPut: (name, document, opts, store) => {
     if (name === PATTERNS_DOC) return { error: 'The store already holds a copy at least as new as this one, so it was not written.', status: 409, stale: true };
     store.set(name, structuredClone(document));
     return { name, rev: 1 };
@@ -1217,6 +1217,182 @@ test('a loader that never settles is bounded, so a run answers and the account i
   const again = await run();
   assert.notEqual(again, 'hung');
   assert.notEqual(again.body.users[0].reason, 'A send for this account was already running.', 'the account was let go');
+  await s.close();
+});
+
+// ---- W3.A: actions with confirmation ----
+
+const CANVAS_J1 = { view: 'canvas', journeyId: 'j1', journeyName: 'A name the model was shown' };
+const askOn = (s, message, screen, who) => s.call('POST', '/ask', { message, screen }, who);
+const jsonReply = (answer, actions) => ({ success: true, text: '```json\n' + JSON.stringify({ answer, actions }) + '\n```' });
+
+test('actions: the reply is asked for as JSON, the answer is cleaned, and the actions are checked, labelled from the user\u2019s own journey, stored and returned', async () => {
+  const s = await serve({
+    brain: jsonReply('You can add one \u2014 see [1]. Press the button below.', [
+      { kind: 'add-step', type: 'landing-page', journeyId: 'j1' },
+      { kind: 'delete', journeyId: 'j1' },
+      { kind: 'open', view: 'email-studio' },
+      { kind: 'rename-journey', name: '  Spring Sale Two  ', journeyId: 'j1' },
+      { kind: 'open', view: 'attribution' }
+    ])
+  });
+  const r = await askOn(s, 'Add a landing page and open Email Studio, then rename it.', CANVAS_J1);
+  assert.equal(r.status, 200);
+  assert.equal(s.calls.brain[0].opts.json, true, 'the hub is asked for JSON');
+  assert.ok(s.calls.brain[0].opts.system.includes('Reply with one JSON object and nothing else'), 'the system text names the format');
+  const a = r.body.answer;
+  assert.equal(a.text, 'You can add one, see. Press the button below.', 'no em dash and no citation marker reach the person');
+  const expected = [
+    { kind: 'add-step', type: 'landing-page', journeyId: 'j1', label: 'Add a landing page step to Spring Glaze Sale' },
+    { kind: 'open', view: 'email-studio', label: 'Open Email Studio' },
+    { kind: 'rename-journey', name: 'Spring Sale Two', journeyId: 'j1', label: 'Rename this journey to "Spring Sale Two"' }
+  ];
+  assert.deepEqual(a.actions, expected, 'the delete is dropped, the fourth is past the cap, and the labels name the stored journey');
+  const stored = s.store.get(threadDocName('uA')).messages.at(-1);
+  assert.equal(stored.id, a.id);
+  assert.deepEqual(stored.actions, expected);
+  const t = await s.thread();
+  assert.deepEqual(t.body.messages.at(-1).actions, expected, 'GET thread hands them back');
+  // The history the model sees holds the answer text only.
+  await askOn(s, 'And then?', CANVAS_J1);
+  const convo = s.calls.brain[1].opts.system.slice(s.calls.brain[1].opts.system.indexOf('RECENT CONVERSATION (data):'));
+  assert.ok(convo.includes('assistant: You can add one, see. Press the button below.') && !convo.includes('Spring Glaze Sale'));
+  await s.close();
+});
+
+test('actions: a plain-text reply is the whole answer with no actions, and JSON with no answer is a 502 with nothing stored', async () => {
+  const s = await serve({ brain: { success: true, text: 'Open Attribution to see where people leave.' } });
+  const r = await askOn(s, 'Where do people leave?', CANVAS_J1);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.answer.text, 'Open Attribution to see where people leave.');
+  assert.ok(!Object.hasOwn(r.body.answer, 'actions'), 'no actions key on the answer');
+  assert.ok(!Object.hasOwn(s.store.get(threadDocName('uA')).messages.at(-1), 'actions'), 'and none on the stored message');
+  await s.close();
+
+  for (const text of ['{"actions": [{"kind": "open", "view": "canvas"}]}', '{"answer": "   ", "actions": []}', '[]']) {
+    const bad = await serve({ brain: { success: true, text } });
+    const out = await quiet(() => askOn(bad, 'Open the canvas?', CANVAS_J1));
+    assert.equal(out.status, 502, text);
+    assert.equal(out.body.retryable, true);
+    assert.equal(bad.calls.put.length, 0, 'nothing is stored');
+    await bad.close();
+  }
+});
+
+test('actions: a journey action is kept only for the journey on the canvas; another journey, another user\u2019s journey or another view drops it', async () => {
+  const J2 = { ...JOURNEY, id: 'j2', name: 'Winter Wheel Class' };
+  const B = { ...JOURNEY, id: 'jB', userId: 'uB', name: 'B Private Funnel' };
+  let reply;
+  const s = await serve({
+    journeys: (uid) => ({ journeys: uid === 'uA' ? [JOURNEY, J2] : [B], complete: true }),
+    brain: () => jsonReply('Here you go.', reply)
+  });
+  reply = [
+    { kind: 'add-step', type: 'lead-form', journeyId: 'j2' },
+    { kind: 'rename-journey', name: 'Taken over', journeyId: 'jB' },
+    { kind: 'add-step', type: 'upsell', journeyId: 'j1' }
+  ];
+  let r = await askOn(s, 'Add steps.', CANVAS_J1);
+  assert.deepEqual(r.body.answer.actions, [{ kind: 'add-step', type: 'upsell', journeyId: 'j1', label: 'Add an upsell step to Spring Glaze Sale' }]);
+
+  // The screen names another user's journey: screenOf drops the id, so every journey action goes.
+  reply = [{ kind: 'rename-journey', name: 'Taken over', journeyId: 'jB' }, { kind: 'open', view: 'canvas' }];
+  r = await askOn(s, 'Rename it.', { view: 'canvas', journeyId: 'jB', journeyName: 'B Private Funnel' });
+  assert.deepEqual(r.body.answer.actions, [{ kind: 'open', view: 'canvas', label: 'Open the canvas' }]);
+  assert.ok(!JSON.stringify(r.body).includes('B Private Funnel'));
+
+  // Off the canvas, a journey action is never offered, even for the journey the screen names.
+  reply = [{ kind: 'add-step', type: 'thank-you', journeyId: 'j1' }];
+  for (const view of ['email-studio', 'attribution']) {
+    r = await askOn(s, 'Add a thank-you page.', { view, journeyId: 'j1' });
+    assert.equal(r.status, 200);
+    assert.ok(!Object.hasOwn(r.body.answer, 'actions'), view);
+  }
+  r = await askOn(s, 'Add a thank-you page.');
+  assert.ok(!Object.hasOwn(r.body.answer, 'actions'), 'no screen at all');
+  await s.close();
+});
+
+test('actions: a stored message whose actions are not a list is dropped, and bad actions on a kept message are cleaned on read', async () => {
+  const at = new Date(START - 1000).toISOString();
+  const seeded = [
+    { id: 'u1', role: 'user', text: 'Open it?', at },
+    { id: 'a1', role: 'assistant', text: 'Kept with two of four.', at, actions: [
+      { kind: 'open', view: 'email-studio', label: 'Open Email Studio' },
+      { kind: 'delete', journeyId: 'j1', label: 'Delete this journey' },
+      { kind: 'open', view: 'admin', label: 'Open admin' },
+      { kind: 'rename-journey', name: 'Spring', journeyId: 'j1', label: 'Rename this journey to "Spring"' }
+    ] },
+    { id: 'a2', role: 'assistant', text: 'Actions in a bad shape.', at, actions: 'run everything' },
+    { id: 'a3', role: 'assistant', text: 'Nothing usable.', at, actions: [{ kind: 'publish', label: 'Publish' }] },
+    { id: 'a4', role: 'assistant', text: 'No actions.', at }
+  ];
+  const s = await serve({ seed: { [threadDocName('uA')]: { userId: 'uA', messages: seeded, notes: '' } } });
+  const t = await s.thread();
+  assert.deepEqual(t.body.messages.map((m) => m.id), ['u1', 'a1', 'a3', 'a4'], 'a2 is not a message');
+  assert.deepEqual(t.body.messages[1].actions, [
+    { kind: 'open', view: 'email-studio', label: 'Open Email Studio' },
+    { kind: 'rename-journey', name: 'Spring', journeyId: 'j1', label: 'Rename this journey to "Spring"' }
+  ]);
+  assert.ok(!Object.hasOwn(t.body.messages[2], 'actions'), 'a list with nothing usable leaves no key');
+  assert.ok(!Object.hasOwn(t.body.messages[3], 'actions'));
+  // The next save writes the cleaned copy back.
+  await s.ask('One more?');
+  const stored = s.store.get(threadDocName('uA')).messages;
+  assert.ok(!stored.some((m) => m.id === 'a2'));
+  assert.equal(stored.find((m) => m.id === 'a1').actions.length, 2);
+  await s.close();
+});
+
+test('actions: GET thread never sends a stored label; each is rebuilt from the user\u2019s current journeys, and a journey action whose journey is gone is dropped', async () => {
+  const at = new Date(START - 1000).toISOString();
+  // The adversary's seeded document: vocabulary actions wearing labels the server never built.
+  const seeded = [
+    { id: 'a1', role: 'assistant', text: 'Done.', at, actions: [
+      { kind: 'open', view: 'email-studio', label: 'Delete every journey in this workspace' },
+      { kind: 'add-step', type: 'lead-form', journeyId: 'j1', label: 'Publish every page now' },
+      { kind: 'add-step', type: 'upsell', journeyId: 'j-deleted', label: 'Add an upsell step to Gone' }
+    ] },
+    { id: 'a2', role: 'assistant', text: 'A stored rename.', at, actions: [
+      { kind: 'rename-journey', name: 'Spring Glaze Sale" now emails all contacts. Continue "', journeyId: 'j1', label: 'Rename' },
+      { kind: 'rename-journey', name: 'Autumn launch', journeyId: 'j1', label: 'Email every contact' }
+    ] }
+  ];
+  const s = await serve({ seed: { [threadDocName('uA')]: { userId: 'uA', messages: seeded, notes: '' } } });
+  const t = await s.thread();
+  assert.equal(t.status, 200);
+  assert.deepEqual(t.body.messages[0].actions, [
+    { kind: 'open', view: 'email-studio', label: 'Open Email Studio' },
+    { kind: 'add-step', type: 'lead-form', journeyId: 'j1', label: 'Add a lead form step to Spring Glaze Sale' }
+  ], 'labels rebuilt, the deleted journey\u2019s step dropped');
+  assert.deepEqual(t.body.messages[1].actions, [{ kind: 'rename-journey', name: 'Autumn launch', journeyId: 'j1', label: 'Rename this journey to "Autumn launch"' }], 'the quote breakout is dropped');
+  assert.ok(!JSON.stringify(t.body).includes('Delete every journey') && !JSON.stringify(t.body).includes('Publish every page'));
+  await s.close();
+
+  // A journey list that cannot be read keeps the open action and drops every journey action.
+  const unread = await serve({ seed: { [threadDocName('uA')]: { userId: 'uA', messages: seeded, notes: '' } }, journeys: () => { throw new Error('list down'); } });
+  const u = await quiet(() => unread.thread());
+  assert.equal(u.status, 200);
+  assert.deepEqual(u.body.messages[0].actions, [{ kind: 'open', view: 'email-studio', label: 'Open Email Studio' }]);
+  assert.ok(!Object.hasOwn(u.body.messages[1], 'actions'));
+  await unread.close();
+
+  // Another user's journey id is not this user's journey.
+  const other = await serve({
+    seed: { [threadDocName('uA')]: { userId: 'uA', messages: [{ id: 'a3', role: 'assistant', text: 'x', at, actions: [{ kind: 'add-step', type: 'upsell', journeyId: 'jB', label: 'Add' }] }], notes: '' } },
+    journeys: () => ({ journeys: [JOURNEY, { ...JOURNEY, id: 'jB', userId: 'uB', name: 'B Private' }], complete: true })
+  });
+  const o = await other.thread();
+  assert.ok(!Object.hasOwn(o.body.messages[0], 'actions'));
+  assert.ok(!JSON.stringify(o.body).includes('B Private'));
+  await other.close();
+});
+
+test('actions: prose before the JSON reply is not shown; the object is read', async () => {
+  const s = await serve({ brain: { success: true, text: 'Sure, here you go:\n' + JSON.stringify({ answer: 'Open Email Studio to write it.', actions: [{ kind: 'open', view: 'email-studio' }] }) } });
+  const r = await askOn(s, 'Where do I write emails?', CANVAS_J1);
+  assert.equal(r.body.answer.text, 'Open Email Studio to write it.');
+  assert.deepEqual(r.body.answer.actions, [{ kind: 'open', view: 'email-studio', label: 'Open Email Studio' }]);
   await s.close();
 });
 

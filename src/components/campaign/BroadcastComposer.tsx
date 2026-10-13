@@ -1,5 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { auth, authHeaders } from '../../lib/firebase';
+import {
+  applyDraftToComposer, briefCount, briefProblem, createDraftSession, groundingLine, keptSentence,
+  DRAFT_BUSY, DRAFT_DISCARDED, DRAFT_STOPPED, IDLE_DRAFT_SESSION,
+  type BlockFactory, type DraftKind, type DraftPhase, type DraftSession, type DraftSessionState, type EmailDraft
+} from '../../lib/emailDraft';
+import { requestEmailDraft } from '../../lib/emailDraftClient';
 import { withNote } from '../../lib/emailStats';
 import { settleRead, sendFlowWrite } from '../../lib/flowMapLoad';
 import { retryLabel } from '../../lib/studioLoad';
@@ -9,7 +15,7 @@ import {
   draftSnapshot, emptyBroadcastDraft, lintSummary, looksLikeAddress, previewKey, testSendBody,
   type AudienceOption, type BroadcastDraft, type BroadcastSettings, type BroadcastWhen
 } from '../../lib/broadcastComposer';
-import { BlockEditor, type LibraryRow, type MailBlock } from './EmailBlocks';
+import { BlockEditor, cloneBlock, type LibraryRow, type MailBlock } from './EmailBlocks';
 import { card, field, ghostBtn, label, readJson, solidBtn } from './emailChrome';
 
 /**
@@ -36,6 +42,12 @@ export interface BroadcastDraftState {
   draft: BroadcastDraft;
   /** True when the draft differs from what was last saved, opened or started. */
   dirty: boolean;
+  /**
+   * Moves on each time start() puts another email in the composer (New broadcast, an opened draft, a
+   * written draft, after a send). An unsaved email has no id, so this is its identity: Draft this email
+   * with AI is keyed on it, and a reply for the email that was replaced is dropped.
+   */
+  generation: number;
   patch: (next: Partial<Omit<BroadcastDraft, 'settings'>>) => void;
   patchSettings: (next: Partial<BroadcastSettings>) => void;
   /** Starts the composer on a stored draft, or on a new broadcast. Either way nothing is unsaved yet. */
@@ -51,6 +63,7 @@ export interface BroadcastDraftState {
 export function useBroadcastDraft(): BroadcastDraftState {
   const [draft, setDraft] = useState<BroadcastDraft>(emptyBroadcastDraft);
   const [savedAs, setSavedAs] = useState<string>(() => draftSnapshot(emptyBroadcastDraft()));
+  const [generation, setGeneration] = useState(0);
   const setBroadcastSubject = (subject: string) => setDraft((d) => ({ ...d, subject }));
   const setBroadcastPreviewText = (previewText: string) => setDraft((d) => ({ ...d, previewText }));
   const setBroadcastBody = (text: string) => setDraft((d) => ({ ...d, blocks: bodyBlocks(text) }));
@@ -59,6 +72,7 @@ export function useBroadcastDraft(): BroadcastDraftState {
     const next = from || emptyBroadcastDraft();
     setDraft(next);
     setSavedAs(draftSnapshot(next));
+    setGeneration((n) => n + 1);
   };
   const startPreset = (kind: BroadcastPreset, person: BroadcastPerson = {}) => {
     start();
@@ -115,6 +129,7 @@ export function useBroadcastDraft(): BroadcastDraftState {
   return {
     draft,
     dirty,
+    generation,
     patch: (next) => setDraft((d) => ({ ...d, ...next })),
     patchSettings: (next) => setDraft((d) => ({ ...d, settings: { ...d.settings, ...next } })),
     start,
@@ -166,6 +181,190 @@ const WHEN_LABEL: Record<BroadcastWhen, string> = {
   clock: 'At a clock time',
   gradual: 'Gradual',
   smart: 'At each person’s hour'
+};
+
+// ---- Draft with AI (ASK_JOURVANCE_PLAN.md, Wave 3, W3.B) ----
+
+/**
+ * The two blocks a kept draft adds, as EmailBlocks.tsx's blank() makes them, with the id minted by
+ * its exported cloneBlock. blank() is private to that file, so email-draft.test.mjs pins these shapes
+ * to blank()'s source. Shared with the flow editor's email step (EmailFlowMap.tsx).
+ */
+export const draftBlockFactory: BlockFactory = {
+  kinds: ['text', 'button'],
+  make: (kind) => cloneBlock(kind === 'button' ? { id: '', kind: 'button', label: 'Open', url: '' } : { id: '', kind: 'text', text: '', level: 0 })
+};
+
+/** The control's name. The sidebar's journey builder is "Draft with AI", so this one says what it drafts. */
+export const DRAFT_TOGGLE_LABEL = 'Draft this email with AI';
+/** The proposal's first line, so it reads as a proposal before anything else. */
+export const DRAFT_PROPOSAL_LINE = 'Draft. Not in your email yet.';
+
+export { DRAFT_BUSY, DRAFT_DISCARDED, DRAFT_STOPPED };
+export type { DraftPhase };
+
+const proposalText: React.CSSProperties = { margin: 0, fontSize: 13, color: '#e5e7eb', lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' };
+
+/**
+ * What the control shows, from its state alone (the node tests render each state). One button opens a
+ * small form: the brief, its count against 300, Write a draft (and Stop while it writes), the status
+ * line and Retry under them, then the proposal. The proposal opens with "Draft. Not in your email
+ * yet." and Keep and Discard, so neither sits under the composer's fixed Save and Send bar, and keeps
+ * a bottom scroll margin for the same reason. After Keep closes the form, what it did is said in the
+ * status line below the button. Both status lines are always in the page, so a change is announced.
+ */
+export const EmailDraftView: React.FC<{
+  idBase: string;
+  open: boolean;
+  brief: string;
+  phase: DraftPhase;
+  /** The last thing said: a brief that cannot be sent, Stop, Discard or what Keep did. */
+  notice: string;
+  /** False where the email has no preview text (an order email). */
+  preview: boolean;
+  onToggle: () => void;
+  onBrief: (text: string) => void;
+  onWrite: () => void;
+  onStop: () => void;
+  onRetry: () => void;
+  onKeep: () => void;
+  onDiscard: () => void;
+  toggleRef?: React.Ref<HTMLButtonElement>;
+  writeRef?: React.Ref<HTMLButtonElement>;
+  proposalRef?: React.Ref<HTMLDivElement>;
+}> = ({ idBase, open, brief, phase, notice, preview, onToggle, onBrief, onWrite, onStop, onRetry, onKeep, onDiscard, toggleRef, writeRef, proposalRef }) => {
+  const busy = phase.state === 'busy';
+  const over = briefProblem(brief) !== '' && brief.trim() !== '';
+  const formId = `${idBase}-form`;
+  const said = busy ? DRAFT_BUSY : phase.state === 'error' ? phase.error : notice;
+  return (
+    <div data-email-draft="" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div>
+        <button ref={toggleRef} type="button" style={{ ...ghostBtn, ...tall }} aria-expanded={open} aria-controls={open ? formId : undefined} onClick={onToggle}>
+          {DRAFT_TOGGLE_LABEL}
+        </button>
+      </div>
+      {open && (
+        <div id={formId} data-email-draft-form="" style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label htmlFor={`${idBase}-brief`} style={{ fontSize: 12, color: '#d1d5db' }}>What should this email say?</label>
+          <textarea
+            id={`${idBase}-brief`}
+            style={{ ...field, minHeight: 70, fontFamily: 'inherit' }}
+            value={brief}
+            onChange={(e) => onBrief(e.target.value)}
+            aria-describedby={`${idBase}-help ${idBase}-count`}
+            aria-invalid={over || undefined}
+          />
+          <p id={`${idBase}-help`} style={note}>Say what it is about, who it is for and the one thing the reader should do. The AI uses your words and your business profile. Nothing is sent.</p>
+          <p id={`${idBase}-count`} style={{ ...note, color: over ? '#fbbf24' : '#9ca3af' }}>{briefCount(brief)}</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button ref={writeRef} type="button" style={{ ...solidBtn, ...tall, fontSize: 13, ...(busy ? { opacity: 0.55, cursor: 'not-allowed' } : {}) }} aria-disabled={busy} onClick={onWrite}>
+              {busy ? 'Writing a draft' : 'Write a draft'}
+            </button>
+            {busy && <button type="button" style={{ ...ghostBtn, ...tall }} onClick={onStop}>Stop</button>}
+          </div>
+          <p role="status" data-email-draft-status="" style={said_}>{said}</p>
+          {phase.state === 'error' && phase.retryable && (
+            <div>
+              <button type="button" style={{ ...ghostBtn, ...tall }} aria-label={retryLabel(phase.error)} onClick={onRetry}>Retry</button>
+            </div>
+          )}
+          {phase.state === 'proposal' && (
+            <div
+              ref={proposalRef}
+              role="region"
+              aria-label="Email draft"
+              tabIndex={-1}
+              style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8, borderColor: 'rgba(244,114,182,0.45)', scrollMarginTop: 16, scrollMarginBottom: 96 }}
+            >
+              <p style={{ ...proposalText, fontWeight: 700 }}>{DRAFT_PROPOSAL_LINE}</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" style={{ ...solidBtn, ...tall, fontSize: 13, scrollMarginBottom: 96 }} onClick={onKeep}>Keep</button>
+                <button type="button" style={{ ...ghostBtn, ...tall, scrollMarginBottom: 96 }} onClick={onDiscard}>Discard</button>
+              </div>
+              <span style={label}>Subject</span>
+              <p style={proposalText}>{phase.draft.subject}</p>
+              {preview && phase.draft.previewText && (
+                <>
+                  <span style={label}>Preview text</span>
+                  <p style={proposalText}>{phase.draft.previewText}</p>
+                </>
+              )}
+              <span style={label}>Email text</span>
+              {phase.draft.paragraphs.map((text, index) => <p key={index} style={proposalText}>{text}</p>)}
+              {phase.draft.cta && (
+                <>
+                  <span style={label}>Button</span>
+                  <p style={proposalText}>{phase.draft.cta.label}</p>
+                </>
+              )}
+              <p data-email-draft-grounding="" style={note}>{groundingLine(phase.grounding)}</p>
+            </div>
+          )}
+        </div>
+      )}
+      <p role="status" data-email-draft-after="" style={said_}>{open ? '' : notice}</p>
+    </div>
+  );
+};
+
+const said_: React.CSSProperties = { margin: 0, fontSize: 13, color: '#d1d5db', lineHeight: 1.45 };
+
+/**
+ * Draft this email with AI: a broadcast here, or one email step of a flow (EmailFlowMap.tsx). It runs
+ * one drafting session (createDraftSession in src/lib/emailDraft.ts, which drops a reply that lands
+ * after Stop, after the form closed or after the control went away) against POST /api/ai/email-draft.
+ * Keep hands the draft to `onKeep`, which puts it into the email in ONE state update and answers the
+ * sentence that says what it did. Discard and Stop change nothing in the email. The parent keys the
+ * control on the email's identity, so a reply for an email that was replaced is dropped too.
+ */
+export const EmailDraftControl: React.FC<{
+  kind: DraftKind;
+  /** The subject the person already wrote, sent as a hint. */
+  subject: string;
+  /** A flow's trigger, for a flow step. */
+  trigger?: string;
+  preview?: boolean;
+  onKeep: (draft: EmailDraft) => string;
+}> = ({ kind, subject, trigger, preview = true, onKeep }) => {
+  const idBase = useId();
+  const [state, setState] = useState<DraftSessionState>(IDLE_DRAFT_SESSION);
+  const session = useRef<DraftSession | null>(null);
+  if (!session.current) session.current = createDraftSession(requestEmailDraft, setState);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const writeRef = useRef<HTMLButtonElement>(null);
+  const proposalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => () => session.current?.dispose(), []);
+  // A proposal takes focus when it arrives, scrolled so its first line, Keep and Discard are in view.
+  useEffect(() => {
+    if (state.phase.state !== 'proposal') return;
+    const region = proposalRef.current;
+    region?.focus({ preventScroll: true });
+    region?.scrollIntoView({ block: 'nearest' });
+  }, [state.phase]);
+
+  const write = () => { void session.current?.write({ kind, subject, trigger }); };
+  return (
+    <EmailDraftView
+      idBase={idBase}
+      open={state.open}
+      brief={state.brief}
+      phase={state.phase}
+      notice={state.notice}
+      preview={preview}
+      onToggle={() => session.current?.toggle()}
+      onBrief={(text) => session.current?.setBrief(text)}
+      onWrite={write}
+      onStop={() => { session.current?.stop(); writeRef.current?.focus(); }}
+      onRetry={write}
+      onKeep={() => { session.current?.keep(onKeep); toggleRef.current?.focus(); }}
+      onDiscard={() => { session.current?.discard(); writeRef.current?.focus(); }}
+      toggleRef={toggleRef}
+      writeRef={writeRef}
+      proposalRef={proposalRef}
+    />
+  );
 };
 
 export const BroadcastComposer: React.FC<{
@@ -514,6 +713,15 @@ export const BroadcastComposer: React.FC<{
 
       <section aria-labelledby="bc-h-email" style={section}>
         <h3 id="bc-h-email" style={h3}>The email</h3>
+        <EmailDraftControl
+          key={composer.generation}
+          kind="broadcast"
+          subject={draft.subject}
+          onKeep={(kept) => {
+            patch(applyDraftToComposer({ subject: draft.subject, previewText: draft.previewText, blocks: draft.blocks }, kept, draftBlockFactory));
+            return keptSentence(kept, draftBlockFactory, { existingBlocks: draft.blocks.length, saveHint: 'Nothing was sent, and it is not saved as a draft yet.' });
+          }}
+        />
         <label style={fieldLabel}>Subject
           <input style={field} value={draft.subject} onChange={(e) => patch({ subject: e.target.value })} placeholder="The line people see first" />
         </label>

@@ -16,6 +16,7 @@ import {
 } from '../../lib/journeyMetrics';
 import { describeEdge, stepShortName } from '../../lib/stepNames';
 import { lineKindOf } from '../../lib/stepNavigation';
+import { useBottomSurface } from '../../lib/bottomSurface';
 
 interface Props {
   edge: JourneyEdge | null;
@@ -69,6 +70,8 @@ export const EdgeInspector: React.FC<Props> = ({
   metrics,
   headingRef
 }) => {
+  // The disconnect button sits at the foot of the dock: the Ask Jourvance bubble lifts clear of it.
+  useBottomSurface(Boolean(edge && onDeleteEdge));
   if (!edge) return null;
 
   const sourceType = sourceNode?.data?.type;

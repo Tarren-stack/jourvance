@@ -400,10 +400,26 @@ export const COPY_SYSTEM = [
 
 const AI_COPY_PER_HOUR = Number(process.env.AI_COPY_PER_HOUR) || 30;
 const aiCopyCalls = new Map();
+export const AI_BUDGET_USERS = 5000;
+// Past AI_BUDGET_USERS people the map is trimmed, never cleared: clearing it let a person at the limit
+// draft again as soon as 5,000 others had called. Expired windows go first, then the people whose last
+// call is oldest; the caller's own entry is never the one dropped.
+function trimAiBudget(cutoff, keep) {
+  if (aiCopyCalls.size <= AI_BUDGET_USERS) return;
+  for (const [id, times] of aiCopyCalls) if (id !== keep && !times.some((t) => t > cutoff)) aiCopyCalls.delete(id);
+  if (aiCopyCalls.size <= AI_BUDGET_USERS) return;
+  const byLast = [...aiCopyCalls].filter(([id]) => id !== keep).map(([id, times]) => [id, Math.max(...times)]).sort((a, b) => a[1] - b[1]);
+  for (const [id] of byLast) {
+    if (aiCopyCalls.size <= AI_BUDGET_USERS) break;
+    aiCopyCalls.delete(id);
+  }
+}
+/** How many people the hourly budget holds now. For the tests that pin the trim. */
+export const aiBudgetUsers = () => aiCopyCalls.size;
 export function aiBudgetLeft(uid) {
   const cutoff = Date.now() - 3600_000;
   const recent = (aiCopyCalls.get(uid) || []).filter((t) => t > cutoff);
-  if (aiCopyCalls.size > 5000) aiCopyCalls.clear();
+  trimAiBudget(cutoff, uid);
   if (recent.length >= AI_COPY_PER_HOUR) { aiCopyCalls.set(uid, recent); return false; }
   recent.push(Date.now());
   aiCopyCalls.set(uid, recent);
@@ -496,7 +512,9 @@ export function setupAuthWorkspaceRoutes(app, ctx) {
           if (parsed && fields.every((f) => typeof parsed[f] === 'string' && parsed[f])) {
             const copy = {};
             for (const f of fields) copy[f] = cleanModelStrings(parsed[f]);
-            return res.json({ success: true, copy, source: 'hub-brain' });
+            // grounding is 'account' when the hub accepted this user as the account (their corpus may
+            // still be empty) and 'app' when it was asked without one. Template copy carries none.
+            return res.json({ success: true, copy, source: 'hub-brain', grounding: answer.grounding });
           }
         }
       } catch (err) {

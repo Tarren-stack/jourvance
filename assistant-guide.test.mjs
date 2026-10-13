@@ -12,6 +12,7 @@ const PANEL_PATH = path.join(ROOT, 'docs/assistant/panel-copy.md');
 const HEADINGS = [
   'Journey canvas and steps',
   'Email Studio',
+  'Drafting an email with AI in Email Studio',
   'Attribution reports',
   'Publish and custom domains',
   'Shopify connect and sync',
@@ -55,7 +56,7 @@ function walk(dir, acc = []) {
   return acc;
 }
 
-test('the guide exists, is non-empty, and has the ten headings in order', () => {
+test('the guide exists, is non-empty, and has the eleven headings in order', () => {
   const text = guide();
   assert.ok(text.trim().length > 0, 'guide is empty');
   const found = sections(text).map((s) => s.heading);

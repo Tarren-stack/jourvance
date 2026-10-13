@@ -1,5 +1,9 @@
 // Ask Jourvance, the source pins for the accessibility and wiring contract (no browser here:
 // scripts/assistant-browser-check.mjs renders it). Every panel-copy.md string is held to its file.
+// These are source pins, so they hold what the code says and not what it does. The behaviour of the
+// suggested actions' bookkeeping (actionRunnable, markActionRun) is tested in assistant-client.test.mjs,
+// and the browser check drives the real panel: a run recorded under the wrong key (the plant
+// `key + '#'`) leaves the button in place and fails its "the button became the line" assertions.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -42,19 +46,22 @@ test('the roles and states the contract names are present', () => {
   assert.ok(panel.includes('role="status"'));
 });
 
-test('stacking is 25 on both, never 45', () => {
+test('stacking: the bubble and the card at 25; the sheet under 720px at 35, over the toolbar (30) and header (31), under the nav trigger (45)', () => {
   assert.equal((bubble.match(/zIndex: 25/g) || []).length, 1);
-  assert.equal((panel.match(/zIndex: 25/g) || []).length, 1);
+  assert.ok(!/zIndex/.test(panel), 'the panel takes its stacking from index.css, so the sheet can differ');
+  assert.ok(/\n\.jv-assistant-panel \{\s*position: fixed;\s*z-index: 25;/.test(assistantCss));
+  assert.ok(/@media \(max-width: 719px\) \{\s*\.jv-assistant-panel \{\s*z-index: 35;\s*\}/.test(assistantCss));
   assert.ok(!/zIndex:\s*45/.test(all));
-  assert.ok(!/z-index:\s*45/.test(assistantCss));
+  assert.ok(!/z-index:\s*(4[5-9]|[5-9]\d)/.test(assistantCss), 'never as high as the nav trigger or a dialog');
 });
 
 test('every Text cell of panel-copy.md appears verbatim in src/lib/assistant.ts', () => {
-  const cells = copy.split('\n').filter(l => /^\| [A-Za-z0-9.]+\.[A-Za-z0-9]+ \|/.test(l)).map(l => {
+  const cells = copy.split('\n').filter(l => /^\| [A-Za-z0-9.-]+\.[A-Za-z0-9-]+ \|/.test(l)).map(l => {
     const m = l.match(/^\| (\S+) \| (.*) \|$/);
     return { key: m[1], text: m[2] };
   });
-  assert.ok(cells.length >= 46, 'the table has at least its 46 rows (37 plus the 12 per-view suggestions, less the 3 retired)');
+  assert.ok(cells.length >= 53, 'the table has at least its 53 rows (37 plus the 12 per-view suggestions, less the 3 retired, plus the 7 action rows)');
+  assert.equal(cells.filter(c => c.key.startsWith('action.')).length, 7, 'the seven action rows are read, hyphenated keys included');
   assert.equal(cells.filter(c => /^suggest\.(canvas|email|attribution|public)\.[123]$/.test(c.key)).length, 12, 'twelve per-view suggestion rows');
   for (const { key, text } of cells) {
     assert.ok(lib.includes(`'${key}': '${text.replace(/'/g, "\\'")}'`), `${key} is verbatim in assistant.ts`);
@@ -228,4 +235,99 @@ test('the panel sends the screen with the thread and the question, and the quest
   const client = fs.readFileSync(new URL('./src/lib/assistantClient.ts', import.meta.url), 'utf8');
   assert.ok(client.includes("{ message, ...(screen ? { screen } : {}) }"));
   assert.ok(client.includes('?screen=${encodeURIComponent(JSON.stringify(screen))}'));
+});
+
+// ---- W3.A: suggested actions ----
+
+test('the action rows of panel-copy.md are pinned like every other row (a key may hold a hyphen)', () => {
+  for (const key of ['action.group', 'action.done.open', 'action.done.add-step', 'action.done.rename-journey', 'action.notOpen', 'action.failed', 'action.suggested']) {
+    assert.ok(new RegExp(`^\\| ${key.replace(/\./g, '\\.')} \\| .+ \\|$`, 'm').test(copy), `${key} is a row of panel-copy.md`);
+    assert.ok(lib.includes(`'${key}': `), `${key} is in PANEL_COPY`);
+  }
+  assert.ok(copy.includes('| action.done.add-step | Added a {step} step. Undo is in the editor toolbar. |'));
+  assert.ok(copy.includes('| action.done.rename-journey | Renamed to "{name}". Undo is in the editor toolbar. |'));
+});
+
+test('buttons only for the newest answer that arrived in this page load; any other answer shows lines, a ran action its result', () => {
+  assert.ok(panel.includes('const latestId = latestAnswerId(messages)'));
+  assert.ok(panel.includes('showsActionButtons(m.id, latestId, liveAnswers) && onAction ? ('));
+  // An answer joins liveAnswers only where send() reads one; the thread load never adds to it.
+  assert.equal((panel.match(/setLiveAnswers\(/g) || []).length, 1);
+  const send = panel.slice(panel.indexOf('const send = async'), panel.indexOf('const retry = '));
+  assert.ok(send.includes('setLiveAnswers(ids => new Set(ids).add(outcome.message.id));'));
+  const load = panel.slice(panel.indexOf('void fetchThread('), panel.indexOf('}, [open, signedIn]);'));
+  assert.ok(!load.includes('setLiveAnswers'));
+  assert.ok(panel.includes(`<div role="group" aria-label={PANEL_COPY['action.group']} className="jv-assistant-actions">`));
+  assert.ok(/<button\s+key=\{key\}\s+type="button"\s+className="jv-assistant-btn jv-assistant-action"/.test(panel), 'a real <button type="button">');
+  assert.ok(panel.includes('{a.label}'), 'the button text is the server-built label');
+  const lines = panel.slice(panel.indexOf('<ul className="jv-assistant-suggested">'), panel.indexOf('</ul>', panel.indexOf('<ul className="jv-assistant-suggested">')));
+  assert.ok(lines.includes('const done = actionLines[actionKey(m.id, i)];') && lines.includes('{done.line}'), 'a ran action shows its result');
+  assert.ok(lines.includes("{PANEL_COPY['action.suggested']} {a.label}"), 'an action that did not run shows the suggestion');
+});
+
+test('an action runs only from its button, through actionRunnable and markActionRun with the one key; a throw is action.failed', () => {
+  // onAction is called in exactly one place, runAction, and runAction only from a click.
+  assert.equal((panel.match(/onAction\(/g) || []).length, 1);
+  assert.ok(panel.includes('const r = await onAction(action);'));
+  assert.equal((panel.match(/runAction\(/g) || []).length, 1, 'one call site');
+  assert.ok(panel.includes('onClick={() => void runAction(m.id, i, a)}'));
+  const fn = panel.slice(panel.indexOf('const runAction = async'), panel.indexOf('const save = async'));
+  assert.ok(fn.includes('const key = actionKey(messageId, index);'));
+  assert.ok(fn.includes('if (!onAction || runningAction.current || !actionRunnable(actionLines, key)) return;'), 'the guard reads the key');
+  assert.ok(fn.includes('setActionLines(lines => markActionRun(lines, key, result));'), 'the write uses the same key');
+  assert.equal((fn.match(/\bkey\b/g) || []).length, 4, 'the key is built once and used by the guard, the write and the focus, and by nothing else');
+  assert.ok(/catch \{\s*result = ACTION_FAILED;/.test(fn), 'a throw is action.failed');
+  assert.ok(panel.includes("const ACTION_FAILED: ActionResult = { ok: false, line: PANEL_COPY['action.failed'], tone: 'bad' };"));
+  assert.ok(panel.includes('setActionLines({});'), 'a clear forgets the lines with the messages');
+  // Nothing runs on render, on open or on Enter: the question box's key handler never reaches it.
+  const inputKeys = panel.slice(panel.indexOf('const onInputKeyDown'), panel.indexOf('const showConfirm'));
+  assert.ok(!inputKeys.includes('Action'));
+  assert.ok(entry.includes('onAction={onAction}') && entry.includes('onAction?: (action: AssistantAction) => Promise<ActionResult> | ActionResult;'));
+});
+
+test('the result line: replaces the button, is not live when focus moves to it, takes its tone; focus leaves the panel only for a new step or a closed sheet, and then the result is said outside it', () => {
+  assert.ok(/<p\s+key=\{key\}\s+role="status"\s+aria-live="off"\s+tabIndex=\{-1\}\s+data-action-line=\{key\}/.test(panel));
+  assert.ok(panel.includes('className={`jv-assistant-action-line jv-assistant-action-line--${done.tone ?? (done.ok ? \'ok\' : \'bad\')}`}'));
+  const fn = panel.slice(panel.indexOf('const runAction = async'), panel.indexOf('const save = async'));
+  assert.ok(fn.includes("const sheet = typeof window !== 'undefined' && window.innerWidth < 720;"));
+  assert.ok(fn.includes("const closes = sheet && result.ok && (action.kind === 'add-step' || action.kind === 'open');"));
+  assert.ok(/if \(closes\) \{\s*onClose\(\);\s*if \(action\.kind === 'open'\) focusViewHeading\(action\.view\);\s*\}/.test(fn));
+  assert.ok(fn.includes("if (closes || (result.ok && action.kind === 'add-step')) onAnnounce?.(result.line);\n    else setFocusLine(key);"));
+  assert.ok(panel.includes('line?.focus({ preventScroll: true })'));
+  assert.ok(panel.includes('if (a && a !== document.body && !panelRef.current?.contains(a)) return;'), 'only when focus would otherwise be lost');
+  // The words said outside the panel go to AskJourvance's always-mounted status.
+  assert.ok(entry.includes('onAnnounce={announceResult}'));
+  assert.ok(/const announceResult = useCallback\(\(text: string\) => \{\s*setAnnounce\(''\);\s*window\.setTimeout\(\(\) => setAnnounce\(text\), 50\);/.test(entry));
+});
+
+test('<html> carries data-jv-sheet-open while the panel is open, and the mobile nav trigger hides under it below 720px', () => {
+  assert.ok(lib.includes("export const SHEET_OPEN_ATTR = 'data-jv-sheet-open';"));
+  assert.ok(/if \(open\) root\.setAttribute\(SHEET_OPEN_ATTR, ''\);\s*else root\.removeAttribute\(SHEET_OPEN_ATTR\);\s*return \(\) => root\.removeAttribute\(SHEET_OPEN_ATTR\);\s*\}, \[open\]\);/.test(entry));
+  assert.ok(/@media \(max-width: 719px\) \{[^@]*html\[data-jv-sheet-open\] \.jv-mobile-nav-trigger \{\s*display: none !important;/.test(assistantCss));
+});
+
+test('App.tsx hands the mount onAction: journey actions run only while the canvas is the page and the view, through handleAddNode and handleUpdateProjectName', () => {
+  const mount = app.slice(app.indexOf('<AskJourvance'), app.indexOf('/>', app.indexOf('<AskJourvance')));
+  assert.ok(mount.includes("onAction={async action => (await import('./lib/assistant')).runAssistantAction(action, {"));
+  assert.ok(mount.includes("openJourneyId: activePage === 'canvas' && activeView === 'canvas' ? project.id : null,"));
+  assert.ok(!mount.includes('openJourneyId: project.id,'));
+  assert.ok(mount.includes("if (view !== 'email-studio' && !leaveStudioOk()) return false;"));
+  assert.ok(mount.includes("if (view === 'canvas') showCanvas();") && mount.includes('else setActiveView(view);'));
+  assert.ok(mount.includes('addStep: handleAddNode,') && mount.includes('renameJourney: handleUpdateProjectName'));
+  // The helper loads with the assistant's own chunk, never the entry.
+  assert.ok(!/^import [^\n]*from '\.\/lib\/assistant';$/m.test(app), 'no static import of lib/assistant in App.tsx');
+});
+
+test('the CSS: buttons at least 44px that wrap; result lines with a left rule in their tone and no bubble fill; the short-window sheet; print hides it all', () => {
+  const rule = (sel) => (assistantCss.match(new RegExp(`\\n${sel.replace(/[.]/g, '\\.')} \\{([^}]*)\\}`)) || [])[1] || '';
+  const action = rule('.jv-assistant-action');
+  assert.ok(/min-height: 44px/.test(action) && /white-space: normal/.test(action) && /overflow-wrap: anywhere/.test(action), action);
+  assert.ok(/flex-direction: column/.test(rule('.jv-assistant-actions')));
+  const line = rule('.jv-assistant-action-line');
+  assert.ok(/min-height: 44px/.test(line) && /border-left: 3px solid #34D399/.test(line) && !/#1E293B/.test(line), line);
+  assert.ok(/border-left-color: #FBBF24/.test(rule('.jv-assistant-action-line--warn')), 'not open is a warning, not a failure');
+  assert.ok(/border-left-color: #FCA5A5/.test(rule('.jv-assistant-action-line--bad')));
+  assert.ok(/@media \(max-width: 719px\) and \(max-height: 500px\) \{\s*\.jv-assistant-panel \{\s*height: calc\(100dvh - 16px\);\s*max-height: calc\(100dvh - 16px\);/.test(assistantCss));
+  assert.ok(/\.jv-assistant-panel :focus-visible/.test(css), 'the focus ring reaches every control in the panel');
+  assert.ok(/@media print\s*\{\s*\.jv-assistant-bubble,\s*\.jv-assistant-panel\s*\{\s*display:\s*none/.test(assistantCss));
 });

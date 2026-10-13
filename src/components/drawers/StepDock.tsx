@@ -6,6 +6,7 @@ import { EdgeInspector } from './EdgeInspector';
 import { StepFinder } from './StepFinder';
 import { StepConnections } from './StepConnections';
 import { useDialogFocus } from '../../lib/a11yHooks';
+import { useBottomSurface } from '../../lib/bottomSurface';
 import { boxInView, deleteFocusTarget, dockStacked, mapTapId, tapOpensPanel, tapReopensPanel, type MapTap } from '../../lib/dockReveal';
 
 // The docked step panel beside the map. It always shows the finder, then the opened step, the
@@ -120,6 +121,19 @@ export const StepDock: React.FC<Props> = ({
   const pendingDelete = useRef<{ kind: 'node' | 'edge'; id: string; byPointer: boolean } | null>(null);
   const [deleteTick, setDeleteTick] = useState(0);
   const asideRef = useRef<HTMLElement | null>(null);
+  // The dock's finder (Previous, Next) is at the window foot only when the dock stacks under the map
+  // (below 768px): the Ask Jourvance bubble lifts clear of it then, and stays put beside the map.
+  const [stacked, setStacked] = useState(false);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const map = document.getElementById('journey-map');
+      setStacked(dockStacked(asideRef.current?.getBoundingClientRect() ?? null, map?.getBoundingClientRect() ?? null));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  useBottomSurface(stacked);
   // How the last panel control was pressed, read when a delete settles.
   const lastInput = useRef<'pointer' | 'keyboard'>('keyboard');
   // The last click on the map, recorded in the capture phase so it is known before the selection

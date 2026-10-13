@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { User } from '../../lib/firebase';
-import { ASK_EVENT, ASK_READY_ATTR, PANEL_EXTRA, screenFor } from '../../lib/assistant';
-import type { AskEventDetail, AssistantScreen } from '../../lib/assistant';
+import { ASK_EVENT, ASK_READY_ATTR, PANEL_EXTRA, SHEET_OPEN_ATTR, screenFor } from '../../lib/assistant';
+import type { ActionResult, AskEventDetail, AssistantAction, AssistantScreen } from '../../lib/assistant';
 import { AssistantBubble } from './AssistantBubble';
 import { AssistantPanel } from './AssistantPanel';
 
@@ -16,6 +16,8 @@ interface Props {
   journeyName?: string;
   stepKind?: string;
   stepName?: string;
+  /** Runs one suggested action the person pressed (W3.A): App.tsx maps it to its own handlers. */
+  onAction?: (action: AssistantAction) => Promise<ActionResult> | ActionResult;
 }
 
 /**
@@ -23,7 +25,7 @@ interface Props {
  * panel owns the conversation, and stays mounted while closed so a draft, unsaved notes and an
  * answer in flight survive closing. Keyed on the uid, so signing out or in starts it empty.
  */
-const AskJourvance: React.FC<Props> = ({ user, onOpenAuth, view, journeyId, journeyName, stepKind, stepName }) => {
+const AskJourvance: React.FC<Props> = ({ user, onOpenAuth, view, journeyId, journeyName, stepKind, stepName, onAction }) => {
   const [open, setOpen] = useState(false);
   const [newAnswer, setNewAnswer] = useState(false);
   // Said by an always-mounted live region, so an answer that lands while closed is not silent.
@@ -53,6 +55,21 @@ const AskJourvance: React.FC<Props> = ({ user, onOpenAuth, view, journeyId, jour
       setNewAnswer(true);
       setAnnounce(PANEL_EXTRA['bubble.newAnswer']);
     }
+  }, []);
+
+  // While the panel is open <html> says so, so the mobile nav trigger steps out of the sheet's way
+  // (the rule is in index.css, under 720px only, where the panel is a sheet).
+  useEffect(() => {
+    const root = document.documentElement;
+    if (open) root.setAttribute(SHEET_OPEN_ATTR, '');
+    else root.removeAttribute(SHEET_OPEN_ATTR);
+    return () => root.removeAttribute(SHEET_OPEN_ATTR);
+  }, [open]);
+  // A result whose focus left the panel is said here, outside it. Emptied first, so the same words
+  // said twice are still heard.
+  const announceResult = useCallback((text: string) => {
+    setAnnounce('');
+    window.setTimeout(() => setAnnounce(text), 50);
   }, []);
 
   // The buttons on other screens appear only while this is mounted.
@@ -97,6 +114,8 @@ const AskJourvance: React.FC<Props> = ({ user, onOpenAuth, view, journeyId, jour
         screen={screen}
         prefill={prefill}
         onAsked={onAsked}
+        onAction={onAction}
+        onAnnounce={announceResult}
       />
     </>
   );

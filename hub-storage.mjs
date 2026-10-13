@@ -223,9 +223,21 @@ export class HubStorageManager {
       this.flushDirtyBehaviorSync();
       this.flushAllDirtySync();
     };
+    // A signal listener suppresses Node's default exit, so whoever registers
+    // one owns the exit: flush, then leave (1 if a flush threw).
+    const exitAfterFlush = () => {
+      let code = 0;
+      try {
+        cleanup();
+      } catch (err) {
+        console.warn('[Jourvance Storage] Shutdown flush failed:', err && err.message);
+        code = 1;
+      }
+      process.exit(code);
+    };
     process.once('beforeExit', cleanup);
-    process.once('SIGINT', cleanup);
-    process.once('SIGTERM', cleanup);
+    process.once('SIGINT', exitAfterFlush);
+    process.once('SIGTERM', exitAfterFlush);
 
     this.initialized = true;
   }

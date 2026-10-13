@@ -14,6 +14,8 @@
     "check:canvas": "node scripts/canvas-browser-check.mjs",
     "check:a11y": "node scripts/a11y-browser-check.mjs",
     "check:assistant": "node scripts/assistant-browser-check.mjs",
+    "check:email-draft": "node scripts/email-draft-browser-check.mjs",
+    "check:overlaps": "node scripts/layout-overlap-check.mjs",
     "eval:assistant": "node scripts/assistant-eval.mjs"
   },
   "dependencies": {

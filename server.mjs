@@ -102,6 +102,7 @@ import { listJourneyDocs, summarizeJourney } from './server/journeyList.mjs';
 import { setupAnalyticsRoutes } from './server/routes/analyticsRoutes.mjs';
 import { setupAiJourneyRoutes } from './server/routes/aiJourneyRoutes.mjs';
 import { setupAiAssistantRoutes } from './server/routes/aiAssistantRoutes.mjs';
+import { setupAiEmailRoutes } from './server/routes/aiEmailRoutes.mjs';
 import { setupBillingRoutes, billingAccounts, planName } from './server/billing.mjs';
 import {
   setupAuthWorkspaceRoutes,
@@ -429,6 +430,9 @@ setupAiAssistantRoutes(app, {
   guidePath: path.join(__dirname, 'docs/assistant/jourvance-guide.md'),
   dataDir: __dirname
 });
+// POST /api/ai/email-draft (W3.B): one AI email draft for Email Studio, on the same per-user hourly
+// budget as /api/ai/copy and the journey draft. No template fallback.
+setupAiEmailRoutes(app, { requireUser, hub, hubReady, aiBudgetLeft, aiBudgetRetryAfter });
 setupBillingRoutes(app, {
   requireUser,
   listWorkspaces,

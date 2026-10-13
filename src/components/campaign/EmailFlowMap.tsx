@@ -10,6 +10,8 @@ import { FLOWS_NOT_CONNECTED, STARTER_DRAFT_NOTE, flowStepName, flowStepOrder, f
 import { retryLabel } from '../../lib/studioLoad';
 import { FLOW_UNSAVED_LEAVE, noteFlowUnsaved, warnBeforeUnload } from '../../lib/studioLeave';
 import { EmailStepPreview } from './EmailStepPreview';
+import { EmailDraftControl, draftBlockFactory } from './BroadcastComposer';
+import { applyDraftToComposer, keptSentence } from '../../lib/emailDraft';
 
 type FlowPath = { id: string; label?: string; else?: boolean; clauses?: { kind: string; field?: string; op?: string; value?: string; event?: string; since?: string; done?: boolean; note?: string }[]; note?: string };
 type FlowNode = {
@@ -1079,6 +1081,24 @@ export const EmailFlowMap: React.FC<{
               )}
               {selectedNode?.type === 'email' && (
                 <>
+                  {/* W3.B: Draft with AI on an email whose words are blocks (a copied Klaviyo template is HTML,
+                      edited in Klaviyo). Keyed by the step, so choosing another step drops a draft for this one. */}
+                  {selectedNode.blocks?.[0]?.kind !== 'html' && (
+                    <EmailDraftControl
+                      key={selectedNode.id}
+                      kind="flow-step"
+                      subject={selectedNode.subject || ''}
+                      trigger={current.trigger}
+                      preview={current.kind !== 'order'}
+                      onKeep={(kept) => {
+                        const blocks = selectedNode.blocks || [];
+                        const next = applyDraftToComposer({ subject: selectedNode.subject || '', previewText: selectedNode.previewText || '', blocks }, kept, draftBlockFactory);
+                        // An order email keeps no preview text (see the field below), so none is written to it.
+                        patchNode(selectedNode.id, current.kind === 'order' ? { subject: next.subject, blocks: next.blocks } : next);
+                        return keptSentence(kept, draftBlockFactory, { preview: current.kind !== 'order', existingBlocks: blocks.length, saveHint: 'Press Save to keep it. Nothing was sent.' });
+                      }}
+                    />
+                  )}
                   <label style={label} htmlFor="flow-step-subject">Subject</label>
                   <input id="flow-step-subject" style={field} value={selectedNode.subject || ''} onChange={(e) => patchNode(selectedNode.id, { subject: e.target.value })} />
                   {/* An order email keeps no preview text (the programs record stores its subject and blocks), so it has no field for one. */}

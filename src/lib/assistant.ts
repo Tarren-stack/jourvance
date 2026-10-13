@@ -4,6 +4,7 @@
 // and the components in src/components/assistant/.
 
 import type { ServerAnswer } from './saveOutcome';
+import type { NodeType } from '../types/journey';
 
 /** The server's LIMITS (server/assistantContext.mjs), key for key. A test holds the two equal. */
 export const ASSISTANT_LIMITS = {
@@ -19,6 +20,42 @@ export const ASSISTANT_LIMITS = {
   GUIDE_SLICE_MAX_CHARS: 6000
 } as const;
 
+/**
+ * What an answer may propose (server/assistantActions.mjs, W3.A). The label is built on the server
+ * from the vocabulary and the person's own journey name, never from model text; nothing runs until
+ * the person presses the button that carries it.
+ */
+export type AssistantActionView = 'canvas' | 'email-studio' | 'attribution';
+export type AssistantAction =
+  | { kind: 'open'; view: AssistantActionView; label: string }
+  | { kind: 'add-step'; type: NodeType; journeyId: string; label: string }
+  | { kind: 'rename-journey'; name: string; journeyId: string; label: string };
+/**
+ * What running one action did, in one line the panel shows in the button's place. `tone` colours the
+ * line: ok when it ran, warn when nothing broke but it did not run (the journey is not open), bad
+ * when it failed. A result without a tone reads as ok when ok, else bad.
+ */
+export interface ActionResult {
+  ok: boolean;
+  line: string;
+  tone?: 'ok' | 'warn' | 'bad';
+}
+
+/** The server's action limits and lists (server/assistantActions.mjs). A test holds them equal. */
+export const ACTION_LIMITS = { ACTIONS_MAX: 3, NAME_MAX: 80, LABEL_MAX: 120 } as const;
+export const ACTION_VIEWS: readonly AssistantActionView[] = ['canvas', 'email-studio', 'attribution'];
+export const ACTION_STEP_TYPES: readonly NodeType[] = ['ad-source', 'landing-page', 'lead-form', 'follow-up-sequence', 'thank-you', 'upsell', 'ab-split'];
+/** How each step type reads in a sentence: the server's STEP_NAMES, held equal by a test. */
+export const ACTION_STEP_NAMES: Readonly<Record<NodeType, string>> = {
+  'ad-source': 'traffic source',
+  'landing-page': 'landing page',
+  'lead-form': 'lead form',
+  'follow-up-sequence': 'follow-up sequence',
+  'thank-you': 'thank-you page',
+  upsell: 'upsell',
+  'ab-split': 'A/B split'
+};
+
 export interface AssistantMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -27,6 +64,7 @@ export interface AssistantMessage {
   grounding?: 'account' | 'app';
   rating?: 'up' | 'down';
   shared?: boolean;
+  actions?: AssistantAction[];
 }
 
 /** Every string from docs/assistant/panel-copy.md, keyed by its table key. Copied, not reworded. */
@@ -78,6 +116,13 @@ export const PANEL_COPY = {
   'clear.confirmNo': 'Keep it',
   'clear.done': 'Conversation cleared.',
   'close.label': 'Close',
+  'action.group': 'Suggested actions',
+  'action.done.open': 'Opened.',
+  'action.done.add-step': 'Added a {step} step. Undo is in the editor toolbar.',
+  'action.done.rename-journey': 'Renamed to "{name}". Undo is in the editor toolbar.',
+  'action.notOpen': 'That journey is not open any more. Open it and ask again.',
+  'action.failed': 'That did not run. Nothing changed.',
+  'action.suggested': 'Suggested:',
 } as const;
 
 /**
@@ -153,6 +198,8 @@ export function suggestionKeys(view: unknown): readonly (keyof typeof PANEL_COPY
 export const ASK_EVENT = 'jv-ask';
 /** Set on <html> while the assistant is mounted; a sender renders its button only while it is there. */
 export const ASK_READY_ATTR = 'data-jv-ask-ready';
+/** Set on <html> while the panel is open; under 720px the mobile nav trigger hides under it (index.css). */
+export const SHEET_OPEN_ATTR = 'data-jv-sheet-open';
 export interface AskEventDetail { question: string; screen?: Partial<AssistantScreen> }
 
 export function askAssistantReady(): boolean {
@@ -184,6 +231,125 @@ export type AskOutcome =
   | { kind: 'failed'; retryable: boolean; text: string }
   | { kind: 'signedOut'; text: string };
 
+// The server's rules (server/assistantActions.mjs), held equal by a test. No label or name holds a
+// control, format, private use or surrogate character, a line or paragraph separator, or a blank that
+// shows nothing; a proposed name also holds no double quote of any shape and at least one letter or
+// digit.
+const LABEL_REFUSED = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Zl}\p{Zp}\u115f\u1160\u3164\uffa0\u2800]/u;
+const NAME_REFUSED = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Zl}\p{Zp}\u115f\u1160\u3164\uffa0\u2800"\u201c\u201d\u201e\u201f\u2033\u2036\u3003\u301d\u301e\uff02]/u;
+const NAME_NEEDS = /[\p{L}\p{N}]/u;
+
+/** A proposed journey name, or '' when the server's rules would not have kept it. */
+export function readActionName(raw: unknown): string {
+  // Checked before the trim, as the server does: a byte order mark is trimmed away as white space.
+  if (typeof raw !== 'string' || NAME_REFUSED.test(raw)) return '';
+  const name = raw.trim();
+  return name && [...name].length <= ACTION_LIMITS.NAME_MAX && NAME_NEEDS.test(name) ? name : '';
+}
+
+/**
+ * One action from the server, checked by shape, or null. The label is the button's whole name, at
+ * most the server's longest and with none of the refused characters.
+ */
+export function readAction(raw: unknown): AssistantAction | null {
+  if (!isObject(raw)) return null;
+  const label = typeof raw.label === 'string' ? raw.label.trim() : '';
+  if (!label || label.length > ACTION_LIMITS.LABEL_MAX || LABEL_REFUSED.test(label)) return null;
+  const journeyId = typeof raw.journeyId === 'string' && raw.journeyId ? raw.journeyId : '';
+  if (raw.kind === 'open') {
+    return ACTION_VIEWS.includes(raw.view as AssistantActionView) ? { kind: 'open', view: raw.view as AssistantActionView, label } : null;
+  }
+  if (raw.kind === 'add-step') {
+    return journeyId && ACTION_STEP_TYPES.includes(raw.type as NodeType) ? { kind: 'add-step', type: raw.type as NodeType, journeyId, label } : null;
+  }
+  if (raw.kind === 'rename-journey') {
+    const name = readActionName(raw.name);
+    return journeyId && name ? { kind: 'rename-journey', name, journeyId, label } : null;
+  }
+  return null;
+}
+
+/** The actions on a message: the readable ones, at most ACTIONS_MAX, in order. */
+export function readActions(raw: unknown): AssistantAction[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(readAction).filter((a): a is AssistantAction => a !== null).slice(0, ACTION_LIMITS.ACTIONS_MAX);
+}
+
+/** The id of the newest assistant message: only its actions are buttons (one run per page load). */
+export function latestAnswerId(messages: readonly AssistantMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'assistant') return messages[i].id;
+  return '';
+}
+
+/**
+ * True when an answer's actions are buttons: it is the newest answer AND it arrived through a
+ * question asked in this page load (`live`). An answer read back with the thread, after a reload or
+ * on another device, shows its actions as plain lines, so a stored action never runs twice.
+ */
+export function showsActionButtons(messageId: string, latestId: string, live: ReadonlySet<string>): boolean {
+  return !!messageId && messageId === latestId && live.has(messageId);
+}
+
+/** The key one action's result is kept under: its message and its place in that message. */
+export function actionKey(messageId: string, index: number): string {
+  return `${messageId}:${index}`;
+}
+
+/** True while this action has no result yet, so its button may run it. */
+export function actionRunnable(lines: Readonly<Record<string, ActionResult>>, key: string): boolean {
+  return !Object.prototype.hasOwnProperty.call(lines, key);
+}
+
+/** The results with this action's result kept under its key. A result already there is never replaced. */
+export function markActionRun(lines: Readonly<Record<string, ActionResult>>, key: string, result: ActionResult): Record<string, ActionResult> {
+  if (!actionRunnable(lines, key)) return { ...lines };
+  return { ...lines, [key]: result };
+}
+
+/** The line a result shows when the action ran, naming what it did (the step from its type, the validated name). */
+export function actionDoneLine(action: AssistantAction): string {
+  if (action.kind === 'add-step') {
+    const step = ACTION_STEP_NAMES[action.type] || 'new';
+    // "a" or "an" by the step name's first letter: an A/B split, an upsell.
+    return PANEL_COPY['action.done.add-step'].replace(/\ba \{step\}/, `${/^[aeiou]/i.test(step) ? 'an' : 'a'} ${step}`);
+  }
+  if (action.kind === 'rename-journey') return PANEL_COPY['action.done.rename-journey'].replace('{name}', action.name);
+  return PANEL_COPY['action.done.open'];
+}
+
+/** What the app does for each action. `openView` answers false when the person chose to stay. */
+export interface ActionHandlers {
+  /**
+   * The journey on the canvas now, or null when the canvas is not on screen (another view, or a
+   * public page); a journey action runs only on that journey, and only while its map is showing.
+   */
+  openJourneyId: string | null | undefined;
+  openView: (view: AssistantActionView) => boolean | void;
+  addStep: (type: NodeType) => void;
+  renameJourney: (name: string) => void;
+}
+
+/**
+ * Runs one action through the app's own handlers and says what happened in the panel's words. A
+ * journey action whose journey is not the one open now runs nothing. A handler that throws is the
+ * panel's to catch (it shows action.failed).
+ */
+export function runAssistantAction(action: AssistantAction, handlers: ActionHandlers): ActionResult {
+  const failed: ActionResult = { ok: false, line: PANEL_COPY['action.failed'], tone: 'bad' };
+  if (action.kind === 'open') {
+    return handlers.openView(action.view) === false ? failed : { ok: true, line: actionDoneLine(action), tone: 'ok' };
+  }
+  if (action.kind !== 'add-step' && action.kind !== 'rename-journey') return failed;
+  // Nothing broke when the journey is not the one on the canvas, so the line is a warning, not a failure.
+  if (!handlers.openJourneyId || handlers.openJourneyId !== action.journeyId) return { ok: false, line: PANEL_COPY['action.notOpen'], tone: 'warn' };
+  if (action.kind === 'add-step') {
+    handlers.addStep(action.type);
+    return { ok: true, line: actionDoneLine(action), tone: 'ok' };
+  }
+  handlers.renameJourney(action.name);
+  return { ok: true, line: actionDoneLine(action), tone: 'ok' };
+}
+
 /** One message, or null when the object is not a readable message. */
 export function readMessage(raw: unknown): AssistantMessage | null {
   if (!isObject(raw)) return null;
@@ -194,6 +360,9 @@ export function readMessage(raw: unknown): AssistantMessage | null {
   if (raw.grounding === 'account' || raw.grounding === 'app') message.grounding = raw.grounding;
   if (raw.rating === 'up' || raw.rating === 'down') message.rating = raw.rating;
   if (typeof raw.shared === 'boolean') message.shared = raw.shared;
+  // Only an answer proposes actions, and a message without readable ones carries no key.
+  const actions = raw.role === 'assistant' ? readActions(raw.actions) : [];
+  if (actions.length) message.actions = actions;
   return message;
 }
 

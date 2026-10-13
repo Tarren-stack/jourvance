@@ -37,6 +37,9 @@ import crypto from 'crypto';
 import { safeAccountId } from '../../hub-storage.mjs';
 import { limitMessage, limitWaitSeconds } from './aiJourneyRoutes.mjs';
 import { brainChat, bounded, accountScopeRefused, ACCOUNT_REFUSAL, ACCOUNT_REFUSAL_MS, isAccountRefusal } from '../aiCall.mjs';
+// W3.A: a reply may propose a few actions; only the vocabulary in assistantActions.mjs is kept.
+import { cleanModelStrings } from '../aiCall.mjs';
+import { readReply, cleanStoredActions, relabelStoredActions } from '../assistantActions.mjs';
 import {
   LIMITS,
   readMessage,
@@ -60,7 +63,19 @@ import {
   trainingWindow,
   compileWhatWorked,
   compileAppPatterns,
-  activeAccounts
+  activeAccounts,
+  // W3.C: journey shapes sent to the shared brain.
+  SHAPE_LEARNS_PER_DAY,
+  SHAPE_RESEND_DAYS,
+  BUSINESS_TYPES,
+  compileShapeLearns,
+  cleanShapeLearns,
+  shapeSentRecently,
+  recordShapeLearn,
+  shapeSlotsLeft,
+  claimShapeDays,
+  SHAPE_LEARNS_APP_PER_DAY,
+  eventsPartial
 } from '../assistantTraining.mjs';
 
 // The account-scope memory and the bound live in server/aiCall.mjs now (one memory for the process);
@@ -73,6 +88,8 @@ export const PROFILE_PATH = '/api/brain/studio/profile';
 export const REPLACE_PATH = '/api/brain/studio/replace';
 /** The app-store document that records the month whose app patterns were sent (one file a month). */
 export const PATTERNS_DOC = 'assistant.patterns';
+/** The app-store document that holds today's app-wide count of journey shapes sent (W3.C). */
+export const SHAPES_DAY_DOC = 'assistant.shapes-day';
 /** The local cache keeps at most this many users; the oldest by updatedAt go first. */
 export const THREAD_CACHE_USERS = 500;
 /**
@@ -128,7 +145,15 @@ export const REASONS = Object.freeze({
   patternsUnchecked: "Whether this month's patterns were sent could not be checked.",
   patternsClaimed: "Another run holds this month's patterns.",
   trainingStaleCopy: 'The AI service kept an old copy of the file.',
-  recordUnread: 'The saved record could not be read.'
+  recordUnread: 'The saved record could not be read.',
+  shapesNone: 'No journey had enough visits and orders to share.',
+  shapeSentRecently: `This journey shape was shared in the last ${SHAPE_RESEND_DAYS} days.`,
+  shapeCap: `This account shares at most ${SHAPE_LEARNS_PER_DAY} journey shapes a day.`,
+  shapeRefused: 'The AI service did not take the journey shape.',
+  claimTaken: 'Another run claimed this account first.',
+  shapeAppCap: `Jourvance shares at most ${SHAPE_LEARNS_APP_PER_DAY} journey shapes a day.`,
+  shapeAppClaimed: "Another run holds today's journey shape budget.",
+  shapeAppUnchecked: "Today's journey shape budget could not be checked."
 });
 const NO_HUB = REASONS.noHub;
 /** The bare cause for a hub call that threw: a timeout says so, anything else did not answer. */
@@ -138,7 +163,14 @@ const failedCall = (err) => (err?.timedOut ? REASONS.timeout : REASONS.noAnswer)
 export const threadDocName = (uid) => `assistant.u.${safeAccountId(uid)}`;
 
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-const isMessage = (m) => isPlainObject(m) && typeof m.id === 'string' && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string';
+const isMessage = (m) => isPlainObject(m) && typeof m.id === 'string' && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string' && (m.actions === undefined || Array.isArray(m.actions));
+/** A stored message with its actions checked again by shape (W3.A); the key goes when none is left. */
+const withCleanActions = (m) => {
+  if (m.actions === undefined) return m;
+  const { actions, ...rest } = m;
+  const kept = cleanStoredActions(actions);
+  return kept.length ? { ...rest, actions: kept } : rest;
+};
 
 export function emptyThread(uid) {
   return {
@@ -152,6 +184,9 @@ export function emptyThread(uid) {
     trainingSha: '',
     trainingOnHub: null,
     trainingDays: {},
+    shapeLearns: {},
+    shapeDays: {},
+    claimSeq: 0,
     updatedAt: ''
   };
 }
@@ -161,7 +196,7 @@ export function cleanThread(doc, uid) {
   if (!isPlainObject(doc) || !uid || doc.userId !== uid) return null;
   return {
     userId: uid,
-    messages: (Array.isArray(doc.messages) ? doc.messages.filter(isMessage) : []).slice(-LIMITS.THREAD_KEEP),
+    messages: (Array.isArray(doc.messages) ? doc.messages.filter(isMessage).map(withCleanActions) : []).slice(-LIMITS.THREAD_KEEP),
     notes: typeof doc.notes === 'string' ? doc.notes : '',
     profileSha: typeof doc.profileSha === 'string' ? doc.profileSha : '',
     profileOnHub: isPlainObject(doc.profileOnHub) ? doc.profileOnHub : null,
@@ -170,6 +205,12 @@ export function cleanThread(doc, uid) {
     trainingSha: typeof doc.trainingSha === 'string' ? doc.trainingSha : '',
     trainingOnHub: isPlainObject(doc.trainingOnHub) ? doc.trainingOnHub : null,
     trainingDays: isPlainObject(doc.trainingDays) ? doc.trainingDays : {},
+    // W3.C: sha to the day a journey shape was sent ('YYYY-MM-DD' only), and the shapes sent per day.
+    shapeLearns: cleanShapeLearns(doc.shapeLearns),
+    // Kept as stored when it is not a plain object, so a broken count reads as a full day, never zero.
+    shapeDays: doc.shapeDays === undefined ? {} : doc.shapeDays,
+    // How many claims this document has taken: the stamp of the next conditional claim (saveThreadClaim).
+    claimSeq: Number.isSafeInteger(doc.claimSeq) && doc.claimSeq >= 0 && doc.claimSeq <= 1e9 ? doc.claimSeq : 0,
     updatedAt: typeof doc.updatedAt === 'string' ? doc.updatedAt : ''
   };
 }
@@ -374,6 +415,42 @@ export function setupAiAssistantRoutes(app, {
     }
   }
 
+  // W3.C: the claim save behind trainingDays and shapeDays. saveThread's write made conditional: the
+  // document counts its claims in claimSeq, and a claim is stamped one past the claimSeq it was decided
+  // on and put with onlyIfNewer, so of two runs (two servers during a deploy) that read the same copy
+  // only the first claim lands and the hub answers the other 409 stale: another run claimed it. Only a
+  // confirmed claim reaches this server's cache. Residual: an unconditional save between a read and a
+  // claim (a question, a notes save) clears the hub's stamp, so a claim decided before it is not refused.
+  const CLAIM_EPOCH_MS = Date.UTC(2000, 0, 1);
+  async function saveThreadClaim(uid, doc, read) {
+    if (read.hub !== 'ok' && read.hub !== 'missing') return { durable: false, reason: REASONS.recordUnread };
+    const seq = Number.isSafeInteger(read.doc?.claimSeq) && read.doc.claimSeq >= 0 && read.doc.claimSeq <= 1e9 ? read.doc.claimSeq : 0;
+    const next = {
+      ...emptyThread(uid),
+      ...doc,
+      userId: uid,
+      messages: (Array.isArray(doc.messages) ? doc.messages.filter(isMessage) : []).slice(-LIMITS.THREAD_KEEP),
+      claimSeq: seq + 1,
+      updatedAt: isoNow()
+    };
+    let r;
+    try {
+      r = await bounded(hub.store.docs.put(threadDocName(uid), next, { onlyIfNewer: true, sourceUpdatedAt: new Date(CLAIM_EPOCH_MS + seq + 1).toISOString() }), ms.store, 'The app store');
+    } catch (e) {
+      console.warn('[Jourvance] Ask Jourvance: a claim put failed:', e?.message || e);
+      return { durable: false, reason: REASONS.recordUnread };
+    }
+    if (!putLanded(r)) {
+      const stale = isPlainObject(r) && (r.stale === true || Number(r.status) === 409);
+      if (!stale) console.warn('[Jourvance] Ask Jourvance: a claim put was not confirmed:', r?.status ?? '', r?.error ?? '');
+      return { durable: false, reason: stale ? REASONS.claimTaken : REASONS.recordUnread };
+    }
+    cache[uid] = next;
+    capThreadCache(cache);
+    persist();
+    return { doc: next, durable: true };
+  }
+
   const locks = threadLocks();
   const withThreadLock = (uid, fn) => locks.run(uid, fn);
 
@@ -511,9 +588,7 @@ export function setupAiAssistantRoutes(app, {
   // claimed by a save the hub confirmed: a failed read or a refused save would let two servers, or a
   // retry after a refused save, send twice in one day.
   const recordRead = (read) => read.hub === 'ok' || read.hub === 'missing';
-  async function trainUser(uid, { dryRun, deadline }) {
-    const thread = await readThread(uid);
-    const compiled = compileWhatWorked({ uid, ...(await trainingInputs(uid)), now: now() });
+  async function sendWhatWorked(uid, thread, compiled, { dryRun, deadline }) {
     const row = compiled.row;
     if (!compiled.content) return { sent: false, outcome: 'skipped', reason: REASONS.nothingToSend, row };
     // A file built from a partial read would replace a complete one on the hub.
@@ -533,8 +608,8 @@ export function setupAiAssistantRoutes(app, {
       if (!recordRead(fresh)) return { reason: REASONS.recordUnread, outcome: 'skipped' };
       if (unchanged(fresh.doc)) return { reason: REASONS.trainingUnchanged, outcome: 'unchanged' };
       if (!underDailyCap(fresh.doc, 'trainingDays', TRAINING_PER_DAY, now())) return { reason: REASONS.trainingSentToday, outcome: 'skipped' };
-      const saved = await saveThread(uid, { ...fresh.doc, trainingDays: countDaily(fresh.doc, 'trainingDays', now()) }, fresh);
-      return saved.durable ? { ok: true } : { reason: REASONS.recordUnread, outcome: 'skipped' };
+      const saved = await saveThreadClaim(uid, { ...fresh.doc, trainingDays: countDaily(fresh.doc, 'trainingDays', now()) }, fresh);
+      return saved.durable ? { ok: true } : { reason: saved.reason, outcome: 'skipped' };
     });
     if (!claim.ok) return { sent: false, outcome: claim.outcome, reason: claim.reason, row };
 
@@ -562,6 +637,157 @@ export function setupAiAssistantRoutes(app, {
       if (!saved.durable) console.warn('[Jourvance] Ask Jourvance: the training record was kept on this server only:', saved.reason);
     });
     return landed ? { sent: true, outcome: 'sent', row } : { sent: false, outcome: 'failed', reason, row };
+  }
+
+  // ---- Journey shapes to the shared brain (W3.C) ----
+  // Each journey with enough visits and orders teaches its SHAPE (fixed words and a band, built by
+  // compileShapeLearns) through hub.brain.learn on the APP's own account: the hub's learn route
+  // refuses a per-user accountId, and the shared pattern is the point. Guarded like the what-worked
+  // send: nothing leaves unless the saved record was read, a shape this spoke sent in the last
+  // SHAPE_RESEND_DAYS days is not sent again, and today's SHAPE_LEARNS_PER_DAY slots are claimed by
+  // a save the hub confirmed BEFORE any send (the cap counts attempts, like the feedback cap).
+  const learnReady = () => Boolean(hubReady) && typeof hub?.brain?.learn === 'function';
+  // The feedback route's rule (an answer the hub took), plus the hub's duplicate: it answers
+  // { success: true, ingested: false, reason: 'duplicate' } for a pattern it already holds, which is
+  // landed for this spoke too, so its sha is recorded and it is not sent again.
+  const learnLanded = (r) => isPlainObject(r) && !r.error && r.success === true && (r.ingested === true || (r.ingested === false && r.reason === 'duplicate'));
+
+  // The app-wide day budget (SHAPE_LEARNS_APP_PER_DAY), claimed the way sendPatterns claims its month:
+  // read SHAPES_DAY_DOC, then put today's raised count with onlyIfNewer, stamped one millisecond per
+  // shape already counted past the day's first instant. Two runs that read the same count send the
+  // same stamp and the hub answers the second 409 stale; a run that read an older count sends an older
+  // stamp and is refused too; the previous day's stamps all sit before today's. Answers { granted }
+  // or { granted: 0, reason }: a read that is neither a document nor a 404, a count that will not
+  // parse (read as a full day) and any put that did not land all grant nothing this pass.
+  async function claimAppShapes(n) {
+    if (!docsReady()) return { granted: 0, reason: REASONS.shapeAppUnchecked };
+    const day = dayKey(now());
+    const dayStartMs = Date.parse(`${day}T00:00:00.000Z`);
+    let seen;
+    try {
+      seen = await bounded(hub.store.docs.get(SHAPES_DAY_DOC), ms.store, 'The app store');
+    } catch (err) {
+      seen = { error: err?.message || 'The hub did not answer.' };
+    }
+    let used = 0;
+    if (isPlainObject(seen) && !seen.error && Object.hasOwn(seen, 'document')) {
+      const doc = isPlainObject(seen.document) ? seen.document : {};
+      if (doc.day === day) used = Number.isSafeInteger(doc.count) && doc.count >= 0 ? doc.count : SHAPE_LEARNS_APP_PER_DAY;
+    } else if (!(isPlainObject(seen) && Number(seen.status) === 404)) {
+      return { granted: 0, reason: REASONS.shapeAppUnchecked };
+    }
+    const granted = Math.min(n, SHAPE_LEARNS_APP_PER_DAY - used);
+    if (!(granted > 0)) return { granted: 0, reason: REASONS.shapeAppCap };
+    let put;
+    try {
+      put = await bounded(hub.store.docs.put(SHAPES_DAY_DOC, { day, count: used + granted }, { onlyIfNewer: true, sourceUpdatedAt: new Date(dayStartMs + used + 1).toISOString() }), ms.store, 'The app store');
+    } catch (err) {
+      put = { error: err?.message || 'The hub did not answer.' };
+    }
+    if (!putLanded(put)) return { granted: 0, reason: REASONS.shapeAppClaimed };
+    return { granted };
+  }
+
+  // { sent, skipped, failed, reason?, rows? }: counts of the qualifying shapes, a bare cause when one
+  // explains the outcome, and on a dry run the rows that would be sent, prompts included, so the
+  // operator can read what would leave. Never throws past trainUser's catch.
+  async function sendShapes(uid, thread, inputs, compiled, { dryRun, deadline }) {
+    const done = (counts, reason, rows) => ({ sent: 0, skipped: 0, failed: 0, ...counts, ...(reason ? { reason } : {}), ...(dryRun ? { rows: rows || [] } : {}) });
+    // A shape from a partial read could teach a rate that is not this journey's.
+    if (!Array.isArray(inputs.journeys) || inputs.journeysComplete === false || !inputs.events || !inputs.orders || !inputs.publicPages) {
+      return done({}, REASONS.dataIncomplete);
+    }
+    // A capped event log drops visits but keeps every order, so its rates run high: no shape from it.
+    if (eventsPartial(inputs.events, uid, trainingWindow(now()).cutoff)) return done({}, REASONS.dataIncomplete);
+    const { rows } = compileShapeLearns({ uid, journeys: inputs.journeys, figures: compiled.figures, businessTypes: BUSINESS_TYPES });
+    if (!rows.length) return done({}, REASONS.shapesNone);
+    // With no hub the record cannot be read either; the missing hub is the cause worth naming.
+    if (!dryRun && !learnReady()) return done({ skipped: rows.length }, NO_HUB);
+    if (!recordRead(thread)) return done({ skipped: rows.length }, REASONS.recordUnread);
+    const due = rows.filter((r) => !shapeSentRecently(thread.doc.shapeLearns, r.sha, now()));
+    const take = due.slice(0, shapeSlotsLeft(thread.doc, now()));
+    if (!take.length) return done({ skipped: rows.length }, due.length ? REASONS.shapeCap : REASONS.shapeSentRecently);
+    if (dryRun) return done({ skipped: rows.length - take.length }, REASONS.dryRun, take);
+    if (Date.now() > deadline) return done({ skipped: rows.length }, REASONS.dataTooSlow);
+
+    // Claim today's slots first, under the lock, on a fresh read, with a save the hub must confirm.
+    const claim = await withThreadLock(uid, async () => {
+      const fresh = await readThread(uid);
+      if (!recordRead(fresh)) return { reason: REASONS.recordUnread };
+      const pending = take.filter((r) => !shapeSentRecently(fresh.doc.shapeLearns, r.sha, now()));
+      const want = Math.min(pending.length, shapeSlotsLeft(fresh.doc, now()));
+      if (!want) return { reason: pending.length ? REASONS.shapeCap : REASONS.shapeSentRecently };
+      // The app's budget for the day first, then this account's slots for as many as it granted.
+      const app = await claimAppShapes(want);
+      if (!app.granted) return { reason: app.reason };
+      const saved = await saveThreadClaim(uid, { ...fresh.doc, shapeDays: claimShapeDays(fresh.doc, app.granted, now()) }, fresh);
+      if (!saved.durable) return { reason: saved.reason };
+      return { rows: pending.slice(0, app.granted), short: app.granted < want ? REASONS.shapeAppCap : '' };
+    });
+    if (!claim.rows) return done({ skipped: rows.length }, claim.reason);
+
+    let sent = 0;
+    let failed = 0;
+    let reason = '';
+    const landedShas = [];
+    for (const row of claim.rows) {
+      let r;
+      let threw = null;
+      try {
+        r = await bounded(hub.brain.learn({ accountId: hubAppId, kind: row.kind, niche: row.niche, prompt: row.prompt, rating: row.rating }), ms.learn, 'The shape learn');
+      } catch (err) {
+        threw = err;
+      }
+      if (!threw && learnLanded(r)) {
+        sent += 1;
+        landedShas.push(row.sha);
+        continue;
+      }
+      failed += 1;
+      reason = threw ? failedCall(threw) : REASONS.shapeRefused;
+      console.warn('[Jourvance] Ask Jourvance: a journey shape was not taken:', threw?.message || r?.status || '', threw ? '' : (r?.error ?? r?.reason ?? JSON.stringify(r)?.slice(0, 120)));
+      // A hub that did not answer is not asked again in this job; the claimed slots stay spent.
+      if (threw) break;
+    }
+    // Only a landed shape is recorded, under the lock on a fresh read, so a question or a notes save
+    // made meanwhile is kept. A failed one is not recorded, so a later day may send it again.
+    if (landedShas.length) {
+      await withThreadLock(uid, async () => {
+        const fresh = await readThread(uid);
+        if (!recordRead(fresh)) {
+          console.warn('[Jourvance] Ask Jourvance: the journey shapes sent were not recorded: the saved record could not be read.');
+          return;
+        }
+        let shapeLearns = fresh.doc.shapeLearns;
+        for (const sha of landedShas) shapeLearns = recordShapeLearn(shapeLearns, sha, now());
+        const saved = await saveThread(uid, { ...fresh.doc, shapeLearns }, fresh);
+        if (!saved.durable) console.warn('[Jourvance] Ask Jourvance: the journey shape record was kept on this server only:', saved.reason);
+      });
+    }
+    return done({ sent, failed, skipped: rows.length - sent - failed }, failed ? reason : claim.short);
+  }
+
+  // { sent, outcome, reason?, row, shapes }. The what-worked file first, then the journey shapes,
+  // whatever the file's outcome; a fault in either is that part's failed outcome, never the other's.
+  async function trainUser(uid, { dryRun, deadline }) {
+    const thread = await readThread(uid);
+    const inputs = await trainingInputs(uid);
+    const compiled = compileWhatWorked({ uid, ...inputs, now: now() });
+    let result;
+    try {
+      result = await sendWhatWorked(uid, thread, compiled, { dryRun, deadline });
+    } catch (err) {
+      console.warn('[Jourvance] Ask Jourvance training failed:', err?.message || err);
+      result = { sent: false, outcome: 'failed', reason: REASONS.noAnswer, row: null };
+    }
+    let shapes;
+    try {
+      shapes = await sendShapes(uid, thread, inputs, compiled, { dryRun, deadline });
+    } catch (err) {
+      console.warn('[Jourvance] Ask Jourvance: the journey shapes failed:', err?.message || err);
+      shapes = { sent: 0, skipped: 0, failed: 0, reason: REASONS.noAnswer, ...(dryRun ? { rows: [] } : {}) };
+    }
+    return { ...result, shapes };
   }
 
   // One job per user at a time. Never throws: a fault is a failed outcome.
@@ -616,13 +842,25 @@ export function setupAiAssistantRoutes(app, {
     try {
       const uid = req.user.uid;
       const { doc } = await readThread(uid);
-      const screen = await screenOf(uid, req.query?.screen, undefined, true);
+      // W3.A: a stored action's label is never sent as stored. Each is built again from this user's
+      // current journey list, and a journey action whose journey is gone (or a list that could not
+      // be read) is dropped. The list is read only when a stored journey action needs it.
+      const needsJourneys = doc.messages.some((m) => Array.isArray(m.actions) && m.actions.some((a) => a?.kind !== 'open'));
+      const journeys = needsJourneys ? (await journeyFacts(uid)).journeys : undefined;
+      const owned = Array.isArray(journeys) ? journeys.filter((j) => isPlainObject(j) && j.userId === uid) : null;
+      const messages = doc.messages.map((m) => {
+        if (!Array.isArray(m.actions)) return m;
+        const { actions, ...rest } = m;
+        const kept = relabelStoredActions(actions, owned);
+        return kept.length ? { ...rest, actions: kept } : rest;
+      });
+      const screen = await screenOf(uid, req.query?.screen, journeys, true);
       const available = aiReady();
       res.json({
         success: true,
         available,
         ...(available ? {} : { reason: 'ai-unavailable' }),
-        messages: doc.messages,
+        messages,
         notes: doc.notes,
         profileOnHub: doc.profileOnHub || { durable: false, reason: REASONS.notSentYet },
         trainingOnHub: doc.trainingOnHub || { durable: false, reason: REASONS.notSentYet },
@@ -662,18 +900,26 @@ export function setupAiAssistantRoutes(app, {
 
       // brainChat names this user as the account, and on the hub's account refusal asks again with
       // app grounding and remembers the refusal for ACCOUNT_REFUSAL_MS (plan 3.4a).
-      const answer = await brainChat({ hub, hubReady, uid, prompt: read.message, system, topK: 4, timeouts: { chat: ms.chat }, now, label: 'Ask Jourvance' });
+      // The reply is asked for as JSON { answer, actions } (W3.A). brainChat hands a json answer back
+      // as the hub sent it, so the answer is read, cut and cleaned here, and a reply that is not JSON
+      // is the answer whole with no actions.
+      const answer = await brainChat({ hub, hubReady, uid, prompt: read.message, system, json: true, topK: 4, timeouts: { chat: ms.chat }, now, label: 'Ask Jourvance' });
       if (!answer.ok) {
         if (answer.kind === 'unavailable') return res.status(503).json(UNAVAILABLE);
         return res.status(502).json(NO_ANSWER);
       }
       const grounding = answer.grounding;
-      const text = capAnswer(answer.text);
+      // A journey action is kept only for the journey on the canvas (screen.journeyId, which screenOf
+      // kept only when it is this user's), and its label names it from this user's own list.
+      const ownJourneys = Array.isArray(facts.journeys) ? facts.journeys.filter((j) => isPlainObject(j) && j.userId === uid) : [];
+      const replied = readReply(answer.text, screen, { journeys: ownJourneys, clean: cleanModelStrings });
+      // readReply has already cut the hub's text to its cap before parsing it.
+      const text = capAnswer(cleanModelStrings(replied.answer));
       if (!text) return res.status(502).json(UNREADABLE);
 
       const at = isoNow();
       const asked = { id: newId(), role: 'user', text: read.message, at };
-      const reply = { id: newId(), role: 'assistant', text, at, grounding };
+      const reply = { id: newId(), role: 'assistant', text, at, grounding, ...(replied.actions.length ? { actions: replied.actions } : {}) };
       // Read again under the lock, so a notes save or a rating made while the hub answered is kept.
       await withThreadLock(uid, async () => {
         const fresh = await readThread(uid);
@@ -855,6 +1101,9 @@ export function setupAiAssistantRoutes(app, {
     return { ...out, sent: true };
   }
 
+  /** A journey id in an operator answer: a salted sha256 cut to 16 hex characters, as hashedUid does. */
+  const hashedJourneyId = (id) => `j_${sha256(`jourvance-assistant-train-journey:${id}`).slice(0, 16)}`;
+
   app.post('/api/ai/assistant/admin/train', operatorOnly, async (req, res) => {
     try {
       const read = readTrainBody(req.body);
@@ -889,12 +1138,28 @@ export function setupAiAssistantRoutes(app, {
       const counts = { accounts: ids.length, sent: 0, wouldSend: 0, unchanged: 0, skipped: 0, failed: 0 };
       const key = { sent: 'sent', 'would-send': 'wouldSend', unchanged: 'unchanged', skipped: 'skipped', failed: 'failed' };
       for (const r of results) counts[key[r.outcome] || 'failed'] += 1;
-      // Never a raw uid or an email in an operator answer: each account is named by its hash.
-      const users = results.map((r) => ({ uid: hashedUid(r.uid), sent: r.sent === true, ...(r.reason ? { reason: r.reason } : {}) }));
+      // Never a raw uid or an email in an operator answer: each account is named by its hash, and on a
+      // dry run each journey shape by a hash of its journey id (W3.C), beside the prompt that would leave.
+      const tally = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
+      const shapesOf = (r) => {
+        const s = isPlainObject(r.shapes) ? r.shapes : {};
+        return {
+          sent: tally(s.sent),
+          skipped: tally(s.skipped),
+          failed: tally(s.failed),
+          ...(s.reason ? { reason: s.reason } : {}),
+          ...(read.dryRun
+            ? { rows: (Array.isArray(s.rows) ? s.rows : []).map((row) => ({ prompt: row.prompt, niche: row.niche, rating: row.rating, journeyId: hashedJourneyId(row.journeyId) })) }
+            : {})
+        };
+      };
+      const users = results.map((r) => ({ uid: hashedUid(r.uid), sent: r.sent === true, ...(r.reason ? { reason: r.reason } : {}), shapes: shapesOf(r) }));
+      // The shape totals sit beside `counts`, which keeps its shape.
+      const shapes = users.reduce((t, u) => ({ sent: t.sent + u.shapes.sent, skipped: t.skipped + u.shapes.skipped, failed: t.failed + u.shapes.failed }), { sent: 0, skipped: 0, failed: 0 });
       const patterns = read.patterns
         ? await sendPatterns(results.map((r) => r.row).filter(Boolean), { dryRun: read.dryRun, at })
         : undefined;
-      return res.json({ success: true, dryRun: read.dryRun, users, counts, ...(patterns ? { patterns } : {}) });
+      return res.json({ success: true, dryRun: read.dryRun, users, counts, shapes, ...(patterns ? { patterns } : {}) });
     } catch (err) {
       console.warn('[Jourvance] Ask Jourvance training run failed:', err?.message || err);
       if (!res.headersSent) res.status(500).json({ success: false, error: 'The training run failed on the server. Try again.', retryable: true });

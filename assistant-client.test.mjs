@@ -21,8 +21,25 @@ import {
   SCREEN_TEXT_MAX,
   ASK_EVENT,
   ASK_READY_ATTR,
-  askAssistantReady
+  askAssistantReady,
+  ACTION_LIMITS,
+  ACTION_VIEWS,
+  ACTION_STEP_TYPES,
+  readMessage,
+  readAction,
+  readActions,
+  latestAnswerId,
+  runAssistantAction,
+  ACTION_STEP_NAMES,
+  readActionName,
+  showsActionButtons,
+  actionKey,
+  actionRunnable,
+  markActionRun,
+  actionDoneLine,
+  SHEET_OPEN_ATTR
 } from './src/lib/assistant.ts';
+import * as SERVER_ACTIONS from './server/assistantActions.mjs';
 
 const answerBody = { success: true, source: 'hub-brain', answer: { id: 'a1', role: 'assistant', text: 'Open the journey, then Publish.', at: '2026-10-11T10:00:00Z', grounding: 'app' } };
 
@@ -211,4 +228,152 @@ test('the ask event and the ready attribute have the names the senders and the l
   assert.equal(ASK_EVENT, 'jv-ask');
   assert.equal(ASK_READY_ATTR, 'data-jv-ask-ready');
   assert.equal(askAssistantReady(), false, 'no document here, so not ready');
+});
+
+// ---- W3.A: suggested actions ----
+
+const OPEN = { kind: 'open', view: 'email-studio', label: 'Open Email Studio' };
+const ADD = { kind: 'add-step', type: 'landing-page', journeyId: 'j1', label: 'Add a landing page step to Spring' };
+const RENAME = { kind: 'rename-journey', name: 'Spring sale', journeyId: 'j1', label: 'Rename this journey to "Spring sale"' };
+
+test('the action limits and lists equal the server\u2019s, key for key', () => {
+  assert.deepEqual(ACTION_LIMITS, { ACTIONS_MAX: SERVER_ACTIONS.ACTIONS_MAX, NAME_MAX: SERVER_ACTIONS.NAME_MAX, LABEL_MAX: SERVER_ACTIONS.LABEL_MAX });
+  assert.deepEqual([...ACTION_VIEWS], [...SERVER_ACTIONS.ACTION_VIEWS]);
+  assert.deepEqual([...ACTION_STEP_TYPES], [...SERVER_ACTIONS.NODE_TYPES]);
+  assert.deepEqual({ ...ACTION_STEP_NAMES }, { ...SERVER_ACTIONS.STEP_NAMES });
+  assert.equal(SHEET_OPEN_ATTR, 'data-jv-sheet-open');
+});
+
+// Names the two rules must agree on: one per refused class, and a few that are kept.
+const NAME_SAMPLES = [
+  'Spring "Sale"', 'Spring \u201cSale', 'Spring Sale\u201d', 'Spring \u201eSale', 'Spring \uff02Sale', 'Spring \u2033Sale',
+  'Spring\u{E0041}Sale', 'Spring\u200bSale', 'Spring\u200dSale', 'Spring\u2060Sale', '\ufeffSpring', 'Spring\u200eSale',
+  'Spring\u200fSale', 'Spring\u061cSale', 'Spring\u00adSale', 'Spring \u3164', '\u3164', 'Spring \uffa0', 'Spring \u115f', 'Spring \u2800',
+  '\u2800', 'Spring \ue000', 'Spring \ud800', 'Spring\u2028', 'Spring\u2029', 'Spring\u202e', 'Spring\u2066', 'Bell\u0007', 'C1\u0085',
+  '!!!', '---', '\u2605', '', '   ', 'x'.repeat(81),
+  'Spring 2026', "Rosa's Funnel", 'Caf\u00e9 cr\u00e8me', 'Sale \u{1F389}', '  Trimmed  ', 'x'.repeat(80)
+];
+
+test('readActionName agrees with the server\u2019s readJourneyName on every sample, refused classes and kept names alike', () => {
+  for (const name of NAME_SAMPLES) assert.equal(readActionName(name), SERVER_ACTIONS.readJourneyName(name), JSON.stringify(name));
+  assert.equal(NAME_SAMPLES.filter((n) => readActionName(n)).length, 6, 'six samples are names');
+  assert.equal(readAction({ kind: 'rename-journey', name: 'Spring "Sale"', journeyId: 'j1', label: 'Rename' }), null);
+});
+
+test('readAction refuses a label longer than the server\u2019s longest, or holding a character no label may hold', () => {
+  const base = { kind: 'open', view: 'canvas' };
+  assert.equal(readAction({ ...base, label: 'x'.repeat(ACTION_LIMITS.LABEL_MAX) }).label.length, ACTION_LIMITS.LABEL_MAX);
+  assert.equal(readAction({ ...base, label: 'x'.repeat(ACTION_LIMITS.LABEL_MAX + 1) }), null);
+  for (const bad of ['Open\u200e the canvas', 'Open\u202e the canvas', 'Open\u{E0041}', 'Open\u3164', 'Open\u0007', 'Open\u2028x']) {
+    assert.equal(readAction({ ...base, label: bad }), null, JSON.stringify(bad));
+  }
+  assert.equal(readAction({ ...RENAME }).label, 'Rename this journey to "Spring sale"', 'straight quotes are fine in a label');
+});
+
+test('showsActionButtons: only the newest answer, and only one that arrived in this page load', () => {
+  const live = new Set(['a2']);
+  assert.equal(showsActionButtons('a2', 'a2', live), true);
+  assert.equal(showsActionButtons('a1', 'a2', live), false, 'an older answer');
+  assert.equal(showsActionButtons('a3', 'a3', live), false, 'the newest, read back with the thread');
+  assert.equal(showsActionButtons('', '', new Set([''])), false);
+});
+
+test('actionRunnable and markActionRun: an action runs once per key, its result kept under that key and never replaced', () => {
+  const key = actionKey('m_1', 2);
+  assert.equal(key, 'm_1:2');
+  const done = { ok: true, line: 'Opened.', tone: 'ok' };
+  const empty = {};
+  assert.equal(actionRunnable(empty, key), true);
+  const after = markActionRun(empty, key, done);
+  assert.deepEqual(after, { [key]: done });
+  assert.deepEqual(empty, {}, 'the old record is not changed');
+  assert.equal(actionRunnable(after, key), false, 'it cannot run again');
+  assert.equal(actionRunnable(after, actionKey('m_1', 1)), true, 'the other actions of that message still can');
+  assert.deepEqual(markActionRun(after, key, { ok: false, line: 'x', tone: 'bad' })[key], done, 'a second result never replaces the first');
+  assert.equal(actionRunnable({ toString: done }, 'toString'), false);
+  assert.equal(actionRunnable({}, 'toString'), true, 'an inherited name is not a result');
+});
+
+test('actionDoneLine names what ran: the step with "a" or "an", the new name in quotes', () => {
+  const add = (type) => actionDoneLine({ kind: 'add-step', type, journeyId: 'j1', label: 'x' });
+  assert.equal(add('landing-page'), 'Added a landing page step. Undo is in the editor toolbar.');
+  assert.equal(add('upsell'), 'Added an upsell step. Undo is in the editor toolbar.');
+  assert.equal(add('ab-split'), 'Added an A/B split step. Undo is in the editor toolbar.');
+  assert.equal(add('thank-you'), 'Added a thank-you page step. Undo is in the editor toolbar.');
+  assert.equal(actionDoneLine(RENAME), 'Renamed to "Spring sale". Undo is in the editor toolbar.');
+  assert.equal(actionDoneLine(OPEN), 'Opened.');
+});
+
+test('readMessage reads an answer\u2019s actions by shape: the good ones kept, at most three, the bad ones dropped, none on a question', () => {
+  const base = { id: 'a1', role: 'assistant', text: 'Here.', at: 't' };
+  assert.deepEqual(readMessage({ ...base, actions: [OPEN, ADD, RENAME] }).actions, [OPEN, ADD, RENAME]);
+  assert.deepEqual(readMessage({ ...base, actions: [OPEN, OPEN, OPEN, ADD] }).actions.length, 3);
+  const bad = [
+    { kind: 'delete', journeyId: 'j1', label: 'Delete' },
+    { kind: 'open', view: 'admin', label: 'Open admin' },
+    { kind: 'open', view: 'canvas' },
+    { kind: 'open', view: 'canvas', label: '   ' },
+    { kind: 'open', view: 'canvas', label: 'Line\nbreak' },
+    { kind: 'add-step', type: 'checkout', journeyId: 'j1', label: 'Add' },
+    { kind: 'add-step', type: 'lead-form', label: 'Add' },
+    { kind: 'rename-journey', name: 'x'.repeat(81), journeyId: 'j1', label: 'Rename' },
+    { kind: 'rename-journey', name: 'Tab\there', journeyId: 'j1', label: 'Rename' },
+    { kind: 'rename-journey', name: '', journeyId: 'j1', label: 'Rename' },
+    null, 'open'
+  ];
+  assert.ok(!('actions' in readMessage({ ...base, actions: bad })), 'nothing readable leaves no key');
+  assert.ok(!('actions' in readMessage({ ...base, actions: 'open' })));
+  assert.ok(!('actions' in readMessage({ ...base })));
+  assert.ok(!('actions' in readMessage({ id: 'u1', role: 'user', text: 'q', actions: [OPEN] })), 'a question proposes nothing');
+  assert.deepEqual(readThread({ messages: [{ ...base, actions: [OPEN, bad[0]] }] }).messages[0].actions, [OPEN]);
+  assert.deepEqual(readAskOutcome({ status: 200, body: { success: true, answer: { ...base, actions: [RENAME] } } }).message.actions, [RENAME]);
+  assert.deepEqual(readActions([RENAME, OPEN]), [RENAME, OPEN]);
+  assert.equal(readAction({ ...RENAME, name: '  Spring sale  ' }).name, 'Spring sale');
+});
+
+test('latestAnswerId names the newest answer, so only its actions are buttons', () => {
+  const m = (id, role) => ({ id, role, text: id, at: '' });
+  assert.equal(latestAnswerId([m('u1', 'user'), m('a1', 'assistant'), m('u2', 'user'), m('a2', 'assistant'), m('u3', 'user')]), 'a2');
+  assert.equal(latestAnswerId([m('u1', 'user')]), '');
+  assert.equal(latestAnswerId([]), '');
+});
+
+test('runAssistantAction: open runs the view switch, a journey action runs only on the journey open now, and each says what happened', () => {
+  const calls = [];
+  const handlers = (openJourneyId, openViewAnswer = true) => ({
+    openJourneyId,
+    openView: (view) => { calls.push(['open', view]); return openViewAnswer; },
+    addStep: (type) => calls.push(['add', type]),
+    renameJourney: (name) => calls.push(['rename', name])
+  });
+  assert.deepEqual(runAssistantAction(OPEN, handlers('j1')), { ok: true, line: 'Opened.', tone: 'ok' });
+  assert.deepEqual(runAssistantAction(OPEN, handlers('j1', false)), { ok: false, line: 'That did not run. Nothing changed.', tone: 'bad' }, 'the person chose to stay');
+  assert.deepEqual(runAssistantAction(ADD, handlers('j1')), { ok: true, line: 'Added a landing page step. Undo is in the editor toolbar.', tone: 'ok' });
+  assert.deepEqual(runAssistantAction(RENAME, handlers('j1')), { ok: true, line: 'Renamed to "Spring sale". Undo is in the editor toolbar.', tone: 'ok' });
+  assert.deepEqual(calls, [['open', 'email-studio'], ['open', 'email-studio'], ['add', 'landing-page'], ['rename', 'Spring sale']]);
+  calls.length = 0;
+  for (const open of ['j2', '', null, undefined]) {
+    for (const action of [ADD, RENAME]) {
+      assert.deepEqual(runAssistantAction(action, handlers(open)), { ok: false, line: 'That journey is not open any more. Open it and ask again.', tone: 'warn' }, `${action.kind} with ${open}`);
+    }
+  }
+  assert.deepEqual(calls, [], 'nothing ran on another journey');
+  assert.deepEqual(runAssistantAction({ kind: 'delete', journeyId: 'j1', label: 'Delete' }, handlers('j1')), { ok: false, line: 'That did not run. Nothing changed.', tone: 'bad' });
+  assert.deepEqual(calls, []);
+  assert.throws(() => runAssistantAction(ADD, { ...handlers('j1'), addStep: () => { throw new Error('boom'); } }), /boom/, 'a throw reaches the panel, which shows action.failed');
+});
+
+test('the action copy rows are the contract\u2019s words', () => {
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(PANEL_COPY).filter(([k]) => k.startsWith('action.'))),
+    {
+      'action.group': 'Suggested actions',
+      'action.done.open': 'Opened.',
+      'action.done.add-step': 'Added a {step} step. Undo is in the editor toolbar.',
+      'action.done.rename-journey': 'Renamed to "{name}". Undo is in the editor toolbar.',
+      'action.notOpen': 'That journey is not open any more. Open it and ask again.',
+      'action.failed': 'That did not run. Nothing changed.',
+      'action.suggested': 'Suggested:'
+    }
+  );
 });

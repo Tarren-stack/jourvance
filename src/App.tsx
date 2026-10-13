@@ -1153,6 +1153,22 @@ export const App: React.FC = () => {
           journeyName={project.name}
           stepKind={activeView === 'canvas' ? selectedNode?.type : undefined}
           stepName={activeView === 'canvas' ? String((selectedNode?.data as { label?: unknown } | undefined)?.label ?? '') : undefined}
+          onAction={async action => (await import('./lib/assistant')).runAssistantAction(action, {
+            // A suggested action runs only when pressed, through the editor's own handlers, and a
+            // journey action only on the journey open now (the helper loads with the assistant).
+            // Only while the map is on screen: a step added behind another view would land unseen.
+            openJourneyId: activePage === 'canvas' && activeView === 'canvas' ? project.id : null,
+            openView: view => {
+              // Leaving Email Studio asks first; Cancel changes nothing, and the panel says so.
+              if (view !== 'email-studio' && !leaveStudioOk()) return false;
+              setActivePage('canvas');
+              if (view === 'canvas') showCanvas();
+              else setActiveView(view);
+              return true;
+            },
+            addStep: handleAddNode,
+            renameJourney: handleUpdateProjectName
+          })}
         />
 
         {/* Live Funnel Simulation Modal */}

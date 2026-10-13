@@ -422,3 +422,149 @@ See `JOURVANCE_RUNNING_AUDIT.md`, section "2026-10-12: Ask Jourvance wave 2". Sp
 `npm test` 2,925 / 2,922 / 0 / 3, build exit 0, browser check 365 assertions, eval test 32 passed, sandboxed boot per
 contract. Hub (uncommitted): lint exit 0, unit aggregate 1,456 / 0 failed, route smoke 182, UI smoke 10. The hub's
 `smoke:email` red is pre-existing (same 43 failures on a clean worktree of HEAD).
+
+## Wave 3 (2026-10-13): the assistant acts, Email Studio drafts through the brain, results teach the main brain
+
+Decided by the main session from four scout reports (Email Studio AI routes, journey write paths, the
+hub's `smoke:email` red, Aura's create-time learns). Builders own disjoint files; a builder that needs
+a file it does not own stops and reports. Every builder follows the Truth Protocol, proves each new
+test red with a planted fault inverted afterwards, counts what ran, and reports failure first.
+
+**Section 6 changes:** "any write the assistant performs on the user's data" leaves the out-of-scope
+list. The assistant may PROPOSE a small set of edits; nothing runs until the user clicks a button
+whose text is built on the server from the validated action, never from model text.
+
+### W3.A Actions with confirmation (spoke)
+
+Vocabulary, validated on the server by `server/assistantActions.mjs` (pure, no imports but node):
+`{ kind: 'open', view: 'canvas' | 'email-studio' | 'attribution' }`,
+`{ kind: 'add-step', type: <NodeType>, journeyId }` (NodeType from `src/types/journey.ts`; only when the
+screen names that journey on the canvas), `{ kind: 'rename-journey', name, journeyId }` (1 to 80
+chars, no control chars, trimmed; only on the canvas with that journey). At most 3 actions per
+answer; unknown kinds, extra keys, bad values and a journeyId that is not the screen's are dropped
+silently, never 400. The button label comes from `actionLabel(action)` on the server ("Open Email
+Studio", "Add a Landing Page step to <journey name>", "Rename this journey to \"<name>\"") with the
+journey name from the user's own journey list, the step name from `stepKinds`, never from the model.
+Never: delete, publish, send, unpublish, notes, feedback, workspace or Shopify actions.
+
+The ask route asks the model for JSON `{ "answer": string, "actions": Action[] }` (`json: true`); a
+reply that does not parse is treated as the whole text being the answer with no actions, so the 30
+golden questions and the eval keep passing. The thread message gains `actions` (validated, labelled)
+and the response carries them. CONTEXT stays untrusted: an action proposed because a document said
+so is harmless, because the user reads the server-built label and clicks or does not.
+
+Client: the panel renders each action as a button under the answer; clicking it calls
+`onAction(action)` on `AskJourvance`, which `App.tsx` maps to the existing handlers (`setView`,
+`handleAddNode(type)`, `handleUpdateProjectName(name)`) and ONLY when `project.id === action.journeyId`
+for the journey kinds (else the panel says "That journey is not open any more."). After it runs the
+button becomes a status line ("Added. Undo with the editor's undo.") and the action cannot run twice
+from the same message. Keyboard and screen reader: a real `<button>` with the label as its name.
+
+Files owned: `server/assistantActions.mjs` (new), `server/assistantContext.mjs` (the JSON shape in the
+system text only), `server/routes/aiAssistantRoutes.mjs` ONLY the `ask` route body, `src/lib/assistant.ts`,
+`src/lib/assistantClient.ts`, `src/components/assistant/*`, `src/App.tsx` (one prop), `src/index.css`
+inside the `.jv-assistant-*` block only and never the bubble position rules,
+`scripts/assistant-browser-check.mjs`, `docs/assistant/panel-copy.md`, tests `assistant-actions.test.mjs`
+(new), `assistant-route.test.mjs`, `assistant-ui.test.mjs`, `assistant-client.test.mjs`,
+`assistant-context.test.mjs`, and `test-fixtures/assistant-eval.json` only if a row must change.
+
+### W3.B Email Studio drafting through the brain (spoke)
+
+New `POST /api/ai/email-draft` in `server/routes/aiEmailRoutes.mjs` (mounted from `server.mjs` after
+the assistant routes), `requireUser`, the shared hourly AI budget (`aiBudgetLeft`, 429 with
+`Retry-After` like `journey-plan`), through `brainChat({ uid, json: true, topK: 4 })`. Body
+`{ kind: 'broadcast' | 'flow-step', brief (1 to 300 chars, the user's words), subjectHint? (to 120),
+flowTrigger? (one of the app's trigger names, else dropped) }`. Answer
+`{ success, draft: { subject (to 120), previewText (to 160), paragraphs: string[] (1 to 6, each to 400),
+cta?: { label (to 40) } }, grounding: 'account' | 'app', source: 'hub-brain' }`. The system text:
+the `CONTEXT_RULE`, no invented prices, discounts, guarantees, reviews, counts or results, one subject,
+plain paragraphs, no em dash (stripped in code anyway). No template fallback: 503 when the hub is off,
+502 when the answer is unreadable, and the client says so. Every string passes `cleanModelStrings`.
+
+Client: a "Draft with AI" control in `BroadcastComposer` that takes the brief, shows the draft as a
+proposal (subject, preview, the paragraphs) with Keep and Discard; Keep fills the subject and preview
+and appends one text block per paragraph (and a button block for the cta when the composer has one)
+through the composer's existing block factory, as one undoable edit if the composer has undo, and never
+replaces blocks the user wrote. The same control on the flow editor's email step when that editor has a
+per-step subject and body field; if it has none, stop at the composer and report that fact. Under each
+proposal one line names the grounding: "Written from your business profile and results." or "Written
+from general guidance; your business profile is not on the AI service yet.", from the `grounding`
+field. Also add `grounding` to `/api/ai/copy`'s answer and the same line to the AI Polish proposal
+card when it fits in one line; else report and skip.
+
+Files owned: `server/routes/aiEmailRoutes.mjs` (new), `server.mjs` (the mount only),
+`server/routes/authWorkspaceRoutes.mjs` (the `/api/ai/copy` answer only), `src/lib/emailDraft.ts` (new,
+pure), `src/lib/emailDraftClient.ts` (new), `src/lib/hubClient.ts`, `src/lib/pageCopyProposal.ts`,
+`src/components/campaign/BroadcastComposer.tsx`, `src/components/campaign/EmailFlowMap.tsx`,
+`src/components/drawers/SequenceEditor.tsx` (the grounding line only), `docs/assistant/jourvance-guide.md`
+(one new section on drafting in Email Studio), tests `ai-email-draft-route.test.mjs`,
+`email-draft.test.mjs`, `ai-copy-route.test.mjs`, and a new `scripts/email-draft-browser-check.mjs`
+is NOT required: the route is pinned over HTTP and the composer by a component test.
+
+### W3.C Results teach the main brain, and the patterns file resists collusion (spoke)
+
+Shape learns. In `server/assistantTraining.mjs`, `compileShapeLearns({ uid, journeys, figures, now })`
+answers rows `{ kind: 'journey-shape', niche, prompt, rating, sha }`, one per journey that has at least
+50 visits and 5 orders in the window. The prompt is built ONLY from enumerations and banded numbers:
+the goal word (`PATTERN_GOALS`), the platform word, the step variants in canvas order from
+`stepVariant` (the twelve names in `src/lib/stepKinds.ts`, joined with "then"), the step count as a
+word, and the order rate as a ten point band. Nothing typed by the user, no name, no slug, no id, no
+url, no exact figure. `rating` is 4, or 5 when the journey's order rate is at least twice the account's
+median order rate across its journeys with 50 or more visits. `niche` is the journey's `businessType`
+only when it is one of the app's own business type choices (find the list; if there is none, 'general').
+Sent from `trainUser` after the what-worked send, through `hub.brain.learn({ accountId: hubAppId,
+kind, niche, prompt, rating })` (the app's own account, as the question sharing does: a per-user
+accountId is refused by the hub's learn route, and the shared pattern is the point), at most
+`SHAPE_LEARNS_PER_DAY = 3` per user per day, each sha recorded on the thread document
+(`shapeLearns: { [sha]: dayKey }`, newest 50 kept) so a shape is not sent again inside 30 days from
+this spoke; the day counter `shapeDays` is claimed like `trainingDays`. A dry run lists them. The
+operator route's report gains `shapes: { sent, skipped }` per user. Learn costs 1 credit on the hub and
+a duplicate is not billed.
+
+Patterns hardening. `PATTERN_MIN_USERS` becomes 25. `rateBand` gains a stability rule: the band is
+printed only when removing any ONE account leaves the same band (leave-one-out over the sorted
+values); otherwise "varies". The file's own explanatory paragraph says both rules in plain words.
+
+Files owned: `server/assistantTraining.mjs`, `server/routes/aiAssistantRoutes.mjs` ONLY `trainingInputs`,
+`trainUser`, the operator `admin/train` route and the `REASONS` table (never the `ask` route),
+`src/lib/assistant.ts` is NOT yours, tests `assistant-training.test.mjs` and a new
+`assistant-training-route.test.mjs`. `.env.example` for the new limit if it is configurable (it is not;
+leave it).
+
+### W3.D The three overlaps and the viewport meta (spoke)
+
+`index.html`: `interactive-widget=resizes-content` on the viewport meta, so a fixed bottom control
+rises above a phone keyboard. The bubble moves up while a bottom surface is showing: the edge
+inspector ("Disconnect Step Connection"), the canvas rule notice on phones ("Dismiss"), and the step
+dock ("Next"). Mechanism: each surface sets `data-jv-bottom-surface` on `<html>` while mounted (a
+counter, so two surfaces do not clear each other), and the bubble's CSS reads it; the bubble is never
+hidden. New `scripts/layout-overlap-check.mjs` (`npm run check:overlaps`) opens the app at 320, 390,
+768 and 1280, opens each surface, and asserts the bubble's rectangle intersects none of the three
+buttons and that the bubble is still visible and clickable; it must fail when the attribute is removed
+(planted fault). Files owned: `index.html`, the three surface components, `src/index.css` bubble
+position rules only, the new script, `package.json` (one script line).
+
+### W3.H The hub's `smoke:email` crash (hub, uncommitted like the rest)
+
+Root cause (scout, VERIFIED): check 23's account event reaches `enrollAccountContacts`, which awaits
+`durableFlowStopped`; with no database `reliableEmail.isStopped` throws a 503 `MailError`, nothing
+catches it, and Node 26 kills the process on the unhandled rejection. Every later check sees
+ECONNREFUSED. Contract: with NO database configured (the memory branch) `durableFlowStopped` answers
+false and the shard's own stops still apply; with a database whose read FAILS the recipient is skipped
+with a named reason and the route answers, never throws; `accountTrackRoute` and every other account
+route handler catch what their awaits throw and answer 503 with `Retry-After`; the harness prints the
+exception beside the detail string. `npm run smoke:email` all 67 checks green, the red proven by
+reverting the fix. A hub adversary then tries to make a stopped client receive mail under a failed read.
+
+**Still deferred:** plan gating of the assistant (the owner's product decision), a visitor assistant,
+the corpus-name rename on the hub (a migration that needs a deploy window), Aura's own create-time
+learns (they send the campaign title and the ad headline verbatim; the hub scrubs identifiers, not
+free text; that is Aura's fix to make), the hub's per-corpus replace lock (one process).
+
+## W3 verification (main session)
+
+See `JOURVANCE_RUNNING_AUDIT.md`, section "2026-10-13: Ask Jourvance wave 3". Spoke, on the final tree: typecheck
+exit 0, `npm test` 3,056 / 3,053 / 0 / 3, build exit 0, `check:assistant` 464, `check:overlaps` 102, `check:email-draft` 69,
+`check:canvas` exit 0, sandboxed boot per contract with SIGTERM exit 0. Hub (uncommitted): lint exit 0 and the full
+`npm run smoke` exit 0 (unit aggregate 1,485 / 0 failed, route smoke 182, email 67, all fifteen harnesses green).
+Builders' plant tables and the five adversaries' probes are DELEGATED. Residuals accepted are listed in the audit section.

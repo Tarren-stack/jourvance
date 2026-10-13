@@ -54,6 +54,26 @@ If email sending is not connected on the server, nothing in the flows sends yet,
 
 <!-- sources: src/lib/emailStudioNav.ts, src/lib/emailFlowsList.ts, src/lib/studioVocabulary.ts, src/components/campaign/HubEmailSuite.tsx, src/components/campaign/EmailFlowsList.tsx, src/components/campaign/BroadcastComposer.tsx, src/components/campaign/SendingSetup.tsx, src/components/campaign/KlaviyoSync.tsx, src/components/campaign/SmsPanel.tsx, EMAIL_STUDIO_PLAN.md -->
 
+## Drafting an email with AI in Email Studio
+
+Email Studio can write a first draft of one email for you. Select `Draft this email with AI` above the subject of the email you are writing, in either place:
+- In `Broadcasts`, under `New broadcast`.
+- In a flow, on an email step. An email copied from a Klaviyo template has no such button, because its words are HTML.
+
+How to use it:
+1. Select `Draft this email with AI` and say, in up to 300 characters, what the email is about, who it is for and the one thing the reader should do. The count under the box shows how many characters you have used.
+2. Select `Write a draft`. It can take up to a minute. `Stop` ends it, and nothing is drafted.
+3. Read the draft. It opens with "Draft. Not in your email yet." and shows the subject, the preview text, the paragraphs and, when there is one, a button label. A line under it says what it used.
+4. Select `Keep` to use it, or `Discard` to throw it away.
+
+`Keep` fills in the subject, and the preview text when the draft has one, then adds the paragraphs at the end of the email, after anything you already wrote. It never removes a block. An email holds at most 24 blocks, so anything past that is left out and the message says how much. A button comes without a link, so add the link before it goes out. In a flow the draft is not saved until you press `Save`, and a broadcast is not saved until you press `Save draft`.
+
+The line under a draft reads "Uses your business profile, when the AI has it." when the AI service took your account, or "Uses general guidance, not your profile." when it did not. The AI is told never to invent prices, discounts or results, or links and names, so check the draft and add those yourself only when they are real.
+
+Nothing is sent by drafting. Each draft counts toward the same hourly AI limit as the other AI buttons. If AI drafting is not set up on the server, the message says so. If the AI service does not answer, nothing changes and you can select `Retry`.
+
+<!-- sources: src/components/campaign/BroadcastComposer.tsx, src/components/campaign/EmailFlowMap.tsx, src/lib/emailDraft.ts, server/routes/aiEmailRoutes.mjs, server/aiCall.mjs -->
+
 ## Attribution reports
 
 Open `Attribution` from the sidebar. It ties ad clicks, page views, email sends, email clicks and Shopify orders to the same path, so you can see which channel an order came from.
