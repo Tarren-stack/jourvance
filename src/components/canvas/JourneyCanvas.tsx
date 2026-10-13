@@ -23,7 +23,7 @@ import {
   type OnNodeDrag,
   type ReactFlowInstance
 } from '@xyflow/react';
-import { Sparkles, EyeOff, Workflow, Undo2, X, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { Sparkles, EyeOff, Workflow, Undo2, X, SlidersHorizontal, ChevronDown, Play, TrendingUp } from 'lucide-react';
 import type { JourneyNode, JourneyEdge, JourneyNodeData, CanvasViewMode, NodeType } from '../../types/journey';
 import { SemanticZoom } from './SemanticZoom';
 import { AdNode } from './nodes/AdNode';
@@ -37,7 +37,8 @@ import { ConversionEdge } from './edges/ConversionEdge';
 import { EdgeLegend } from './EdgeLegend';
 import { EdgeLabelLayout, mapOverlayRects, useCaptionPortal } from './EdgeLabelLayout';
 import { placeStepAddZoomed, geometryKey, intersectRects, rectToBox, type Box, type StepAddSpot } from '../../lib/edgeLabelLayout';
-import { EDGE_KINDS, EDGE_KIND_ORDER, EDGE_WIDTH_SELECTED, edgeKind, isRetentionLink, isRetentionStep, type EdgeKind } from '../../lib/edgeKinds';
+import { EDGE_KINDS, EDGE_KIND_ORDER, EDGE_WIDTH_SELECTED, edgeKind, hasRescueStep, isRetentionLink, isRetentionStep, type EdgeKind } from '../../lib/edgeKinds';
+import { ACTION_LABEL, AD_RETURN_NOTE } from '../../lib/studioLabels';
 import { stepKind } from '../../lib/stepKinds';
 import { parentMovedIds } from '../../lib/journeyHistory';
 import { pathFocus, withPathFocus } from '../../lib/pathFocus';
@@ -141,6 +142,12 @@ interface Props {
   canvasViewRef?: React.MutableRefObject<CanvasView | null>;
   pickerRequest?: AddRequest | null;
   onClearPickerRequest?: () => void;
+  /** Opens Test funnel. Lives with the map tools. */
+  onTestJourney?: () => void;
+  /** Show ad return on the cards. The header still reads this mode for its ribbon. */
+  onToggleCanvasViewMode?: (mode: CanvasViewMode) => void;
+  /** A panel delete. A new id copies its sentence into the map notice. A remount skips the id it was born with. */
+  panelDeleteNotice?: { id: number; text: string } | null;
 }
 
 // A line dragged out of a dot and let go on empty map opens the step picker; a request that came
@@ -633,7 +640,10 @@ export const JourneyCanvas: React.FC<Props> = ({
   onGraphChange,
   canvasViewRef,
   pickerRequest,
-  onClearPickerRequest
+  onClearPickerRequest,
+  onTestJourney,
+  onToggleCanvasViewMode,
+  panelDeleteNotice = null
 }) => {
   const nodeTypes: NodeTypes = useMemo(() => ({
     'ad-source': withStepAdd(AdNode),
@@ -651,7 +661,7 @@ export const JourneyCanvas: React.FC<Props> = ({
 
   const [rfNodes, setRfNodes, onNodesChangeHandler] = useNodesState(nodes);
   const [rfEdges, setRfEdges, onEdgesChangeHandler] = useEdgesState(edges);
-  const [localShowRetention, setLocalShowRetention] = useState(true);
+  const [localShowRetention, setLocalShowRetention] = useState(false);
   // The last tidy, so its notice can offer Undo. Held only while every step still sits where it put them.
   const [tidyNote, setTidyNote] = useState<{ kind: 'tidied' | 'already'; before: Positions; after: Positions } | null>(null);
   const flowRef = useRef<ReactFlowInstance<JourneyNode, JourneyEdge> | null>(null);
@@ -677,6 +687,7 @@ export const JourneyCanvas: React.FC<Props> = ({
   }, [rfNodes]);
 
   const retentionCount = retentionNodeIds.size;
+  const rescueOnMap = useMemo(() => hasRescueStep(nodes), [nodes]);
 
   // Every card and line reads its figures from here (#9), built from the saved nodes and edges so
   // hidden retention steps and a line mid-draw never change what the others say.
@@ -693,6 +704,13 @@ export const JourneyCanvas: React.FC<Props> = ({
   // The one notice at the foot of the map: a refused line, a loop, a step just added (#12, cleared
   // after 6 s) or what releasing a dragged step onto a line will do.
   const [ruleNotice, setRuleNotice] = useState<{ tone: NoticeTone; text: string } | null>(null);
+  // The id this map was born with is the previous journey's sentence. Skip it. A later id is this map's own delete.
+  const bornDeleteId = useRef(panelDeleteNotice?.id ?? null);
+  useEffect(() => {
+    if (!panelDeleteNotice || panelDeleteNotice.id === bornDeleteId.current) return;
+    bornDeleteId.current = panelDeleteNotice.id;
+    setRuleNotice({ tone: 'deleted', text: panelDeleteNotice.text });
+  }, [panelDeleteNotice]);
   // The step picker (#12), open for one request at a time.
   const [picker, setPicker] = useState<PickerState | null>(null);
   // Bumped by each tap on a step card, so the phone layout can keep that card on screen (T06).
@@ -1629,7 +1647,10 @@ export const JourneyCanvas: React.FC<Props> = ({
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
-          gap: '8px'
+          gap: '8px',
+          // Leave the left edge for the "Funnel Canvas" heading. The row wraps inside that width.
+          maxWidth: 'calc(100% - 160px)',
+          width: 'max-content'
         }}
       >
         {/* A narrow map folds the tools and the legend into this one button (T06). Hidden, they
@@ -1649,7 +1670,7 @@ export const JourneyCanvas: React.FC<Props> = ({
           </button>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: tidyNote && toolsShown ? '8px' : 0 }}>
-          <div id="jv-map-tools" style={{ display: toolsShown ? 'flex' : 'none', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div id="jv-map-tools" style={{ display: toolsShown ? 'flex' : 'none', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: '100%', minWidth: 0 }}>
             <button
               ref={tidyButtonRef}
               type="button"
@@ -1694,12 +1715,44 @@ export const JourneyCanvas: React.FC<Props> = ({
             </label>
             {/* One fixed name with aria-pressed (#19): the visible text changes with the state, and a
                 name that changed too would be read as a different button. */}
+            {onTestJourney && (
+              <button
+                type="button"
+                onClick={onTestJourney}
+                aria-label={ACTION_LABEL.testFunnel}
+                title={ACTION_LABEL.testFunnel}
+                style={{ ...toolPill, cursor: 'pointer' }}
+              >
+                <Play size={12} aria-hidden="true" />
+                <span>{ACTION_LABEL.testFunnel}</span>
+              </button>
+            )}
+            {onToggleCanvasViewMode && (
+              <button
+                type="button"
+                onClick={() => onToggleCanvasViewMode(canvasViewMode === 'roas' ? 'edit' : 'roas')}
+                aria-pressed={canvasViewMode === 'roas'}
+                aria-label={ACTION_LABEL.showAdReturn}
+                title={AD_RETURN_NOTE}
+                style={{
+                  ...toolPill,
+                  cursor: 'pointer',
+                  border: canvasViewMode === 'roas' ? '1px solid rgba(16, 185, 129, 0.55)' : toolPill.border,
+                  color: canvasViewMode === 'roas' ? '#34D399' : '#E2E8F0'
+                }}
+              >
+                <TrendingUp size={12} aria-hidden="true" />
+                <span>{ACTION_LABEL.showAdReturn}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={toggleRetention}
               aria-pressed={effectiveShowRetention}
-              aria-label="Retention flows"
-              title={effectiveShowRetention ? 'Hide courtesy retention and rescue flows from the canvas' : 'Show courtesy retention and rescue flows on the canvas'}
+              aria-label={rescueOnMap ? 'Rescue flows' : 'Retention flows'}
+              title={rescueOnMap
+                ? (effectiveShowRetention ? 'Hide the rescue emails on this map.' : 'Show the rescue emails on this map.')
+                : (effectiveShowRetention ? 'Hide courtesy retention and rescue flows from the canvas' : 'Show courtesy retention and rescue flows on the canvas')}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1725,7 +1778,9 @@ export const JourneyCanvas: React.FC<Props> = ({
               ) : (
                 <EyeOff size={12} color="#94A3B8" aria-hidden="true" />
               )}
-              <span>{effectiveShowRetention ? 'Retention Flows: Visible' : 'Retention Flows: Hidden'}</span>
+              <span>{rescueOnMap
+                ? (effectiveShowRetention ? 'Rescue flows: Visible' : 'Rescue flows: Hidden')
+                : (effectiveShowRetention ? 'Retention Flows: Visible' : 'Retention Flows: Hidden')}</span>
               {retentionCount > 0 && (
                 <span
                   style={{
@@ -1742,6 +1797,11 @@ export const JourneyCanvas: React.FC<Props> = ({
               )}
             </button>
           </div>
+          {canvasViewMode === 'roas' && toolsShown && (
+            <p style={{ margin: '6px 0 0', maxWidth: '280px', fontSize: '11px', lineHeight: 1.4, color: '#CBD5E1', textAlign: 'right' }}>
+              {AD_RETURN_NOTE}
+            </p>
+          )}
           <div role="status" aria-live="polite">
             {tidyNote && (
               <div style={{ ...toolPill, color: '#CBD5E1' }}>

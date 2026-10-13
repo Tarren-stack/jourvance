@@ -949,9 +949,11 @@ async function browserSaveProbe(page, run) {
 
 // ---- Scenarios ----
 
-async function openMore(page) {
-  await button(page, 'More').click();
-  await page.waitForSelector('[role="menu"]', { timeout: 2000 });
+async function openRail(page) {
+  const ad = page.locator('.jv-sidebar').getByRole('button', { name: 'Ad return', exact: true });
+  if (await ad.isVisible().catch(() => false)) return;
+  await page.getByRole('button', { name: 'Open navigation menu', exact: true }).click();
+  await ad.waitFor({ state: 'visible', timeout: 2000 });
 }
 
 /**
@@ -965,12 +967,11 @@ async function openMore(page) {
  */
 export const SCENARIOS = [
   { id: 'canvas', sections: ['overflow', 'a11y'], open: async () => {} },
-  { id: 'more-menu', sections: ['overflow', 'a11y'], open: openMore },
   {
     id: 'add-step-menu',
     sections: ['overflow', 'a11y'],
     open: async page => {
-      await button(page, /Add Step/).click();
+      await page.getByRole('toolbar', { name: 'Journey tools' }).getByRole('button', { name: 'Add Step', exact: true }).click();
       await page.waitForTimeout(200);
     }
   },
@@ -994,7 +995,12 @@ export const SCENARIOS = [
     id: 'live-roas',
     sections: ['overflow', 'a11y'],
     open: async page => {
-      await page.click('button[aria-label="Live ROAS"]');
+      const toggle = page.locator('button[aria-label="Show ad return"]');
+      if (!(await toggle.isVisible())) {
+        const tools = page.locator('button[aria-controls="jv-map-tools jv-map-legend"][aria-expanded="false"]');
+        if (await tools.count()) await tools.click();
+      }
+      await toggle.click();
       await page.waitForTimeout(250);
     }
   },
@@ -1011,8 +1017,8 @@ export const SCENARIOS = [
     id: 'forecaster-drawer',
     sections: ['drawers', 'overflow', 'a11y'],
     open: async page => {
-      await openMore(page);
-      await page.getByRole('menuitem', { name: 'ROAS Forecaster' }).click();
+      await openRail(page);
+      await page.locator('.jv-sidebar').getByRole('button', { name: 'Ad return', exact: true }).click();
       await page.waitForSelector('.jv-utility', { timeout: 3000 });
     }
   },

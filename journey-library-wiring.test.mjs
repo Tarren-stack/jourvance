@@ -121,13 +121,11 @@ test('the header opens the library and shows the switch notice', () => {
 
   assert.match(header, /\bLibrary\b[^;]*from 'lucide-react'/);
   assert.match(header, /const LIBRARY_LABEL_BELOW_PX = 1280;/);
-  // With the save status showing (after any edit) and the mode toggle labelled, the row needs about
-  // 1,350px, so below 1,400px the toggle shows icons only and Save and Publish stay on the row.
+  // The store-score pill still steps aside from this width. The Edit / Live toggle that used it is gone.
   assert.match(header, /const MODES_ICON_BELOW_PX = 1400;/);
-  // From 1,600px Test Lead Flow and the lead stats join the row, which then needs about 1,680px.
+  // From 1,720px the lead stats join the row.
   assert.match(header, /const COMPACT_BELOW_PX = 1720;/);
-  assert.match(header, /\{!modesIconOnly && <span>Edit Canvas<\/span>\}/);
-  assert.match(header, /\{!modesIconOnly && <span>Live ROAS<\/span>\}/);
+  assert.doesNotMatch(header, /Edit Canvas|Live ROAS|modesIconOnly/);
   // The Journeys button sits just before the name input.
   const button = header.indexOf('aria-label="Journeys"');
   const name = header.indexOf('aria-label="Journey name"');
@@ -152,17 +150,15 @@ test('in Live ROAS mode the wider ribbon steps aside on its own threshold, so th
   assert.ok(strip > -1, 'the ROAS ribbon is in the header');
   const gate = header.lastIndexOf('{!', strip);
   assert.match(header.slice(gate, strip), /^\{!statsHidden && \(/);
-  // Test Lead Flow keeps the plain width threshold, so switching modes never moves it into More.
-  assert.match(header, /compact \? \{ label: 'Test Lead Flow'/);
-  const test = header.indexOf('onClick={onTestJourney}');
-  assert.match(header.slice(header.lastIndexOf('{!', test), test), /^\{!compact && \(/);
+  // Test funnel lives on the map. The header no longer hides it behind a width or a More menu.
+  assert.doesNotMatch(header, /onTestJourney|Test Lead Flow/);
   // The browser check measures the widths where the ribbon used to wrap, before and after an edit.
   const { HEADER_FIT_WIDTHS } = await import('./scripts/a11y-browser-check.mjs');
   for (const w of [1720, 1920]) assert.ok(HEADER_FIT_WIDTHS.includes(w), `the header check measures ${w}px`);
   const check = code(read('scripts/a11y-browser-check.mjs'));
   const fits = check.slice(check.indexOf('export async function checkHeaderFits'), check.indexOf('export async function checkAriaPressed'));
   assert.match(fits, /for \(const edited of \[false, true\]\)/);
-  assert.match(fits, /\['Edit Canvas', 'Live ROAS'\]/);
+  assert.match(fits, /\['edit', 'ad return'\]/);
   // Items inside each group count toward the one-row band, so a group wrapping inside itself is seen.
   assert.match(fits, /flatMap\(c => \[c, \.\.\.c\.children\]\)/);
 });
@@ -228,7 +224,7 @@ test('F4: a browser copy is removed only from the confirm, never the open one, a
 
 test('F4: closing the library after a removal hands focus to the header Journeys button, not the page', () => {
   // The out-of-space banner's Open journeys button unmounts once the resave lands, so the opener is
-  // gone; the house fallback (BlueprintModal and others use [data-more-trigger]) names the header.
+  // gone; the library names the header Journeys button, which is still in the toolbar.
   const lib = code(read('src/components/modals/JourneyLibraryDialog.tsx'));
   const outer = lib.slice(lib.indexOf('<ModalDialog labelledBy={TITLE_ID}'), lib.indexOf('>', lib.indexOf('<ModalDialog labelledBy={TITLE_ID}')));
   assert.match(outer, /fallbackFocusSelectors=\{\['\[data-journeys-trigger\]'/);

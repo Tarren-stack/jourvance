@@ -57,9 +57,8 @@ test('both header menus hang from the side menuSide picks, measured when they op
   const header = code('src/components/toolbar/CanvasHeader.tsx');
   assert.match(header, /import \{ menuSide \} from '\.\.\/\.\.\/lib\/menuPlacement'/);
   assert.match(header, /\[addMenuSide\]: 0/);
-  assert.match(header, /\[moreMenuSide\]: 0/);
   assert.match(header, /setAddMenuSide\(sideFor\(addButtonRef\.current, ADD_MENU_WIDTH\)\)/);
-  assert.match(header, /setMoreMenuSide\(sideFor\(moreButtonRef\.current, MORE_MENU_WIDTH\)\)/);
+  assert.doesNotMatch(header, /moreMenuSide|MORE_MENU_WIDTH|moreButtonRef/);
   assert.doesNotMatch(header, /top: '40px', right: 0/);
   assert.doesNotMatch(header, /top: '42px',\s*right: 0/);
 });
@@ -74,13 +73,13 @@ test('card labels are #94A3B8, which reads at 4.5 to 1 on the dark card, not #64
   assert.ok(contrastRatio(hex('#64748B'), hex('#0F172A')) < 4.5, 'the old colour really failed');
 });
 
-test('white text on each active header colour reads at 4.5 to 1 or more', () => {
+test('white text on the account button reads at 4.5 to 1 or more', () => {
   const header = read('src/components/toolbar/CanvasHeader.tsx');
+  // The view switch and the Edit / Live ROAS toggle left the header. The account button keeps
+  // one solid fill for an operator and one for everyone else.
+  assert.doesNotMatch(header, /activeView === 'canvas' \? '#[0-9a-fA-F]{6}'/);
+  assert.doesNotMatch(header, /canvasViewMode === 'roas' \? '#[0-9a-fA-F]{6}'/);
   const actives = [
-    /activeView === 'canvas' \? '(#[0-9a-fA-F]{6})'/,
-    /activeView === 'email-studio' \? '(#[0-9a-fA-F]{6})'/,
-    /activeView === 'attribution' \? '(#[0-9a-fA-F]{6})'/,
-    /canvasViewMode === 'roas' \? '(#[0-9a-fA-F]{6})'/,
     /isOp \? '(#[0-9a-fA-F]{6})'/,
     /isOp \? '#[0-9a-fA-F]{6}' : '(#[0-9a-fA-F]{6})'/
   ];
@@ -132,9 +131,9 @@ test('the #19 check script loads child_process only inside its own main()', () =
 
 // ---- Scenario rows for later items ----
 
-test('SCENARIOS keeps the nine #11 rows and adds one per later item', () => {
+test('SCENARIOS keeps the #11 rows, without the header More menu, and adds one per later item', () => {
   const ids = SCENARIOS.map(s => s.id);
-  assert.deepEqual(ids.slice(0, 9), ['canvas', 'more-menu', 'add-step-menu', 'step-selected', 'line-selected', 'live-roas', 'audit-drawer', 'forecaster-drawer', 'save-failed']);
+  assert.deepEqual(ids.slice(0, 8), ['canvas', 'add-step-menu', 'step-selected', 'line-selected', 'live-roas', 'audit-drawer', 'forecaster-drawer', 'save-failed']);
   const browserSave = ['browser-save-full', 'browser-save-refused'];
   for (const id of ['step-finder', 'undo-ready', ...browserSave, 'step-picker', 'tidied', 'focus-returned']) {
     const row = SCENARIOS.find(s => s.id === id);

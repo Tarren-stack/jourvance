@@ -32,6 +32,9 @@ import { auth, onAuthStateChanged, logOut, authHeaders, type User } from './lib/
 import type { FunnelForecast } from './types/journey';
 import type { PublishedPageInfo } from './components/preview/PublishModal';
 import { injectRetentionFlows, retentionFlowsThatFit, DEFAULT_FORECAST } from './lib/funnelForecaster';
+import { hasRescueStep } from './lib/edgeKinds';
+import { deletedNotice, isApplePlatform } from './lib/deleteNotice';
+import { VIEW_LABEL } from './lib/studioLabels';
 import { checkJourneyDesign } from './lib/designChecks';
 import { saveOutcome, browserSaveOutcome, publishRefusal, publishedPartly, publishWarning, unpublishRefusal, requestAnswer, type SaveStatus, type Refusal } from './lib/saveOutcome';
 import { applyPublishResult, type PublishedStep } from './lib/publishState';
@@ -164,7 +167,18 @@ export const App: React.FC = () => {
     setReturnFocusNodeId(prev => (prev === selectedNodeId ? prev : null));
   }, [selectedNodeId]);
   const [canvasViewMode, setCanvasViewMode] = useState<CanvasViewMode>('edit');
-  const [showRetentionBranches, setShowRetentionBranches] = useState<boolean>(true);
+  const [showRetentionBranches, setShowRetentionBranches] = useState<boolean>(false);
+  const [panelDeleteNotice, setPanelDeleteNotice] = useState<{ id: number; text: string } | null>(null);
+  const panelDeleteSeq = useRef(0);
+  // A new journey mounts a new map. Drop the last delete sentence so that map does not read it again.
+  useEffect(() => {
+    setPanelDeleteNotice(null);
+  }, [project.id]);
+  // A journey opened from the library shows its rescue emails. A later toggle is left alone,
+  // because this runs only when the journey changes.
+  useEffect(() => {
+    setShowRetentionBranches(hasRescueStep(project.nodes));
+  }, [project.id]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Modals & Authentication
@@ -476,6 +490,11 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteNode = (nodeId: string) => {
+    const gone = project.nodes.find(n => n.id === nodeId);
+    const goneEdges = project.edges.filter(e => e.source === nodeId || e.target === nodeId);
+    const stepsById = new Map(project.nodes.map(n => [n.id, n]));
+    const apple = isApplePlatform(typeof navigator === 'undefined' ? '' : navigator.platform || navigator.userAgent);
+    const text = gone ? deletedNotice({ nodes: [gone], edges: goneEdges }, stepsById, apple) : '';
     setProject(p => ({
       ...p,
       nodes: p.nodes.filter(n => n.id !== nodeId),
@@ -483,6 +502,10 @@ export const App: React.FC = () => {
       updatedAt: new Date().toISOString()
     }));
     setSelectedNodeId(null);
+    if (text) {
+      panelDeleteSeq.current += 1;
+      setPanelDeleteNotice({ id: panelDeleteSeq.current, text });
+    }
   };
 
   // The header's Add Step: an unconnected step in a free slot at the centre of the visible map
@@ -688,6 +711,7 @@ export const App: React.FC = () => {
     prepared: { name: string; nodes: JourneyNode[]; edges: JourneyEdge[] },
     mode: 'replace' | 'new'
   ) => {
+    const revealRescue = hasRescueStep(prepared.nodes);
     if (mode === 'replace') {
       setProject(prev => ({
         ...prev,
@@ -696,6 +720,7 @@ export const App: React.FC = () => {
         edges: prepared.edges,
         updatedAt: new Date().toISOString()
       }));
+      setShowRetentionBranches(revealRescue);
     } else {
       const newJourney: JourneyProject = {
         id: newJourneyId(Date.now(), journeyToken()),
@@ -713,6 +738,7 @@ export const App: React.FC = () => {
       // Its id is minted here, so the account has no copy for it to replace (C00).
       if (user) markReconciled(user.uid, newJourney.id);
       if (await nav.startJourney(newJourney)) return;
+      setShowRetentionBranches(revealRescue);
     }
     setActivePage('canvas');
     setActiveView('canvas');
@@ -729,6 +755,7 @@ export const App: React.FC = () => {
       nav.dismissNotice();
       return `Not created. ${refused.message}`;
     }
+    setShowRetentionBranches(hasRescueStep(journey.nodes));
     setActiveView('canvas');
     return null;
   };
@@ -765,6 +792,7 @@ export const App: React.FC = () => {
       saveCurrentJourney(updatedProject);
       return updatedProject;
     });
+    if (options.addCartRecovery || options.addUpsellRescue) setShowRetentionBranches(true);
   };
 
   const handleCreateWorkspace = async () => {
@@ -875,18 +903,13 @@ export const App: React.FC = () => {
             <AppSidebar
               activeView={activeView}
               onSelectView={view => (view === 'canvas' ? showCanvas() : setActiveView(view))}
-              workspaces={workspaces}
-              currentWorkspace={currentWorkspace}
-              onSelectWorkspace={ws => setCurrentWorkspace(ws)}
-              onOpenShopifyConnect={() => setShowShopifyModal(true)}
-              onCreateWorkspace={handleCreateWorkspace}
-              onOpenBilling={() => setShowBillingModal(true)}
               onAddNode={handleAddNode}
               onOpenAiBuilder={() => setShowAiBuilder(true)}
               onOpenBlueprints={() => {
                 setBlueprintModalTab('turnkey');
                 setShowBlueprintModal(true);
               }}
+              onSaveBlueprint={() => setShowSaveBlueprintModal(true)}
               onOpenLaunchPlaybook={() => setShowLaunchPlaybook(true)}
               launchCompleted={launchCompleted}
               launchTotal={5}
@@ -896,10 +919,6 @@ export const App: React.FC = () => {
               onOpenSimulator={() => setShowSimulatorDrawer(true)}
               onOpenShopifySync={() => setShowShopifySyncModal(true)}
               onExportAssets={() => setShowExportModal(true)}
-              user={user}
-              onOpenAuth={() => setShowAuthModal(true)}
-              onOpenAdmin={() => setShowOperatorDashboard(true)}
-              onSignOut={handleSignOut}
               mobileOpen={mobileSidebarOpen}
               onCloseMobile={() => setMobileSidebarOpen(false)}
             />
@@ -915,8 +934,6 @@ export const App: React.FC = () => {
             onRedo={editing.redo}
             savePending={editing.savePending}
             unsaved={editing.unsaved}
-            onTestJourney={() => setShowLiveModal(true)}
-            onExportAssets={() => setShowExportModal(true)}
             onAddNode={handleAddNode}
             onOpenWebsite={() => setActivePage('home')}
             user={user}
@@ -937,17 +954,7 @@ export const App: React.FC = () => {
             onOpenShopifyConnect={() => setShowShopifyModal(true)}
             onCreateWorkspace={handleCreateWorkspace}
             activeView={activeView}
-            onSelectView={view => (view === 'canvas' ? showCanvas() : setActiveView(view))}
-            onOpenBlueprints={() => {
-              setBlueprintModalTab('turnkey');
-              setShowBlueprintModal(true);
-            }}
-            onSaveBlueprint={() => setShowSaveBlueprintModal(true)}
-            onOpenAiBuilder={() => setShowAiBuilder(true)}
             canvasViewMode={canvasViewMode}
-            onToggleCanvasViewMode={setCanvasViewMode}
-            onOpenShopifySync={() => setShowShopifySyncModal(true)}
-            onOpenSimulator={() => setShowSimulatorDrawer(true)}
             onOpenAudit={openAudit}
             metrics={metrics}
             onOpenJourneyLibrary={() => setShowJourneyLibrary(true)}
@@ -1010,6 +1017,17 @@ export const App: React.FC = () => {
                   <PublishStatusContext.Provider value={publishCtx}>
                   <main className="jv-canvas-layout">
                     <div className="jv-canvas-pane">
+                    <h1 style={{
+                      position: 'absolute',
+                      top: '12px',
+                      left: '16px',
+                      zIndex: 20,
+                      margin: 0,
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      color: '#E2E8F0',
+                      pointerEvents: 'none'
+                    }}>{VIEW_LABEL.canvas}</h1>
                     {/* One canvas per journey, so no step position carries across a switch (#18) and a
                         new journey is fitted into view (#25). */}
                     <JourneyCanvas key={project.id}
@@ -1035,6 +1053,9 @@ export const App: React.FC = () => {
                       canvasViewRef={canvasView}
                       pickerRequest={pickerRequest}
                       onClearPickerRequest={() => setPickerRequest(null)}
+                      onTestJourney={() => setShowLiveModal(true)}
+                      onToggleCanvasViewMode={setCanvasViewMode}
+                      panelDeleteNotice={panelDeleteNotice}
                     />
                     </div>
 

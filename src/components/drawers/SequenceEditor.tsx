@@ -25,6 +25,7 @@ import {
 } from '../../lib/editorReturn';
 import { useFieldIds } from '../../lib/a11yHooks';
 import { sequencePreset, fillVoucherCode, type SequencePresetType } from '../../lib/sequencePresets';
+import { EditorSection } from './EditorSection';
 
 interface Props {
   data: SequenceNodeData;
@@ -85,6 +86,11 @@ export const SequenceEditor: React.FC<Props> = ({
   const [testSuccess, setTestSuccess] = useState(false);
   const [klaviyoFlows, setKlaviyoFlows] = useState<KlaviyoChoice[]>([]);
   const [klaviyoSendWith, setKlaviyoSendWith] = useState<'jourvance' | 'klaviyo'>('jourvance');
+  // Which sender's fields are open. It follows the account default, and choosing one only reveals
+  // that sender's fields. It does not change the account default.
+  const [senderChoice, setSenderChoice] = useState<'jourvance' | 'klaviyo'>('jourvance');
+  const [senderOpen, setSenderOpen] = useState(false);
+  useEffect(() => { setSenderChoice(klaviyoSendWith); }, [klaviyoSendWith]);
   const [klaviyoConnected, setKlaviyoConnected] = useState(false);
   const [klaviyoNotice, setKlaviyoNotice] = useState('');
   const [jourvanceFlows, setJourvanceFlows] = useState<FlowRow[]>([]);
@@ -391,14 +397,39 @@ export const SequenceEditor: React.FC<Props> = ({
     onChange({ ...data, jourvanceFlowId: flowId, jourvanceFlowName: chosen?.name || '' });
   };
 
+  const senderButton = (choice: 'jourvance' | 'klaviyo', label: string): React.CSSProperties => ({
+    flex: 1,
+    minHeight: '36px',
+    padding: '6px 10px',
+    borderRadius: '6px',
+    border: senderChoice === choice ? '1px solid rgba(236, 72, 153, 0.55)' : '1px solid rgba(255, 255, 255, 0.12)',
+    background: senderChoice === choice ? 'rgba(236, 72, 153, 0.18)' : 'transparent',
+    color: senderChoice === choice ? '#FFFFFF' : '#94A3B8',
+    fontSize: '12px',
+    fontWeight: 700,
+    cursor: 'pointer'
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <EditorSection
+        title="Who sends these?"
+        summary={{ text: klaviyoSendWith === 'klaviyo' ? 'Klaviyo sends these.' : 'Jourvance sends these.', tone: 'neutral' }}
+        open={senderOpen}
+        onToggle={() => setSenderOpen(open => !open)}
+      >
+        <div role="group" aria-label="Who sends these?" style={{ display: 'flex', gap: '8px' }}>
+          <button type="button" aria-pressed={senderChoice === 'jourvance'} onClick={() => setSenderChoice('jourvance')} style={senderButton('jourvance', 'Jourvance')}>Jourvance</button>
+          <button type="button" aria-pressed={senderChoice === 'klaviyo'} onClick={() => setSenderChoice('klaviyo')} style={senderButton('klaviyo', 'Klaviyo')}>Klaviyo</button>
+        </div>
+        <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af', lineHeight: 1.45 }}>
+          To change the account default, open Email Studio, then Settings, then Klaviyo.
+        </p>
+      {senderChoice === 'jourvance' && (
       <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.28)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <div style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6' }}>Jourvance flow</div>
         <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af', lineHeight: 1.45 }}>
-          {klaviyoSendWith === 'klaviyo'
-            ? 'Klaviyo is the sender, so the handoff below runs. This flow link stays saved until you choose Jourvance in Email Studio, under Settings, Klaviyo.'
-            : 'A lead from this map and a form on its page join this flow once. The flow’s own trigger joins the same run. One person, one visitor id, one run. The flow sends after you turn it on. Enrolled, sent, clicked, and last-touch revenue here match the flow map. Opens stay blank until an open is stored.'}
+          Jourvance sends the emails in the flow you pick, after you turn that flow on.
         </p>
         <label style={{ fontSize: '11px', color: '#d1d5db' }}>
           Flow on this account
@@ -442,13 +473,13 @@ export const SequenceEditor: React.FC<Props> = ({
         )}
         {jourvanceFlows.length === 0 && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>This step waits until a flow is chosen.</p>}
       </div>
+      )}
+      {senderChoice === 'klaviyo' && (
       <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.28)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <div style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6' }}>Hand this email to Klaviyo</div>
         <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af', lineHeight: 1.45 }}>
           {klaviyoConnected
-            ? (klaviyoSendWith === 'klaviyo'
-              ? 'Klaviyo is the sender. When someone reaches this node, Jourvance adds them to that flow’s list or sends the event that starts it. It does not subscribe them, and it does not turn the flow on.'
-              : 'Jourvance is the sender. This link is saved and waits until you choose Klaviyo in Email Studio, under Settings, Klaviyo.')
+            ? 'Klaviyo sends these. Jourvance adds the person to that flow, and it does not turn the flow on.'
             : 'Connect Klaviyo in Email Studio, under Settings, Klaviyo, then choose the flow this node should start.'}
         </p>
         <label style={{ fontSize: '11px', color: '#d1d5db' }}>
@@ -484,6 +515,8 @@ export const SequenceEditor: React.FC<Props> = ({
         {linked && <p style={{ margin: 0, fontSize: '12px', color: '#e5e7eb' }}>{linked.handoff}</p>}
         {klaviyoNotice && <p style={{ margin: 0, fontSize: '12px', color: '#d1d5db' }}>{klaviyoNotice}</p>}
       </div>
+      )}
+      </EditorSection>
       {/* Tab Switcher: aria-pressed says which view is showing, as the header's view tabs do. */}
       <div
         role="group"

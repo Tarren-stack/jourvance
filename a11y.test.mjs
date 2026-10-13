@@ -699,8 +699,8 @@ test('the map names its steps and lines, and saves them clean (w5-final)', PENDI
   }
   assert.match(read(`${C}/canvas/edges/ConversionEdge.tsx`), /aria-describedby/);
   const header = read(`${C}/toolbar/CanvasHeader.tsx`);
-  const refFocus = header.indexOf('moreButtonRef.current?.focus()');
-  assert.ok(refFocus !== -1 && refFocus < header.indexOf('item.onClick()', refFocus), 'More hands focus to its button first');
+  const refFocus = header.indexOf('addButtonRef.current?.focus()');
+  assert.ok(refFocus !== -1 && refFocus < header.indexOf('onAddNode(', refFocus), 'Add Step hands focus to its button first');
   assert.match(read('src/types/journey.ts'), /description\?: string;/);
 });
 

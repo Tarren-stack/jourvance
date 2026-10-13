@@ -227,7 +227,7 @@ export const AiJourneyBuilder: React.FC<AiJourneyBuilderProps> = ({
       abortRef.current?.abort();
       const active = document.activeElement;
       if (!active || active === document.body || !(active as HTMLElement).isConnected) {
-        document.querySelector<HTMLElement>('[data-more-trigger]')?.focus({ preventScroll: true });
+        document.querySelector<HTMLElement>('[data-ai-builder-trigger]')?.focus({ preventScroll: true });
       }
     };
   }, []);

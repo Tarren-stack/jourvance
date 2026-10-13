@@ -81,7 +81,6 @@ export function sectionSummary(
       // UGC SOCIAL PROOF WALL: on unless explicitly false.
       if (data.socialProofWallEnabled !== false) on.push('Reviews wall');
       if (on.length === 0) return { text: 'All off', tone: 'neutral' };
-      if (on.length > 3) return { text: `${on.length} on`, tone: 'on' };
       return { text: on.join(', '), tone: 'on' };
     }
     case 'privacy': {

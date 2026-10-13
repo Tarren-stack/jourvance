@@ -644,7 +644,7 @@ ${unsub}`;
         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px' }}>
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#ffffff' }}>
-              Email Studio & <span style={{ whiteSpace: 'nowrap' }}>E-Commerce</span> Flows
+              Email Studio
             </h1>
           </div>
           <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#9ca3af' }}>

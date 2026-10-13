@@ -1,4 +1,4 @@
-// Draft with AI (#25), the integration part: the More menu entry, App's handleCreateFromAi, the
+// Draft with AI (#25), the integration part: the rail button, App's handleCreateFromAi, the
 // canvas remount and the honest card fallbacks. journey-ai.test.mjs pins the builder's logic and
 // ai-journey-route.test.mjs the server route; this file pins how they are wired into the app.
 //
@@ -12,7 +12,7 @@ import fs from 'node:fs';
 
 const read = p => fs.readFileSync(new URL(p, import.meta.url), 'utf8');
 const app = read('./src/App.tsx');
-const header = read('./src/components/toolbar/CanvasHeader.tsx');
+const sidebar = read('./src/components/navigation/AppSidebar.tsx');
 const upsell = read('./src/components/canvas/nodes/UpsellNode.tsx');
 const thanks = read('./src/components/canvas/nodes/ThankYouNode.tsx');
 const css = read('./src/index.css');
@@ -28,23 +28,18 @@ function block(text, start, end) {
   return text.slice(from, to + end.length);
 }
 
-test('the More menu offers Draft with AI right after Blueprints, and the More button is findable', () => {
-  assert.match(header, /import \{[^}]*\bWandSparkles\b[^}]*\} from 'lucide-react'/);
-  const props = block(header, 'interface Props', '\n}');
+test('the rail offers Draft with AI, and that button is findable', () => {
+  assert.match(sidebar, /import \{[^}]*\bWandSparkles\b[^}]*\} from 'lucide-react'/);
+  const props = block(sidebar, 'interface Props', '\n}');
   assert.match(props, /\bonOpenAiBuilder\?:\s*\(\)\s*=>\s*void;/);
-  assert.match(
-    header,
-    /onOpenBlueprints \? \{ label: 'Blueprints'[^\n]*\n\s*onOpenAiBuilder \? \{ label: 'Draft with AI', icon: WandSparkles, color: '#C4B5FD', onClick: onOpenAiBuilder \} : null,/
-  );
-  // The one button that toggles the More menu carries the attribute, and nothing else does.
-  assert.equal(header.split('data-more-trigger').length - 1, 1, 'data-more-trigger appears once');
-  const at = header.indexOf('data-more-trigger');
-  const trigger = header.slice(header.lastIndexOf('<button', at), header.indexOf('<span>More</span>', at));
-  assert.match(trigger, /setShowMoreMenu\(v => !v\)/);
-  assert.match(trigger, /aria-haspopup="menu"/);
+  assert.equal(sidebar.split('data-ai-builder-trigger').length - 1, 1, 'data-ai-builder-trigger appears once');
+  const at = sidebar.indexOf('data-ai-builder-trigger');
+  const trigger = sidebar.slice(sidebar.lastIndexOf('<button', at), sidebar.indexOf('</button>', at));
+  assert.match(trigger, /onClick=\{onOpenAiBuilder\}/);
+  assert.match(trigger, /Draft with AI/);
 });
 
-test('App opens the builder from the header and hands Create to the journey library', () => {
+test('App opens the builder from the rail and hands Create to the journey library', () => {
   assert.match(app, /const AiJourneyBuilder = lazy\(\(\) => import\('\.\/components\/modals\/AiJourneyBuilder'\)\.then\(m => \(\{ default: m\.AiJourneyBuilder \}\)\)\);/);
   assert.match(app, /const \[showAiBuilder, setShowAiBuilder\] = useState\(false\);/);
   assert.match(app, /onOpenAiBuilder=\{\(\) => setShowAiBuilder\(true\)\}/);

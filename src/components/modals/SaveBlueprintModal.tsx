@@ -78,7 +78,7 @@ export const SaveBlueprintModal: React.FC<Props> = ({
   };
 
   return (
-    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={520} fallbackFocusSelectors={['[data-more-trigger]']}>
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={520} fallbackFocusSelectors={['[data-save-blueprint-trigger]']}>
       <div
         style={{
           width: '100%',

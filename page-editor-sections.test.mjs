@@ -75,7 +75,7 @@ test('a configured page reads its real settings', () => {
   assert.equal(summary('ab-test', data).text, 'On · 70% A / 30% B');
   assert.match(summary('privacy', data).text, /2 pixels/);
   assert.equal(summary('hosting', data).text, 'Published · offer.brand.com not verified');
-  assert.equal(summary('extras', data).text, '4 on');
+  assert.equal(summary('extras', data).text, 'Countdown, Exit offer, Sticky bar, Reviews wall');
 
   const direct = { ...data, checkoutMode: undefined, orderBumpEnabled: false };
   assert.equal(summary('commerce', direct, true).text, 'Serum · Direct checkout');

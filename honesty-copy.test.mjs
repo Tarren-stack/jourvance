@@ -21,12 +21,12 @@ test('the homepage still shows Growth Pro and checkout starts from the billing d
   assert.match(read('./server/billing.mjs'), /cents: 46800/);
 });
 
-test('the sidebar and the canvas header use isOperator', () => {
-  for (const path of ['./src/components/navigation/AppSidebar.tsx', './src/components/toolbar/CanvasHeader.tsx']) {
-    const src = read(path);
-    assert.match(src, /isOperator\(user\)/);
-    assert.doesNotMatch(src, /tlm@tarrenmunoz\.com/);
-  }
+test('the canvas header uses isOperator, and the rail does not hardcode an operator email', () => {
+  const header = read('./src/components/toolbar/CanvasHeader.tsx');
+  const sidebar = read('./src/components/navigation/AppSidebar.tsx');
+  assert.match(header, /isOperator\(user\)/);
+  assert.doesNotMatch(header, /tlm@tarrenmunoz\.com/);
+  assert.doesNotMatch(sidebar, /tlm@tarrenmunoz\.com/);
   const dash = read('./src/components/admin/OperatorDashboard.tsx');
   assert.match(dash, /OPERATOR_EMAIL/);
   assert.doesNotMatch(dash, /Restricted to tlm@/);

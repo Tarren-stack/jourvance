@@ -60,7 +60,7 @@ test('the pill shows only where the row has room for it, with the modes toggle s
   assert.doesNotMatch(header, /storeScore && \(\s*<span/);
 });
 
-test('while the pill shows, Test Lead Flow, the stats and the ROAS ribbon step aside that much sooner', () => {
+test('while the pill shows, the stats and the ROAS ribbon step aside that much sooner', () => {
   // 1,720px is where the full row with the pill wrapped (78px tall) after an edit.
   assert.equal(at(1720, true).compact, true);
   assert.equal(at(T.COMPACT_BELOW_PX + T.STORE_SCORE_PX - 1, true).compact, true);

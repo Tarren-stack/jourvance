@@ -35,6 +35,11 @@ export function isRetentionStep(data: unknown): boolean {
   return Boolean(d?.isRetentionBranch || RETENTION_SEQUENCES.has(String(d?.sequenceType)));
 }
 
+/** A rescue email on the map. An ordinary follow-up is not one, even when the retention filter hides it. */
+export function hasRescueStep(nodes: readonly { data?: unknown }[]): boolean {
+  return nodes.some(n => Boolean((n.data as { isRetentionBranch?: unknown } | undefined)?.isRetentionBranch));
+}
+
 /** A line into or out of a retention or rescue flow. The label pill reads this. */
 export function isRetentionLink(
   sourceHandle: string | null | undefined,

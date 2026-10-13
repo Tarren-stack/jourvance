@@ -219,7 +219,7 @@ test('the retention toggle keeps one name and says whether it is on', () => {
   const toggle = openingTags(canvas, 'button').find(t => t.text.includes('onClick={toggleRetention}'));
   assert.ok(toggle, 'the retention toggle');
   assert.match(toggle.text, /aria-pressed=\{effectiveShowRetention\}/);
-  assert.match(toggle.text, /aria-label="Retention flows"/);
+  assert.match(toggle.text, /aria-label=\{rescueOnMap \? 'Rescue flows' : 'Retention flows'\}/);
 });
 
 test('a rate pill is the line\'s one keyboard stop and reads the line in words', () => {
@@ -285,18 +285,15 @@ test('the step panel is a region named by its heading and described by the step'
 
 test('a header menu hands focus to its button before an item acts', () => {
   assert.match(header, /import React, \{[^}]*useRef[^}]*\} from 'react';/);
+  assert.match(header, /import \{[^}]*\bSTEP_TYPES\b[^}]*\} from '\.\.\/\.\.\/lib\/studioLabels'/);
+  assert.match(header, /\{STEP_TYPES\.map\(step => \(/);
   const buttons = openingTags(header, 'button');
-  const more = buttons.find(t => t.text.includes('data-more-trigger'));
-  assert.ok(more && more.text.includes('ref={moreButtonRef}'), 'the More button holds moreButtonRef');
-  const item = buttons.find(t => t.text.includes('item.onClick()'));
-  assert.ok(item, 'a More menu item');
-  assert.match(item.text, /moreButtonRef\.current\?\.focus\(\);[^}]*item\.onClick\(\)/);
   const add = buttons.find(t => t.text.includes('setShowAddMenu(!showAddMenu)'));
   assert.ok(add && add.text.includes('ref={addButtonRef}'), 'the Add Step button holds addButtonRef');
   const adders = buttons.filter(t => t.text.includes('onAddNode('));
-  assert.equal(adders.length, 7, 'one Add Step item per step type');
+  assert.equal(adders.length, 1, 'one Add Step item, repeated for each step type');
   for (const a of adders) {
-    assert.match(a.text, /addButtonRef\.current\?\.focus\(\); onAddNode\(/, a.text.slice(0, 120));
+    assert.match(a.text, /addButtonRef\.current\?\.focus\(\); onAddNode\(/, a.text.slice(0, 160));
     assert.match(a.text, /role="menuitem"/);
     assert.match(a.text, /type="button"/);
   }

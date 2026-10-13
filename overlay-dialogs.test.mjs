@@ -57,9 +57,15 @@ test('the publish success panel hands focus back to Publish Funnel, which was di
   assert.ok(source.includes("fallbackFocusSelectors={['[data-publish-trigger]', '#journey-map']}"));
 });
 
-test('the More-menu overlays fall back to the More button', () => {
-  for (const file of ['./src/components/modals/BlueprintModal.tsx', './src/components/modals/SaveBlueprintModal.tsx', './src/components/export/ExportAssetsModal.tsx', './src/components/modals/ShopifySyncModal.tsx']) {
-    assert.ok(read(file).includes("fallbackFocusSelectors={['[data-more-trigger]']}"), file);
+test('overlays that moved to the rail fall back to the rail button that opened them', () => {
+  const pairs = [
+    ['./src/components/modals/BlueprintModal.tsx', '[data-blueprints-trigger]'],
+    ['./src/components/modals/SaveBlueprintModal.tsx', '[data-save-blueprint-trigger]'],
+    ['./src/components/export/ExportAssetsModal.tsx', '[data-export-trigger]'],
+    ['./src/components/modals/ShopifySyncModal.tsx', '[data-shopify-sync-trigger]']
+  ];
+  for (const [file, sel] of pairs) {
+    assert.ok(read(file).includes(`fallbackFocusSelectors={['${sel}']}`), file);
   }
 });
 

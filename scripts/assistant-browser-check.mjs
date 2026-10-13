@@ -1033,7 +1033,7 @@ async function actionsInApp(browser, origin, shots, baseProject) {
       await group.getByRole('button', { name: labels1[2], exact: true }).click();
       await studioHeading.waitFor({ state: 'visible', timeout: 15000 });
       check(`${tag}: "${labels1[2]}" switched the view: Email Studio's heading is shown`, await studioHeading.isVisible());
-      sawText('Email Studio & E-Commerce Flows');
+      sawText('Email Studio');
       check(`${tag}: its button became "${COPY['action.done.open']}"`, await group.getByText(COPY['action.done.open'], { exact: true }).isVisible());
       check(`${tag}: the panel stays open over the studio`, await panel.isVisible());
       check(`${tag}: all three ran once, and no button is left on that answer`, (await group.getByRole('button').count()) === 0);

@@ -395,7 +395,7 @@ test('the harness never spawns, never reads .env, never proxies, and uses the pu
   const loop = code.indexOf('for (const viewport of viewports)');
   assert.ok(controls > 0 && loop > controls, 'runControls runs before the scenario loop');
   assert.match(code, /export const SCENARIOS/);
-  for (const id of ['canvas', 'more-menu', 'add-step-menu', 'step-selected', 'line-selected', 'live-roas', 'audit-drawer', 'forecaster-drawer', 'save-failed']) {
+  for (const id of ['canvas', 'add-step-menu', 'step-selected', 'line-selected', 'live-roas', 'audit-drawer', 'forecaster-drawer', 'save-failed']) {
     assert.match(code, new RegExp(`id: '${id}'`), id);
   }
   assert.match(code, /The checks cannot be trusted: rule \$\{rule\} did not fire on its planted example\./);

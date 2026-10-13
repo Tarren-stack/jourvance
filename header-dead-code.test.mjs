@@ -45,5 +45,5 @@ test('App gives retention state to the canvas, not the header', () => {
   const canvasEl = slice(app, '<JourneyCanvas', '/>');
   assert.ok(canvasEl.includes('showRetentionBranches='), '<JourneyCanvas> lost showRetentionBranches');
   assert.ok(canvasEl.includes('onToggleRetentionBranches='), '<JourneyCanvas> lost onToggleRetentionBranches');
-  assert.ok(app.includes('const [showRetentionBranches, setShowRetentionBranches] = useState<boolean>(true)'));
+  assert.ok(app.includes('const [showRetentionBranches, setShowRetentionBranches] = useState<boolean>(false)'));
 });

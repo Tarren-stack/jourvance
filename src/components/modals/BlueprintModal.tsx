@@ -380,7 +380,7 @@ export const BlueprintModal: React.FC<Props> = ({
 
   // Escape or a click beside the panel cancels the load prompt first, then closes.
   return (
-    <ModalDialog bare labelledBy={TITLE_ID} onClose={() => (showConfirmPrompt ? setShowConfirmPrompt(false) : onClose())} maxWidth={920} fallbackFocusSelectors={['[data-more-trigger]']}>
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={() => (showConfirmPrompt ? setShowConfirmPrompt(false) : onClose())} maxWidth={920} fallbackFocusSelectors={['[data-blueprints-trigger]']}>
       <div
         style={{
           width: '100%',

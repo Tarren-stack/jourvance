@@ -206,7 +206,7 @@ export const ShopifySyncModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={780} fallbackFocusSelectors={['[data-more-trigger]']}>
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={780} fallbackFocusSelectors={['[data-shopify-sync-trigger]']}>
       <div
         style={{
           width: '100%',

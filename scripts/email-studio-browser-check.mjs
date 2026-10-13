@@ -1734,7 +1734,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     const f = await focusedTab(page);
     expect(f.focus === 'Flows', `after Cancel on ArrowRight focus is on ${JSON.stringify(f)}`);
     await asks('Back to Canvas', () => page.getByRole('button', { name: 'Back to Canvas', exact: true }).click());
-    await asks("the sidebar's Funnel Canvas", () => page.getByRole('button', { name: 'Switch to Funnel Canvas view', exact: true }).click());
+    await asks("the sidebar's Funnel Canvas", () => page.getByRole('button', { name: 'Funnel Canvas', exact: true }).click());
     await asks("the sidebar's Attribution", () => page.getByRole('button', { name: 'Switch to Attribution view', exact: true }).click());
     // OK leaves, asked once, and the edit goes with the editor.
     const before = dialogs.length;
@@ -2620,7 +2620,7 @@ async function runChecks(browser, origin, shots, blocked, seeds) {
     expect(dialogs.length === asked, `the Flows tab asked "${dialogs[dialogs.length - 1]}" about a draft the studio keeps`);
     const ways = [];
     for (const [how, act] of [
-      ["the sidebar's Funnel Canvas", () => page.getByRole('button', { name: 'Switch to Funnel Canvas view', exact: true }).click()],
+      ["the sidebar's Funnel Canvas", () => page.getByRole('button', { name: 'Funnel Canvas', exact: true }).click()],
       ['Back to Canvas', () => page.getByRole('button', { name: 'Back to Canvas', exact: true }).click()],
       ["the sidebar's Attribution", () => page.getByRole('button', { name: 'Switch to Attribution view', exact: true }).click()]
     ]) {

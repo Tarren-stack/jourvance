@@ -439,7 +439,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
   };
 
   return (
-    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={880} fallbackFocusSelectors={['[data-more-trigger]']}>
+    <ModalDialog bare labelledBy={TITLE_ID} onClose={onClose} maxWidth={880} fallbackFocusSelectors={['[data-export-trigger]']}>
       <div
         style={{
           backgroundColor: '#0F172A',

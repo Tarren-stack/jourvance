@@ -34,7 +34,7 @@ test('AppSidebar exposes onOpenLaunchPlaybook trigger with accessible badge', ()
   assert.ok(sidebarSource.includes('onOpenLaunchPlaybook?: () => void;'));
   assert.ok(sidebarSource.includes('launchCompleted?: number;'));
   assert.ok(sidebarSource.includes('launchTotal?: number;'));
-  assert.ok(sidebarSource.includes('Launch Playbook: ${launchCompleted} of ${launchTotal} completed'));
+  assert.ok(sidebarSource.includes('Launch playbook: ${launchCompleted} of ${launchTotal} completed'));
   assert.ok(sidebarSource.includes('Playbook'));
 });
 

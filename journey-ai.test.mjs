@@ -630,7 +630,7 @@ test('the builder stops keys reaching the map, and the new files carry no em das
   const dialog = read('./src/components/modals/AiJourneyBuilder.tsx');
   assert.ok(dialog.includes('stopPropagation'));
   assert.ok(dialog.includes('role="dialog"') && dialog.includes('aria-modal="true"'));
-  assert.ok(dialog.includes('[data-more-trigger]'), 'focus falls back to the More button');
+  assert.ok(dialog.includes('[data-ai-builder-trigger]'), 'focus falls back to Draft with AI');
   // A disabled button drops focus to the page, where Backspace reaches the map. Busy buttons use
   // aria-disabled, and a capture guard stops the delete keys from outside the panel.
   assert.ok(!/\sdisabled=\{/.test(dialog), 'no native disabled on a dialog button');
@@ -659,8 +659,8 @@ test('App, the header and the server wire the builder', () => {
   const app = read('./src/App.tsx');
   assert.ok(/<JourneyCanvas\s+key=\{project\.id\}/.test(app), 'JourneyCanvas remounts on a new journey');
   assert.ok(app.includes('handleCreateFromAi'));
-  const header = read('./src/components/toolbar/CanvasHeader.tsx');
-  assert.ok(header.includes("'Draft with AI'"));
-  assert.ok(header.includes('data-more-trigger'));
+  const sidebar = read('./src/components/navigation/AppSidebar.tsx');
+  assert.ok(sidebar.includes('Draft with AI'));
+  assert.ok(sidebar.includes('data-ai-builder-trigger'));
   assert.ok(read('./server.mjs').includes('setupAiJourneyRoutes(app'));
 });

@@ -125,8 +125,8 @@ test('the ROAS pill is a disclosure that opens the four totals, for keyboard and
   // Escape closes the totals, and so does the pill stepping aside.
   const esc = header.slice(header.indexOf("if (e.key !== 'Escape') return;"), header.indexOf("window.addEventListener('keydown', onKey)"));
   assert.match(esc, /setShowRoasTotals\(false\)/);
-  assert.match(header, /if \(!showMoreMenu && !showAddMenu && !showUserMenu && !showRoasTotals\) return;/);
-  assert.match(header, /\}, \[showMoreMenu, showAddMenu, showUserMenu, showRoasTotals\]\);/);
+  assert.match(header, /if \(!showAddMenu && !showUserMenu && !showRoasTotals\) return;/);
+  assert.match(header, /\}, \[showAddMenu, showUserMenu, showRoasTotals\]\);/);
   assert.match(header, /if \(!roasSummary\) setShowRoasTotals\(false\);/);
   for (const s of p.match(/'[^'\n]*'|"[^"\n]*"|`[^`]*`|>[^<>{}\n]+</g) || []) assert.doesNotMatch(s, EM_DASH, s);
 });
@@ -239,24 +239,23 @@ test('Save and Publish keep their width while they work, so a save never wraps t
   assert.match(publish, /publishing && statusShort \? <Loader2/);
 });
 
-test('on a phone Add Step and More show icons only and keep their words for screen readers, and the row tightens', () => {
+test('on a phone Add Step, Check design, Save and Publish keep their words, and the row tightens', () => {
   assert.ok(W.PHONE_BELOW_PX > 390 && W.PHONE_BELOW_PX <= 600, 'a phone width');
   assert.ok(W.PHONE_BELOW_PX < W.NARROW_BELOW_PX);
   assert.match(header, /const phone = viewportWidth < PHONE_BELOW_PX;/);
-  // The words stay in the button (visually hidden), so its name and its text are the same at every
-  // width: the keyboard check reads the focused button's text after Escape.
+  // The words stay visible. A second accessible name would split what is seen from what is heard.
   const add = element('ref={addButtonRef}', 'button');
-  assert.match(add, /\{phone \? <span className="jv-sr-only">Add Step<\/span> : <span>Add Step<\/span>\}/);
-  const more = element('ref={moreButtonRef}', 'button');
-  assert.match(more, /\{phone \? <span className="jv-sr-only">More<\/span> : <span>More<\/span>\}/);
-  for (const b of [add, more]) assert.doesNotMatch(b, /aria-label=/, 'named by its words, not a second copy of them');
-  // Budget at 390px (T08, Chrome widths): the side padding is 12px, so each row has 366px.
-  // Row 1: Journeys 40, the name from 80, Undo and Redo 64, the mode toggle 70, Check design "! 1" 54,
-  // four 6px gaps: 332. Row 2: Add Step 40, More 40, the status slot, Save 78, Publish 98, four 6px
-  // gaps. Both fit, so the toolbar is two rows.
-  const row1 = 40 + 80 + 64 + 70 + 54 + 4 * 6;
-  const row2 = 40 + 40 + W.STATUS_SLOT_PX + 78 + 98 + 4 * 6;
-  assert.ok(row1 <= 390 - 24 && row2 <= 390 - 24, `rows of ${row1} and ${row2}px fit 366px`);
+  assert.match(add, /<span>\{ACTION_LABEL\.addStep\}<\/span>/);
+  assert.doesNotMatch(add, /jv-sr-only|aria-label=/);
+  const check = element('onClick={onOpenAudit}', 'button');
+  assert.match(check, /<span>\{designCount > 0 \? `Check design \(\$\{designCount\}\)` : 'Design checked'\}<\/span>/);
+  assert.doesNotMatch(check, /jv-sr-only/);
+  const save = element('onClick={onSave}', 'button');
+  assert.match(save, /<span>Save<\/span>/);
+  assert.doesNotMatch(save, /jv-sr-only|aria-label=/);
+  const publish = element('data-publish-trigger', 'button');
+  assert.match(publish, /<span>\{statusShort \? 'Publish' : publishing \? 'Publishing…' : 'Publish Funnel'\}<\/span>/);
+  assert.doesNotMatch(header, /moreButtonRef|showMoreMenu|<span>More<\/span>/);
   assert.match(header, /padding: smallPhone \? '6px 10px' : phone \? '6px 12px' : '6px 20px'/);
   assert.match(header, /gap: phone \? '6px' : '10px', minWidth: 0, flex: '1 1 auto'/);
   assert.match(header, /gap: phone \? '6px' : '8px', flex: '0 1 auto'/);
@@ -264,28 +263,7 @@ test('on a phone Add Step and More show icons only and keep their words for scre
 
 // ---- U09: 360 to 389px phones ----
 
-/**
- * Check design's narrow pill in Chrome (U09): "! 5" is 54px, "! 10" 60px and "! 100" 66px. A journey
- * reaches ten open checks by adding five steps to the starter one, so the budget holds two digits
- * and three.
- */
-const CHECK = { one: 54, two: 60, three: 66 };
-/**
- * The toolbar's items in DOM order with their Chrome widths (U09, measured at 360px): Journeys, the
- * journey name from its starting width, Undo and Redo, the mode toggle, Check design, then Add Step,
- * More, the status slot, Save and Publish.
- */
-const items = (saveWidth, check = CHECK.one, name = 72) => [40, name, 64, 70, check, 40, 40, W.STATUS_SLOT_PX, saveWidth, 97];
-/** Rows a wrapping flex line makes of `widths` in `room` px with `gap` px between items. */
-function rows(widths, room, gap) {
-  let count = 1; let used = 0;
-  for (const w of widths) {
-    if (used && used + gap + w > room) { count++; used = w; } else used += (used ? gap : 0) + w;
-  }
-  return count;
-}
-
-test('below 390px the two halves share the rows and Save shows its icon, so 360 to 389px is two rows', () => {
+test('below 390px the two halves share one wrapping row and Save keeps its word', () => {
   assert.equal(W.SMALL_PHONE_BELOW_PX, 390, 'every width below 390 (T08 already fits 390 in two rows)');
   assert.ok(W.SMALL_PHONE_BELOW_PX < W.PHONE_BELOW_PX, 'a small phone is a phone');
   assert.match(header, /const smallPhone = viewportWidth < SMALL_PHONE_BELOW_PX;/);
@@ -297,35 +275,22 @@ test('below 390px the two halves share the rows and Save shows its icon, so 360 
   assert.match(header, /gap: smallPhone \? '6px' : '8px 12px',/);
   // Publish's own margin keeps it at the end of whichever row it lands on.
   assert.match(element('data-publish-trigger', 'button'), /marginLeft: smallPhone \? 'auto' : undefined,/);
-  // Save keeps its word for screen readers, as Add Step and More do: named by its text, not a label.
+  // Save keeps its word at every width, named by that word.
   const save = element('onClick={onSave}', 'button');
-  assert.match(save, /\{smallPhone \? <span className="jv-sr-only">Save<\/span> : <span>Save<\/span>\}/);
-  assert.match(save, /title=\{smallPhone \? 'Save' : undefined\}/);
-  assert.doesNotMatch(save, /aria-label=/);
-  // The budget: 10px side padding, 6px gaps, the name from 72px, Save 44px with its icon only (78px
-  // with its word), for every Check design count up to three digits.
-  for (const check of Object.values(CHECK)) {
-    for (const w of [360, 375, 384, 389]) assert.ok(rows(items(44, check), w - 20, 6) <= 2, `${w}px with a ${check}px Check design is at most two rows`);
-    for (const w of [320, 340, 359]) assert.ok(rows(items(44, check), w - 20, 6) <= 3, `${w}px with a ${check}px Check design is at most three rows`);
-  }
-  // Why the word goes: with it the second row is 363px, over the 340px a 360px phone has.
-  assert.equal(rows(items(78), 360 - 20, 6), 3);
-  // Why the name and the padding give up room (the skeptic's repro): with 12px padding and the name
-  // from 80px, "! 10" wrapped Check design onto the second row at 360px and Publish onto a third.
-  assert.equal(rows(items(44, CHECK.two, 80), 360 - 24, 6), 3);
-  assert.equal(rows(items(44, CHECK.one, 80), 360 - 24, 6), 2);
+  assert.match(save, /<span>Save<\/span>/);
+  assert.doesNotMatch(save, /jv-sr-only|aria-label=|title=\{smallPhone/);
 });
 
-test('an open Add Step or More menu is placed again when the screen changes width', () => {
+test('an open Add Step menu is placed again when the screen changes width', () => {
   const at = header.indexOf('useLayoutEffect(() => {');
-  assert.ok(at > -1, 'a layout effect places the open menus');
+  assert.ok(at > -1, 'a layout effect places the open menu');
   const effect = header.slice(at, header.indexOf('}, [viewportWidth]);', at) + 20);
   assert.match(effect, /\}, \[viewportWidth\]\);$/, 'it runs when the width changes');
   assert.match(effect, /if \(showAddMenu\) \{ setAddMenuSide\(sideFor\(addButtonRef\.current, ADD_MENU_WIDTH\)\); setAddMenuSlide\(slideFor\(addButtonRef\.current, ADD_MENU_WIDTH\)\); \}/);
-  assert.match(effect, /if \(showMoreMenu\) \{ setMoreMenuSide\(sideFor\(moreButtonRef\.current, MORE_MENU_WIDTH\)\); setMoreMenuSlide\(slideFor\(moreButtonRef\.current, MORE_MENU_WIDTH\)\); \}/);
+  assert.doesNotMatch(effect, /showMoreMenu|moreButtonRef|MORE_MENU_WIDTH/);
 });
 
-test('a menu that fits neither edge of its button slides back on screen, so More opens whole at 320px', async () => {
+test('a menu that fits neither edge of its button slides back on screen, so Add Step opens whole at 320px', async () => {
   const { menuSide, MENU_GUTTER_PX } = await import('./src/lib/menuPlacement.ts');
   const at = header.indexOf('const slideFor = ');
   assert.ok(at > -1, 'slideFor is in the header');
@@ -339,37 +304,23 @@ test('a menu that fits neither edge of its button slides back on screen, so More
     const start = (side === 'left' ? rect.left : rect.right - width) + slideFor(button, width);
     return [start, start + width];
   };
-  // U09 at 320px: More sits at 118 to 158px on the second row. Neither edge fits a 220px menu,
-  // and without the slide it ran to 338px, 18px past the screen.
-  const [start, end] = place({ left: 118, right: 158 }, 220, 320);
-  assert.ok(start >= MENU_GUTTER_PX && end <= 320 - MENU_GUTTER_PX, `More opens at ${start} to ${end}px`);
+  // At 320px a 280px Add Step menu fits neither edge of a button near the middle of the row.
+  const [start, end] = place({ left: 118, right: 158 }, 280, 320);
+  assert.ok(start >= MENU_GUTTER_PX && end <= 320 - MENU_GUTTER_PX, `Add Step opens at ${start} to ${end}px`);
   // Where an edge fits, nothing moves.
   assert.deepEqual(place({ left: 1200, right: 1290 }, 220, 1440), [1070, 1290]);
   assert.deepEqual(place({ left: 12, right: 52 }, 210, 360), [12, 222]);
-  // Both menus apply it.
   assert.match(header, /setAddMenuSlide\(slideFor\(addButtonRef\.current, ADD_MENU_WIDTH\)\)/);
-  assert.match(header, /setMoreMenuSlide\(slideFor\(moreButtonRef\.current, MORE_MENU_WIDTH\)\)/);
   assert.match(header, /transform: addMenuSlide \? `translateX\(\$\{addMenuSlide\}px\)` : undefined,/);
-  assert.match(header, /transform: moreMenuSlide \? `translateX\(\$\{moreMenuSlide\}px\)` : undefined,/);
+  assert.doesNotMatch(header, /moreMenuSlide/);
 });
 
-test('at 360 to 399px the toolbar is two rows in every save state', () => {
-  // Below 390px: items(44) with 10px padding (room = w - 20)
-  for (const check of Object.values(CHECK)) {
-    for (const w of [360, 375, 384, 389]) {
-      assert.ok(rows(items(44, check), w - 20, 6) <= 2, `${w}px below 390 is at most two rows`);
-    }
-  }
-  // At 390 to 399px: side padding is 12px, gaps are 6px, Save is 78px with word, name starts at 80px.
-  // Row 1: Journeys 40, name 80, Undo/Redo 64, mode 70, Check 54-66, 4 gaps of 6: max 344px.
-  // Row 2: Add 40, More 40, status slot W.STATUS_SLOT_PX (84), Save 78, Publish 98, 4 gaps of 6: 364px.
-  // Every save status's short word (including 'No space' for Out of space) fits W.STATUS_SLOT_PX.
-  for (let w = 390; w <= 399; w++) {
-    const room = w - 24;
-    const row1 = 40 + 80 + 64 + 70 + CHECK.one + 4 * 6;
-    const row2 = 40 + 40 + W.STATUS_SLOT_PX + 78 + 98 + 4 * 6;
-    assert.ok(row1 <= room, `${w}px row 1 (${row1}px) fits ${room}px`);
-    assert.ok(row2 <= room, `${w}px row 2 (${row2}px) fits ${room}px`);
-  }
+test('at 360 to 399px the toolbar may wrap, and Save and Publish keep their words', () => {
+  // Wrapping is allowed. The words are not dropped to buy a second row.
+  const save = element('onClick={onSave}', 'button');
+  const publish = element('data-publish-trigger', 'button');
+  assert.match(save, /<span>Save<\/span>/);
+  assert.match(publish, /<span>\{statusShort \? 'Publish'/);
+  assert.doesNotMatch(header, /showMoreMenu|moreButtonRef/);
 });
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useId } from 'react';
-import { Play, Save, CheckCircle2, Sparkles, Plus, Compass, Layers, Globe, Download, Mail, GitFork, TrendingUp, Zap, BarChart3, Circle, BookmarkPlus, MoreHorizontal, AlertTriangle, Loader2, Undo2, Redo2, Library, WandSparkles, ChevronDown } from 'lucide-react';
+import { Save, CheckCircle2, Plus, Compass, Globe, Circle, AlertTriangle, Loader2, Undo2, Redo2, Library, ChevronDown } from 'lucide-react';
 import type { JourneyProject, Workspace, CanvasViewMode, NodeType, ActiveAppView } from '../../types/journey';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { checkJourneyDesign } from '../../lib/designChecks';
@@ -9,11 +9,11 @@ import { countText, journeyTotals, metricsStatusNote, moneyText, percentText, ty
 import { menuSide } from '../../lib/menuPlacement';
 import { MENU_GUTTER_PX } from '../../lib/menuPlacement';
 import { isOperator } from '../../lib/firebase';
+import { ACTION_LABEL, STEP_TYPES } from '../../lib/studioLabels';
 
 /**
- * Below this width the lead stats and Test Lead Flow step aside (Test moves into More) so the
- * journey toolbar stays one row on a 1440px laptop with the save status showing. With the Journeys
- * button (#18) the full row needs about 1,680px, so at 1,600px it used to wrap after any edit.
+ * Below this width the lead stats step aside so the journey toolbar stays one row on a laptop
+ * with the save status showing.
  */
 const COMPACT_BELOW_PX = 1720;
 /**
@@ -22,18 +22,16 @@ const COMPACT_BELOW_PX = 1720;
  * to about 2,150px. Below this width the ribbon alone steps aside; Test Lead Flow keeps
  * COMPACT_BELOW_PX, so switching modes never moves it in or out of More. Between the two widths a
  * ROAS pill no wider than the lead stats takes the ribbon's place and opens the four totals, so a
- * 1,920px screen in Live ROAS mode still shows them (R01). With a store the pill shows from
+ * 1,920px screen in ad return still shows them (R01). With a store the pill shows from
  * COMPACT_BELOW_PX, on the compact row, so the ROAS figure never leaves the row from there up (T08).
  */
 const ROAS_RIBBON_BELOW_PX = 2160;
-/** Below this width the view switcher shows icons only and the audit badge its score. */
+/** Below this width Check design keeps its words and the store-score pill steps aside with them. */
 const NARROW_BELOW_PX = 1180;
 /**
- * Below this width the Edit Canvas and Live ROAS toggle shows icons only. After any edit the save
- * status (about 144px for "Saved in this browser") joins the toolbar, and with the toggle labelled
- * the row needs about 1,350px, so at 1,240px Save and Publish used to drop onto a second row.
- * Measured in the edited state, icons only need about 1,165px (Journeys icon only) or 1,225px
- * (Journeys labelled).
+ * The store-score pill's width budget starts here. The old Edit / Live ROAS toggle used this same
+ * line as the point where its labels dropped. The toggle is gone. The constant stays because the
+ * pill still steps aside below STORE_SCORE_FROM_PX.
  */
 const MODES_ICON_BELOW_PX = 1400;
 /** Below this width the Journeys button shows its icon only (see MODES_ICON_BELOW_PX). */
@@ -58,29 +56,17 @@ const STATUS_SHORT_BELOW_PX = 1040;
 /** The reserved slot: the icon, its gap and the widest short word that is not a failure (about 81px). */
 const STATUS_SLOT_PX = 84;
 /**
- * Below this width (phones) Add Step and More show icons only, the gaps and side padding tighten
- * and the journey name starts at 80px, so the toolbar is two rows at 390px: the journey's own
- * controls with Check design, then Add Step, More, the status, Save and Publish (T08).
+ * Below this width (phones) the gaps and side padding tighten and the journey name starts at 80px.
+ * Add Step, Check design, Save and Publish keep their words.
  */
 const PHONE_BELOW_PX = 520;
 /**
- * Below this width (360 to 389px phones) Save shows its icon only, keeping its word for screen
- * readers, and the two halves of the toolbar share one wrapping row, so the toolbar is two rows
- * from 360px and three at 320px (U09). Split in two halves, 375px and 360px were three rows and
- * 320 to 350px four: the second row, 363px wide, had 336px at 360, and at 320 Check design took a
- * row of its own because the right half could never start beside it.
+ * Below this width (360 to 389px phones) the two halves of the toolbar share one wrapping row.
+ * Save keeps its word.
  */
 const SMALL_PHONE_BELOW_PX = 390;
-/** The Add Step and More menu widths, which menuSide needs to decide where each one fits. */
-const ADD_MENU_WIDTH = 210;
-const MORE_MENU_WIDTH = 220;
-
-type MoreItem = {
-  label: string;
-  icon: React.ComponentType<{ size?: number; color?: string }>;
-  color: string;
-  onClick: () => void;
-};
+/** The Add Step menu width. Each row names the step and says what it is, so the menu is wider than the old one-line list. */
+const ADD_MENU_WIDTH = 280;
 
 /** The shortcut key named in the Undo and Redo titles. */
 const modKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? 'Cmd' : 'Ctrl';
@@ -105,8 +91,6 @@ interface Props {
   project: JourneyProject;
   onUpdateProjectName: (name: string) => void;
   onSave: () => void;
-  onTestJourney: () => void;
-  onExportAssets?: () => void;
   onAddNode: (type: NodeType) => void;
   onOpenWebsite?: () => void;
   user?: any;
@@ -130,15 +114,7 @@ interface Props {
   onOpenShopifyConnect?: () => void;
   onCreateWorkspace?: () => void;
   activeView?: ActiveAppView;
-  onSelectView?: (view: ActiveAppView) => void;
-  onOpenBlueprints?: () => void;
-  /** Opens Draft with AI (#25). */
-  onOpenAiBuilder?: () => void;
-  onSaveBlueprint?: () => void;
   canvasViewMode?: CanvasViewMode;
-  onToggleCanvasViewMode?: (mode: CanvasViewMode) => void;
-  onOpenShopifySync?: () => void;
-  onOpenSimulator?: () => void;
   onOpenAudit: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
@@ -166,8 +142,6 @@ export const CanvasHeader: React.FC<Props> = ({
   project,
   onUpdateProjectName,
   onSave,
-  onTestJourney,
-  onExportAssets,
   onAddNode,
   onOpenWebsite,
   user,
@@ -188,14 +162,7 @@ export const CanvasHeader: React.FC<Props> = ({
   onOpenShopifyConnect,
   onCreateWorkspace,
   activeView = 'canvas',
-  onSelectView,
-  onOpenBlueprints,
-  onOpenAiBuilder,
-  onSaveBlueprint,
   canvasViewMode = 'edit',
-  onToggleCanvasViewMode,
-  onOpenShopifySync,
-  onOpenSimulator,
   onOpenAudit,
   canUndo = false,
   canRedo = false,
@@ -214,27 +181,21 @@ export const CanvasHeader: React.FC<Props> = ({
 }) => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showRoasTotals, setShowRoasTotals] = useState(false);
   const roasTotalsId = useId();
   // A menu item hands focus to its menu button before it acts (#19), so a dialog or a step it opens
   // returns focus there on close instead of dropping it on the page body.
-  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const userButtonRef = useRef<HTMLButtonElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
-  const moreMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
-  // Which edge of its button each menu hangs from. On a wrapped toolbar the buttons sit near the
-  // left of the screen, where a right-aligned menu ran off it (#11 found this at 768 and 390px).
+  // Which edge of its button the Add Step menu hangs from. On a wrapped toolbar the button sits near
+  // the left of the screen, where a right-aligned menu ran off it (#11 found this at 768 and 390px).
   const [addMenuSide, setAddMenuSide] = useState<'left' | 'right'>('right');
-  const [moreMenuSide, setMoreMenuSide] = useState<'left' | 'right'>('right');
   const sideFor = (button: HTMLButtonElement | null, width: number) =>
     button ? menuSide(button.getBoundingClientRect(), width, window.innerWidth) : 'right';
-  // Where neither edge fits (More from the middle of a 320px phone's second row, U09), the menu
-  // slides back on screen by what it would lose, so none of its items is cut off.
+  // Where neither edge fits, the menu slides back on screen by what it would lose, so none of its items is cut off.
   const [addMenuSlide, setAddMenuSlide] = useState(0);
-  const [moreMenuSlide, setMoreMenuSlide] = useState(0);
   /** How far right (positive) or left (negative) the menu on sideFor's side moves to sit inside the gutters. */
   const slideFor = (button: HTMLButtonElement | null, width: number) => {
     if (!button) return 0;
@@ -264,7 +225,6 @@ export const CanvasHeader: React.FC<Props> = ({
   // store pill and 1,720 to 1,839px used to show no ROAS figure at all.
   const roasSummary = canvasViewMode === 'roas' && statsHidden && viewportWidth >= COMPACT_BELOW_PX;
   const narrow = viewportWidth < NARROW_BELOW_PX;
-  const modesIconOnly = viewportWidth < MODES_ICON_BELOW_PX;
   const statusShort = viewportWidth < STATUS_SHORT_BELOW_PX;
   const phone = viewportWidth < PHONE_BELOW_PX;
   const smallPhone = viewportWidth < SMALL_PHONE_BELOW_PX;
@@ -274,7 +234,6 @@ export const CanvasHeader: React.FC<Props> = ({
   // the button's new place once the row has laid out, so it never stays where the old width put it.
   useLayoutEffect(() => {
     if (showAddMenu) { setAddMenuSide(sideFor(addButtonRef.current, ADD_MENU_WIDTH)); setAddMenuSlide(slideFor(addButtonRef.current, ADD_MENU_WIDTH)); }
-    if (showMoreMenu) { setMoreMenuSide(sideFor(moreButtonRef.current, MORE_MENU_WIDTH)); setMoreMenuSlide(slideFor(moreButtonRef.current, MORE_MENU_WIDTH)); }
   }, [viewportWidth]);
 
   // The ROAS totals pill exists only between the two widths, so the totals close when it steps aside.
@@ -284,16 +243,14 @@ export const CanvasHeader: React.FC<Props> = ({
 
   // Escape closes whichever menu is open, and the ROAS totals.
   useEffect(() => {
-    if (!showMoreMenu && !showAddMenu && !showUserMenu && !showRoasTotals) return;
+    if (!showAddMenu && !showUserMenu && !showRoasTotals) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       // Focus sits on an item while a menu is open, and closing the menu removes that item, so hand
       // focus back to the menu's button or it falls to the page body (C30).
       const active = document.activeElement;
       if (addMenuRef.current?.contains(active)) addButtonRef.current?.focus();
-      else if (moreMenuRef.current?.contains(active)) moreButtonRef.current?.focus();
       else if (userMenuRef.current?.contains(active)) userButtonRef.current?.focus();
-      setShowMoreMenu(false);
       setShowAddMenu(false);
       setShowUserMenu(false);
       // Nothing in the totals takes focus, so focus is already on their pill.
@@ -301,17 +258,13 @@ export const CanvasHeader: React.FC<Props> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showMoreMenu, showAddMenu, showUserMenu, showRoasTotals]);
+  }, [showAddMenu, showUserMenu, showRoasTotals]);
 
-  // Opening Add Step or More puts focus on its first item, so the arrow keys below have somewhere to start.
+  // Opening Add Step puts focus on its first item, so the arrow keys below have somewhere to start.
   useEffect(() => {
     if (!showAddMenu) return;
     addMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
   }, [showAddMenu]);
-  useEffect(() => {
-    if (!showMoreMenu) return;
-    moreMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-  }, [showMoreMenu]);
 
   // ArrowUp and ArrowDown move between a menu's items, wrapping; Home and End jump to the ends.
   const moveInMenu = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -326,17 +279,6 @@ export const CanvasHeader: React.FC<Props> = ({
       : (at <= 0 ? items.length - 1 : at - 1);
     items[next].focus();
   };
-
-  const moreItems = ([
-    compact ? { label: 'Test Lead Flow', icon: Play, color: '#38BDF8', onClick: onTestJourney } : null,
-    onOpenBlueprints ? { label: 'Blueprints', icon: Sparkles, color: '#F472B6', onClick: onOpenBlueprints } : null,
-    onOpenAiBuilder ? { label: 'Draft with AI', icon: WandSparkles, color: '#C4B5FD', onClick: onOpenAiBuilder } : null,
-    onSaveBlueprint ? { label: 'Save as Blueprint', icon: BookmarkPlus, color: '#F472B6', onClick: onSaveBlueprint } : null,
-    onOpenSimulator ? { label: 'ROAS Forecaster', icon: TrendingUp, color: '#34D399', onClick: onOpenSimulator } : null,
-    onOpenShopifySync ? { label: 'Shopify Sync', icon: Zap, color: '#34D399', onClick: onOpenShopifySync } : null,
-    onExportAssets ? { label: 'Export Assets', icon: Download, color: '#818CF8', onClick: onExportAssets } : null,
-    onOpenWebsite ? { label: 'Public Website', icon: Globe, color: '#818CF8', onClick: onOpenWebsite } : null
-  ] as (MoreItem | null)[]).filter((item): item is MoreItem => item !== null);
 
   // What the save indicator says. Edits save themselves, so a waiting save reads as saving, and
   // "Unsaved changes" means the latest edits have not landed and nothing is about to save them.
@@ -412,6 +354,41 @@ export const CanvasHeader: React.FC<Props> = ({
     { label: 'ROAS', value: totals.roas === null ? 'Unavailable' : `Est. ${totals.roas.toFixed(1)}x`, measured: totals.roas !== null }
   ];
 
+  // Open checks make Add Step the filled action. A clean check makes Publish the filled action.
+  // Publish stays available either way.
+  const publishPrimary = designCount === 0;
+  const filledAction: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '7px 16px',
+    borderRadius: '8px',
+    background: 'linear-gradient(135deg, #EC4899 0%, #DB2777 100%)',
+    border: 'none',
+    color: '#FFFFFF',
+    fontSize: '12px',
+    fontWeight: 800,
+    letterSpacing: '0.02em',
+    boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  };
+  const quietAction: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '7px 12px',
+    borderRadius: '8px',
+    background: 'rgba(255, 255, 255, 0.06)',
+    border: '1px solid rgba(255, 255, 255, 0.12)',
+    color: '#F8FAFC',
+    fontSize: '12px',
+    fontWeight: 600,
+    boxShadow: 'none',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  };
+
   return (
     <>
       <header
@@ -473,92 +450,7 @@ export const CanvasHeader: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Center: View Switcher (Canvas, Email Studio, Attribution) */}
-        <nav aria-label="Views" style={{ display: 'flex', alignItems: 'center' }}>
-          {onSelectView && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: 'rgba(0, 0, 0, 0.4)',
-                padding: '3px',
-                borderRadius: '8px',
-                border: '1px solid rgba(255, 255, 255, 0.08)'
-              }}
-            >
-              <button
-                onClick={() => onSelectView('canvas')}
-                aria-pressed={activeView === 'canvas'}
-                aria-label="Funnel Canvas"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '5px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  border: 'none',
-                  cursor: 'pointer',
-                  backgroundColor: activeView === 'canvas' ? '#db2777' : 'transparent',
-                  color: activeView === 'canvas' ? '#ffffff' : '#9ca3af',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <GitFork size={13} />
-                {!narrow && <span>Funnel Canvas</span>}
-              </button>
-
-              <button
-                onClick={() => onSelectView('email-studio')}
-                aria-pressed={activeView === 'email-studio'}
-                aria-label="Email Studio"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '5px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  border: 'none',
-                  cursor: 'pointer',
-                  backgroundColor: activeView === 'email-studio' ? '#db2777' : 'transparent',
-                  color: activeView === 'email-studio' ? '#ffffff' : '#9ca3af',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <Mail size={13} />
-                {!narrow && <span>Email Studio</span>}
-              </button>
-
-              <button
-                onClick={() => onSelectView('attribution')}
-                aria-pressed={activeView === 'attribution'}
-                aria-label="Attribution"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '5px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  border: 'none',
-                  cursor: 'pointer',
-                  backgroundColor: activeView === 'attribution' ? '#4f46e5' : 'transparent',
-                  color: activeView === 'attribution' ? '#ffffff' : '#9ca3af',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <BarChart3 size={13} />
-                {!narrow && <span>Attribution</span>}
-              </button>
-            </div>
-          )}
-        </nav>
-
-        {/* Right: Account */}
+        {/* Right: Account. The place switcher lives in the rail, so this row is the account only. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {/* User Account / Sign In */}
           {user ? (
@@ -663,6 +555,27 @@ export const CanvasHeader: React.FC<Props> = ({
                     ⚡ Subscription Plan
                   </button>
 
+                  {onOpenWebsite && (
+                    <button
+                      type="button"
+                      onClick={() => { userButtonRef.current?.focus(); setShowUserMenu(false); onOpenWebsite(); }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        borderRadius: '4px',
+                        background: 'none',
+                        border: 'none',
+                        color: '#C4B5FD',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        textAlign: 'left',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {ACTION_LABEL.publicWebsite}
+                    </button>
+                  )}
+
                   <button
                     onClick={() => { setShowUserMenu(false); onSignOut?.(); }}
                     style={{
@@ -684,21 +597,41 @@ export const CanvasHeader: React.FC<Props> = ({
               )}
             </div>
           ) : (
-            <button
-              onClick={onOpenAuth}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                color: '#FFFFFF',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Sign In
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {onOpenWebsite && (
+                <button
+                  type="button"
+                  onClick={onOpenWebsite}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'transparent',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    color: '#E2E8F0',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {ACTION_LABEL.publicWebsite}
+                </button>
+              )}
+              <button
+                onClick={onOpenAuth}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#FFFFFF',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Sign In
+              </button>
+            </div>
           )}
         </div>
       </header>
@@ -816,71 +749,6 @@ export const CanvasHeader: React.FC<Props> = ({
               </button>
             </div>
 
-            {/* ROAS & Financials Canvas Mode Toggle */}
-            {activeView === 'canvas' && onToggleCanvasViewMode && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  backgroundColor: 'rgba(0, 0, 0, 0.4)',
-                  borderRadius: '8px',
-                  padding: '2px',
-                  border: '1px solid rgba(255, 255, 255, 0.08)'
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => onToggleCanvasViewMode('edit')}
-                  aria-pressed={canvasViewMode === 'edit'}
-                  aria-label="Edit Canvas"
-                  title={modesIconOnly ? 'Edit Canvas' : undefined}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    padding: '4px 10px',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    border: 'none',
-                    cursor: 'pointer',
-                    backgroundColor: canvasViewMode === 'edit' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
-                    color: canvasViewMode === 'edit' ? '#FFFFFF' : '#94A3B8',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <Layers size={12} />
-                  {!modesIconOnly && <span>Edit Canvas</span>}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onToggleCanvasViewMode('roas')}
-                  aria-pressed={canvasViewMode === 'roas'}
-                  aria-label="Live ROAS"
-                  title={modesIconOnly ? 'Live ROAS' : undefined}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    padding: '4px 10px',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    border: 'none',
-                    cursor: 'pointer',
-                    backgroundColor: canvasViewMode === 'roas' ? '#047857' : 'transparent',
-                    color: canvasViewMode === 'roas' ? '#FFFFFF' : '#94A3B8',
-                    boxShadow: canvasViewMode === 'roas' ? '0 2px 8px rgba(16, 185, 129, 0.4)' : 'none',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <TrendingUp size={12} />
-                  {!modesIconOnly && <span>Live ROAS</span>}
-                </button>
-              </div>
-            )}
-
             {/* Check design (#10): the open design checks. The store score sits beside it only
                 when a store is connected and the row has room, and it never gates anything. */}
             <button
@@ -915,9 +783,7 @@ export const CanvasHeader: React.FC<Props> = ({
               ) : (
                 <CheckCircle2 size={13} color="#34D399" />
               )}
-              {narrow
-                ? designCount > 0 && <span>! {designCount}</span>
-                : <span>{designCount > 0 ? `Check design (${designCount})` : 'Design checked'}</span>}
+              <span>{designCount > 0 ? `Check design (${designCount})` : 'Design checked'}</span>
               {!narrow && storeReport && (
                 <span style={{
                   fontSize: '11px',
@@ -1023,7 +889,7 @@ export const CanvasHeader: React.FC<Props> = ({
               <div style={{ position: 'relative' }}>
                 <button
                   type="button"
-                  onClick={() => { setShowRoasTotals(v => !v); setShowAddMenu(false); setShowMoreMenu(false); }}
+                  onClick={() => { setShowRoasTotals(v => !v); setShowAddMenu(false); }}
                   aria-expanded={showRoasTotals}
                   aria-controls={roasTotalsId}
                   title="Show the spend, gross, bump rate and ROAS totals"
@@ -1076,27 +942,13 @@ export const CanvasHeader: React.FC<Props> = ({
               <button
                 ref={addButtonRef}
                 type="button"
-                onClick={() => { setAddMenuSide(sideFor(addButtonRef.current, ADD_MENU_WIDTH)); setAddMenuSlide(slideFor(addButtonRef.current, ADD_MENU_WIDTH)); setShowAddMenu(!showAddMenu); setShowMoreMenu(false); }}
+                onClick={() => { setAddMenuSide(sideFor(addButtonRef.current, ADD_MENU_WIDTH)); setAddMenuSlide(slideFor(addButtonRef.current, ADD_MENU_WIDTH)); setShowAddMenu(!showAddMenu); }}
                 aria-haspopup="menu"
                 aria-expanded={showAddMenu}
-                title={phone ? 'Add Step' : undefined}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '7px 12px',
-                  borderRadius: '8px',
-                  background: 'rgba(255, 255, 255, 0.06)',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  color: '#F8FAFC',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
+                style={{ ...(publishPrimary ? quietAction : filledAction), cursor: 'pointer' }}
               >
                 <Plus size={14} aria-hidden="true" />
-                {/* Icon only on a phone (T08); the words stay for screen readers. */}
-                {phone ? <span className="jv-sr-only">Add Step</span> : <span>Add Step</span>}
+                <span>{ACTION_LABEL.addStep}</span>
               </button>
 
               {showAddMenu && (
@@ -1117,170 +969,24 @@ export const CanvasHeader: React.FC<Props> = ({
                     zIndex: 30
                   }}
                 >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { addButtonRef.current?.focus(); onAddNode('ad-source'); setShowAddMenu(false); }}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3B82F6' }} />
-                    <span>+ Ad Source (Traffic)</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { addButtonRef.current?.focus(); onAddNode('landing-page'); setShowAddMenu(false); }}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6366F1' }} />
-                    <span>+ Landing Page</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { addButtonRef.current?.focus(); onAddNode('ab-split'); setShowAddMenu(false); }}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#8B5CF6' }} />
-                    <span>+ A/B Traffic Splitter</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { addButtonRef.current?.focus(); onAddNode('lead-form'); setShowAddMenu(false); }}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10B981' }} />
-                    <span>+ Lead Capture Form</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { addButtonRef.current?.focus(); onAddNode('follow-up-sequence'); setShowAddMenu(false); }}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#F59E0B' }} />
-                    <span>+ Follow-Up Sequence</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { addButtonRef.current?.focus(); onAddNode('thank-you'); setShowAddMenu(false); }}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#EC4899' }} />
-                    <span>+ Thank-you page</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { addButtonRef.current?.focus(); onAddNode('upsell'); setShowAddMenu(false); }}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10B981' }} />
-                    <span>+ Post-Purchase Upsell (OTO)</span>
-                  </button>
+                  {STEP_TYPES.map(step => (
+                    <button
+                      key={step.type}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { addButtonRef.current?.focus(); onAddNode(step.type); setShowAddMenu(false); }}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: '8px' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: step.dotColor, flexShrink: 0, marginTop: '4px' }} />
+                      <span style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                        <span>{step.label}</span>
+                        <span style={{ fontSize: '11px', fontWeight: 500, color: '#94A3B8' }}>{step.description}</span>
+                      </span>
+                    </button>
+                  ))}
                 </div>
-              )}
-            </div>
-
-            {!compact && (
-              <>
-              {/* Test Funnel Simulation Button */}
-              <button
-                onClick={onTestJourney}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '7px 14px',
-                  borderRadius: '8px',
-                  background: 'rgba(56, 189, 248, 0.15)',
-                  border: '1px solid rgba(56, 189, 248, 0.3)',
-                  color: '#38BDF8',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer'
-                }}
-              >
-                <Play size={13} fill="#38BDF8" />
-                <span>Test Lead Flow</span>
-              </button>
-              </>
-            )}
-
-            {/* More: tools that do not need a permanent place on screen */}
-            <div style={{ position: 'relative' }}>
-              <button
-                ref={moreButtonRef}
-                type="button"
-                onClick={() => { setMoreMenuSide(sideFor(moreButtonRef.current, MORE_MENU_WIDTH)); setMoreMenuSlide(slideFor(moreButtonRef.current, MORE_MENU_WIDTH)); setShowMoreMenu(v => !v); setShowAddMenu(false); }}
-                // A dialog opened from this menu hands focus back here when it closes (#25).
-                data-more-trigger
-                aria-haspopup="menu"
-                aria-expanded={showMoreMenu}
-                title={phone ? 'More journey tools' : undefined}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '7px 12px',
-                  borderRadius: '8px',
-                  background: 'rgba(255, 255, 255, 0.06)',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  color: '#F8FAFC',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                <MoreHorizontal size={14} aria-hidden="true" />
-                {phone ? <span className="jv-sr-only">More</span> : <span>More</span>}
-              </button>
-
-              {showMoreMenu && (
-                <>
-                  <div onClick={() => setShowMoreMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 45 }} />
-                  <div
-                    ref={moreMenuRef}
-                    role="menu"
-                    aria-label="More journey tools"
-                    onKeyDown={moveInMenu}
-                    className="glass-dropdown"
-                    style={{ position: 'absolute', top: '40px', [moreMenuSide]: 0, transform: moreMenuSlide ? `translateX(${moreMenuSlide}px)` : undefined, width: `${MORE_MENU_WIDTH}px`, borderRadius: '10px', padding: '6px', zIndex: 50 }}
-                  >
-                    {moreItems.map(item => (
-                      <button
-                        key={item.label}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => { moreButtonRef.current?.focus(); setShowMoreMenu(false); item.onClick(); }}
-                        style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', background: 'transparent', border: 'none', color: '#E2E8F0', fontSize: '12px', fontWeight: 500, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                        onFocus={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)')}
-                        onBlur={e => (e.currentTarget.style.background = 'transparent')}
-                      >
-                        <item.icon size={14} color={item.color} aria-hidden="true" />
-                        <span>{item.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
               )}
             </div>
 
@@ -1317,7 +1023,6 @@ export const CanvasHeader: React.FC<Props> = ({
               type="button"
               onClick={onSave}
               disabled={saving}
-              title={smallPhone ? 'Save' : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1336,33 +1041,19 @@ export const CanvasHeader: React.FC<Props> = ({
               {/* The label keeps its width while a save runs (the status beside it says Saving…), so
                   an autosave never widens the row onto a second line (T08). */}
               {saving ? <Loader2 size={14} className="spin" aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}
-              {/* Icon only on a small phone (U09); the word stays for screen readers. */}
-              {smallPhone ? <span className="jv-sr-only">Save</span> : <span>Save</span>}
+              <span>Save</span>
             </button>
 
-            {/* Publish Funnel Button */}
+            {/* Publish stays available. It is the filled action once every design check has passed. */}
             {onPublishFunnel && (
               <button
                 data-publish-trigger
                 onClick={onPublishFunnel}
                 disabled={publishing}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  // At the end of its row on a small phone, where the halves share the rows (U09).
+                  ...(publishPrimary ? filledAction : quietAction),
                   marginLeft: smallPhone ? 'auto' : undefined,
-                  padding: '7px 16px',
-                  borderRadius: '8px',
-                  background: 'linear-gradient(135deg, #EC4899 0%, #DB2777 100%)',
-                  border: 'none',
-                  color: '#FFFFFF',
-                  fontSize: '12px',
-                  fontWeight: 800,
-                  letterSpacing: '0.02em',
-                  cursor: publishing ? 'not-allowed' : 'pointer',
-                  boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)',
-                  transition: 'all 0.2s ease'
+                  cursor: publishing ? 'not-allowed' : 'pointer'
                 }}
               >
                 {publishing && statusShort ? <Loader2 size={14} className="spin" aria-hidden="true" /> : <Globe size={14} aria-hidden="true" />}

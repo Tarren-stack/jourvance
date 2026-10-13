@@ -10,6 +10,7 @@ import { extractPricingFromNodes, DEFAULT_FORECAST, calculateFunnelForecast, sel
 import { JourneyLeakFinder } from './JourneyLeakFinder';
 import { askAssistant } from '../../lib/assistant';
 import { useAskReady } from '../assistant/useAskReady';
+import { AOV_PHRASE, ROAS_STAT_NAME, VIEW_LABEL, attributionModelHelp } from '../../lib/studioLabels';
 
 /** A finite number from the report, or null when it was not measured. */
 function measuredNumber(v: unknown): number | null {
@@ -296,7 +297,7 @@ export const AttributionReports: React.FC<Props> = ({
               <BarChart3 size={18} color="#FFFFFF" />
             </div>
             <h1 style={{ fontSize: '22px', fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>
-              Closed-Loop Attribution & Revenue Intelligence
+              {VIEW_LABEL.attribution}
             </h1>
           </div>
           <p style={{ margin: 0, fontSize: '13px', color: '#94A3B8' }}>
@@ -311,6 +312,7 @@ export const AttributionReports: React.FC<Props> = ({
             off-screen past a sideways scroll (R03). */}
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           {/* Attribution Model Switcher */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '100%' }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -338,6 +340,10 @@ export const AttributionReports: React.FC<Props> = ({
                 {m === 'last_touch' ? 'Last-Touch' : m === 'first_touch' ? 'First-Touch' : 'Linear Multi-Touch'}
               </button>
             ))}
+          </div>
+          <p role="status" style={{ margin: 0, maxWidth: '280px', fontSize: '12px', lineHeight: 1.45, color: '#CBD5E1' }}>
+            {attributionModelHelp(model)}
+          </p>
           </div>
 
           {/* Timeframe Selector */}
@@ -509,7 +515,7 @@ export const AttributionReports: React.FC<Props> = ({
           gap: '6px'
         }}>
           <span style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Blended ROAS
+            {ROAS_STAT_NAME}
           </span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
             <span style={{ fontSize: '24px', fontWeight: 800, color: '#F1F5F9' }}>
@@ -544,7 +550,7 @@ export const AttributionReports: React.FC<Props> = ({
             </span>
             {effectiveAov != null && (
               <span style={{ fontSize: '11px', color: '#94A3B8' }}>
-                vs ${effectiveAov.toFixed(2)} AOV
+                vs ${effectiveAov.toFixed(2)} {AOV_PHRASE}
               </span>
             )}
           </div>

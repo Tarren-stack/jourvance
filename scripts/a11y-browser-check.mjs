@@ -238,19 +238,22 @@ async function clickButton(page, text, scope) {
 }
 
 const ADD_ITEMS = [
-  ['ad-source', 'Ad Source'],
-  ['landing-page', 'Landing Page'],
-  ['ab-split', 'A/B Traffic Splitter'],
-  ['lead-form', 'Lead Capture Form'],
-  ['follow-up-sequence', 'Follow-Up Sequence'],
+  ['ad-source', 'Ad source'],
+  ['landing-page', 'Landing page'],
+  ['ab-split', 'A/B split'],
+  ['lead-form', 'Lead form'],
+  ['follow-up-sequence', 'Follow-up'],
   ['thank-you', 'Thank-you page'],
   ['upsell', 'Upsell']
 ];
 
-/** Adds a step from the Add Step menu by the words on its menu item. */
+/** Adds a step from the toolbar's Add Step menu by the words on its menu item. */
 async function addStep(page, words) {
-  if (!(await clickButton(page, 'Add Step'))) return false;
-  const item = (await page.evaluateHandle(w => [...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('+') && b.textContent.includes(w)) ?? null, words)).asElement();
+  const trigger = (await buttonByText(page, 'Add Step', '[aria-label="Journey tools"]')).asElement();
+  if (!trigger) return false;
+  await trigger.click();
+  await page.waitForTimeout(150);
+  const item = (await page.evaluateHandle(w => [...document.querySelectorAll('[aria-label="Journey tools"] [role="menuitem"]')].find(b => b.textContent.includes(w)) ?? null, words)).asElement();
   if (!item) return false;
   await item.click();
   await page.waitForTimeout(250);
@@ -583,14 +586,9 @@ export async function checkModalTrap(browser, { base }) {
     if (!a.label?.startsWith('Check design')) f.push(`after the Audit, focus is on ${a.isBody ? '<body>' : `${a.tag} ${a.label ?? a.text}`}`);
     await dismissModals(page);
 
-    const more = (await buttonByText(page, 'More')).asElement();
-    if (!more) return [...f, 'no More button'];
-    await keyboardFocus(page, more);
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(150);
-    const item = (await page.evaluateHandle(() => [...document.querySelectorAll('[role="menuitem"]')].find(b => b.textContent.includes('ROAS Forecaster')) ?? null)).asElement();
-    if (!item) return [...f, 'no ROAS Forecaster menu item'];
-    await item.focus();
+    const adReturn = (await buttonByText(page, 'Ad return')).asElement();
+    if (!adReturn) return [...f, 'no Ad return button'];
+    await keyboardFocus(page, adReturn);
     await page.keyboard.press('Enter');
     await page.waitForTimeout(400);
     if (!(await page.$(MODAL))) f.push('the Forecaster is not a [role=dialog][aria-modal=true]');
@@ -601,23 +599,23 @@ export async function checkModalTrap(browser, { base }) {
     await page.waitForTimeout(250);
     if (await page.$(MODAL)) f.push('Escape did not close the Forecaster');
     const b = await activeInfo(page);
-    if (b.text !== 'More') f.push(`after the Forecaster, focus is on ${b.isBody ? '<body>' : `${b.tag} ${b.label ?? b.text}`}, not More`);
+    if (b.label !== 'Ad return' && b.text !== 'Ad return') f.push(`after the Forecaster, focus is on ${b.isBody ? '<body>' : `${b.tag} ${b.label ?? b.text}`}, not Ad return`);
     return f;
   });
 }
 
-/** The header's Add Step and More menus by keyboard (C30): opening one puts focus on its first
- *  item, the arrow keys, Home and End move between items, and Escape from an item closes the menu
- *  and hands focus back to its button instead of dropping it on the page body. */
+/** The header's Add Step menu by keyboard (C30): opening it puts focus on its first item, the
+ *  arrow keys, Home and End move between items, and Escape from an item closes the menu and hands
+ *  focus back to its button instead of dropping it on the page body. */
 export async function checkHeaderMenus(browser, { base }) {
   const f = [];
   for (const width of [1440, 390]) {
     await withApp(browser, { base, viewport: { width, height: 900 } }, async page => {
-      for (const name of ['Add Step', 'More']) {
+      for (const name of ['Add Step']) {
         await part(f, `${width}px ${name}`, async () => {
-          const trigger = (await buttonByText(page, name)).asElement();
+          const trigger = (await buttonByText(page, name, '[aria-label="Journey tools"]')).asElement();
           if (!trigger) { f.push(`${width}px: no ${name} button`); return; }
-          const items = () => page.evaluate(() => [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map(b => b.textContent.trim()));
+          const items = () => page.evaluate(() => [...document.querySelectorAll('[aria-label="Journey tools"] [role="menu"] [role="menuitem"]')].map(b => b.textContent.trim().slice(0, 50)));
           const focused = async () => { const a = await activeInfo(page); return a.isBody ? '<body>' : a.text; };
           await keyboardFocus(page, trigger);
           await page.keyboard.press('Enter');
@@ -632,7 +630,7 @@ export async function checkHeaderMenus(browser, { base }) {
           await page.keyboard.press('Home');
           if ((await focused()) !== list[0]) f.push(`${width}px: Home in ${name} moved focus to ${await focused()}`);
           // Escape from an item, however focus got there, which is what unmounts under the focus.
-          await page.locator('[role="menu"] [role="menuitem"]').last().focus();
+          await page.locator('[aria-label="Journey tools"] [role="menu"] [role="menuitem"]').last().focus();
           await page.keyboard.press('Escape');
           await page.waitForTimeout(150);
           if ((await items()).length) f.push(`${width}px: Escape did not close ${name}`);
@@ -739,12 +737,13 @@ async function everyState(browser, base, scan) {
       await page.keyboard.press('Escape');
     }, page);
     await part(f, 'edit mode', () => scan(page, 'edit mode', f), page);
-    await part(f, 'Live ROAS mode', async () => {
-      if (!(await page.$('button[aria-label="Live ROAS"]'))) return;
-      await page.click('button[aria-label="Live ROAS"]');
+    await part(f, 'ad return', async () => {
+      const toggle = await page.$('button[aria-label="Show ad return"]');
+      if (!toggle) return;
+      await toggle.click();
       await page.waitForTimeout(300);
-      await scan(page, 'Live ROAS mode', f);
-      await page.click('button[aria-label="Edit Canvas"]');
+      await scan(page, 'ad return', f);
+      await toggle.click();
       await page.waitForTimeout(300);
     }, page);
     const ids = await page.evaluate(() => [...document.querySelectorAll('.react-flow__node')].map(n => n.getAttribute('data-id')));
@@ -776,12 +775,7 @@ async function everyState(browser, base, scan) {
       await dismissModals(page);
     }, page);
     await part(f, 'Forecaster', async () => {
-      if (!(await clickButton(page, 'More'))) return;
-      const item = (await page.evaluateHandle(() => [...document.querySelectorAll('[role="menuitem"]')].find(b => b.textContent.includes('ROAS Forecaster')) ?? null)).asElement();
-      if (!item) return;
-      // The keyboard path, so a panel that overlaps the menu cannot block the choice.
-      await item.focus();
-      await page.keyboard.press('Enter');
+      if (!(await clickButton(page, 'Ad return'))) return;
       await page.waitForTimeout(400);
       await scan(page, 'Forecaster', f);
     }, page);
@@ -1125,28 +1119,29 @@ export async function checkHeaderFits(browser, { base }) {
         if (named && !shown) f.push(`${width}px${state}: Check design's name "${name}" says a store score the row does not show`);
         else if (shown && !named) f.push(`${width}px${state}: Check design's name "${name}" leaves out the store score its pill shows`);
       }
-      for (const mode of ['Edit Canvas', 'Live ROAS']) {
-        const toggle = await page.$(`button[aria-label="${mode}"]`);
-        if (toggle) { await toggle.click(); await page.waitForTimeout(250); }
+      for (const mode of ['edit', 'ad return']) {
+        if (mode === 'ad return') {
+          const toggle = await page.$('button[aria-label="Show ad return"]');
+          if (toggle && (await toggle.getAttribute('aria-pressed')) !== 'true') {
+            await toggle.click();
+            await page.waitForTimeout(250);
+          }
+        }
         const r = await page.evaluate(() => {
           const bar = document.querySelector('[aria-label="Journey tools"]');
           if (!bar) return null;
-          // One row when every item shares a horizontal band (align-items: center moves tops apart).
-          // The items inside each group count too: a group that wraps inside itself grows taller
-          // while the other group stays centred beside it, so the two groups alone still overlap.
+          // The items inside each group count too, so a group that wraps inside itself is seen.
           // An empty item (the save status before any edit) has no height and is left out.
+          // Wrapping is allowed. Save and Publish still have to be on screen.
           const rects = [...bar.children].flatMap(c => [c, ...c.children]).map(c => c.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0);
-          const band = Math.min(...rects.map(r => r.bottom)) - Math.max(...rects.map(r => r.top));
           const inView = t => { const b = [...bar.querySelectorAll('button')].find(x => x.textContent.trim().startsWith(t)); if (!b) return 'missing'; const r = b.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; };
-          // A ROAS figure (the ribbon's headline or the pill's), never the Live ROAS toggle's label.
           const roas = [...bar.querySelectorAll('[data-metric]')].some(el => { const r = el.getBoundingClientRect(); return /ROAS/.test(el.textContent) && r.width > 0 && r.left >= 0 && r.right <= innerWidth; });
-          return { oneRow: band > 0, save: inView('Save'), publish: inView('Publish'), roas };
+          return { measured: rects.length > 0, save: inView('Save'), publish: inView('Publish'), roas };
         });
         if (!r) { f.push(`${width}px: no toolbar named "Journey tools"`); continue; }
-        if (!r.oneRow) f.push(`${width}px ${mode}${state}: the toolbar wraps onto more than one row`);
         if (r.save !== true) f.push(`${width}px ${mode}${state}: Save is ${r.save === 'missing' ? 'missing' : 'off screen'}`);
         if (r.publish !== true) f.push(`${width}px ${mode}${state}: Publish is ${r.publish === 'missing' ? 'missing' : 'off screen'}`);
-        if (mode === 'Live ROAS' && width >= ROAS_SHOWN_FROM_PX && !r.roas) f.push(`${width}px ${mode}${state}: the toolbar shows no ROAS figure`);
+        if (mode === 'ad return' && width >= ROAS_SHOWN_FROM_PX && !r.roas) f.push(`${width}px ${mode}${state}: the toolbar shows no ROAS figure`);
       }
       if (store) {
         // The control: a store case that never connected would pass on the plain row. Below the
@@ -1158,15 +1153,9 @@ export async function checkHeaderFits(browser, { base }) {
     });
   }
   await withApp(browser, { base, viewport: { width: 390, height: 844 } }, async page => {
-    const reach = await page.evaluate(() => ['Save', 'Publish'].map(t => [...document.querySelectorAll('button, [role="menuitem"]')].some(b => b.textContent.trim().startsWith(t) && b.getClientRects().length)));
-    const inMore = async t => {
-      if (!(await clickButton(page, 'More'))) return false;
-      const found = await page.evaluate(w => [...document.querySelectorAll('[role="menuitem"]')].some(b => b.textContent.includes(w)), t);
-      await page.keyboard.press('Escape');
-      return found;
-    };
-    if (!reach[0] && !(await inMore('Save'))) f.push('390px: Save cannot be reached');
-    if (!reach[1] && !(await inMore('Publish'))) f.push('390px: Publish cannot be reached');
+    const reach = await page.evaluate(() => ['Save', 'Publish'].map(t => [...document.querySelectorAll('[aria-label="Journey tools"] button')].some(b => b.textContent.trim().startsWith(t) && b.getClientRects().length)));
+    if (!reach[0]) f.push('390px: Save cannot be reached');
+    if (!reach[1]) f.push('390px: Publish cannot be reached');
   });
   return f;
 }
@@ -1182,7 +1171,8 @@ export async function checkAriaPressed(browser, { base }) {
       await page.waitForTimeout(200);
       const after = await toggle.getAttribute('aria-pressed');
       const name = await toggle.getAttribute('aria-label');
-      if (before !== 'true' || after !== 'false') f.push(`retention toggle aria-pressed went ${before} to ${after}`);
+      // A starter map has no rescue step, so the layer starts hidden and keeps the retention name.
+      if (before !== 'false' || after !== 'true') f.push(`retention toggle aria-pressed went ${before} to ${after}`);
       if (name !== 'Retention flows') f.push(`retention toggle name changed to ${name}`);
     }
     await keyboardFocus(page, stepSel('node-page-1'));

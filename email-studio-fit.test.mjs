@@ -47,8 +47,9 @@ test('the Email Studio banner wraps at phone width instead of pushing its button
   const group = suite.slice(suite.lastIndexOf("<div style={{ display: 'flex'", suite.indexOf('{isConnected ?', h1)), suite.indexOf('{isConnected ?', h1));
   assert.match(group, /flexWrap: 'wrap'/, 'the button group must wrap');
   assert.ok(back > 0);
-  // "E-Commerce" is kept whole, so the title never breaks as "E-" / "Commerce".
-  assert.match(suite.slice(h1, h1 + 300), /whiteSpace: 'nowrap' }}>E-Commerce</);
+  // The heading is the single name "Email Studio".
+  const heading = suite.slice(h1, suite.indexOf('</h1>', h1));
+  assert.match(heading, />\s*Email Studio\s*$/);
 });
 
 test('a list count is shown only once the list was loaded, never a 0 nobody measured', async () => {

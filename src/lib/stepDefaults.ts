@@ -94,7 +94,10 @@ export function newStepData(type: NodeType, stamp: string): JourneyNodeData {
         buttonText: 'Continue',
         visitors: 0,
         conversions: 0,
-        conversionRate: 0
+        conversionRate: 0,
+        // A brand-new page starts these off. A page saved without the field still publishes them on.
+        mobileStickyBarEnabled: false,
+        socialProofWallEnabled: false
       };
     case 'lead-form':
       return {
