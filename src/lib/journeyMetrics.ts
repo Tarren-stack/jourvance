@@ -21,7 +21,7 @@ import type { JourneyEdge, JourneyNode, NodeType } from '../types/journey';
 
 // ── Basis and range ───────────────────────────────────────────────────────────
 
-/** Where a figure came from. Jourvance has no demo numbers, so nothing emits 'Demo'. */
+/** Where a figure came from. Live metrics never emit 'Demo'; the homepage labels its own example. */
 export type Basis = 'Measured' | 'Estimated' | 'Demo';
 export type RangeDays = 7 | 30 | 90;
 

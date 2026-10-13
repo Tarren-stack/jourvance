@@ -106,7 +106,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             }}
           >
             <Sparkles style={{ width: '14px', height: '14px', color: '#818CF8' }} />
-            <span>Universal SaaS for all businesses • Live on jourvance.com</span>
+            <span>Built by a marketer. Made for your business.</span>
           </div>
 
           {/* Main H1 */}
@@ -136,8 +136,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
               margin: '0 auto 2.5rem'
             }}
           >
-            Stop losing qualified leads between disconnected ad dashboards, landing page builders, and email silos.
-            Design your full conversion pipeline from first ad click to booked customer on a live interactive canvas.
+            Bring your landing pages, forms, and follow-up together on one visual canvas.
+            Plan the journey you want customers to take, then build each step with a clear next action.
           </p>
 
           {/* Primary & Secondary Action Buttons */}
@@ -208,6 +208,36 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
           <Suspense fallback={<div className="home-canvas-preview-loading" role="status">Loading canvas example...</div>}>
             <HomeCanvasPreview onOpenCanvas={() => onNavigate('canvas')} />
           </Suspense>
+        </div>
+      </section>
+
+      {/* Founder story */}
+      <section aria-labelledby="home-founder-heading" style={{ maxWidth: '1000px', margin: '0 auto', padding: '0 2rem 4rem' }}>
+        <div style={{ backgroundColor: '#111827', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '16px', padding: 'clamp(1.5rem, 4vw, 3rem)' }}>
+          <h2 id="home-founder-heading" style={{ fontSize: 'clamp(1.5rem, 3vw, 2rem)', fontWeight: 800, color: '#FFFFFF', marginBottom: '1.25rem' }}>
+            Why I built Jourvance
+          </h2>
+          <figure style={{ margin: 0 }}>
+            <blockquote style={{ margin: 0, fontSize: '1.125rem', lineHeight: 1.7, color: '#CBD5E1', maxWidth: '65ch' }}>
+              <p>I've spent eight years in marketing. Jourvance brings together what I've learned and the tools I've needed along the way.</p>
+            </blockquote>
+            <figcaption style={{ marginTop: '1.25rem', fontSize: '0.95rem', lineHeight: 1.6 }}>
+              <strong style={{ display: 'block', color: '#FFFFFF' }}>Tarren Munoz</strong>
+              <span style={{ color: '#94A3B8' }}>Founder, Jourvance</span>
+            </figcaption>
+          </figure>
+          <a
+            href="/about"
+            onClick={event => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+              event.preventDefault();
+              onNavigate('about');
+            }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', minHeight: '44px', marginTop: '1rem', color: '#A5B4FC', fontSize: '1rem', fontWeight: 700, textUnderlineOffset: '0.2em' }}
+          >
+            Read the Jourvance story
+            <ArrowRight aria-hidden="true" size={18} style={{ flexShrink: 0 }} />
+          </a>
         </div>
       </section>
 
@@ -296,13 +326,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
       <section style={{ padding: '6rem 2rem', maxWidth: '1240px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
           <span style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-            The Complete Conversion Platform
+            Tools for everyday marketing
           </span>
           <h2 style={{ fontSize: 'clamp(2rem, 4vw, 2.75rem)', fontWeight: 800, letterSpacing: '-0.025em', marginTop: '0.5rem', color: '#FFFFFF' }}>
-            Five Dedicated Builders. One Intelligent Pipeline Map.
+            Build each step with the whole journey in view.
           </h2>
           <p style={{ fontSize: '1.05rem', color: '#94A3B8', maxWidth: '720px', margin: '0.75rem auto 0', lineHeight: 1.6 }}>
-            Stop subscribing to 5 disconnected tools. Jourvance unites your landing pages, ad creatives, lead intake forms, and automated email follow-ups on a single interactive canvas.
+            Plan your campaign, create its pages and messages, and connect the next steps. Keep the work together as your idea takes shape.
           </p>
         </div>
 
@@ -370,13 +400,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  The Master Orchestrator
+                  See how the pieces connect
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
                   Visual Customer Journey Canvas
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Traditional setups keep your ads in Meta Ads Manager, your pages in Unbounce, your forms in Typeform, and your follow-ups in ActiveCampaign. Jourvance places your entire pipeline onto a living visual graph with live conversion-rate edges between every step.
+                  See how your landing page and follow-up work together before you launch. Map the path from first interest to the next conversation, with each step in view.
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
@@ -481,13 +511,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  High-Speed Conversion Engineering
+                  Give your offer a clear next step
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
                   Full Website & Landing Page Builder
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Generic website builders overwhelm visitors with navigation menus and generic copy. Jourvance builds focused, single-offer landing pages designed for one action: turning an interested visitor into a qualified lead.
+                  Build a focused page around your offer. Shape the message, arrange the content, and preview it at desktop and mobile sizes before you publish.
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
@@ -592,13 +622,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  Audience Acquisition
+                  Keep your message connected
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
                   Multi-Channel Ad Creative Studio
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Don't draft ad copy in Google Docs and lose track of which angle connects to which page. Jourvance formats your ad copy, headlines, and hooks directly inside the pipeline, generating synchronized UTM links automatically.
+                  Keep your ad ideas beside the pages they lead to. Draft the headline, message, and next step together so your campaign tells a consistent story.
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
@@ -690,13 +720,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  Automated Conversion Nurture
+                  Plan the conversation after signup
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
                   Email & Drip Sequence Builder
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Leads turn cold within hours if follow-ups are delayed or disconnected. Jourvance sequences timed automated emails triggered instantly upon form completion to maintain conversion momentum.
+                  Plan what happens after someone signs up. Write your follow-up emails and choose their timing so each message has a clear place in the customer journey.
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
@@ -790,13 +820,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  Frictionless Qualification
+                  Start with the right questions
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
                   Intake & Lead Capture Form Builder
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Long, tedious forms ruin conversions, while overly simple forms bring unqualified spam. Jourvance gives you an intuitive form builder to capture qualified prospects and route submissions immediately to your sales inbox or CRM.
+                  Ask for the details you need to start the conversation. Build a form that fits your offer and makes the next step clear.
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
@@ -882,13 +912,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  Clarity Over Confusion
+                  Learn what to improve next
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
                   Pipeline Attribution & Drop-Off Analytics
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Most marketers don't know where their funnels leak. Jourvance computes throughput across every connecting edge, showing you exact traffic volumes, conversion percentages, and drop-off alerts at every stage.
+                  Use the data available for your journey to see where visitors continue and where they leave. Let those patterns guide what you test next.
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
@@ -1358,10 +1388,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
           }}
         >
           <h2 style={{ fontSize: 'clamp(2rem, 3.5vw, 2.75rem)', fontWeight: 800, marginBottom: '1rem', color: '#FFFFFF' }}>
-            Ready to Build Your High-Converting Journey?
+            Put your next marketing idea into action.
           </h2>
           <p style={{ fontSize: '1.05rem', color: '#CBD5E1', maxWidth: '600px', margin: '0 auto 2rem' }}>
-            Open the live visual canvas, load the Turnkey Blueprint, and see your entire customer pipeline in under 60 seconds.
+            Open the canvas, start with a blueprint, and build a customer journey around your business.
           </p>
           <button
             onClick={() => onNavigate('canvas')}

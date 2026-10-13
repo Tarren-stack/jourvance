@@ -105,6 +105,64 @@ plants, W3.B 35 and 38, W3.C 36 and 20, W3.D 4 plus 1, W3.H 9 and 11, the SIGTER
 probes (five reviewers, probes under the session scratchpad); the design and accessibility measurements.
 Each reviewer was given the code and told to break it, not given the builder's conclusion.
 
+## 2026-10-11: Populated homepage upsell and downsell example
+
+**Limits first:** 3 live-server tests remain skipped (`JOURVANCE_LIVE_TEST_URL` unset).
+The existing full suite is green, never seen red by fault injection in this pass.
+The new branch and buyer-math tests were observed red under the fault described below.
+No production services, deployment, screen-reader speech, Safari or Firefox were checked.
+These follow-up changes are included in the public-pages commit. Deployment was not checked.
+
+The owner explicitly requested fictional example data, then an example with upsells
+and downsells. `homeCanvasExample.ts` now supplies a separate six-node store campaign
+to the homepage's real canvas components: ad, $49 Everyday Carry Kit, $24 Travel
+Organizer Bundle upsell, $12 Compact Cable Pouch downsell, confirmation, and customer
+follow-up. Declining the upsell reveals the downsell. Both downsell choices and an
+accepted upsell reach confirmation. The page's parallel follow-up line starts the
+three-email customer sequence on purchase, using existing editor connection rules.
+
+Sample figures reconcile: 120 purchases; 36 upsell accepts and 84 declines; 21 downsell
+accepts and 63 declines; 120 confirmations. Fictional main-offer revenue is $5,880,
+upsell revenue $864, downsell revenue $252, and total attributed revenue $6,996.
+These are authored example values, not measured business results. The preview heading
+and each card label them as demo data; accessible step descriptions include the prices,
+branch destinations, email waits, and sample counts. Edge figures use the shared rate
+calculation with a Demo basis and no performance grade. The metrics context has no live
+snapshot. No provider resource IDs, storage calls or stats client are added, and the
+editor's default journey is unchanged. Prior founder-copy changes are preserved.
+
+Verification performed by Codex after the implementation changes:
+
+- `npx tsc --noEmit`: exit 0.
+- Vite `build()` with a fresh empty `envDir`: exit 0, output
+  `/private/tmp/jv-home-offers-dist`. Existing large-chunk warning remains.
+- `node --test home-canvas-example.test.mjs`: 4 passed, 0 failed, 0 skipped. Covers
+  legal connections, both outcomes on each offer, buyer/revenue arithmetic, Demo
+  labeling without live resources, and independent factory instances.
+- In `/private/tmp/jv-home-offers-fault-b2vmEZ`, changed only the downsell decline
+  source handle to a nonexistent handle. The branch and arithmetic tests failed
+  (2 failed, 2 passed). Restoring the original temporary source returned all 4 to green.
+  The working-tree implementation was not altered for this negative control.
+- `npm test`: exit 0; 2,754 tests, 2,751 passed, 0 failed, 3 skipped. Log:
+  `/private/tmp/jv-home-offers-tests.log`.
+- `node /private/tmp/jv-home-offers-check.mjs`: exit 0; 332 assertions passed at
+  1440, 390, 640 and 320 CSS pixels. Booted a credential-free temporary copy of actual
+  `server.mjs`; GET `/` returned 200 and the built app. No `.env` or account stores
+  were copied, server fetch was disabled, and Chrome blocked API/outside requests.
+- Browser assertions checked six real cards, seven rendered connections, both actual
+  offer node variants, the Demo heading and per-card notes, exact populated counts,
+  offer prices/revenue and branch explanations. Every card fits at zoom 1 when selected;
+  native keyboard navigation, visible focus, pressed states, 44px controls, scrolling,
+  overview, no page width overflow, inert behavior and saved-journey preservation passed.
+  The studio CTA opened the existing saved four-node journey. No uncaught browser errors.
+- Removed an edge in the browser DOM, observed the seven-connection assertion reject
+  it, then reloaded and confirmed all seven returned. Viewed the desktop overview and
+  phone downsell screenshots. Screenshots: `/private/tmp/jv-home-offers-shots/`;
+  browser log: `/private/tmp/jv-home-offers-browser.log`.
+- All browser contexts used reduced motion. The 640px context used device scale 2
+  as a reflow model, not browser-menu 200% zoom. No full accessibility scan was run.
+- `git diff --check` and byte comparison of both Truth Protocol copies: exit 0.
+
 ## 2026-10-12: Ask Jourvance wave 2, training off real user data and full AI grounding
 
 **Limits first.** Not deployed; not pushed. The hub side (learn quality, the replaceable studio
@@ -337,6 +395,74 @@ That process was stopped; the final harness explicitly terminates its own tempor
 server and exits 0. No server lifecycle code was changed in the app.
 
 Brief and plan: `docs/designpowers/briefs/2026-10-11-home-canvas.md`.
+
+## 2026-10-09: Founder voice across the public pages
+
+**Limits first:** 3 live-server tests were skipped because `JOURVANCE_LIVE_TEST_URL`
+was unset. The unit suite is green, never seen red by fault injection for this copy
+pass. The browser founder-copy check has a negative control; the other browser
+assertions were not individually fault-planted. Not committed or pushed in this pass;
+deployment was not checked.
+
+The owner approved extending the About story through the public copy. Changes:
+
+- `HomePage.tsx`: founder badge; compact attributed founder note with a real `/about`
+  link; practical introductory copy for all six feature panels; revised hero support,
+  feature overview, and final CTA text. The founder note says eight years of current
+  marketing experience without implying a separate founding date.
+- `PublicFooter.tsx`: the shared brand paragraph reflects the marketing background;
+  its text uses the existing muted text color for greater contrast.
+- `ContactPage.tsx`: an approachable headline, invitation, and support paragraph.
+  The revised paragraph does not make the old under-12-hour response promise.
+- `BlogPage.tsx`: plain-language listing headline and introduction.
+- Brief and implementation plan:
+  `docs/designpowers/briefs/2026-10-09-public-founder-voice.md`; decisions and state:
+  `design-state.md`.
+
+### Verification run by the main agent after the final copy change
+
+- `npx tsc --noEmit`: exit 0.
+- `npm test` with localhost access: exit 0; 2,750 tests, 2,747 passed, 0 failed,
+  0 cancelled, 3 skipped. The three skips are live domain authentication, public-lead
+  CORS, and check-slug. Log: `/private/tmp/jourvance-public-voice-tests-final.log`.
+- Vite `build()` using a fresh empty `envDir` and
+  `/private/tmp/jourvance-public-voice-dist` as `outDir`: exit 0. The build read no
+  project `.env`; the existing large-chunk warning remains.
+- `node /private/tmp/jourvance-public-voice-check.mjs`: exit 0, 111 assertions passed.
+  Booted a temporary copy of the actual `server.mjs`, with no `.env`, account data,
+  or inherited credentials. Real GET `/`, `/about`, `/contact`, and `/blog` returned
+  200 and the built app. Browser API and outside requests were all blocked (36).
+- Chrome at 1440px, 390px, and 640 CSS pixels with device scale 2: checked the changed
+  copy, shared footer on all four routes, one h1 per route, all six feature tabs, and
+  the existing blog category filter. The changed text fits the viewport. No uncaught
+  page errors occurred. The 640px case models reflow at 200% in a 1280px window; it is
+  not an actual browser-menu zoom test.
+- New founder link: verified real `/about` href, Tab focus with a visible outline,
+  at least 44px target dimensions, text contrast above 4.5:1, Enter navigation to the
+  actual About story, and browser Back returning to Home at every tested size.
+- Negative control: replaced the founder paragraph in the desktop DOM, observed the
+  copy-presence check reject it, then restored the exact text and checked it again.
+- Viewed desktop and mobile founder screenshots, the mobile Contact screenshot, and
+  the desktop blog screenshot. Artifacts: `/private/tmp/jourvance-public-voice-shots/`;
+  browser log: `/private/tmp/jourvance-public-voice-browser.log`.
+- `git diff --check`: exit 0. A scan of added lines in the four public components
+  found no em dash or spaced en dash. The two Truth Protocol files remain identical.
+
+### Scope and remaining verification limits
+
+No real contact inquiry was sent. No live integrations, screen-reader speech,
+Safari, Firefox, or full automated accessibility scan were tested. Existing pricing,
+performance claims, sample metrics, blog articles, and support operations were not
+audited. The wide-element diagnostic listed one empty div on the mobile homepage;
+no changed text overflowed. The hero has a pre-existing 600px decorative glow inside
+an overflow-hidden section; that is the likely source, inferred from source rather
+than separately identified in the browser.
+
+The independent content-writer review was source-only. It flagged that "After eight
+years ... I built" implied a founding chronology the owner had not supplied; the
+main agent changed this to "I've spent eight years in marketing" before the final
+build and browser checks. The reviewer reported no other material issue in the new
+copy. Existing legacy claims were outside its review.
 
 ## 2026-10-09: Email Studio, the four items the open-list round found
 

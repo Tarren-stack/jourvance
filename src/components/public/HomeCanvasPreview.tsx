@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Background, BackgroundVariant, MarkerType, ReactFlow, ReactFlowProvider,
   useNodesInitialized, useReactFlow, type NodeTypes, type EdgeTypes
@@ -6,28 +6,25 @@ import {
 import { ArrowRight, Scan, Workflow } from 'lucide-react';
 import { AdNode } from '../canvas/nodes/AdNode';
 import { PageNode } from '../canvas/nodes/PageNode';
-import { FormNode } from '../canvas/nodes/FormNode';
 import { SequenceNode } from '../canvas/nodes/SequenceNode';
+import { UpsellNode } from '../canvas/nodes/UpsellNode';
+import { ThankYouNode } from '../canvas/nodes/ThankYouNode';
 import { ConversionEdge } from '../canvas/edges/ConversionEdge';
 import { CanvasMetricsContext } from '../canvas/CanvasMetrics';
 import { EdgeLabelLayout } from '../canvas/EdgeLabelLayout';
 import { SemanticZoom } from '../canvas/SemanticZoom';
-import { DEFAULT_LEAD_CAPTURE_PROJECT } from '../../lib/defaultBlueprint';
-import { buildCanvasMetrics } from '../../lib/journeyMetrics';
+import { countText, measureValue, moneyText, percentText } from '../../lib/journeyMetrics';
+import { createHomeCanvasExample } from './homeCanvasExample';
 import { EDGE_KINDS, edgeKind } from '../../lib/edgeKinds';
 import type { JourneyNode, JourneyEdge } from '../../types/journey';
 
 const nodeTypes: NodeTypes = {
   'ad-source': AdNode, 'landing-page': PageNode,
-  'lead-form': FormNode, 'follow-up-sequence': SequenceNode
+  upsell: UpsellNode, 'thank-you': ThankYouNode, 'follow-up-sequence': SequenceNode
 };
 const edgeTypes: EdgeTypes = { conversion: ConversionEdge };
-// Copy the blueprint, including its nested data. Only this example's layout changes.
-const example = structuredClone(DEFAULT_LEAD_CAPTURE_PROJECT);
-const nodes: JourneyNode[] = example.nodes.map((node, index) => ({
-  ...node, position: { x: (index % 2) * 430, y: Math.floor(index / 2) * 340 }
-}));
-const edges: JourneyEdge[] = example.edges.map(edge => {
+const { nodes, edges: exampleEdges, metrics } = createHomeCanvasExample();
+const edges: JourneyEdge[] = exampleEdges.map(edge => {
   const target = nodes.find(node => node.id === edge.target);
   const color = EDGE_KINDS[edgeKind(edge.sourceHandle, target?.data)].color;
   return {
@@ -36,25 +33,38 @@ const edges: JourneyEdge[] = example.edges.map(edge => {
     markerEnd: { type: MarkerType.ArrowClosed, color, width: 26, height: 26, markerUnits: 'userSpaceOnUse' }
   };
 });
-const metrics = buildCanvasMetrics(nodes, edges, null);
 const steps = [
-  { name: 'Ad', description: 'An ad brings visitors to your landing page.' },
-  { name: 'Landing page', description: 'Your landing page introduces the offer and leads visitors to the form.' },
-  { name: 'Lead form', description: 'The form collects contact details from interested visitors.' },
-  { name: 'Follow-up', description: 'A follow-up flow organizes the emails that come next.' }
+  { name: 'Ad', description: 'An ad introduces the Everyday Carry Kit and brings visitors to the offer.' },
+  { name: 'Main offer', description: 'Visitors buy the $49 kit, then see an optional upgrade. Their purchase also starts the customer email flow.' },
+  { name: 'Upsell', description: 'Buyers can add the $24 Travel Organizer Bundle. Accepting leads to confirmation; declining reveals the smaller $12 offer.' },
+  { name: 'Downsell', description: 'Buyers who declined the bundle can add the $12 Compact Cable Pouch. Both accepting and declining lead to confirmation.' },
+  { name: 'Confirmation', description: 'Every buyer reaches the order confirmation, with or without an add-on.' },
+  { name: 'Follow-up', description: 'All buyers receive a receipt, useful kit tips and a check-in email. This flow starts with the purchase, alongside the optional offers.' }
 ];
 
 function stepDetails(node: JourneyNode): string[] {
   const data = node.data;
+  const measure = metrics.nodes[node.id].measure;
+  const count = (key: string) => countText(measureValue(measure, key));
+  const money = (key: string) => moneyText(measureValue(measure, key));
+  const rate = (key: string) => percentText(measureValue(measure, key));
   switch (data.type) {
     case 'ad-source':
-      return [data.platform === 'meta' ? 'Meta Ad (IG/FB)' : 'Paid ad', data.headline || 'No headline yet', data.body || 'No ad copy defined yet.'];
+      return [data.platform === 'meta' ? 'Meta Ad (IG/FB)' : 'Paid ad', data.headline, data.body,
+        `Demo results: ${count('clicks')} visits from ${moneyText(data.spend)} ad spend. ${money('attributedRevenue')} attributed revenue.`];
     case 'landing-page':
-      return [`Page: /${data.slug}`, data.headline || 'No headline yet', data.subhead || 'No subheadline yet'];
-    case 'lead-form':
-      return [data.formTitle, `Fields: ${data.fields.filter(field => field.enabled).map(field => field.label).join(', ')}`, `Button: ${data.submitButtonText}`];
+      return [`Page: /${data.slug}`, data.headline, data.subhead,
+        `Demo results: ${count('visitors')} visitors, ${count('conversions')} purchases, ${rate('conversionRate')} conversion rate. ${money('grossRevenue')} from the main offer.`];
+    case 'upsell':
+      return [`${data.productTitle}: ${data.productPrice}`, data.headline, data.subhead,
+        `Accept: ${data.acceptButtonText}. Decline: ${data.declineButtonText}.`,
+        `Demo results: ${count('views')} buyers saw this offer, ${count('takes')} accepted, ${count('totalDeclines')} declined. ${rate('conversionRate')} take rate. ${money('attributedRevenue')} add-on revenue.`];
+    case 'thank-you':
+      return [data.headline, data.subhead, ...(data.usageGuideSteps || []),
+        `Demo results: ${count('pageViews')} buyers reached confirmation.`];
     case 'follow-up-sequence':
-      return [data.sequenceTitle, ...data.steps.map((email, index) => `${index + 1}. ${email.subject || 'No subject yet'} (${email.delay})`)];
+      return [data.sequenceTitle, ...data.steps.map((email, index) => `${index + 1}. ${email.subject} (${email.delay})`),
+        `Demo results: ${count('flowEnrolled')} enrolled, ${count('flowSent')} emails sent, ${count('flowOpened')} opened, ${count('flowClicked')} clicked. ${money('flowRevenue')} revenue.`];
     default:
       return [];
   }
@@ -80,14 +90,8 @@ export function HomeCanvasPreview({ onOpenCanvas }: { onOpenCanvas: () => void }
   const [chosenStep, setChosenStep] = useState<number | null | undefined>(undefined);
   const step = chosenStep === undefined ? (width >= 800 ? null : 0) : chosenStep;
   const description = step === null
-    ? 'An ad leads to a landing page, then a lead form and a follow-up email flow.'
+    ? 'Ad → $49 kit → $24 upsell. Decline the upsell to see a $12 downsell. All buyers reach confirmation and receive follow-up emails.'
     : steps[step].description;
-  const metricContext = useMemo(() => ({
-    ...metrics,
-    nodes: Object.fromEntries(Object.entries(metrics.nodes).map(([id, value]) => [id, {
-      ...value, note: 'Example only. No live results.'
-    }]))
-  }), []);
 
   useEffect(() => {
     const element = host.current;
@@ -102,8 +106,8 @@ export function HomeCanvasPreview({ onOpenCanvas }: { onOpenCanvas: () => void }
       <header className="home-canvas-preview__header">
         <div>
           <div className="home-canvas-preview__eyebrow"><Workflow size={16} aria-hidden="true" /> Inside the canvas</div>
-          <h2 id="home-canvas-title">A lead capture journey</h2>
-          <p>The real canvas, with a starter journey. Read-only example, no live results.</p>
+          <h2 id="home-canvas-title">An upsell and downsell journey <span className="home-canvas-preview__demo">Demo data</span></h2>
+          <p>A fictional store campaign on the real canvas. Explore its offers, branches and sample results.</p>
         </div>
         <button type="button" className="home-canvas-preview__open" onClick={onOpenCanvas}>
           Open the studio <ArrowRight size={16} aria-hidden="true" />
@@ -123,7 +127,7 @@ export function HomeCanvasPreview({ onOpenCanvas }: { onOpenCanvas: () => void }
         {/* The diagram is inert, like an image. The named controls and description above/below
             supply its accessible alternative without exposing the editor's inactive buttons. */}
         <div className="home-canvas-preview__diagram" aria-hidden="true" {...{ inert: '' }}>
-          <CanvasMetricsContext.Provider value={metricContext}>
+          <CanvasMetricsContext.Provider value={metrics}>
             <ReactFlowProvider>
               <EdgeLabelLayout>
                 <ReactFlow
@@ -147,7 +151,7 @@ export function HomeCanvasPreview({ onOpenCanvas }: { onOpenCanvas: () => void }
         <p>{description}</p>
         {step !== null && <ul>{stepDetails(nodes[step]).map((detail, index) => <li key={index}>{detail}</li>)}</ul>}
       </div>
-      <p className="home-canvas-preview__hint">Choose a step to see its details. Your saved journeys stay separate.</p>
+      <p className="home-canvas-preview__hint">Read-only example. Choose a step to see its details. Your saved journeys stay separate.</p>
     </section>
   );
 }

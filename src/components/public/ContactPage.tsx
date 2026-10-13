@@ -84,10 +84,11 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
               color: '#FFFFFF'
             }}
           >
-            Let's Talk About Your Customer Journey
+            Let's talk about what you're building.
           </h1>
-          <p style={{ fontSize: '1.15rem', color: '#94A3B8', maxWidth: '650px', margin: '0 auto' }}>
-            Have questions about integrating Jourvance, setting up custom funnel architectures, or partnership inquiries?
+          <p style={{ fontSize: '1.15rem', lineHeight: 1.6, color: '#94A3B8', maxWidth: '650px', margin: '0 auto' }}>
+            Tell us what you're building and where you need a hand. Have a question about Jourvance,
+            an idea for a campaign, or feedback from using the tools? We'd like to hear it.
           </p>
         </div>
 
@@ -95,11 +96,11 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
           {/* Left: Contact Channels */}
           <div>
             <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '1.25rem' }}>
-              Direct Support
+              Get in touch
             </h2>
             <p style={{ fontSize: '0.95rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '2rem' }}>
-              Our team operates with a strict under-12-hour response window. Whether you need assistance with an ad sequence
-              or custom landing page styling, reach out directly.
+              Share a little about your business and the page, form, or follow-up you're working on.
+              That context helps us understand what you need.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>

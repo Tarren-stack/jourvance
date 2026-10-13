@@ -19,6 +19,7 @@
 }
 .home-canvas-preview__eyebrow { display: flex; align-items: center; gap: 8px; color: #a5b4fc; font-size: 12px; font-weight: 700; }
 .home-canvas-preview h2 { margin: 8px 0; color: #f8fafc; font-size: 20px; line-height: 1.3; }
+.home-canvas-preview__demo { display: inline-block; vertical-align: middle; padding: 4px 8px; border: 1px solid #818cf8; border-radius: 6px; color: #c7d2fe; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .home-canvas-preview__header p { margin: 0; color: #94a3b8; font-size: 14px; line-height: 1.6; }
 :is(.home-canvas-preview__header, .home-canvas-preview__steps) button {
   display: inline-flex;

@@ -55,9 +55,8 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ onNavigate }) => {
               </span>
             </div>
 
-            <p style={{ fontSize: '0.875rem', lineHeight: '1.6', color: '#64748B', maxWidth: '340px' }}>
-              The universal customer journey & conversion flow platform. Connect ad campaigns, single-offer landers,
-              intake forms, and follow-up nurture sequences on an interactive visual canvas.
+            <p style={{ fontSize: '0.875rem', lineHeight: '1.6', color: '#94A3B8', maxWidth: '340px' }}>
+              Built from hands-on marketing experience to help you plan, create, and grow.
             </p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1.25rem' }}>

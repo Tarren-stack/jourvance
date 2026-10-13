@@ -235,10 +235,11 @@ export const BlogPage: React.FC<BlogPageProps> = ({ onNavigate }) => {
                   color: '#FFFFFF'
                 }}
               >
-                Conversion Engineering & Funnel Strategy
+                Practical ideas for your next campaign.
               </h1>
-              <p style={{ fontSize: '1.1rem', color: '#94A3B8', maxWidth: '650px', margin: '0 auto' }}>
-                Practical, actionable playbooks on customer journey mapping, landing page conversion, and automated follow-up.
+              <p style={{ fontSize: '1.1rem', lineHeight: 1.6, color: '#94A3B8', maxWidth: '650px', margin: '0 auto' }}>
+                Explore customer journeys, landing pages, and follow-up with a marketer's eye for the work behind each campaign.
+                Find an idea to try, adapt it to your business, and see what you learn.
               </p>
             </div>
 
