@@ -12,6 +12,9 @@ test('the homepage still shows Growth Pro and checkout starts from the billing d
   assert.match(home, /Growth Pro/);
   assert.match(home, /\$49/);
   assert.match(home, /\$39/);
+  assert.doesNotMatch(home, /Billing is not connected/);
+  assert.match(home, /Steps on the canvas/);
+  assert.doesNotMatch(home, /Open Rate|Funnel Health|industry avg|under 600ms|Holding your onboarding spot|Instant Team Alerts|leaking 40%/);
   assert.match(billing, /Jourvance Growth Pro/);
   assert.match(billing, /\$49/);
   assert.match(billing, /\$39/);

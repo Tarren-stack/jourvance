@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowRight, ShieldCheck, Zap, Target } from 'lucide-react';
+import { VIEW_LABEL } from '../../lib/studioLabels';
 
 interface AboutPageProps {
   onNavigate: (page: 'home' | 'about' | 'blog' | 'contact' | 'canvas') => void;
@@ -181,7 +182,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
               cursor: 'pointer'
             }}
           >
-            <span>Open Canvas Studio</span>
+            <span>{VIEW_LABEL.canvas}</span>
             <ArrowRight style={{ width: '16px', height: '16px' }} />
           </button>
         </div>

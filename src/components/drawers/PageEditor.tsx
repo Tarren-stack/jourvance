@@ -1562,8 +1562,46 @@ export const PageEditor: React.FC<Props> = ({
                   )}
                 </div>
 
+                {/* Direct Checkout / Booking URL (Stripe, Calendly, Google Calendar, or Custom Link) */}
+                <div
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}
+                >
+                  <label htmlFor={fid('checkout-url')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af' }}>
+                    Direct Checkout or Booking Destination Link (Optional):
+                  </label>
+                  <input
+                    id={fid('checkout-url')}
+                    type="url"
+                    value={data.checkoutUrl || ''}
+                    onChange={e => handleFieldChange('checkoutUrl', e.target.value)}
+                    placeholder="https://buy.stripe.com/... or https://calendar.google.com/..."
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: '#0a0a0f',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '12px',
+                      outline: 'none'
+                    }}
+                  />
+                  <p style={{ margin: 0, fontSize: '11px', color: '#64748b', lineHeight: 1.35 }}>
+                    Connects your call-to-action button to a Stripe Payment Link, Calendly, Google Calendar appointment, or custom intake URL with zero server costs.
+                  </p>
+                </div>
+
                 {/* Placeholder / Missing Variant Warning */}
-                {(isDemoVariantId(data.shopifyVariantId) || !data.shopifyVariantId || !data.shopifyProductTitle) && (
+                {!data.checkoutUrl && (isDemoVariantId(data.shopifyVariantId) || !data.shopifyVariantId || !data.shopifyProductTitle) && (
                   <div
                     style={{
                       backgroundColor: 'rgba(245, 158, 11, 0.12)',
@@ -1575,7 +1613,7 @@ export const PageEditor: React.FC<Props> = ({
                       lineHeight: '1.4'
                     }}
                   >
-                    ⚠️ <strong>Placeholder Product Active:</strong> Please select a real product from your Shopify catalog below so your 1-click checkout button connects to your live inventory.
+                    ⚠️ <strong>Placeholder Product Active:</strong> Please select a real product from your Shopify catalog below, or paste a direct payment or booking link above.
                   </div>
                 )}
 
@@ -2983,7 +3021,7 @@ export const PageEditor: React.FC<Props> = ({
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#64748b' }}>
-                      <span>✦ Dynamic UGC Active: pulls authentic reviews from completed orders with beauty preview fallback.</span>
+                      <span>✦ Dynamic UGC Active: pulls authentic reviews from completed orders with sample preview fallback.</span>
                     </div>
                   </div>
                 )}

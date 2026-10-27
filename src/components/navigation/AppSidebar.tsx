@@ -522,59 +522,73 @@ export const AppSidebar: React.FC<Props> = ({
                             color: '#FFFFFF'
                           }}
                         >
-                          {designCount > 0 ? designCount : 'OK'}
+                          {designCount > 0 ? designCount : 'Passed'}
                         </span>
                       </div>
                     )}
                   </button>
-
-                  {onOpenSimulator && (
-                    <button
-                      type="button"
-                      onClick={onOpenSimulator}
-                      aria-label={ACTION_LABEL.adReturn}
-                      title={ACTION_LABEL.adReturn}
-                      style={itemStyle(isExpanded, { color: '#34D399' })}
-                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(52, 211, 153, 0.1)')}
-                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                    >
-                      <TrendingUp size={16} color="#34D399" style={{ flexShrink: 0 }} />
-                      {isExpanded && <span>{ACTION_LABEL.adReturn}</span>}
-                    </button>
-                  )}
-
-                  {onOpenShopifySync && (
-                    <button
-                      type="button"
-                      onClick={onOpenShopifySync}
-                      data-shopify-sync-trigger
-                      aria-label="Shopify Sync"
-                      title="Shopify Sync"
-                      style={itemStyle(isExpanded, { color: '#38BDF8' })}
-                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(56, 189, 248, 0.1)')}
-                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                    >
-                      <Zap size={16} color="#38BDF8" style={{ flexShrink: 0 }} />
-                      {isExpanded && <span>Shopify Sync</span>}
-                    </button>
-                  )}
-
-                  {onExportAssets && (
-                    <button
-                      type="button"
-                      onClick={onExportAssets}
-                      data-export-trigger
-                      aria-label="Export Assets"
-                      title="Export Assets"
-                      style={itemStyle(isExpanded, { color: '#818CF8' })}
-                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(129, 140, 248, 0.1)')}
-                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                    >
-                      <Download size={16} color="#818CF8" style={{ flexShrink: 0 }} />
-                      {isExpanded && <span>Export Assets</span>}
-                    </button>
-                  )}
                 </div>
+
+                {(onOpenSimulator || onOpenShopifySync || onExportAssets) && (
+                  <>
+                    <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.08)', margin: '4px 0' }} />
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {isExpanded && (
+                        <span style={{ fontSize: '10px', fontWeight: 700, color: '#64748B', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Tools
+                        </span>
+                      )}
+
+                      {onOpenSimulator && (
+                        <button
+                          type="button"
+                          onClick={onOpenSimulator}
+                          aria-label={ACTION_LABEL.adReturn}
+                          title={ACTION_LABEL.adReturn}
+                          style={itemStyle(isExpanded, { color: '#34D399' })}
+                          onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(52, 211, 153, 0.1)')}
+                          onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <TrendingUp size={16} color="#34D399" style={{ flexShrink: 0 }} />
+                          {isExpanded && <span>{ACTION_LABEL.adReturn}</span>}
+                        </button>
+                      )}
+
+                      {onOpenShopifySync && (
+                        <button
+                          type="button"
+                          onClick={onOpenShopifySync}
+                          data-shopify-sync-trigger
+                          aria-label="Shopify Sync"
+                          title="Shopify Sync"
+                          style={itemStyle(isExpanded, { color: '#38BDF8' })}
+                          onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(56, 189, 248, 0.1)')}
+                          onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <Zap size={16} color="#38BDF8" style={{ flexShrink: 0 }} />
+                          {isExpanded && <span>Shopify Sync</span>}
+                        </button>
+                      )}
+
+                      {onExportAssets && (
+                        <button
+                          type="button"
+                          onClick={onExportAssets}
+                          data-export-trigger
+                          aria-label="Export Assets"
+                          title="Export Assets"
+                          style={itemStyle(isExpanded, { color: '#818CF8' })}
+                          onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(129, 140, 248, 0.1)')}
+                          onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <Download size={16} color="#818CF8" style={{ flexShrink: 0 }} />
+                          {isExpanded && <span>Export Assets</span>}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>

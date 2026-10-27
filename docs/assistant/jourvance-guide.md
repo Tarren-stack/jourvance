@@ -7,17 +7,17 @@ This guide is what Ask Jourvance reads from when someone asks how to use the app
 A journey is a map of the steps a customer moves through, from the ad to the thank-you page. Each step is a card on the canvas (`Funnel Canvas`). Lines between cards show where a person goes next.
 
 - Add a step with `Add Step` in the toolbar, or from the step palette in the sidebar. Click a card to open its panel and edit it.
-- `Edit Canvas` is the mode for building. `Live ROAS` shows spend, gross and return totals on the same map.
+- The canvas is the workspace for building. `Live ROAS` shows spend, gross and return totals on the same map.
 - Undo and Redo sit in the toolbar. The save status reads `Saved`, `Saved in this browser`, `Unsaved changes` or `Saved, not backed up`. Press `Save` to save at once.
-- `Test Lead Flow` walks the map as a visitor would. It is a simulation, and the follow-ups it shows are marked as not sent.
+- `Test Lead Flow` walks the map as a visitor would. You can switch between `Simulate as Lead` and `Simulate as Buyer` to test opt-ins or checkouts with order bumps. Follow-ups shown in simulation are marked not sent.
 - `Audit` (also shown as Check design) opens design checks on your lines and pages. They do not test your live pages.
 
 The step kinds:
 - `Ad Source` is where traffic comes from: a Meta ad, a Google search ad, a TikTok ad or organic traffic. You write the `Ad Headline`, the `Primary Text / Caption`, the `Call-To-Action Button` text and a `UTM Campaign Tag`. The preview shows how the ad would look. Jourvance does not place the ad.
-- `Landing Page` holds your offer: headline, copy, a Shopify product, an optional discount code and an optional order bump.
-- There is no separate checkout step. Checkout is a setting on the landing page, `Checkout Flow Mode`, with the choices `Direct to Checkout` and `2-Step Lead Gate`. With no Shopify store connected, the published button opens an email form instead of a checkout.
+- `Landing Page` holds your offer for any business model: headline, copy, a Shopify product or direct checkout link, an optional discount code and an optional order bump.
+- There is no separate checkout step. Checkout is a setting on the landing page, `Checkout Flow Mode`, with the choices `Direct to Checkout` and `2-Step Lead Gate`. With no Shopify store connected, the published button opens an email form or directs to a custom checkout URL.
 - `Lead Capture Form` collects emails. You set the `Form Heading`, the `Submit Button Text` and the `Post-Submit Confirmation Message`.
-- `Follow-Up Sequence` is the emails sent after someone joins, leaves checkout or buys. On the canvas it is read only. Edit its emails in Email Studio.
+- `Follow-Up Flow` is the emails sent after someone joins, leaves checkout or buys. On the canvas it is read only. Edit its emails in Email Studio.
 - `Post-Purchase Upsell` is an offer shown after an order. You can set it as an upsell or as a `Downsell Step`. Pick the product with `Browse Catalog` or enter a `Shopify Variant ID`.
 - `Thank-you page` is what a customer sees after ordering. Its buttons show only when you add a link for them.
 - `A/B Traffic Splitter` sends visitors to one of two pages and keeps each visitor on the same page. You can lock the winner with `Lock Branch A` or `Lock Branch B`.
@@ -77,7 +77,7 @@ Nothing is sent by drafting. Each draft counts toward the same hourly AI limit a
 ## Attribution reports
 
 Open `Attribution` from the sidebar. It ties ad clicks, page views, email sends, email clicks and Shopify orders to the same path, so you can see which channel an order came from.
-- Choose the range: `Last 7 Days`, `Last 30 Days` or `All Time`.
+- Choose the range: `Last 7 days`, `Last 30 days` or `All time`.
 - Channel comes from the ad click, the page or the email. A discount code stays on the order.
 - The table shows each channel with its leads, orders, attributed revenue and ROAS. A lead journey shows the acquisition view only. A journey that sells also shows the offers and ROI views.
 - Recovered revenue counts orders that came back after a checkout was left or an upsell was declined.
@@ -133,7 +133,7 @@ You can disconnect a store from the connect window. People already imported stay
 
 ## Blueprints and the library
 
-A blueprint is a ready-made journey layout. Open `Blueprints` from the sidebar.
+A blueprint is a ready-made journey layout for any business model. Open `Blueprints` from the sidebar. Filter blueprints by category: `Lead Capture`, `Consultations & Services`, `Digital & Subscriptions`, `E-Commerce & Orders`, or `Retention & Recovery`.
 - `Turnkey Library` holds the starter blueprints. `Use Blueprint` loads one onto your canvas, and it replaces the journey you have open. If you have a Shopify catalog loaded, the blueprint links your products. If not, it starts with clean layouts.
 - `My Team Blueprints` holds blueprints you saved. They are shared across your workspaces.
 - `Save as Blueprint` saves the open journey as a blueprint. You give it a name, a type and notes. After saving you get a share link.
@@ -183,7 +183,7 @@ If Stripe is not set up on the server, checkout cannot start and says so.
 Select `Sign In` to sign in or create a free account. You can `Continue with Google` or use an email and password of at least 6 characters.
 - Signed in, your journeys are saved to your account and open on any device.
 - Signed out, you can still build. Journeys stay in this browser only, and clearing the browser data would remove them.
-- A workspace holds one Shopify store and its journeys' settings. `Create Workspace` adds one, and the workspace selector switches between them. Starter allows two.
+- A workspace holds one Shopify store and its journeys' settings. `Add New Workspace` adds one, and the workspace selector switches between them. Starter allows two.
 - Account settings in the sidebar show who you are signed in as, and have `Subscription Plan` and `Sign Out`.
 - The `Launch Playbook` lists milestones to go live: connect a store, pick a blueprint, set the offer, pass the checks and publish.
 
@@ -201,7 +201,7 @@ Say these plainly instead of guessing.
 - It does not publish or send anything from an AI draft. You review and create it first.
 - It does not guarantee results. ROAS Forecaster numbers are what-ifs from your own inputs.
 - It does not cancel a subscription in the app.
-- It has no checkout step. Checkout runs through your Shopify store.
+- It has no checkout step. Checkout runs through your Shopify store or a direct payment link.
 - If a number is not in the account data the assistant was given, it should say it does not have it and point to the screen that shows the nearest thing, such as `Attribution`.
 
 <!-- sources: src/components/drawers/AdEditor.tsx, src/components/billing/BillingModal.tsx, src/components/public/HomePage.tsx, src/components/campaign/SmsPanel.tsx, src/components/modals/AiJourneyBuilder.tsx, src/components/drawers/FinancialSimulatorDrawer.tsx, server/billing.mjs -->

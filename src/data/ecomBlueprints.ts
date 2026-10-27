@@ -707,7 +707,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     category: 'retention',
     badge: 'Flagship Retention Engine',
     expectedAovLift: '+38% Net Revenue Recovered',
-    description: 'Engineered for luxury skincare and modern wellness brands. Pairs high-converting front-end acquisition and 1-click upsells with automated 24h courtesy rescue and abandoned cart safety nets.',
+    description: 'Engineered for modern high-retention brands. Pairs high-converting front-end acquisition and 1-click upsells with automated 24h courtesy rescue and abandoned cart safety nets.',
     nodes: [
       {
         id: 'bp6-ad',

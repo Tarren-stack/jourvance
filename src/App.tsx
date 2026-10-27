@@ -17,7 +17,7 @@ import {
   type MetricsState,
   type RangeDays
 } from './lib/journeyMetrics';
-import { Compass } from 'lucide-react';
+import { Compass, Sparkles, Workflow } from 'lucide-react';
 import { CanvasHeader } from './components/toolbar/CanvasHeader';
 import { AppSidebar } from './components/navigation/AppSidebar';
 import { storeScoreFor } from './lib/funnelAuditor';
@@ -1028,6 +1028,95 @@ export const App: React.FC = () => {
                       color: '#E2E8F0',
                       pointerEvents: 'none'
                     }}>{VIEW_LABEL.canvas}</h1>
+
+                    {/* Quick-Start guidance when journey has no steps yet */}
+                    {project.nodes.length === 0 && (
+                      <div
+                        role="region"
+                        aria-label="Empty journey guidance"
+                        style={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          zIndex: 15,
+                          backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                          backdropFilter: 'blur(12px)',
+                          border: '1px solid rgba(255, 255, 255, 0.12)',
+                          borderRadius: '16px',
+                          padding: '28px 32px',
+                          maxWidth: '460px',
+                          width: '90%',
+                          textAlign: 'center',
+                          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '16px'
+                        }}
+                      >
+                        <div style={{
+                          width: '44px',
+                          height: '44px',
+                          borderRadius: '12px',
+                          backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                          border: '1px solid rgba(99, 102, 241, 0.3)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#818CF8'
+                        }}>
+                          <Sparkles size={22} />
+                        </div>
+                        <div>
+                          <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#FFFFFF', margin: '0 0 6px 0' }}>
+                            Start Your Customer Journey
+                          </h2>
+                          <p style={{ fontSize: '13px', color: '#94A3B8', margin: 0, lineHeight: 1.5 }}>
+                            Choose a turnkey blueprint tailored to your business model, or add your first step to start designing from scratch.
+                          </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', width: '100%', justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => { setBlueprintModalTab('turnkey'); setShowBlueprintModal(true); }}
+                            style={{
+                              padding: '9px 16px',
+                              borderRadius: '8px',
+                              backgroundColor: '#6366F1',
+                              border: 'none',
+                              color: '#FFFFFF',
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}
+                          >
+                            <Workflow size={15} />
+                            Browse Blueprints
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAddNode('ad-source')}
+                            style={{
+                              padding: '9px 16px',
+                              borderRadius: '8px',
+                              backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                              border: '1px solid rgba(255, 255, 255, 0.12)',
+                              color: '#E2E8F0',
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            + Add Ad Source
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* One canvas per journey, so no step position carries across a switch (#18) and a
                         new journey is fitted into view (#25). */}
                     <JourneyCanvas key={project.id}
@@ -1158,7 +1247,7 @@ export const App: React.FC = () => {
             )}
           </main>
 
-          <PublicFooter onNavigate={setActivePage} />
+          <PublicFooter onNavigate={setActivePage} onOpenBilling={() => setShowBillingModal(true)} />
         </div>
       )}
 

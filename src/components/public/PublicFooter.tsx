@@ -1,11 +1,23 @@
 import React from 'react';
-import { Layers, Globe, Shield, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Layers } from 'lucide-react';
+import { VIEW_LABEL } from '../../lib/studioLabels';
 
 interface PublicFooterProps {
   onNavigate: (page: 'home' | 'about' | 'blog' | 'contact' | 'canvas') => void;
+  onOpenBilling: () => void;
 }
 
-export const PublicFooter: React.FC<PublicFooterProps> = ({ onNavigate }) => {
+const linkStyle: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: '#94A3B8',
+  cursor: 'pointer',
+  textAlign: 'left',
+  padding: 0,
+  font: 'inherit'
+};
+
+export const PublicFooter: React.FC<PublicFooterProps> = ({ onNavigate, onOpenBilling }) => {
   return (
     <footer
       style={{
@@ -19,25 +31,19 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ onNavigate }) => {
         <div
           style={{
             display: 'grid',
-            // Four columns on a wide screen, one on a phone, so the footer never scrolls sideways at 390px.
-            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
             gap: '3rem',
             marginBottom: '3rem'
           }}
         >
-          {/* Brand Col */}
           <div>
-            <div
+            <button
+              type="button"
               onClick={() => onNavigate('home')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.75rem',
-                cursor: 'pointer',
-                marginBottom: '1rem'
-              }}
+              style={{ ...linkStyle, display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', color: '#F8FAFC' }}
             >
-              <div
+              <span
+                aria-hidden="true"
                 style={{
                   width: '34px',
                   height: '34px',
@@ -49,140 +55,73 @@ export const PublicFooter: React.FC<PublicFooterProps> = ({ onNavigate }) => {
                 }}
               >
                 <Layers style={{ width: '18px', height: '18px', color: '#ffffff' }} />
-              </div>
-              <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#F8FAFC', letterSpacing: '-0.02em' }}>
-                Jourvance
               </span>
-            </div>
+              <span style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em' }}>
+                Jourvance home
+              </span>
+            </button>
 
             <p style={{ fontSize: '0.875rem', lineHeight: '1.6', color: '#94A3B8', maxWidth: '340px' }}>
               Built from hands-on marketing experience to help you plan, create, and grow.
             </p>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1.25rem' }}>
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.35rem',
-                  fontSize: '0.75rem',
-                  color: '#10B981',
-                  backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                  padding: '0.2rem 0.6rem',
-                  borderRadius: '9999px',
-                  border: '1px solid rgba(16, 185, 129, 0.25)'
-                }}
-              >
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10B981' }}></span>
-                jourvance.com Registered & Active
-              </span>
-            </div>
           </div>
 
-          {/* Product Links */}
           <div>
-            <h4 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#E2E8F0', marginBottom: '1rem' }}>
+            <h2 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#E2E8F0', margin: '0 0 1rem' }}>
               Product
-            </h4>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.875rem' }}>
+            </h2>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.875rem', margin: 0, padding: 0 }}>
               <li>
-                <button onClick={() => onNavigate('canvas')} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
-                  Interactive Canvas Studio
+                <button type="button" onClick={() => onNavigate('canvas')} style={linkStyle}>
+                  {VIEW_LABEL.canvas}
                 </button>
               </li>
               <li>
-                <button onClick={() => onNavigate('home')} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
-                  Lead Capture Blueprint
-                </button>
-              </li>
-              <li>
-                <button onClick={() => onNavigate('home')} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
-                  Live Funnel Simulator
-                </button>
-              </li>
-              <li>
-                <button onClick={() => onNavigate('home')} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
-                  Pricing Plans
+                <button type="button" onClick={onOpenBilling} style={linkStyle}>
+                  Pricing
                 </button>
               </li>
             </ul>
           </div>
 
-          {/* Company Links */}
           <div>
-            <h4 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#E2E8F0', marginBottom: '1rem' }}>
+            <h2 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#E2E8F0', margin: '0 0 1rem' }}>
               Company
-            </h4>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.875rem' }}>
+            </h2>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.875rem', margin: 0, padding: 0 }}>
               <li>
-                <button onClick={() => onNavigate('about')} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
-                  About Us
+                <button type="button" onClick={() => onNavigate('about')} style={linkStyle}>
+                  About
                 </button>
               </li>
               <li>
-                <button onClick={() => onNavigate('blog')} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
-                  Conversion Blog
+                <button type="button" onClick={() => onNavigate('blog')} style={linkStyle}>
+                  Blog
                 </button>
               </li>
               <li>
-                <button onClick={() => onNavigate('contact')} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
-                  Contact & Support
+                <button type="button" onClick={() => onNavigate('contact')} style={linkStyle}>
+                  Contact
                 </button>
               </li>
               <li>
                 <a href="mailto:support@jourvance.com" style={{ color: '#94A3B8', textDecoration: 'none', overflowWrap: 'anywhere' }}>
-                  support@jourvance.com
+                  Email support@jourvance.com
                 </a>
-              </li>
-            </ul>
-          </div>
-
-          {/* Infrastructure / Security */}
-          <div>
-            <h4 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#E2E8F0', marginBottom: '1rem' }}>
-              Architecture
-            </h4>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.875rem' }}>
-              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748B' }}>
-                <CheckCircle2 style={{ width: '14px', height: '14px', color: '#6366F1' }} />
-                <span>Zero Server Bloat</span>
-              </li>
-              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748B' }}>
-                <CheckCircle2 style={{ width: '14px', height: '14px', color: '#6366F1' }} />
-                <span>Hub Brain RAG AI</span>
-              </li>
-              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748B' }}>
-                <CheckCircle2 style={{ width: '14px', height: '14px', color: '#6366F1' }} />
-                <span>WHOIS Protected</span>
-              </li>
-              <li style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748B' }}>
-                <CheckCircle2 style={{ width: '14px', height: '14px', color: '#6366F1' }} />
-                <span>Fails Open Locally</span>
               </li>
             </ul>
           </div>
         </div>
 
-        {/* Bottom copyright line */}
         <div
           style={{
             paddingTop: '2rem',
             borderTop: '1px solid rgba(255, 255, 255, 0.06)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
             fontSize: '0.8rem',
             color: '#64748B'
           }}
         >
-          <div>
-            © {new Date().getFullYear()} Jourvance (jourvance.com). All rights reserved. A Zelus Labs portfolio spoke.
-          </div>
-          <div style={{ display: 'flex', gap: '1.5rem' }}>
-            <span>Privacy Policy</span>
-            <span>Terms of Service</span>
-            <span>Security Sentinel Active</span>
-          </div>
+          © {new Date().getFullYear()} Jourvance (jourvance.com). All rights reserved. A Zelus Labs portfolio spoke.
         </div>
       </div>
     </footer>

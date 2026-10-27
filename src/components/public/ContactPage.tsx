@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Mail, MapPin, Clock, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Mail, MapPin, Clock, Send, CheckCircle2 } from 'lucide-react';
+import { VIEW_LABEL } from '../../lib/studioLabels';
 
 interface ContactPageProps {
   onNavigate: (page: 'home' | 'about' | 'blog' | 'contact' | 'canvas') => void;
@@ -13,13 +14,17 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
     message: ''
   });
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; email?: string; message?: string }>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.email || !formData.message) {
-      alert('Please fill out all required fields.');
-      return;
-    }
+    const next: { name?: string; email?: string; message?: string } = {};
+    if (!formData.name.trim()) next.name = 'Enter your name.';
+    if (!formData.email.trim()) next.email = 'Enter your email.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) next.email = 'Enter an email like name@company.com.';
+    if (!formData.message.trim()) next.message = 'Tell us what you need help with.';
+    setFieldErrors(next);
+    if (next.name || next.email || next.message) return;
 
     setStatus('submitting');
 
@@ -52,6 +57,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
       }
 
       setStatus('success');
+      setFieldErrors({});
       setFormData({ name: '', email: '', businessType: '', message: '' });
     } catch (err) {
       console.warn('[Jourvance] Contact submission notice:', err);
@@ -110,7 +116,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                   <Mail style={{ width: '20px', height: '20px', color: '#818CF8' }} />
                 </div>
                 <div>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#FFFFFF' }}>Email Support</h4>
+                  <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#FFFFFF', margin: 0 }}>Email support</h3>
                   <a href="mailto:support@jourvance.com" style={{ color: '#818CF8', fontSize: '0.9rem', textDecoration: 'none' }}>
                     support@jourvance.com
                   </a>
@@ -123,7 +129,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                   <MapPin style={{ width: '20px', height: '20px', color: '#38BDF8' }} />
                 </div>
                 <div>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#FFFFFF' }}>Headquarters</h4>
+                  <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#FFFFFF', margin: 0 }}>Office</h3>
                   <p style={{ color: '#94A3B8', fontSize: '0.9rem' }}>Los Angeles, CA</p>
                 </div>
               </div>
@@ -134,8 +140,8 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                   <Clock style={{ width: '20px', height: '20px', color: '#10B981' }} />
                 </div>
                 <div>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#FFFFFF' }}>Response Window</h4>
-                  <p style={{ color: '#94A3B8', fontSize: '0.9rem' }}>Monday – Saturday: 8:00 AM – 8:00 PM PST</p>
+                  <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#FFFFFF', margin: 0 }}>Hours</h3>
+                  <p style={{ color: '#94A3B8', fontSize: '0.9rem' }}>Monday to Saturday, 8:00 AM to 8:00 PM Pacific time</p>
                 </div>
               </div>
             </div>
@@ -149,9 +155,9 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                 border: '1px solid rgba(255, 255, 255, 0.08)'
               }}
             >
-              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#FFFFFF', marginBottom: '0.4rem' }}>
-                Looking to try the software first?
-              </h4>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#FFFFFF', margin: '0 0 0.4rem' }}>
+                Want to try it first?
+              </h3>
               <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '1rem' }}>
                 You can launch the full interactive canvas studio immediately without an account.
               </p>
@@ -168,7 +174,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                   cursor: 'pointer'
                 }}
               >
-                Launch Studio Canvas →
+                {VIEW_LABEL.canvas}
               </button>
             </div>
           </div>
@@ -220,17 +226,24 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <form noValidate onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: '#94A3B8' }}>Name, email, and message are required.</p>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.4rem' }}>
-                    Full Name *
+                  <label htmlFor="contact-name" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.4rem' }}>
+                    Full name (required)
                   </label>
                   <input
+                    id="contact-name"
                     type="text"
-                    required
+                    autoComplete="name"
+                    aria-invalid={fieldErrors.name ? true : undefined}
+                    aria-describedby={fieldErrors.name ? 'contact-name-error' : undefined}
                     placeholder="e.g. Alex Morgan"
                     value={formData.name}
-                    onChange={e => setFormData({ ...formData, name: e.target.value })}
+                    onChange={e => {
+                      setFormData({ ...formData, name: e.target.value });
+                      setFieldErrors(prev => ({ ...prev, name: undefined }));
+                    }}
                     style={{
                       width: '100%',
                       padding: '0.75rem',
@@ -242,18 +255,25 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                       outline: 'none'
                     }}
                   />
+                  {fieldErrors.name && <p id="contact-name-error" role="alert" style={{ margin: '0.4rem 0 0', fontSize: '0.8rem', color: '#FCA5A5' }}>{fieldErrors.name}</p>}
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.4rem' }}>
-                    Work Email *
+                  <label htmlFor="contact-email" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.4rem' }}>
+                    Work email (required)
                   </label>
                   <input
+                    id="contact-email"
                     type="email"
-                    required
+                    autoComplete="email"
+                    aria-invalid={fieldErrors.email ? true : undefined}
+                    aria-describedby={fieldErrors.email ? 'contact-email-error' : undefined}
                     placeholder="alex@yourcompany.com"
                     value={formData.email}
-                    onChange={e => setFormData({ ...formData, email: e.target.value })}
+                    onChange={e => {
+                      setFormData({ ...formData, email: e.target.value });
+                      setFieldErrors(prev => ({ ...prev, email: undefined }));
+                    }}
                     style={{
                       width: '100%',
                       padding: '0.75rem',
@@ -265,15 +285,17 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                       outline: 'none'
                     }}
                   />
+                  {fieldErrors.email && <p id="contact-email-error" role="alert" style={{ margin: '0.4rem 0 0', fontSize: '0.8rem', color: '#FCA5A5' }}>{fieldErrors.email}</p>}
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.4rem' }}>
-                    Business / Industry
+                  <label htmlFor="contact-business" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.4rem' }}>
+                    Business or industry (optional)
                   </label>
                   <input
+                    id="contact-business"
                     type="text"
-                    placeholder="e.g. Consulting, SaaS, Legal, Home Services"
+                    placeholder="For example, consulting, software, or home services"
                     value={formData.businessType}
                     onChange={e => setFormData({ ...formData, businessType: e.target.value })}
                     style={{
@@ -290,15 +312,20 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.4rem' }}>
-                    How can we help? *
+                  <label htmlFor="contact-message" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.4rem' }}>
+                    How can we help? (required)
                   </label>
                   <textarea
+                    id="contact-message"
                     rows={4}
-                    required
-                    placeholder="Describe your current funnel or what you'd like to achieve..."
+                    aria-invalid={fieldErrors.message ? true : undefined}
+                    aria-describedby={fieldErrors.message ? 'contact-message-error' : undefined}
+                    placeholder="The page, form, or follow-up you are working on"
                     value={formData.message}
-                    onChange={e => setFormData({ ...formData, message: e.target.value })}
+                    onChange={e => {
+                      setFormData({ ...formData, message: e.target.value });
+                      setFieldErrors(prev => ({ ...prev, message: undefined }));
+                    }}
                     style={{
                       width: '100%',
                       padding: '0.75rem',
@@ -311,7 +338,14 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                       resize: 'vertical'
                     }}
                   />
+                  {fieldErrors.message && <p id="contact-message-error" role="alert" style={{ margin: '0.4rem 0 0', fontSize: '0.8rem', color: '#FCA5A5' }}>{fieldErrors.message}</p>}
                 </div>
+
+                {status === 'error' && (
+                  <p role="alert" style={{ margin: 0, fontSize: '0.85rem', color: '#FCA5A5' }}>
+                    We could not send your message. Check your connection and try again.
+                  </p>
+                )}
 
                 <button
                   type="submit"

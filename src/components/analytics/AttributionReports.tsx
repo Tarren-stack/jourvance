@@ -55,6 +55,7 @@ export const AttributionReports: React.FC<Props> = ({
   // it is a named region with a tab stop, so a keyboard user can reach it in every browser and
   // scroll it with the arrow keys; when the whole table fits it is not a tab stop.
   const channelTableTitleId = useId();
+  const timeframeId = useId();
   const channelScrollRef = useRef<HTMLDivElement>(null);
   const [channelTableScrolls, setChannelTableScrolls] = useState(false);
   useEffect(() => {
@@ -346,25 +347,28 @@ export const AttributionReports: React.FC<Props> = ({
           </p>
           </div>
 
-          {/* Timeframe Selector */}
-          <select
-            value={timeframe}
-            onChange={e => setTimeframe(e.target.value as any)}
-            style={{
-              padding: '7px 12px',
-              backgroundColor: 'rgba(255, 255, 255, 0.06)',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
-              borderRadius: '8px',
-              color: '#F8FAFC',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
-          >
-            <option value="7d" style={{ backgroundColor: '#0F172A' }}>Last 7 Days</option>
-            <option value="30d" style={{ backgroundColor: '#0F172A' }}>Last 30 Days</option>
-            <option value="all" style={{ backgroundColor: '#0F172A' }}>All Time</option>
-          </select>
+          <label htmlFor={timeframeId} style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', fontWeight: 600, color: '#94A3B8' }}>
+            Date range
+            <select
+              id={timeframeId}
+              value={timeframe}
+              onChange={e => setTimeframe(e.target.value as '7d' | '30d' | 'all')}
+              style={{
+                padding: '7px 12px',
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                borderRadius: '8px',
+                color: '#F8FAFC',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              <option value="7d" style={{ backgroundColor: '#0F172A' }}>Last 7 days</option>
+              <option value="30d" style={{ backgroundColor: '#0F172A' }}>Last 30 days</option>
+              <option value="all" style={{ backgroundColor: '#0F172A' }}>All time</option>
+            </select>
+          </label>
 
           {/* Export CSV Button */}
           <button
@@ -1283,7 +1287,7 @@ export const AttributionReports: React.FC<Props> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Layers size={16} color="#818CF8" />
             <h2 id={channelTableTitleId} style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
-              Acquisition & Conversion Channel Breakdown
+              Results by channel
             </h2>
           </div>
 
@@ -1317,7 +1321,7 @@ export const AttributionReports: React.FC<Props> = ({
                   transition: 'all 0.15s ease'
                 }}
               >
-                Offer & AOV Lift
+                Offers and order value
               </button>
               <button
                 type="button"
@@ -1336,7 +1340,7 @@ export const AttributionReports: React.FC<Props> = ({
                   transition: 'all 0.15s ease'
                 }}
               >
-                Acquisition ROI
+                Ad return
               </button>
               <button
                 type="button"
@@ -1355,7 +1359,7 @@ export const AttributionReports: React.FC<Props> = ({
                   transition: 'all 0.15s ease'
                 }}
               >
-                All Metrics
+                All numbers
               </button>
             </div>
             )}
@@ -1381,34 +1385,34 @@ export const AttributionReports: React.FC<Props> = ({
                 color: '#94A3B8',
                 textAlign: 'left'
               }}>
-                <th style={{ padding: '12px 20px', fontWeight: 600 }}>Channel</th>
+                <th scope="col" style={{ padding: '12px 20px', fontWeight: 600 }}>Channel</th>
                 {tableMode !== 'offers' && (
                   <>
-                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>Ad Spend</th>
+                    <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Ad spend</th>
                     {tableMode === 'roi' && (
                       <>
-                        <th style={{ padding: '12px 14px', fontWeight: 600 }}>Clicks</th>
-                        <th style={{ padding: '12px 14px', fontWeight: 600 }}>Leads</th>
+                        <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Clicks</th>
+                        <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Leads</th>
                       </>
                     )}
                   </>
                 )}
-                <th style={{ padding: '12px 14px', fontWeight: 600 }}>Orders</th>
-                <th style={{ padding: '12px 14px', fontWeight: 600 }}>Attributed Revenue</th>
+                <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Orders</th>
+                <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Sales from this channel</th>
                 {tableMode !== 'roi' && (
                   <>
-                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>Base AOV</th>
-                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>Blended AOV</th>
-                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>AOV Expansion Lift</th>
-                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>Order Bump Attach</th>
-                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>1-Click OTO Attach</th>
+                    <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Starting {AOV_PHRASE} (AOV)</th>
+                    <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Average order value with add-ons (AOV)</th>
+                    <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Order value increase</th>
+                    <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Add-on take rate</th>
+                    <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Upsell take rate</th>
                   </>
                 )}
-                <th style={{ padding: '12px 14px', fontWeight: 600 }}>ROAS</th>
+                <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>{ROAS_STAT_NAME}</th>
                 {tableMode !== 'offers' && (
                   <>
-                    <th style={{ padding: '12px 14px', fontWeight: 600 }}>CAC</th>
-                    <th style={{ padding: '12px 20px', fontWeight: 600 }}>CVR</th>
+                    <th scope="col" style={{ padding: '12px 14px', fontWeight: 600 }}>Cost per customer (CAC)</th>
+                    <th scope="col" style={{ padding: '12px 20px', fontWeight: 600 }}>Conversion rate</th>
                   </>
                 )}
               </tr>
@@ -1591,11 +1595,11 @@ export const AttributionReports: React.FC<Props> = ({
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Clock size={16} color="#EC4899" />
-              <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>
-                Recent Attributed Purchases
-              </h3>
+              <h2 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>
+                Recent orders with a source
+              </h2>
             </div>
-            <span style={{ fontSize: '11px', color: '#64748B' }}>Verified Closed-Loop</span>
+            <span style={{ fontSize: '11px', color: '#64748B' }}>Matched to an order</span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

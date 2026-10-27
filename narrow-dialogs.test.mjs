@@ -205,7 +205,7 @@ test('the public header fits a 390px screen with Sign In and the account menu re
       assert.deepEqual(await page.evaluate(measure, 'header'), clean, `${view} at 390`);
       const wrapper = await page.evaluate(() => { const p = document.getElementById('page'); return p.scrollWidth - p.clientWidth; });
       assert.equal(wrapper, 0, `${view}: the page box does not scroll sideways`);
-      for (const name of ['Home', 'About', 'Blog', 'Contact', 'Pricing', 'Preview the page', 'Studio Canvas', view === 'header' ? 'Sign In' : 'Someone Longname']) {
+      for (const name of ['Home', 'About', 'Blog', 'Contact', 'Pricing', 'Test funnel', 'Funnel Canvas', view === 'header' ? 'Sign In' : 'Someone Longname']) {
         const b = await page.getByRole('button', { name }).boundingBox();
         assert.ok(b.x >= 0 && b.x + b.width <= 390, `${view}: ${name} spans ${b.x} to ${b.x + b.width}`);
       }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { BookOpen, Calendar, Clock, ArrowRight, ArrowLeft, CheckCircle2, Share2, Tag } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { VIEW_LABEL } from '../../lib/studioLabels';
 
 interface Article {
   id: string;
@@ -23,59 +24,59 @@ export const BlogPage: React.FC<BlogPageProps> = ({ onNavigate }) => {
   const articles: Article[] = [
     {
       id: 'art-lead-pipeline-2026',
-      title: 'The Anatomy of a High-Converting Lead Capture Pipeline in 2026',
+      title: 'A simple path from ad to follow-up',
       category: 'Lead Generation',
       readTime: '5 min read',
       date: 'Sept 20, 2026',
       excerpt:
-        'Why multi-page survey funnels are failing, and how a tight 4-node journey (Hook Ad → Single-Offer Lander → 3-Field Form → Automated Nurture) consistently converts over 25%.',
+        'A long form with many steps loses people. A short path works better: one ad, one page, a short form, and a follow-up email.',
       content: [
-        'Over-complicated marketing funnels are leaking money. For years, the prevailing wisdom told founders and agencies to build 7-step survey funnels with branching quiz logic. While that works for massive enterprise brands, small-to-medium service businesses suffer from brutal drop-off rates at every extra step.',
-        'High conversion in 2026 comes down to cognitive simplicity: one strong advertising hook, one single-offer landing page with zero distracting navigation, an intake form with no more than three fields, and an immediate confirmation email delivered in under 60 seconds.',
-        'When your landing page repeats the exact headline from your ad, visitor trust spikes. When your intake form only asks for Name, Work Email, and Phone Number, completion rates average 60%. And when your follow-up sequence arrives instantly, response rates double.'
+        'A long path loses people. Each extra page is a place they can leave.',
+        'Keep the path short. Use one ad, one page that repeats the ad, a form with three fields, and a follow-up email that goes out right away.',
+        'Use the same headline on the ad and the page. Ask only for a name, an email, and a phone number. Send the first email as soon as they submit the form.'
       ],
       takeaways: [
-        'Maintain exact message match between your ad creative and landing page headline.',
-        'Cap intake forms at 3 fields for initial contact (qualify deeper on the call).',
-        'Trigger the first follow-up letter instantly (0-minute delay) with a clear next step.'
+        'Use the same headline on the ad and the page.',
+        'Ask for three things on the first form. Ask for more on the call.',
+        'Send the first follow-up email right away, with one clear next step.'
       ]
     },
     {
       id: 'art-visual-mapping-advantage',
-      title: 'Why Visual Journey Mapping Beats Siloed Marketing Software Every Time',
+      title: 'See the whole journey in one place',
       category: 'Funnel Strategy',
       readTime: '4 min read',
       date: 'Sept 18, 2026',
       excerpt:
-        'When your ad manager, landing page software, and email autoresponder live in different tabs, you lose the mental model of the customer. Here is why visual pipeline mapping changes everything.',
+        'Ads, pages, and email often live in different tools. One map shows the path a customer actually takes.',
       content: [
-        'The biggest hidden tax in digital marketing is the "context switch tax." When you write an ad in Facebook Ads Manager, you are looking at audience demographics. When you write a landing page in a page builder, you are looking at layout grids. When you write an email in your CRM, you are looking at list tags.',
-        'The problem? Your customer experiences all three of these in one continuous, uninterrupted stream. If the tone, promise, or urgency shifts between the ad and the email, the prospect feels hesitation and abandons.',
-        'Visual journey modeling forces you to design the entire customer path in one viewport. You see the conversion rate directly on the edge connecting the page to the form. If drop-off is high, the problem is immediately obvious.'
+        'Ads, pages, and email often live in different tools. You write the ad in one place, the page in another, and the email in a third.',
+        'The customer sees one path. If the promise changes between the ad and the email, they hesitate and leave.',
+        'A map puts the whole path on one screen. You can see how many people move from the page to the form. A big drop shows you where to look.'
       ],
       takeaways: [
-        'Design customer journeys as continuous pipelines, not isolated assets.',
-        'Monitor conversion rates on the connections between steps to isolate bottlenecks.',
-        'Use live prospect simulation to experience the entire funnel from the visitor’s perspective.'
+        'Design the path as one journey, not as separate pieces.',
+        'Look at the line between two steps to find where people leave.',
+        'Walk the journey yourself before you send people to it.'
       ]
     },
     {
       id: 'art-email-mistakes',
-      title: '5 Follow-Up Email Mistakes That Kill Your Lead Conversion Rate',
+      title: 'Follow-up emails that get a reply',
       category: 'Email Automation',
       readTime: '6 min read',
       date: 'Sept 14, 2026',
       excerpt:
-        'You captured the lead — now what? Avoid these 5 deadly autoresponder mistakes that cause qualified leads to ghost your sales team.',
+        'The first two days after someone fills out your form decide whether they reply. These three habits help.',
       content: [
-        'Capturing a prospect’s email address is only the halfway mark. Most leads are lost in the first 48 hours because of poorly constructed follow-up sequences. The most common mistake is waiting hours or days before sending the first message.',
-        'The second mistake is sending overly branded HTML templates packed with banners, multi-column navigation, and three competing calls to action. In B2B and high-ticket service industries, clean plain-text emails with a single direct question get 3x more replies.',
-        'Third is failing to remind the prospect why they opted in. Your first email must acknowledge the specific offer they requested and provide immediate value before asking them to get on a 30-minute sales call.'
+        'Getting an email address is only half the work. Many people never reply because the first message comes too late.',
+        'A second problem is a busy email. Banners, menus, and three buttons compete for attention. A short plain email with one question is easier to answer.',
+        'The first email should name the offer they asked for. Give them something useful before you ask for a call.'
       ],
       takeaways: [
-        'Deliver the welcome message within 60 seconds of form submission.',
-        'Favor clean text over heavy HTML newsletter designs for personal response.',
-        'End with a simple single-sentence question (e.g., "What time works best for you this Thursday?").'
+        'Send the welcome email within a minute of the form.',
+        'Write a short plain email when you want a personal reply.',
+        'End with one question, such as "What time works for you on Thursday?"'
       ]
     }
   ];
@@ -96,6 +97,7 @@ export const BlogPage: React.FC<BlogPageProps> = ({ onNavigate }) => {
         {activeArticle ? (
           <div>
             <button
+              type="button"
               onClick={() => setActiveArticleId(null)}
               style={{
                 display: 'inline-flex',
@@ -162,10 +164,10 @@ export const BlogPage: React.FC<BlogPageProps> = ({ onNavigate }) => {
                   marginBottom: '2.5rem'
                 }}
               >
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#10B981', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <CheckCircle2 style={{ width: '18px', height: '18px' }} />
-                  <span>Key Actionable Takeaways</span>
-                </h3>
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#10B981', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <CheckCircle2 style={{ width: '18px', height: '18px' }} aria-hidden="true" />
+                  <span>What to try</span>
+                </h2>
                 <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem', color: '#F1F5F9' }}>
                   {activeArticle.takeaways.map((t, idx) => (
                     <li key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
@@ -184,13 +186,14 @@ export const BlogPage: React.FC<BlogPageProps> = ({ onNavigate }) => {
                   borderTop: '1px solid rgba(255, 255, 255, 0.08)'
                 }}
               >
-                <h4 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.5rem' }}>
-                  Build this exact pipeline in Jourvance
-                </h4>
+                <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.5rem' }}>
+                  Build this journey in Jourvance
+                </h2>
                 <p style={{ fontSize: '0.9rem', color: '#94A3B8', marginBottom: '1.5rem' }}>
-                  Load the Turnkey Lead Capture Blueprint on our live interactive canvas.
+                  Open {VIEW_LABEL.canvas} and start from a blueprint.
                 </p>
                 <button
+                  type="button"
                   onClick={() => onNavigate('canvas')}
                   style={{
                     display: 'inline-flex',
@@ -205,8 +208,8 @@ export const BlogPage: React.FC<BlogPageProps> = ({ onNavigate }) => {
                     cursor: 'pointer'
                   }}
                 >
-                  <span>Open Studio Canvas</span>
-                  <ArrowRight style={{ width: '16px', height: '16px' }} />
+                  <span>{VIEW_LABEL.canvas}</span>
+                  <ArrowRight style={{ width: '16px', height: '16px' }} aria-hidden="true" />
                 </button>
               </div>
             </article>
@@ -244,10 +247,12 @@ export const BlogPage: React.FC<BlogPageProps> = ({ onNavigate }) => {
             </div>
 
             {/* Category Filter Pills */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '3rem' }}>
+            <div role="group" aria-label="Topics" style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '3rem' }}>
               {categories.map(cat => (
                 <button
                   key={cat}
+                  type="button"
+                  aria-pressed={selectedCategory === cat}
                   onClick={() => setSelectedCategory(cat)}
                   style={{
                     padding: '0.45rem 1rem',
@@ -269,24 +274,13 @@ export const BlogPage: React.FC<BlogPageProps> = ({ onNavigate }) => {
             {/* Articles Grid */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               {filteredArticles.map(article => (
-                <div
+                <article
                   key={article.id}
-                  onClick={() => setActiveArticleId(article.id)}
                   style={{
                     backgroundColor: '#111827',
                     border: '1px solid rgba(255, 255, 255, 0.08)',
                     borderRadius: '14px',
-                    padding: '2rem',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
-                    e.currentTarget.style.transform = 'translateY(0)';
+                    padding: '2rem'
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem', fontSize: '0.75rem', color: '#64748B' }}>
@@ -307,19 +301,28 @@ export const BlogPage: React.FC<BlogPageProps> = ({ onNavigate }) => {
                     <span>{article.readTime}</span>
                   </div>
 
-                  <h3 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.75rem', lineHeight: 1.3 }}>
-                    {article.title}
-                  </h3>
+                  <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#FFFFFF', margin: '0 0 0.75rem', lineHeight: 1.3 }}>
+                    <button
+                      type="button"
+                      onClick={() => setActiveArticleId(article.id)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        color: 'inherit',
+                        font: 'inherit',
+                        textAlign: 'left',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {article.title}
+                    </button>
+                  </h2>
 
-                  <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+                  <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, margin: 0 }}>
                     {article.excerpt}
                   </p>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#818CF8', fontSize: '0.85rem', fontWeight: 700 }}>
-                    <span>Read Article</span>
-                    <ArrowRight style={{ width: '14px', height: '14px' }} />
-                  </div>
-                </div>
+                </article>
               ))}
             </div>
           </div>

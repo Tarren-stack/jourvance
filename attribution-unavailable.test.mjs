@@ -118,7 +118,7 @@ test('the top cards never fall back to literal zeros, the product price, or the 
   assert.doesNotMatch(src, /baseAov[^\n]*extractedPricing\.corePrice/, 'AOV is never the list price');
   assert.doesNotMatch(src, /report\?\.model === /, 'the model label follows the selected model');
   assert.match(src, /const missingText = loading \? 'Loading' : 'Unavailable';/);
-  assert.match(src, /\{effectiveAov != null && \(\s*<span[^>]*>\s*vs \$\{effectiveAov\.toFixed\(2\)\} AOV/);
+  assert.match(src, /\{effectiveAov != null && \(\s*<span[^>]*>\s*vs \$\{effectiveAov\.toFixed\(2\)\} \{AOV_PHRASE\}/);
 });
 
 // R03: at 390px the header's control row did not wrap, so the page scrolled sideways and Export
@@ -359,7 +359,7 @@ test('the channel table scroller is a named region with a tab stop while it scro
   assert.match(scroller, /aria-labelledby=\{channelTableTitleId\}/, 'the region is named by the table heading');
   assert.match(scroller, /tabIndex=\{channelTableScrolls \? 0 : undefined\}/, 'a tab stop exactly while it scrolls');
   assert.match(scroller, /overflowX: 'auto'/);
-  assert.match(channelCard, /<h2 id=\{channelTableTitleId\}[^>]*>\s*Acquisition & Conversion Channel Breakdown/);
+  assert.match(channelCard, /<h2 id=\{channelTableTitleId\}[^>]*>\s*Results by channel/);
   assert.match(channelCard, /<table aria-labelledby=\{channelTableTitleId\}/, 'the table carries the same name');
   assert.match(src, /const channelTableTitleId = useId\(\);/);
   // The tab stop follows the table's real width, and is read again when the view or data changes.

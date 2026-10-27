@@ -16,6 +16,7 @@ import { SemanticZoom } from '../canvas/SemanticZoom';
 import { countText, measureValue, moneyText, percentText } from '../../lib/journeyMetrics';
 import { createHomeCanvasExample } from './homeCanvasExample';
 import { EDGE_KINDS, edgeKind } from '../../lib/edgeKinds';
+import { VIEW_LABEL } from '../../lib/studioLabels';
 import type { JourneyNode, JourneyEdge } from '../../types/journey';
 
 const nodeTypes: NodeTypes = {
@@ -110,7 +111,7 @@ export function HomeCanvasPreview({ onOpenCanvas }: { onOpenCanvas: () => void }
           <p>A fictional store campaign on the real canvas. Explore its offers, branches and sample results.</p>
         </div>
         <button type="button" className="home-canvas-preview__open" onClick={onOpenCanvas}>
-          Open the studio <ArrowRight size={16} aria-hidden="true" />
+          {VIEW_LABEL.canvas} <ArrowRight size={16} aria-hidden="true" />
         </button>
       </header>
       <div className="home-canvas-preview__steps" role="group" aria-label="Explore the example journey">

@@ -129,7 +129,7 @@ export const SEEDED_SIGNUP_FORMS: {
     replacement: NEW_FORM_COPY,
     words: {
       headline: 'Join Our Private Community',
-      body: 'Subscribe to receive exclusive beauty perks, seasonal formula previews, and surprise gifts.',
+      body: 'Subscribe to receive exclusive member perks, product updates, and surprise gifts.',
       buttonText: 'Claim My Gift',
       successMessage: 'Welcome to our community! Your coupon is unlocked below.',
       teaser: 'Special Gift Inside',

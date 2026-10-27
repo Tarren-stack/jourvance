@@ -21,10 +21,99 @@ import {
   BarChart3,
   Smartphone,
   Laptop,
-  Download,
-  Check,
-  X
+  Download
 } from 'lucide-react';
+
+import { ACTION_LABEL, ROAS_STAT_NAME, STEP_TYPES, VIEW_LABEL } from '../../lib/studioLabels';
+
+type BuilderTab = 'map' | 'pages' | 'ads' | 'emails' | 'forms' | 'tracking';
+
+const stepLabel = (type: (typeof STEP_TYPES)[number]['type']) =>
+  STEP_TYPES.find((item) => item.type === type)?.label ?? type;
+
+const BUILDER_GROUPS: { name: string; tabs: { id: BuilderTab; label: string; icon: typeof Layers }[] }[] = [
+  {
+    name: 'Places',
+    tabs: [
+      { id: 'map', label: VIEW_LABEL.canvas, icon: Layers },
+      { id: 'emails', label: VIEW_LABEL['email-studio'], icon: Mail },
+      { id: 'tracking', label: VIEW_LABEL.attribution, icon: BarChart3 }
+    ]
+  },
+  {
+    name: 'Steps on the canvas',
+    tabs: [
+      { id: 'pages', label: stepLabel('landing-page'), icon: Globe },
+      { id: 'ads', label: stepLabel('ad-source'), icon: Share2 },
+      { id: 'forms', label: stepLabel('lead-form'), icon: FileText }
+    ]
+  }
+];
+
+function CanvasLink({
+  note,
+  onNavigate
+}: {
+  note: string;
+  onNavigate: (page: 'canvas') => void;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+      <button
+        type="button"
+        onClick={() => onNavigate('canvas')}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          padding: '0.75rem 1.5rem',
+          borderRadius: '10px',
+          background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
+          color: '#FFFFFF',
+          fontSize: '0.9rem',
+          fontWeight: 700,
+          border: 'none',
+          cursor: 'pointer',
+          boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
+        }}
+      >
+        <span>{VIEW_LABEL.canvas}</span>
+        <ArrowRight size={16} aria-hidden />
+      </button>
+      <span style={{ fontSize: '0.8rem', color: '#64748B', maxWidth: '280px', lineHeight: 1.45 }}>{note}</span>
+    </div>
+  );
+}
+
+function Point({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
+      <CheckCircle2 size={16} color="#10B981" aria-hidden style={{ flexShrink: 0, marginTop: '0.15rem' }} />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function ExampleCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        backgroundColor: '#070A12',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        borderRadius: '14px',
+        padding: '1.5rem'
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.85rem', marginBottom: '1rem' }}>
+        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>{title}</div>
+        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#CBD5E1', border: '1px solid rgba(255, 255, 255, 0.16)', borderRadius: '999px', padding: '0.15rem 0.55rem', flexShrink: 0 }}>
+          Example
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
 
 const HomeCanvasPreview = lazy(() => import('./HomeCanvasPreview').then(module => ({ default: module.HomeCanvasPreview })));
 
@@ -43,7 +132,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
   const faqs = [
     {
       q: 'What makes Jourvance different from standard funnel builders like ClickFunnels or GoHighLevel?',
-      a: 'Traditional funnel builders force you to build pages in isolation, configure automations in separate menus, and guess where drop-offs happen. Jourvance places your entire customer journey — advertising hooks, landing page blocks, intake forms, and automated email nurture — onto a single interactive visual canvas. You see the complete picture and test the live prospect experience before spending money on traffic.'
+      a: 'Traditional funnel builders force you to build pages in isolation, configure automations in separate menus, and guess where drop-offs happen. Jourvance places your entire customer journey (advertising hooks, landing page blocks, intake forms, and automated email nurture) onto a single interactive visual canvas. You see the complete picture and test the live prospect experience before spending money on traffic.'
     },
     {
       q: 'Do I need any coding or design skills to use Jourvance?',
@@ -51,7 +140,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
     },
     {
       q: 'Does Jourvance charge per-lead or transaction fees?',
-      a: 'No. Jourvance never charges transaction fees or takes a cut of your store revenue. Starter Studio is 100% free with no credit card required. When you want unlimited journeys and 24/7 automated drips, upgrade to Growth Pro for a flat rate.'
+      a: 'No. Jourvance does not charge a fee on each order. Starter Studio is free. Growth Pro is $49 a month, or $39 a month billed once a year. Open Pricing to check out.'
     },
     {
       q: 'Can I simulate the funnel as a real prospect before publishing?',
@@ -106,7 +195,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             }}
           >
             <Sparkles style={{ width: '14px', height: '14px', color: '#818CF8' }} />
-            <span>Built by a marketer. Made for your business.</span>
+            <span>The visual customer journey studio for any business.</span>
           </div>
 
           {/* Main H1 */}
@@ -123,7 +212,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
               WebkitTextFillColor: 'transparent'
             }}
           >
-            Map, Build & Convert Your Entire Customer Journey on One Visual Canvas
+            Design, test, and launch your customer journey on one canvas
           </h1>
 
           {/* Subtitle */}
@@ -136,8 +225,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
               margin: '0 auto 2.5rem'
             }}
           >
-            Bring your landing pages, forms, and follow-up together on one visual canvas.
-            Plan the journey you want customers to take, then build each step with a clear next action.
+            Bring your traffic sources, landing pages, lead capture, and automated follow-up sequences together on one visual canvas. Test the visitor experience before you spend on ads.
           </p>
 
           {/* Primary & Secondary Action Buttons */}
@@ -177,7 +265,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
                 e.currentTarget.style.boxShadow = '0 4px 20px rgba(99, 102, 241, 0.4)';
               }}
             >
-              <span>Launch Studio Canvas</span>
+              <span>{VIEW_LABEL.canvas}</span>
               <ArrowRight style={{ width: '18px', height: '18px' }} />
             </button>
 
@@ -201,7 +289,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
               onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(30, 41, 59, 0.9)')}
             >
               <Play style={{ width: '16px', height: '16px', color: '#38BDF8' }} />
-              <span>Preview the page</span>
+              <span>{ACTION_LABEL.testFunnel}</span>
             </button>
           </div>
 
@@ -306,7 +394,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
               <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '1rem', color: '#F1F5F9', fontSize: '0.9rem' }}>
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
                   <span style={{ color: '#10B981', fontWeight: 700 }}>•</span>
-                  <span>All-in-one visual canvas: Ad, lander, intake form, and email timeline in one view.</span>
+                  <span>Visual canvas: ad, landing page, intake form, and email sequence in one connected view.</span>
                 </li>
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
                   <span style={{ color: '#10B981', fontWeight: 700 }}>•</span>
@@ -314,7 +402,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
                 </li>
                 <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
                   <span style={{ color: '#10B981', fontWeight: 700 }}>•</span>
-                  <span>Billing is not connected in this app yet.</span>
+                  <span>Starter is free. Growth Pro is $49 a month, or $39 a month billed yearly. Open Pricing to check out.</span>
                 </li>
               </ul>
             </div>
@@ -332,56 +420,57 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             Build each step with the whole journey in view.
           </h2>
           <p style={{ fontSize: '1.05rem', color: '#94A3B8', maxWidth: '720px', margin: '0.75rem auto 0', lineHeight: 1.6 }}>
-            Plan your campaign, create its pages and messages, and connect the next steps. Keep the work together as your idea takes shape.
+            Funnel Canvas, Email Studio, and Attribution are places in the left rail. A landing page, an ad source, and a lead form are steps you add on the canvas.
           </p>
         </div>
 
-        {/* Builder Tab Switcher Bar */}
         <div
           style={{
             display: 'flex',
-            alignItems: 'center',
             justifyContent: 'center',
-            gap: '0.5rem',
+            gap: '1.75rem',
             flexWrap: 'wrap',
             marginBottom: '2.5rem'
           }}
         >
-          {[
-            { id: 'map', label: 'Visual Journey Map', icon: Layers },
-            { id: 'pages', label: 'Landing Page Builder', icon: Globe },
-            { id: 'ads', label: 'Ad Creative Studio', icon: Share2 },
-            { id: 'emails', label: 'Email Drip Sequencer', icon: Mail },
-            { id: 'forms', label: 'Lead Intake Forms', icon: FileText },
-            { id: 'tracking', label: 'Pipeline Tracking', icon: BarChart3 }
-          ].map(tab => {
-            const Icon = tab.icon;
-            const isActive = activeBuilderTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveBuilderTab(tab.id as any)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.55rem',
-                  padding: '0.65rem 1.15rem',
-                  borderRadius: '10px',
-                  fontSize: '0.875rem',
-                  fontWeight: 700,
-                  border: isActive ? '1px solid #6366F1' : '1px solid rgba(255, 255, 255, 0.08)',
-                  backgroundColor: isActive ? 'rgba(99, 102, 241, 0.18)' : 'rgba(17, 24, 39, 0.6)',
-                  color: isActive ? '#FFFFFF' : '#94A3B8',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  boxShadow: isActive ? '0 4px 14px rgba(99, 102, 241, 0.25)' : 'none'
-                }}
-              >
-                <Icon size={16} color={isActive ? '#818CF8' : '#64748B'} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+          {BUILDER_GROUPS.map(group => (
+            <div key={group.name} role="group" aria-label={group.name} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.55rem' }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#94A3B8' }}>
+                {group.name}
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                {group.tabs.map(tab => {
+                  const Icon = tab.icon;
+                  const isActive = activeBuilderTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => setActiveBuilderTab(tab.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.55rem',
+                        padding: '0.65rem 1.15rem',
+                        borderRadius: '10px',
+                        fontSize: '0.875rem',
+                        fontWeight: 700,
+                        border: isActive ? '1px solid #6366F1' : '1px solid rgba(255, 255, 255, 0.08)',
+                        backgroundColor: isActive ? 'rgba(99, 102, 241, 0.18)' : 'rgba(17, 24, 39, 0.6)',
+                        color: isActive ? '#FFFFFF' : '#94A3B8',
+                        cursor: 'pointer',
+                        boxShadow: isActive ? '0 4px 14px rgba(99, 102, 241, 0.25)' : 'none'
+                      }}
+                    >
+                      <Icon size={16} color={isActive ? '#818CF8' : '#64748B'} aria-hidden />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* Tab Showcase Card */}
@@ -395,609 +484,266 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
             marginBottom: '4rem'
           }}
         >
-          {/* TAB 1: VISUAL JOURNEY MAP */}
           {activeBuilderTab === 'map' && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  See how the pieces connect
+                  A place in the left rail
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
-                  Visual Customer Journey Canvas
+                  {VIEW_LABEL.canvas}
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  See how your landing page and follow-up work together before you launch. Map the path from first interest to the next conversation, with each step in view.
+                  This is the map. Add a step, connect it to the next one, and read the whole path before you publish.
                 </p>
-
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Full-Funnel Graphing:</strong> Connect ads to pages to forms to follow-up drips with one click.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Live Conversion Edges:</strong> See exact click-through and drop-off percentages along each connector.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Instant Simulator:</strong> Test-drive the entire prospect experience before spending a dollar.</span>
-                  </div>
+                  <Point>Ads, pages, forms, and follow-up emails sit on the same map.</Point>
+                  <Point>Test funnel walks the journey before you spend on ads. Nothing is sent or charged.</Point>
+                  <Point>Check design lists what is still unfinished on this journey.</Point>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => onNavigate('canvas')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.75rem 1.5rem',
-                      borderRadius: '10px',
-                      background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
-                      color: '#FFFFFF',
-                      fontSize: '0.9rem',
-                      fontWeight: 700,
-                      border: 'none',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
-                    }}
-                  >
-                    <span>Launch Journey Studio</span>
-                    <ArrowRight size={16} />
-                  </button>
-                  <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Replaces: Miro, Lucidchart & Funnelytics</span>
-                </div>
+                <CanvasLink note="This opens Funnel Canvas." onNavigate={onNavigate} />
               </div>
-
-              {/* Map Preview Graphic */}
-              <div
-                style={{
-                  backgroundColor: '#070A12',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '14px',
-                  padding: '1.75rem',
-                  boxShadow: 'inset 0 2px 10px rgba(0, 0, 0, 0.5)'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '1rem', marginBottom: '1.25rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981' }} />
-                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#F1F5F9' }}>Interactive Pipeline Graph</span>
-                  </div>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.12)', padding: '0.2rem 0.6rem', borderRadius: '6px', fontWeight: 600 }}>
-                    10.0% Pipeline Conversion
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', borderRadius: '10px', background: '#1E293B', border: '1px solid rgba(99, 102, 241, 0.25)' }}>
-                    <div>
-                      <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#818CF8', fontWeight: 800 }}>TRAFFIC SOURCE</span>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>Meta Video Hook Ad</div>
-                    </div>
-                    <span style={{ fontSize: '0.75rem', color: '#38BDF8', fontWeight: 700 }}>1,200 Imp · 120 Clicks</span>
-                  </div>
-
-                  <div style={{ textAlign: 'center', color: '#818CF8', fontSize: '0.75rem', fontWeight: 700 }}>
-                    ↓ 10.0% Click-Through Rate
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', borderRadius: '10px', background: '#1E293B', border: '1px solid rgba(99, 102, 241, 0.25)' }}>
-                    <div>
-                      <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#38BDF8', fontWeight: 800 }}>DESTINATION</span>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>Single-Offer Consultation Page</div>
-                    </div>
-                    <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 700 }}>120 Visitors · 30.0% Conv</span>
-                  </div>
-
-                  <div style={{ textAlign: 'center', color: '#10B981', fontSize: '0.75rem', fontWeight: 700 }}>
-                    ↓ 30.0% Form Opt-In Rate
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', borderRadius: '10px', background: '#1E293B', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                    <div>
-                      <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#10B981', fontWeight: 800 }}>LEAD NURTURE</span>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>3-Step Automated Intake Drip</div>
-                    </div>
-                    <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 700 }}>36 Leads Enrolled</span>
-                  </div>
-                </div>
-              </div>
+              <ExampleCard title="One journey">
+                <ol style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.65rem', margin: 0, padding: 0 }}>
+                  {[
+                    [stepLabel('ad-source'), 'Meta, Google, or organic'],
+                    [stepLabel('landing-page'), 'The page people land on'],
+                    [stepLabel('lead-form'), 'Name, email, and your questions'],
+                    [stepLabel('follow-up-sequence'), 'Emails that send on their own']
+                  ].map(([name, detail], index) => (
+                    <li key={name}>
+                      {index > 0 && <div style={{ textAlign: 'center', color: '#64748B', fontSize: '0.75rem', fontWeight: 700, margin: '0.15rem 0 0.55rem' }}>then</div>}
+                      <div style={{ padding: '0.75rem 0.9rem', borderRadius: '10px', background: '#1E293B', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>{name}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '0.15rem' }}>{detail}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </ExampleCard>
             </div>
           )}
 
-          {/* TAB 2: LANDING PAGE BUILDER */}
           {activeBuilderTab === 'pages' && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  Give your offer a clear next step
+                  A step on the canvas
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
-                  Full Website & Landing Page Builder
+                  {stepLabel('landing-page')}
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Build a focused page around your offer. Shape the message, arrange the content, and preview it at desktop and mobile sizes before you publish.
+                  Add a landing page step, then open the page builder. Write the page, check it on a computer and a phone, and publish it with the journey.
                 </p>
-
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Contextual Handshake:</strong> Match landing page headlines precisely to your ad hooks.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Zero-Bloat Performance:</strong> Loads under 600ms on mobile devices for maximum ad Quality Score.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>1-Click HTML & Custom Domain:</strong> Host directly on your custom domain or export self-contained HTML.</span>
-                  </div>
+                  <Point>The page builder is part of the landing page step. It is not a separate product.</Point>
+                  <Point>Preview the same page on a computer and a phone before you publish.</Point>
+                  <Point>The preview does not send email or take a payment.</Point>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <CanvasLink note="This opens Funnel Canvas. Add a landing page step there." onNavigate={onNavigate} />
+              </div>
+              <ExampleCard title="Page preview">
+                <div role="group" aria-label="Preview size" style={{ display: 'flex', gap: '0.4rem', marginBottom: '1rem' }}>
                   <button
-                    onClick={() => onNavigate('canvas')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.75rem 1.5rem',
-                      borderRadius: '10px',
-                      background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
-                      color: '#FFFFFF',
-                      fontSize: '0.9rem',
-                      fontWeight: 700,
-                      border: 'none',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
-                    }}
+                    type="button"
+                    aria-pressed={pagePreviewDevice === 'desktop'}
+                    onClick={() => setPagePreviewDevice('desktop')}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.35rem 0.7rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid rgba(255,255,255,0.1)', backgroundColor: pagePreviewDevice === 'desktop' ? '#6366F1' : 'transparent', color: '#FFF', cursor: 'pointer' }}
                   >
-                    <span>Build Landing Page</span>
-                    <ArrowRight size={16} />
+                    <Laptop size={12} aria-hidden />
+                    Computer
                   </button>
-                  <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Replaces: Unbounce ($99/mo) & Instapage ($149/mo)</span>
+                  <button
+                    type="button"
+                    aria-pressed={pagePreviewDevice === 'mobile'}
+                    onClick={() => setPagePreviewDevice('mobile')}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.35rem 0.7rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid rgba(255,255,255,0.1)', backgroundColor: pagePreviewDevice === 'mobile' ? '#6366F1' : 'transparent', color: '#FFF', cursor: 'pointer' }}
+                  >
+                    <Smartphone size={12} aria-hidden />
+                    Phone
+                  </button>
                 </div>
-              </div>
-
-              {/* Page Builder Preview */}
-              <div
-                style={{
-                  backgroundColor: '#070A12',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '14px',
-                  overflow: 'hidden',
-                  boxShadow: 'inset 0 2px 10px rgba(0, 0, 0, 0.5)'
-                }}
-              >
-                {/* Viewport bar */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#1E293B', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#EF4444' }} />
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B' }} />
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981' }} />
-                    <span style={{ fontSize: '0.75rem', color: '#94A3B8', marginLeft: '6px', fontFamily: 'monospace' }}>jourvance.com/p/consultation</span>
+                <div style={{ padding: pagePreviewDevice === 'mobile' ? '1.25rem 1rem' : '1.5rem 1.25rem', maxWidth: pagePreviewDevice === 'mobile' ? '280px' : '100%', margin: '0 auto', textAlign: 'center', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px' }}>
+                  <div style={{ fontSize: pagePreviewDevice === 'mobile' ? '1.15rem' : '1.35rem', fontWeight: 800, color: '#FFFFFF', lineHeight: 1.3, marginBottom: '0.65rem' }}>
+                    Book a time to talk about your offer
                   </div>
-                  <div style={{ display: 'flex', gap: '0.4rem' }}>
-                    <button
-                      onClick={() => setPagePreviewDevice('desktop')}
-                      style={{ padding: '3px 8px', borderRadius: '5px', fontSize: '0.7rem', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: pagePreviewDevice === 'desktop' ? '#6366F1' : 'transparent', color: '#FFF', cursor: 'pointer' }}
-                    >
-                      <Laptop size={12} />
-                    </button>
-                    <button
-                      onClick={() => setPagePreviewDevice('mobile')}
-                      style={{ padding: '3px 8px', borderRadius: '5px', fontSize: '0.7rem', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: pagePreviewDevice === 'mobile' ? '#6366F1' : 'transparent', color: '#FFF', cursor: 'pointer' }}
-                    >
-                      <Smartphone size={12} />
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ padding: pagePreviewDevice === 'mobile' ? '1.5rem 1rem' : '2.25rem 1.75rem', maxWidth: pagePreviewDevice === 'mobile' ? '320px' : '100%', margin: '0 auto', textAlign: 'center' }}>
-                  <span style={{ display: 'inline-block', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#818CF8', background: 'rgba(99, 102, 241, 0.12)', padding: '0.25rem 0.75rem', borderRadius: '9999px', marginBottom: '0.85rem' }}>
-                    Limited Availability
-                  </span>
-                  <h4 style={{ fontSize: pagePreviewDevice === 'mobile' ? '1.25rem' : '1.5rem', fontWeight: 800, color: '#FFFFFF', lineHeight: 1.3, marginBottom: '0.75rem' }}>
-                    Transform Inbound Ad Clicks Into Scheduled Appointments
-                  </h4>
-                  <p style={{ fontSize: '0.825rem', color: '#94A3B8', marginBottom: '1.25rem' }}>
-                    Stop sending paid traffic to a cluttered homepage. Book your private strategic consultation today.
+                  <p style={{ fontSize: '0.825rem', color: '#94A3B8', marginBottom: '1rem' }}>
+                    One page for this journey. People land here from the ad.
                   </p>
-                  <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '10px', padding: '0.85rem', marginBottom: '1.25rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#E2E8F0', marginBottom: '0.4rem' }}>✓ 1-on-1 Funnel Diagnosis & Bottleneck Audit</div>
-                    <div style={{ fontSize: '0.75rem', color: '#E2E8F0', marginBottom: '0.4rem' }}>✓ Turnkey Ad-to-Email Architecture Blueprint</div>
-                    <div style={{ fontSize: '0.75rem', color: '#E2E8F0' }}>✓ No contract is billed from this app</div>
+                  <div style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', background: '#6366F1', color: '#FFFFFF', fontSize: '0.85rem', fontWeight: 700 }}>
+                    Continue
                   </div>
-                  <button style={{ width: '100%', padding: '0.85rem', borderRadius: '8px', background: '#6366F1', color: '#FFFFFF', fontSize: '0.85rem', fontWeight: 700, border: 'none' }}>
-                    Claim Your Consultation Spot
-                  </button>
                 </div>
-              </div>
+              </ExampleCard>
             </div>
           )}
 
-          {/* TAB 3: AD CREATIVE STUDIO */}
           {activeBuilderTab === 'ads' && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  Keep your message connected
+                  A step on the canvas
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
-                  Multi-Channel Ad Creative Studio
+                  {stepLabel('ad-source')}
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Keep your ad ideas beside the pages they lead to. Draft the headline, message, and next step together so your campaign tells a consistent story.
+                  An ad source is the first step on the map. Write the headline and the text, pick where the ad runs, and add the campaign tag Attribution uses.
                 </p>
-
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Multi-Format Mockups:</strong> Preview Meta Feed, Google Search, and Stories instantly.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Automated UTM Tagging:</strong> Injects tracking parameters seamlessly to eliminate attribution guessing.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Hook Variation Generator:</strong> Test pain, urgency, and outcome angles with AI assistance.</span>
-                  </div>
+                  <Point>Choose Meta, Google, or organic.</Point>
+                  <Point>Write the headline, the text under it, and the button label.</Point>
+                  <Point>You type the campaign tag and the ad spend. Jourvance does not invent those numbers.</Point>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => onNavigate('canvas')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.75rem 1.5rem',
-                      borderRadius: '10px',
-                      background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
-                      color: '#FFFFFF',
-                      fontSize: '0.9rem',
-                      fontWeight: 700,
-                      border: 'none',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
-                    }}
-                  >
-                    <span>Design Ad Campaign</span>
-                    <ArrowRight size={16} />
-                  </button>
-                  <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Replaces: Ad copy docs & UTM spreadsheet chaos</span>
-                </div>
+                <CanvasLink note="This opens Funnel Canvas. Add an ad source step there." onNavigate={onNavigate} />
               </div>
-
-              {/* Ad Creative Mockup */}
-              <div
-                style={{
-                  backgroundColor: '#0F172A',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  borderRadius: '14px',
-                  padding: '1.5rem',
-                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: '0.85rem' }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFF', fontWeight: 800 }}>
-                    J
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>Jourvance Partner</div>
-                    <div style={{ fontSize: '0.7rem', color: '#64748B' }}>Sponsored · Paid Traffic</div>
-                  </div>
-                </div>
-
-                <p style={{ fontSize: '0.85rem', color: '#E2E8F0', lineHeight: 1.45, marginBottom: '0.85rem' }}>
-                  "Are you leaking 40% of ad clicks between your creative and your calendar? Discover how visual customer journeys double your qualified pipeline."
-                </p>
-
-                <div style={{ width: '100%', height: '140px', borderRadius: '8px', background: 'linear-gradient(135deg, #1E1B4B, #312E81)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.85rem' }}>
-                  <div style={{ textAlign: 'center', padding: '1rem' }}>
-                    <span style={{ fontSize: '0.65rem', color: '#818CF8', fontWeight: 800, textTransform: 'uppercase' }}>Turnkey Funnel Architecture</span>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#FFFFFF', marginTop: '0.35rem' }}>Stop The 5-Tool Fragmentation Tax</div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.65rem 0.85rem', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '8px' }}>
-                  <div>
-                    <div style={{ fontSize: '0.65rem', color: '#64748B', textTransform: 'uppercase' }}>JOURVANCE.COM</div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#FFFFFF' }}>Claim Free Pipeline Blueprint</div>
-                  </div>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.35rem 0.75rem', borderRadius: '6px', background: '#6366F1', color: '#FFFFFF' }}>
-                    Learn More
-                  </span>
-                </div>
-              </div>
+              <ExampleCard title="Ad source">
+                <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {[
+                    ['Platform', 'Meta'],
+                    ['Ad headline', 'See your offer on one page'],
+                    ['Primary text', 'Tell people what happens after they click.'],
+                    ['Button', 'Learn more'],
+                    ['Campaign tag', 'spring-offer']
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <dt style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94A3B8', marginBottom: '0.2rem' }}>{label}</dt>
+                      <dd style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF', padding: '0.55rem 0.75rem', borderRadius: '8px', background: '#1E293B' }}>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </ExampleCard>
             </div>
           )}
 
-          {/* TAB 4: EMAIL DRIP SEQUENCER */}
           {activeBuilderTab === 'emails' && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  Plan the conversation after signup
+                  A place in the left rail
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
-                  Email & Drip Sequence Builder
+                  {VIEW_LABEL['email-studio']}
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Plan what happens after someone signs up. Write your follow-up emails and choose their timing so each message has a clear place in the customer journey.
+                  Write the emails that follow a signup, and choose when each one sends. The same emails open in Email Studio.
                 </p>
-
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Timed Behavioral Delays:</strong> Day 0 confirmation, Day 1 authority case study, Day 3 closing push.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Dynamic Merge Fields:</strong> Insert prospect names, phone numbers, and custom answers automatically.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>1-Click Sequence Export:</strong> Copy formatted markdown or push directly to your CRM webhook.</span>
-                  </div>
+                  <Point>Each email has a subject and a send time.</Point>
+                  <Point>A follow-up step on the canvas uses the flow you edit in Email Studio.</Point>
+                  <Point>Open rates stay blank until mail tracking is turned on.</Point>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => onNavigate('canvas')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.75rem 1.5rem',
-                      borderRadius: '10px',
-                      background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
-                      color: '#FFFFFF',
-                      fontSize: '0.9rem',
-                      fontWeight: 700,
-                      border: 'none',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
-                    }}
-                  >
-                    <span>Configure Drip Sequence</span>
-                    <ArrowRight size={16} />
-                  </button>
-                  <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Replaces: ActiveCampaign ($49/mo) & ConvertKit ($29/mo)</span>
-                </div>
+                <CanvasLink note="This opens Funnel Canvas. Email Studio is in the left rail." onNavigate={onNavigate} />
               </div>
-
-              {/* Email Drip Mockup */}
-              <div
-                style={{
-                  backgroundColor: '#070A12',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '14px',
-                  padding: '1.5rem'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.85rem', marginBottom: '1rem' }}>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>Automated Drip Sequence</div>
-                  <span style={{ fontSize: '0.75rem', color: '#38BDF8', fontWeight: 700 }}>3 Emails Configured</span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div style={{ padding: '0.85rem', borderRadius: '8px', background: '#1E293B', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                      <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10B981', textTransform: 'uppercase' }}>EMAIL 1 • INSTANT (DAY 0)</span>
-                      <span style={{ fontSize: '0.7rem', color: '#64748B' }}>58% Open Rate</span>
-                    </div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>Your Consultation Pass & Blueprint Access</div>
-                    <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '0.2rem' }}>Hi Sarah, thank you for requesting access to our pipeline...</div>
-                  </div>
-
-                  <div style={{ padding: '0.85rem', borderRadius: '8px', background: '#1E293B', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                      <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#818CF8', textTransform: 'uppercase' }}>EMAIL 2 • 24H DELAY (DAY 1)</span>
-                      <span style={{ fontSize: '0.7rem', color: '#64748B' }}>44% Open Rate</span>
-                    </div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>The 3 hidden leaks in your customer funnel</div>
-                    <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '0.2rem' }}>Yesterday we shared your initial blueprint. Today I want to show...</div>
-                  </div>
-
-                  <div style={{ padding: '0.85rem', borderRadius: '8px', background: '#1E293B', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                      <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#F59E0B', textTransform: 'uppercase' }}>EMAIL 3 • 72H DELAY (DAY 3)</span>
-                      <span style={{ fontSize: '0.7rem', color: '#64748B' }}>39% Open Rate</span>
-                    </div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>Holding your onboarding spot for this week</div>
-                    <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '0.2rem' }}>Just checking in to see if you had questions before our schedule fills...</div>
-                  </div>
-                </div>
-              </div>
+              <ExampleCard title="Follow-up emails">
+                <ol style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.65rem', margin: 0, padding: 0 }}>
+                  {[
+                    ['Sends right away', 'Thanks for signing up'],
+                    ['Sends the next day', 'Here is what happens next'],
+                    ['Sends in three days', 'Still want help with this?']
+                  ].map(([when, subject], index) => (
+                    <li key={subject} style={{ padding: '0.8rem 0.9rem', borderRadius: '8px', background: '#1E293B', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94A3B8' }}>Email {index + 1}. {when}</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF', marginTop: '0.25rem' }}>{subject}</div>
+                    </li>
+                  ))}
+                </ol>
+                <p style={{ fontSize: '0.75rem', color: '#94A3B8', margin: '0.85rem 0 0' }}>
+                  Opens are not shown here. They stay blank until mail tracking is turned on.
+                </p>
+              </ExampleCard>
             </div>
           )}
 
-          {/* TAB 5: LEAD INTAKE & FORM BUILDER */}
           {activeBuilderTab === 'forms' && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  Start with the right questions
+                  A step on the canvas
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
-                  Intake & Lead Capture Form Builder
+                  {stepLabel('lead-form')}
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Ask for the details you need to start the conversation. Build a form that fits your offer and makes the next step clear.
+                  A lead form is a step on the canvas. Ask for a name, an email, and any other question you add. Write the message people see after they submit.
                 </p>
-
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Custom Qualification Inputs:</strong> Add phone, budget ranges, and service interest with ease.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Instant Team Alerts:</strong> Receive notifications the second a high-value lead submits.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Custom Success States:</strong> Display personalized confirmation copy or redirect to your booking calendar.</span>
-                  </div>
+                  <Point>Each question can be required or optional.</Point>
+                  <Point>You write the button label and the confirmation message.</Point>
+                  <Point>Submitting the form does not email your team from this step.</Point>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => onNavigate('canvas')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.75rem 1.5rem',
-                      borderRadius: '10px',
-                      background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
-                      color: '#FFFFFF',
-                      fontSize: '0.9rem',
-                      fontWeight: 700,
-                      border: 'none',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
-                    }}
-                  >
-                    <span>Create Intake Form</span>
-                    <ArrowRight size={16} />
-                  </button>
-                  <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Replaces: Typeform ($35/mo) & Jotform ($39/mo)</span>
-                </div>
+                <CanvasLink note="This opens Funnel Canvas. Add a lead form step there." onNavigate={onNavigate} />
               </div>
-
-              {/* Form Mockup */}
-              <div
-                style={{
-                  backgroundColor: '#0F172A',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  borderRadius: '14px',
-                  padding: '1.75rem',
-                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)'
-                }}
-              >
-                <div style={{ fontSize: '1rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.35rem' }}>
-                  Strategic Intake Application
+              <ExampleCard title="Lead form">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {[
+                    ['Full name (required)', ''],
+                    ['Work email (required)', ''],
+                    ['What do you need help with?', '']
+                  ].map(([label]) => (
+                    <div key={label}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.25rem' }}>{label}</div>
+                      <div style={{ height: '36px', borderRadius: '6px', background: '#1E293B', border: '1px solid rgba(255, 255, 255, 0.12)' }} />
+                    </div>
+                  ))}
+                  <div style={{ marginTop: '0.35rem', textAlign: 'center', padding: '0.7rem', borderRadius: '8px', background: '#6366F1', color: '#FFFFFF', fontSize: '0.85rem', fontWeight: 700 }}>
+                    Send
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: '#94A3B8', margin: '0.25rem 0 0' }}>
+                    After they submit, they see the confirmation message you write. This picture does not send anything.
+                  </p>
                 </div>
-                <p style={{ fontSize: '0.75rem', color: '#94A3B8', marginBottom: '1.25rem' }}>
-                  Verify your consultation qualification details.
-                </p>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.25rem' }}>Full Name *</label>
-                    <input type="text" readOnly value="Sarah Mitchell" style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '6px', background: '#1E293B', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#FFFFFF', fontSize: '0.8rem' }} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.25rem' }}>Work Email *</label>
-                    <input type="email" readOnly value="sarah@zelusmarketing.com" style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '6px', background: '#1E293B', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#FFFFFF', fontSize: '0.8rem' }} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.25rem' }}>Monthly Ad Budget</label>
-                    <input type="text" readOnly value="$5,000 - $15,000 / mo" style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '6px', background: '#1E293B', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#FFFFFF', fontSize: '0.8rem' }} />
-                  </div>
-                  <button style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', background: '#6366F1', color: '#FFFFFF', fontSize: '0.85rem', fontWeight: 700, border: 'none', marginTop: '0.5rem' }}>
-                    Confirm & Reserve Consultation
-                  </button>
-                </div>
-              </div>
+              </ExampleCard>
             </div>
           )}
 
-          {/* TAB 6: PIPELINE TRACKING & ANALYTICS */}
           {activeBuilderTab === 'tracking' && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '2.5rem', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-                  Learn what to improve next
+                  A place in the left rail
                 </span>
                 <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', margin: '0.4rem 0 0.85rem' }}>
-                  Pipeline Attribution & Drop-Off Analytics
+                  {VIEW_LABEL.attribution}
                 </h3>
                 <p style={{ fontSize: '0.925rem', color: '#94A3B8', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Use the data available for your journey to see where visitors continue and where they leave. Let those patterns guide what you test next.
+                  Attribution shows results by channel for the journey you have open. The cells fill in after orders are matched. Until then they stay blank.
                 </p>
-
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '2rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Visual Bottleneck Alerts:</strong> Immediately flags steps with abnormal drop-offs in red.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>True Cost-Per-Acquisition:</strong> Measure cost-per-lead and cost-per-booked client accurately.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem', color: '#E2E8F0' }}>
-                    <CheckCircle2 size={16} color="#10B981" />
-                    <span><strong>Hub Telemetry Integration:</strong> Backed by Zelus Labs telemetry tracking with zero cookie clutter.</span>
-                  </div>
+                  <Point>Each channel row can show ad spend, clicks, orders, and {ROAS_STAT_NAME}.</Point>
+                  <Point>The date range is the last 7 days, the last 30 days, or all time.</Point>
+                  <Point>You enter ad spend on the ad source step. Attribution does not guess it.</Point>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => onNavigate('canvas')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.75rem 1.5rem',
-                      borderRadius: '10px',
-                      background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
-                      color: '#FFFFFF',
-                      fontSize: '0.9rem',
-                      fontWeight: 700,
-                      border: 'none',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
-                    }}
-                  >
-                    <span>View Pipeline Telemetry</span>
-                    <ArrowRight size={16} />
-                  </button>
-                  <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Replaces: Complex Google Analytics 4 goals</span>
-                </div>
+                <CanvasLink note="This opens Funnel Canvas. Attribution is in the left rail." onNavigate={onNavigate} />
               </div>
-
-              {/* Analytics Graph Mockup */}
-              <div
-                style={{
-                  backgroundColor: '#070A12',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '14px',
-                  padding: '1.5rem'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.85rem', marginBottom: '1.25rem' }}>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>Conversion Health Radar</div>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', fontWeight: 700 }}>94% Funnel Health</span>
+              <ExampleCard title="Results by channel">
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '420px' }}>
+                    <caption style={{ captionSide: 'bottom', textAlign: 'left', color: '#94A3B8', fontSize: '0.75rem', paddingTop: '0.75rem' }}>
+                      Example. These cells fill in after orders are matched to a channel.
+                    </caption>
+                    <thead>
+                      <tr>
+                        {['Channel', 'Ad spend', 'Clicks', 'Orders', ROAS_STAT_NAME].map((heading) => (
+                          <th key={heading} scope="col" style={{ textAlign: 'left', color: '#94A3B8', fontWeight: 700, padding: '0.4rem 0.45rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <th scope="row" style={{ textAlign: 'left', color: '#FFFFFF', fontWeight: 700, padding: '0.7rem 0.45rem' }}>Meta</th>
+                        {['Not yet', 'Not yet', 'Not yet', 'Not yet'].map((cell, index) => (
+                          <td key={index} style={{ color: '#94A3B8', padding: '0.7rem 0.45rem' }}>{cell}</td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
-                  <div style={{ background: '#1E293B', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                    <div style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Top-of-Funnel CTR</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#38BDF8', marginTop: '0.2rem' }}>10.0%</div>
-                    <div style={{ fontSize: '0.65rem', color: '#10B981', marginTop: '0.2rem' }}>+3.2% vs industry avg</div>
-                  </div>
-                  <div style={{ background: '#1E293B', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                    <div style={{ fontSize: '0.7rem', color: '#94A3B8' }}>Opt-In Rate</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#10B981', marginTop: '0.2rem' }}>30.0%</div>
-                    <div style={{ fontSize: '0.65rem', color: '#10B981', marginTop: '0.2rem' }}>36 Leads Generated</div>
-                  </div>
-                </div>
-
-                <div style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '10px', padding: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#FFFFFF' }}>Pipeline Conversion Flow</span>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#818CF8' }}>36 / 120 (30%)</span>
-                  </div>
-                  <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '9999px', overflow: 'hidden' }}>
-                    <div style={{ width: '30%', height: '100%', background: 'linear-gradient(90deg, #6366F1, #10B981)' }} />
-                  </div>
-                </div>
-              </div>
+              </ExampleCard>
             </div>
           )}
         </div>
@@ -1006,13 +752,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
         <div style={{ marginTop: '5rem' }}>
           <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
             <span style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: '#818CF8', letterSpacing: '0.08em' }}>
-              Why Consolidate
+              Compared
             </span>
-            <h3 style={{ fontSize: 'clamp(1.75rem, 3.5vw, 2.25rem)', fontWeight: 800, letterSpacing: '-0.02em', marginTop: '0.4rem', color: '#FFFFFF' }}>
-              The Fragmented Stack vs. The Jourvance Unified Engine
+            <h3 id="home-compare-heading" style={{ fontSize: 'clamp(1.75rem, 3.5vw, 2.25rem)', fontWeight: 800, letterSpacing: '-0.02em', marginTop: '0.4rem', color: '#FFFFFF' }}>
+              Other tools and Jourvance
             </h3>
             <p style={{ fontSize: '0.95rem', color: '#94A3B8', maxWidth: '650px', margin: '0.5rem auto 0' }}>
-              See how replacing 5 point-solutions saves over $2,400 per year while providing a 10x smoother experience.
+              Starter is free. Growth Pro is one price, with no fee on each order.
             </p>
           </div>
 
@@ -1025,55 +771,35 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
               boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)'
             }}
           >
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '2fr 1.5fr 1.5fr',
-                padding: '1.25rem 1.5rem',
-                backgroundColor: '#1E293B',
-                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-                fontWeight: 800,
-                fontSize: '0.85rem'
-              }}
-            >
-              <span style={{ color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Capability</span>
-              <span style={{ color: '#EF4444', textTransform: 'uppercase', letterSpacing: '0.05em' }}>The Fragmented Stack ($250+/mo)</span>
-              <span style={{ color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Jourvance</span>
-            </div>
-
+            <div style={{ overflowX: 'auto' }}>
+            <table aria-labelledby="home-compare-heading" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', minWidth: '640px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#1E293B' }}>
+                  <th scope="col" style={{ textAlign: 'left', padding: '1.25rem 1.5rem', color: '#94A3B8', fontWeight: 800 }}>What</th>
+                  <th scope="col" style={{ textAlign: 'left', padding: '1.25rem 1.5rem', color: '#FCA5A5', fontWeight: 800 }}>Other tools</th>
+                  <th scope="col" style={{ textAlign: 'left', padding: '1.25rem 1.5rem', color: '#6EE7B7', fontWeight: 800 }}>Jourvance</th>
+                </tr>
+              </thead>
+              <tbody>
             {[
-              { cap: 'Visual Customer Journey Modeling', oldWay: 'Manual diagrams in Miro (no code or live pages)', newWay: 'Fully interactive canvas wired to real live assets' },
-              { cap: 'Full Landing Page Builder', oldWay: 'Separate subscription to Unbounce ($99/mo)', newWay: 'Single-offer responsive pages built in' },
-              { cap: 'Multi-Channel Ad Creative Studio', oldWay: 'Messy spreadsheets with broken UTM links', newWay: 'Unified ad studio with automated UTM generator' },
-              { cap: 'Automated Email Drip Sequences', oldWay: 'ActiveCampaign ($49/mo) with complex zaps', newWay: 'Timed follow-up sequencer connected to your forms' },
-              { cap: 'Lead Intake & Qualifying Forms', oldWay: 'Typeform ($35/mo) with strict response caps', newWay: 'Unlimited custom fields & qualification questions' },
-              { cap: 'Page preview', oldWay: 'Publish first, then find out what the page says', newWay: 'Preview the page before you send traffic' },
-              { cap: 'Data Integration & Sync', oldWay: 'Fragile Zapier connections ($29/mo) that break', newWay: 'Zero middleware needed — all components share data' },
-              { cap: 'Billing', oldWay: 'A separate invoice for each tool', newWay: 'Billing is not connected in this app yet' }
+              { cap: 'Funnel Canvas', oldWay: 'A diagram in another tool, separate from the live pages', newWay: 'The map, the pages, and the follow-up in one place' },
+              { cap: 'Landing pages', oldWay: 'A separate page builder subscription', newWay: 'Pages built in, including a phone layout' },
+              { cap: 'Ad sources', oldWay: 'Campaign links kept in a spreadsheet', newWay: 'Ad links with the campaign tag filled in' },
+              { cap: 'Follow-up email', oldWay: 'A separate email tool and a connector that can break', newWay: 'Follow-up email connected to your forms' },
+              { cap: 'Lead forms', oldWay: 'A separate form tool with a cap on replies', newWay: 'Forms with the questions you choose' },
+              { cap: 'Test funnel', oldWay: 'Publish first, then find out what the page says', newWay: 'Walk the journey before you send people to it. Nothing is sent or charged.' },
+              { cap: 'Shared data', oldWay: 'A connector between tools that can break', newWay: 'The steps share the same journey' },
+              { cap: 'Billing', oldWay: 'A separate invoice for each tool', newWay: 'Starter is free. Growth Pro is $49 a month, or $39 a month billed yearly.' }
             ].map((row, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '2fr 1.5fr 1.5fr',
-                  padding: '1.15rem 1.5rem',
-                  borderBottom: i < 7 ? '1px solid rgba(255, 255, 255, 0.06)' : 'none',
-                  backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.015)' : 'transparent',
-                  alignItems: 'center',
-                  fontSize: '0.85rem'
-                }}
-              >
-                <span style={{ fontWeight: 700, color: '#F1F5F9' }}>{row.cap}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#94A3B8' }}>
-                  <X size={15} color="#EF4444" style={{ flexShrink: 0 }} />
-                  <span>{row.oldWay}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#FFFFFF', fontWeight: 600 }}>
-                  <Check size={15} color="#10B981" style={{ flexShrink: 0 }} />
-                  <span>{row.newWay}</span>
-                </div>
-              </div>
+              <tr key={row.cap} style={{ backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.015)' : 'transparent' }}>
+                <th scope="row" style={{ textAlign: 'left', padding: '1.15rem 1.5rem', fontWeight: 700, color: '#F1F5F9', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>{row.cap}</th>
+                <td style={{ padding: '1.15rem 1.5rem', color: '#94A3B8', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>{row.oldWay}</td>
+                <td style={{ padding: '1.15rem 1.5rem', color: '#FFFFFF', fontWeight: 600, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>{row.newWay}</td>
+              </tr>
             ))}
+              </tbody>
+            </table>
+            </div>
           </div>
         </div>
       </section>
@@ -1196,7 +922,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
                   transition: 'background 0.2s ease'
                 }}
               >
-                Start Free Canvas
+                {VIEW_LABEL.canvas}
               </button>
               <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.85rem', color: '#CBD5E1' }}>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1251,7 +977,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
                 Growth Pro
               </h3>
               <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginBottom: '1.5rem' }}>
-                For scaling brands ready to maximize ROAS and recover abandoned carts on autopilot.
+                For more journeys, follow-up email, and checkout.
               </p>
               <div style={{ marginBottom: '1.75rem' }}>
                 <span style={{ fontSize: '2.75rem', fontWeight: 900, color: '#FFFFFF' }}>
@@ -1276,7 +1002,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
                   boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)'
                 }}
               >
-                Request VIP Pro Access
+                Checkout for Growth Pro
               </button>
               <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.85rem', color: '#F1F5F9' }}>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1285,7 +1011,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
-                  <span>24/7 Automated Drips & Cart Recovery</span>
+                  <span>Follow-up email and cart recovery</span>
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 style={{ width: '16px', height: '16px', color: '#10B981' }} />
@@ -1410,7 +1136,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onTestJourney, o
               boxShadow: '0 4px 20px rgba(99, 102, 241, 0.5)'
             }}
           >
-            <span>Launch Canvas Studio</span>
+            <span>{VIEW_LABEL.canvas}</span>
             <ArrowRight style={{ width: '18px', height: '18px' }} />
           </button>
         </div>

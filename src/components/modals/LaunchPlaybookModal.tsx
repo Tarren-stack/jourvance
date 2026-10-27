@@ -74,7 +74,7 @@ export const LaunchPlaybookModal: React.FC<Props> = ({
       title: '2. Choose Funnel Blueprint',
       description: hasBlueprint
         ? 'Funnel architecture mapped with traffic, conversion, and retention steps.'
-        : 'Select a turnkey beauty or e-commerce blueprint to establish your customer journey.',
+        : 'Select a turnkey blueprint to establish your customer journey.',
       passed: hasBlueprint,
       badgeText: hasBlueprint ? 'Configured' : 'Action Needed',
       actionLabel: hasBlueprint ? 'Change Blueprint' : 'Browse Blueprints',

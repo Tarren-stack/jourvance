@@ -262,7 +262,7 @@ export const JourneyLeakFinder: React.FC<Props> = ({ journeyId, nodes, edges, ti
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0, color: '#F8FAFC' }}>Where this journey loses people</h3>
+        <h2 style={{ fontSize: '14px', fontWeight: 700, margin: 0, color: '#F8FAFC' }}>Where this journey loses people</h2>
         <span style={{ fontSize: '12px', color: '#94A3B8' }}>
           {snapshot?.partialSince
             ? `Since ${shortDate(snapshot.partialSince)}, older visits were not kept`

@@ -34,7 +34,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
       onClose();
     } catch (err: any) {
       console.error('Google sign-in error:', err);
-      setError(err?.message || 'Failed to sign in with Google');
+      setError('Google sign-in did not finish. Try again, or sign in with email.');
     } finally {
       setLoading(false);
     }
@@ -43,11 +43,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      setError('Please fill in both email and password.');
+      setError('Enter your email and a password.');
       return;
     }
     if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
+      setError('Use a password of at least 6 characters.');
       return;
     }
 
@@ -65,11 +65,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
     } catch (err: any) {
       console.error('Email auth error:', err);
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setError('Invalid email or password combination.');
+        setError('That email and password did not match. Check them and try again.');
       } else if (err.code === 'auth/email-already-in-use') {
         setError('An account with this email already exists. Try signing in.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Use a password of at least 6 characters.');
       } else {
-        setError(err.message || 'Authentication failed. Please try again.');
+        setError('We could not sign you in. Check your connection and try again.');
       }
     } finally {
       setLoading(false);
@@ -137,13 +139,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
           </h2>
           <p style={{ fontSize: '0.85rem', color: '#94A3B8', marginTop: '0.35rem' }}>
             {mode === 'signin'
-              ? 'Sign in to access your visual customer journeys'
-              : 'Save and deploy unlimited conversion pipelines'}
+              ? 'Sign in to open your journeys.'
+              : 'Save your journeys and open them from any browser.'}
           </p>
         </div>
 
         {error && (
           <div
+            id={fid('error')}
+            role="alert"
             style={{
               display: 'flex',
               alignItems: 'flex-start',
@@ -218,10 +222,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
         </div>
 
         {/* Email & Password Form */}
-        <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <form noValidate onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
             <label htmlFor={fid('email')} style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
-              Work Email
+              Work email (required)
             </label>
             <div style={{ position: 'relative' }}>
               <input
@@ -229,6 +233,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
                 type="email"
                 autoComplete="email"
                 required
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? fid('error') : undefined}
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="you@company.com"
@@ -249,14 +255,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
 
           <div>
             <label htmlFor={fid('password')} style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#CBD5E1', marginBottom: '0.35rem' }}>
-              Password
+              Password (required)
             </label>
+            {mode === 'signup' && (
+              <p id={fid('password-hint')} style={{ margin: '0 0 0.35rem', fontSize: '0.75rem', color: '#94A3B8' }}>
+                At least 6 characters.
+              </p>
+            )}
             <div style={{ position: 'relative' }}>
               <input
                 id={fid('password')}
                 type="password"
                 autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                 required
+                aria-invalid={error ? true : undefined}
+                aria-describedby={[mode === 'signup' ? fid('password-hint') : '', error ? fid('error') : ''].filter(Boolean).join(' ') || undefined}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
@@ -296,7 +309,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess }) => {
               marginTop: '0.5rem'
             }}
           >
-            <span>{loading ? 'Processing…' : mode === 'signin' ? 'Sign In to Jourvance' : 'Create Free Account'}</span>
+            <span>{loading ? (mode === 'signin' ? 'Signing in…' : 'Creating your account…') : mode === 'signin' ? 'Sign In to Jourvance' : 'Create Free Account'}</span>
             <ArrowRight size={15} />
           </button>
         </form>

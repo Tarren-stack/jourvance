@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Layers, ArrowRight, Play, User as UserIcon, LogOut, ShieldCheck, Zap, ChevronDown } from 'lucide-react';
 import type { User } from '../../lib/firebase';
 import { isOperator } from '../../lib/firebase';
+import { ACTION_LABEL, VIEW_LABEL } from '../../lib/studioLabels';
 
 interface PublicHeaderProps {
   activePage: 'home' | 'about' | 'blog' | 'contact' | 'canvas';
@@ -245,7 +246,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
           onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(30, 41, 59, 0.8)')}
         >
           <Play style={{ width: '14px', height: '14px', color: '#38BDF8' }} />
-          <span>Preview the page</span>
+          <span>{ACTION_LABEL.testFunnel}</span>
         </button>
 
         <button
@@ -266,7 +267,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
             transition: 'all 0.2s ease'
           }}
         >
-          <span>Studio Canvas</span>
+          <span>{VIEW_LABEL.canvas}</span>
           <ArrowRight style={{ width: '15px', height: '15px' }} />
         </button>
 

@@ -29,6 +29,7 @@ import { EDGE_KINDS } from '../../lib/edgeKinds';
 import { stepName } from '../../lib/stepNavigation';
 import { endSentence, nameInSentence } from '../../lib/stepNames';
 import { ownCopy, ownCopyList, thankYouWalkLines } from '../../lib/stepDefaults';
+import { ACTION_LABEL } from '../../lib/studioLabels';
 import {
   WALK_INTRO,
   WALK_STEP_LIMIT,
@@ -234,9 +235,28 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
   const [path, setPath] = useState(() => beginWalk(project));
   const [values, setValues] = useState<Record<string, string>>({});
   const [viewMode, setViewMode] = useState<'mobile' | 'desktop'>('mobile');
+  const [simulationPersona, setSimulationPersona] = useState<'lead' | 'buyer'>('lead');
   const [bumpSelected, setBumpSelected] = useState<boolean>(false);
   const nodeById = useMemo(() => new Map<string, JourneyNode>(project.nodes.map(n => [n.id, n])), [project.nodes]);
   const entries = useMemo(() => walkEntries(project), [project]);
+
+  const handlePersonaChange = (persona: 'lead' | 'buyer') => {
+    setSimulationPersona(persona);
+    setBumpSelected(persona === 'buyer');
+    if (persona === 'buyer') {
+      setValues(v => ({
+        ...v,
+        name: v.name || 'Alex Morgan',
+        email: v.email || 'alex.buyer@example.com'
+      }));
+    } else {
+      setValues(v => ({
+        ...v,
+        name: v.name || 'Jordan Taylor',
+        email: v.email || 'jordan.lead@example.com'
+      }));
+    }
+  };
 
   const cardRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -423,11 +443,19 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
               </p>
               <Checklist items={list(ownCopyList(d.bullets))} />
 
-              {/* Core Product Summary */}
-              {(title || price) && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.25)', fontSize: '13px' }}>
-                  <span style={{ color: '#FFF', fontWeight: 700 }}>{title}</span>
-                  <span style={{ color: '#34D399', fontWeight: 700 }}>{price}</span>
+              {/* Core Product Summary or Destination Link */}
+              {(title || price || d.checkoutUrl) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.25)', fontSize: '13px' }}>
+                  <span style={{ color: '#FFF', fontWeight: 700 }}>
+                    {title || (d.checkoutUrl ? 'Direct Action Destination' : 'Connected Offer')}
+                  </span>
+                  {price ? (
+                    <span style={{ color: '#34D399', fontWeight: 700 }}>{price}</span>
+                  ) : d.checkoutUrl ? (
+                    <span style={{ color: '#818CF8', fontSize: '11px', fontFamily: 'monospace' }}>
+                      {String(d.checkoutUrl).length > 36 ? String(d.checkoutUrl).slice(0, 36) + '...' : String(d.checkoutUrl)}
+                    </span>
+                  ) : null}
                 </div>
               )}
 
@@ -748,13 +776,73 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                 <h2 id="jv-test-flow-title" ref={headingRef} tabIndex={-1} style={{ fontSize: '16px', fontWeight: 800, color: '#FFF', margin: 0, outline: 'none' }}>
-                  Test lead flow
+                  {ACTION_LABEL.testFunnel}
                 </h2>
                 <span style={simulatedPill}>Simulated</span>
               </div>
               <p style={{ fontSize: '12px', color: '#94A3B8', margin: '4px 0 0' }}>{WALK_INTRO}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontSize: '11px', color: simulationPersona === 'buyer' ? '#34D399' : '#38BDF8' }}>
+                <span>●</span>
+                <span>
+                  {simulationPersona === 'buyer'
+                    ? 'Active Persona: High-intent buyer (order bump and direct checkout active)'
+                    : 'Active Persona: Opt-in lead (lead gate and follow-up nurture active)'}
+                </span>
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {/* Simulation Persona Switcher */}
+              <div
+                role="group"
+                aria-label="Simulation persona"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  background: 'rgba(15, 23, 42, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '8px',
+                  padding: '3px',
+                  gap: '2px'
+                }}
+              >
+                <button
+                  type="button"
+                  aria-pressed={simulationPersona === 'lead'}
+                  onClick={() => handlePersonaChange('lead')}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: simulationPersona === 'lead' ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+                    color: simulationPersona === 'lead' ? '#38BDF8' : '#94A3B8',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  Simulate as Lead
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={simulationPersona === 'buyer'}
+                  onClick={() => handlePersonaChange('buyer')}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: simulationPersona === 'buyer' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+                    color: simulationPersona === 'buyer' ? '#34D399' : '#94A3B8',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  Simulate as Buyer
+                </button>
+              </div>
+
               {/* Viewport Switcher */}
               <div
                 role="group"

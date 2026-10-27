@@ -100,6 +100,7 @@ export const BlueprintModal: React.FC<Props> = ({
   initialImportCode = ''
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [blueprintFilter, setBlueprintFilter] = useState<'all' | 'lead-gen' | 'services' | 'digital' | 'ecom' | 'retention'>('all');
   const [selectedBlueprint, setSelectedBlueprint] = useState<GenericBlueprintSelection | null>(null);
   const [showConfirmPrompt, setShowConfirmPrompt] = useState(false);
   // "Create as New Journey" checks its page addresses first; both choices wait for it.
@@ -427,7 +428,7 @@ export const BlueprintModal: React.FC<Props> = ({
                 Journey Blueprint Library
               </h2>
               <p style={{ fontSize: '12px', color: '#94A3B8', margin: '2px 0 0 0' }}>
-                Turnkey funnel architectures & reusable custom blueprints across all your workspaces.
+                Turnkey journey architectures & reusable custom blueprints for any business.
               </p>
             </div>
           </div>
@@ -605,7 +606,61 @@ export const BlueprintModal: React.FC<Props> = ({
         {/* TAB 1: Turnkey Blueprints */}
         {activeTab === 'turnkey' && (
           <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {ECOM_BLUEPRINTS.map(bp => {
+            {/* Category Filter Pills */}
+            <div
+              role="group"
+              aria-label="Filter blueprints by business model"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
+                paddingBottom: '12px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+              }}
+            >
+              {[
+                { id: 'all', label: 'All Architectures' },
+                { id: 'lead-gen', label: 'Lead Capture' },
+                { id: 'services', label: 'Consultations & Services' },
+                { id: 'digital', label: 'Digital & Subscriptions' },
+                { id: 'ecom', label: 'E-Commerce & Orders' },
+                { id: 'retention', label: 'Retention & Recovery' }
+              ].map(f => {
+                const isActive = blueprintFilter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setBlueprintFilter(f.id as any)}
+                    aria-pressed={isActive}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '9999px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      border: isActive ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: isActive ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                      color: isActive ? '#FFFFFF' : '#94A3B8',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {ECOM_BLUEPRINTS.filter(bp => {
+              if (blueprintFilter === 'all') return true;
+              if (blueprintFilter === 'lead-gen') return bp.category === 'lead-magnet';
+              if (blueprintFilter === 'services') return bp.category === 'high-ticket';
+              if (blueprintFilter === 'digital') return bp.category === 'digital-product';
+              if (blueprintFilter === 'ecom') return bp.category === 'direct-checkout' || bp.category === 'aov-booster';
+              if (blueprintFilter === 'retention') return bp.category === 'retention';
+              return true;
+            }).map(bp => {
               const isAov = bp.category === 'aov-booster';
               const isLead = bp.category === 'lead-magnet';
               const isHighTicket = bp.category === 'high-ticket';

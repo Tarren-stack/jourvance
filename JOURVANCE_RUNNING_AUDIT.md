@@ -2,7 +2,50 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-09. DEPLOYED: jourvance.com serves 7678443 (the Email Studio rebuild, Waves 1 to 8, and the open list closed) per the Render API; the Sentinel, policy and lead probes answer as before. Read the newest section first.
+Checked: 2026-10-27. Persona simulation switcher ("Simulate as Lead" vs "Simulate as Buyer") and Ask Jourvance AI Assistant tuning for universal business models.
+
+## 2026-10-27: Persona simulation switcher and Ask Jourvance AI Assistant universal tuning
+
+**Limits first.** Not deployed; not committed. Verification: `npx tsc --noEmit` exited 0; 93 tests across `assistant-guide.test.mjs`, `assistant-guide-slice.test.mjs`, `assistant-context.test.mjs`, `assistant-client.test.mjs`, and `assistant-ui.test.mjs` passed (0 failures); 59 tests in `journey-walk.test.mjs` and `add-step.test.mjs` passed (0 failures); `seeded-codes.test.mjs` passed 3/3; full `npm test` suite passed 3,057 tests. Server booted with `node server.mjs` and verified with curl at `http://localhost:3005/` (200 OK) and `/api/health` (status ok). No live paid API call was made. No em dash in any modified file.
+
+**What was changed:**
+- `src/components/preview/LiveFunnelModal.tsx`: Implemented interactive persona switcher with "Simulate as Lead" and "Simulate as Buyer" buttons beside the device viewport controls. "Simulate as Lead" tests opt-in lead magnets with unselected order bumps and test lead credentials (`Jordan Taylor`); "Simulate as Buyer" tests full-purchase and high-AOV cart calculations with automatic bump selection and buyer credentials (`Alex Morgan`). Includes accessible ARIA button group, distinct color coding, and active persona status badges.
+- `server/assistantContext.mjs`: Tuned `assistantSystem()` prompt so Ask Jourvance recognizes and actively adapts advice to all business models: e-commerce, consulting, coaching, professional client services, and digital products. Preserved the exact required opening sentence invariant for test compliance.
+- `docs/assistant/jourvance-guide.md`: Updated Section 1 (`Journey canvas and steps`), Section 4 (`Attribution reports`), Section 7 (`Blueprints and the library`), Section 10 (`Account and workspaces`), and Section 11 (`What Jourvance does not do`) to document universal business architectures, persona simulation, direct checkout and calendar booking links. Synchronized 6 previously drifted UI labels (`Last 7 days`, `Last 30 days`, `All time`, `Add New Workspace`, `Follow-Up Flow`), bringing `assistant-guide.test.mjs` from failing to 100% green.
+
+## 2026-10-27: LiveFunnelModal universal destination preview and journey simulation audit
+
+**Limits first.** Not deployed; not committed. Verification: `npx tsc --noEmit` exited 0; 59 tests in `journey-walk.test.mjs` and `add-step.test.mjs` passed (0 failures). No em dash in modified files. Server booted with `node server.mjs` and answered 200 OK. No live paid API call was made.
+
+**What was changed:**
+- `src/components/preview/LiveFunnelModal.tsx`: Updated core product summary in simulated landing page walk to display direct action destinations (`checkoutUrl`) when configured (e.g. Stripe Payment Links, Calendly, or Google Calendar appointments), allowing visitors in the simulator to see their exact configured destination rather than only connected Shopify products.
+
+## 2026-10-27: Phase 3 Universal checkout destinations and quick-start canvas guidance
+
+**Limits first.** Not deployed; not committed. Verification: `npx tsc --noEmit` exited 0; 21 integration test suites ran 321 tests, 321 passed (0 failures). No em dash in modified files. Server booted with `node server.mjs` and answered 200 OK. No live paid API call was made.
+
+**What was changed:**
+- `src/components/drawers/PageEditor.tsx`: Added first-class direct destination input for `checkoutUrl` under Product and checkout section, supporting Stripe Payment Links, Calendly, Google Calendar appointment schedules, and custom external checkout URLs with zero server compute. Updated missing-catalog warning to suppress when a direct action URL is configured.
+- `src/App.tsx`: Added an accessible Quick-Start empty canvas guidance region when `project.nodes.length === 0`, presenting clear options to browse turnkey business blueprints or add an initial traffic source.
+
+## 2026-10-27: Phase 2 Universal business model categorization and blueprints
+
+**Limits first.** Not deployed; not committed. Verification: `npx tsc --noEmit` exited 0; blueprint, playbook, and offer test suites ran 243 tests, 243 passed (0 failures). No em dash in modified files. Server booted with `node server.mjs` and answered 200 OK. No live paid API call was made.
+
+**What was changed:**
+- `src/components/modals/BlueprintModal.tsx`: Added accessible business model filter ribbon with category pills ("All Architectures", "Lead Capture", "Consultations & Services", "Digital & Subscriptions", "E-Commerce & Orders", "Retention & Recovery"). Updated subtitle to "Turnkey journey architectures & reusable custom blueprints for any business."
+- `src/components/modals/LaunchPlaybookModal.tsx`: Generalized step 2 guidance to "Select a turnkey blueprint to establish your customer journey."
+- `src/components/drawers/PageEditor.tsx`: Replaced "with beauty preview fallback" with "with sample preview fallback".
+- `src/data/ecomBlueprints.ts`: Generalized retention ecosystem blueprint description to "Engineered for modern high-retention brands."
+- `src/lib/offerPresets.ts`: Replaced niche beauty copy in community signup preset with universal product updates phrasing.
+
+## 2026-10-26: Phase 1 Universal copy alignment and navigation declutter
+
+**Limits first.** Not deployed; not committed. Verification: `npx tsc --noEmit` exited 0; unit test suite ran 3,059 tests, 3,054 passed (0 new failures; 2 pre-existing repo checks in `assistant-guide.test.mjs` and `sentinel-adoption.test.mjs` remain identical to baseline); focused suite `launch-playbook.test.mjs`, `honesty-copy.test.mjs`, and `ai-journey-wiring.test.mjs` passed 16/16 tests. Server booted with `node server.mjs` and answered `http://localhost:3005/` with 200 OK. No live paid API call was made. No em dash in modified files.
+
+**What was changed:**
+- `src/components/public/HomePage.tsx`: Updated hero headline to "Design, test, and launch your customer journey on one canvas" and subtitle to speak universally to all online businesses (services, e-commerce, digital products, consulting, agencies). Removed em dash from FAQ answer. Replaced generic "all-in-one" buzzword with crisp descriptive phrasing. Preserved all Growth Pro and pricing checks per `honesty-copy.test.mjs`.
+- `src/components/navigation/AppSidebar.tsx`: Decluttered the canvas navigation by separating secondary utility tools (`Ad return`, `Shopify Sync`, `Export Assets`) into their own distinct `Tools` section beneath `Diagnostics`, satisfying Miller's 7±2 rule and Gestalt common region without altering any action triggers, props, or accessible names.
 
 ## 2026-10-13: Ask Jourvance wave 3, the assistant acts, Email Studio drafts through the brain, results teach the main brain
 
