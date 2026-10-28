@@ -185,7 +185,22 @@ export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   // False until Firebase answers once, so a signed-in user never sees "Not published" early (#23).
   const [authReady, setAuthReady] = useState(false);
-  const [showLiveModal, setShowLiveModal] = useState(false);
+  const [showLiveModal, setShowLiveModal] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return p.get('simulate') === 'true' || p.get('pitch') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [initialSimulatePersona] = useState<'lead' | 'buyer'>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return p.get('persona') === 'buyer' ? 'buyer' : 'lead';
+    } catch {
+      return 'lead';
+    }
+  });
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [showOperatorDashboard, setShowOperatorDashboard] = useState(false);
@@ -1285,6 +1300,7 @@ export const App: React.FC = () => {
         {showLiveModal && (
           <LiveFunnelModal
             project={project}
+            initialPersona={initialSimulatePersona}
             onClose={() => setShowLiveModal(false)}
           />
         )}

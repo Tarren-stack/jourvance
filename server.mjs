@@ -77,6 +77,7 @@ import { setupDomainRoutes, checkSslCertificate } from './server/routes/domainRo
 import { reloadJsonInPlace } from './server/liveJsonCache.mjs';
 import { stripSeededOffers, readSignupForms } from './server/seededOffers.mjs';
 import { setupShopifyRoutes, ensureShopifyCoreDiscounts as ensureShopifyCoreDiscountsModular } from './server/routes/shopifyRoutes.mjs';
+import { setupWooCommerceRoutes } from './server/routes/woocommerceRoutes.mjs';
 import { reviewUrlFor } from './server/reviewTokens.mjs';
 import {
   recordWebhookDelivery,
@@ -1572,6 +1573,7 @@ const shopifyCtx = {
   starterFlowOnFor
 };
 setupShopifyRoutes(app, shopifyCtx);
+setupWooCommerceRoutes(app, shopifyCtx);
 
 async function ensureShopifyCoreDiscounts(ws, allowUnlimited = false) {
   return ensureShopifyCoreDiscountsModular(ws, allowUnlimited, shopifyCtx);

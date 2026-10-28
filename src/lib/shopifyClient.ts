@@ -70,6 +70,46 @@ export async function connectShopifyStore(
   }
 }
 
+export async function connectWooCommerceStore(
+  workspaceId: string,
+  storeUrl: string,
+  consumerKey: string,
+  consumerSecret?: string
+): Promise<{ success: boolean; workspace?: Workspace; error?: string; notice?: string }> {
+  try {
+    const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/woocommerce/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ storeUrl, consumerKey, consumerSecret })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.success && data.workspace) {
+      return { success: true, workspace: data.workspace, notice: data.notice };
+    }
+    return { success: false, error: data.error || 'Could not connect WooCommerce store.' };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function disconnectWooCommerceStore(
+  workspaceId: string
+): Promise<{ success: boolean; workspace?: Workspace; error?: string }> {
+  try {
+    const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/woocommerce/disconnect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.success && data.workspace) {
+      return { success: true, workspace: data.workspace };
+    }
+    return { success: false, error: data.error || 'Could not disconnect WooCommerce store.' };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
 export interface WebhookDeliveryReceipt {
   id: string;
   topic: string;
@@ -187,27 +227,43 @@ export async function disconnectShopifyStore(workspaceId: string): Promise<boole
   }
 }
 
-export async function fetchShopifyProducts(workspaceId: string): Promise<{
+export async function fetchShopifyProducts(workspaceId: string, platform?: string): Promise<{
   products: ShopifyProduct[];
   source: string;
   storeDomain: string;
   notice?: string;
 }> {
   try {
-    const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/shopify/products`, {
+    const route = platform === 'woocommerce' ? 'woocommerce' : 'shopify';
+    const res = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/${route}/products`, {
       headers: await authHeaders()
     });
     const data = await res.json().catch(() => ({}));
-    if (data?.success && Array.isArray(data.products)) {
+    if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
       return {
         products: data.products,
-        source: data.source || 'live',
+        source: data.source || (platform === 'woocommerce' ? 'woocommerce' : 'live'),
         storeDomain: data.storeDomain || '',
         notice: data.notice
       };
     }
+    // Fallback: check WooCommerce if default Shopify call returned empty
+    if (!platform) {
+      const wooRes = await fetch(`/api/workspace/${encodeURIComponent(workspaceId)}/woocommerce/products`, {
+        headers: await authHeaders()
+      });
+      const wooData = await wooRes.json().catch(() => ({}));
+      if (wooData?.success && Array.isArray(wooData.products) && wooData.products.length > 0) {
+        return {
+          products: wooData.products,
+          source: 'woocommerce',
+          storeDomain: wooData.storeDomain || '',
+          notice: wooData.notice
+        };
+      }
+    }
   } catch (err) {
-    console.warn('[Jourvance] Failed to load Shopify products:', err);
+    console.warn('[Jourvance] Failed to load store products:', err);
   }
   return { products: [], source: 'offline', storeDomain: '' };
 }

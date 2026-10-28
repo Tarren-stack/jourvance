@@ -11,7 +11,9 @@ import {
   Clock,
   ShoppingBag,
   Lock,
-  Check
+  Check,
+  Share2,
+  Sparkles
 } from 'lucide-react';
 import type {
   JourneyProject,
@@ -55,6 +57,7 @@ import {
 interface Props {
   project: JourneyProject;
   onClose: () => void;
+  initialPersona?: 'lead' | 'buyer';
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -231,12 +234,13 @@ const ChoiceButton: React.FC<{ exit: WalkExit; disabled: boolean; onTake: () => 
   );
 };
 
-export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
+export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPersona = 'lead' }) => {
   const [path, setPath] = useState(() => beginWalk(project));
   const [values, setValues] = useState<Record<string, string>>({});
   const [viewMode, setViewMode] = useState<'mobile' | 'desktop'>('mobile');
-  const [simulationPersona, setSimulationPersona] = useState<'lead' | 'buyer'>('lead');
-  const [bumpSelected, setBumpSelected] = useState<boolean>(false);
+  const [simulationPersona, setSimulationPersona] = useState<'lead' | 'buyer'>(initialPersona);
+  const [bumpSelected, setBumpSelected] = useState<boolean>(initialPersona === 'buyer');
+  const [copiedShare, setCopiedShare] = useState<boolean>(false);
   const nodeById = useMemo(() => new Map<string, JourneyNode>(project.nodes.map(n => [n.id, n])), [project.nodes]);
   const entries = useMemo(() => walkEntries(project), [project]);
 
@@ -255,6 +259,23 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
         name: v.name || 'Jordan Taylor',
         email: v.email || 'jordan.lead@example.com'
       }));
+    }
+  };
+
+  const handleCopyShareLink = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('simulate', 'true');
+      url.searchParams.set('persona', simulationPersona);
+      if (project?.id) {
+        url.searchParams.set('journey', project.id);
+      }
+      navigator.clipboard.writeText(url.toString());
+      setCopiedShare(true);
+      setTimeout(() => setCopiedShare(false), 2500);
+    } catch {
+      setCopiedShare(false);
     }
   };
 
@@ -372,8 +393,215 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
   const restart = () => {
     setPath(beginWalk(project));
     setValues({});
-    setBumpSelected(false);
+    setBumpSelected(simulationPersona === 'buyer');
   };
+
+  const priceNum = (val: unknown): number => {
+    if (typeof val !== 'string' && typeof val !== 'number') return 0;
+    const cleaned = String(val).replace(/[^0-9.]/g, '');
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? 0 : n;
+  };
+
+  const currencySymbol = useMemo(() => {
+    for (const v of path) {
+      const n = v.nodeId ? nodeById.get(v.nodeId) : undefined;
+      if (!n) continue;
+      if (n.type === 'landing-page') {
+        const d = n.data as PageNodeData;
+        const match = String(d.shopifyProductPrice || '').match(/^[^0-9]/);
+        if (match) return match[0];
+      }
+      if (n.type === 'upsell') {
+        const d = n.data as UpsellNodeData;
+        const match = String(d.productPrice || '').match(/^[^0-9]/);
+        if (match) return match[0];
+      }
+    }
+    return '$';
+  }, [path, nodeById]);
+
+  const visitedPage = useMemo(() => {
+    for (const v of path) {
+      const n = v.nodeId ? nodeById.get(v.nodeId) : undefined;
+      if (n?.type === 'landing-page') return n;
+    }
+    return undefined;
+  }, [path, nodeById]);
+
+  const pageData = visitedPage?.data as PageNodeData | undefined;
+  const corePrice = pageData?.shopifyProductPrice ? priceNum(pageData.shopifyProductPrice) : 0;
+  const coreTitle = str(pageData?.shopifyProductTitle) || (pageData?.checkoutUrl ? 'Direct Action Destination' : 'Core Offer');
+  const hasBump = Boolean(pageData?.orderBumpEnabled);
+  const bumpPrice = hasBump && bumpSelected && pageData?.orderBumpPrice ? priceNum(pageData.orderBumpPrice) : 0;
+  const bumpTitle = str(pageData?.orderBumpTitle) || 'Add-On Bump';
+
+  const acceptedUpsellVisits = useMemo(() => {
+    return path.filter(v => {
+      if (v.via !== 'accepted' || !v.fromNodeId) return false;
+      const n = nodeById.get(v.fromNodeId);
+      return n?.type === 'upsell';
+    });
+  }, [path, nodeById]);
+
+  const totalUpsellPrice = useMemo(() => {
+    let sum = 0;
+    for (const v of acceptedUpsellVisits) {
+      const n = v.fromNodeId ? nodeById.get(v.fromNodeId) : undefined;
+      const d = n?.data as UpsellNodeData | undefined;
+      if (d?.productPrice) sum += priceNum(d.productPrice);
+    }
+    return sum;
+  }, [acceptedUpsellVisits, nodeById]);
+
+  const totalSimulatedPrice = corePrice + bumpPrice + totalUpsellPrice;
+
+  const renderSummaryPanel = () => (
+    <div
+      role="region"
+      aria-label="Simulated journey summary"
+      style={{
+        ...panel,
+        padding: '20px',
+        background: 'linear-gradient(180deg, #1E293B 0%, #0F172A 100%)',
+        border: '1px solid rgba(56, 189, 248, 0.3)',
+        borderRadius: '16px',
+        boxShadow: '0 12px 28px -6px rgba(0, 0, 0, 0.5)'
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(56, 189, 248, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Sparkles size={18} color="#38BDF8" aria-hidden="true" />
+          </div>
+          <div>
+            <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#FFF' }}>
+              Simulated Journey Summary
+            </h4>
+            <div style={{ fontSize: '12px', color: '#94A3B8' }}>
+              Simulated visitor walkthrough completed
+            </div>
+          </div>
+        </div>
+        <span
+          style={{
+            padding: '4px 10px',
+            borderRadius: '9999px',
+            background: simulationPersona === 'buyer' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+            border: `1px solid ${simulationPersona === 'buyer' ? 'rgba(56, 189, 248, 0.4)' : 'rgba(245, 158, 11, 0.4)'}`,
+            color: simulationPersona === 'buyer' ? '#38BDF8' : '#FCD34D',
+            fontSize: '11px',
+            fontWeight: 700
+          }}
+        >
+          {simulationPersona === 'buyer' ? 'Simulated as Buyer' : 'Simulated as Lead'}
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '14px' }}>
+        <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', marginBottom: '2px' }}>Steps Walked</div>
+          <div style={{ fontSize: '18px', fontWeight: 800, color: '#FFF' }}>{trail.length}</div>
+          <div style={{ fontSize: '11px', color: '#64748B' }}>Traversed path</div>
+        </div>
+        <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', marginBottom: '2px' }}>Automations</div>
+          <div style={{ fontSize: '18px', fontWeight: 800, color: '#FBBF24' }}>{started.length}</div>
+          <div style={{ fontSize: '11px', color: '#64748B' }}>Sequences queued</div>
+        </div>
+        <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+          <div style={{ fontSize: '11px', color: '#34D399', fontWeight: 600, textTransform: 'uppercase', marginBottom: '2px' }}>Simulated Value</div>
+          <div style={{ fontSize: '18px', fontWeight: 800, color: '#34D399' }}>
+            {totalSimulatedPrice > 0 ? `${currencySymbol}${totalSimulatedPrice.toFixed(2)}` : '1 Lead'}
+          </div>
+          <div style={{ fontSize: '11px', color: '#64748B' }}>
+            {totalSimulatedPrice > 0 ? 'Transaction total' : 'Pipeline prospect'}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.06)', marginBottom: '14px' }}>
+        <div style={{ fontSize: '12px', fontWeight: 700, color: '#E2E8F0', marginBottom: '8px' }}>
+          Walkthrough Details:
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#CBD5E1' }}>
+            <span>Simulated Visitor:</span>
+            <span style={{ fontWeight: 600, color: '#FFF' }}>
+              {simulationPersona === 'buyer' ? 'Alex Morgan (Simulated Buyer)' : 'Jordan Taylor (Simulated Lead)'}
+            </span>
+          </div>
+          {corePrice > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#CBD5E1' }}>
+              <span>Core Offer ({coreTitle}):</span>
+              <span style={{ fontWeight: 600, color: '#34D399' }}>{currencySymbol}{corePrice.toFixed(2)}</span>
+            </div>
+          )}
+          {hasBump && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#CBD5E1' }}>
+              <span>Order Add-On ({bumpTitle}):</span>
+              <span style={{ fontWeight: 600, color: bumpSelected ? '#FCD34D' : '#64748B' }}>
+                {bumpSelected ? `+${currencySymbol}${bumpPrice.toFixed(2)} (Included)` : 'Not selected'}
+              </span>
+            </div>
+          )}
+          {acceptedUpsellVisits.length > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#CBD5E1' }}>
+              <span>1-Click Upsell:</span>
+              <span style={{ fontWeight: 600, color: '#34D399' }}>+{currencySymbol}{totalUpsellPrice.toFixed(2)} (Accepted)</span>
+            </div>
+          )}
+          {started.length > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#CBD5E1' }}>
+              <span>Follow-Up Flows:</span>
+              <span style={{ fontWeight: 600, color: '#FBBF24' }}>{started.length} triggered for simulated delivery</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        <button
+          type="button"
+          onClick={() => {
+            const next = simulationPersona === 'lead' ? 'buyer' : 'lead';
+            handlePersonaChange(next);
+            setPath(beginWalk(project));
+          }}
+          style={{
+            ...footerButton,
+            background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(14, 165, 233, 0.3) 100%)',
+            border: '1px solid rgba(56, 189, 248, 0.4)',
+            color: '#38BDF8'
+          }}
+        >
+          <RotateCcw size={13} aria-hidden="true" />
+          <span>{simulationPersona === 'lead' ? 'Simulate as Buyer' : 'Simulate as Lead'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={handleCopyShareLink}
+          style={{
+            ...footerButton,
+            background: copiedShare ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+            border: `1px solid ${copiedShare ? '#10B981' : 'rgba(255, 255, 255, 0.15)'}`,
+            color: copiedShare ? '#34D399' : '#FFF'
+          }}
+        >
+          {copiedShare ? <Check size={13} aria-hidden="true" /> : <Share2 size={13} aria-hidden="true" />}
+          <span>{copiedShare ? 'Link Copied' : 'Share Client Link'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={restart}
+          style={footerButton}
+        >
+          <RotateCcw size={13} aria-hidden="true" />
+          <span>Restart Walk</span>
+        </button>
+      </div>
+    </div>
+  );
 
   const renderChoices = (only?: WalkExit[]) => {
     const shown = only ?? exits;
@@ -899,6 +1127,28 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
                   <Monitor size={13} aria-hidden="true" />
                   <span>Desktop 680px</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={handleCopyShareLink}
+                  title="Copy shareable client simulation link"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: `1px solid ${copiedShare ? '#10B981' : 'rgba(255, 255, 255, 0.15)'}`,
+                    background: copiedShare ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                    color: copiedShare ? '#34D399' : '#F8FAFC',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {copiedShare ? <Check size={12} aria-hidden="true" /> : <Share2 size={12} aria-hidden="true" />}
+                  <span>{copiedShare ? 'Pitch Link Copied' : 'Share Client Walk'}</span>
+                </button>
               </div>
               <button
                 type="button"
@@ -958,7 +1208,10 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
             )}
 
             {!noEntry && current.nodeId === null && (
-              <div style={{ ...panel, fontSize: '13px', color: '#E2E8F0', lineHeight: 1.6 }}>{current.endSentence}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '680px', margin: '0 auto' }}>
+                <div style={{ ...panel, fontSize: '13px', color: '#E2E8F0', lineHeight: 1.6 }}>{current.endSentence}</div>
+                {renderSummaryPanel()}
+              </div>
             )}
 
             {current.nodeId !== null && !currentNode && (
@@ -1032,6 +1285,12 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose }) => {
                     <div style={{ width: '110px', height: '4px', borderRadius: '9999px', background: 'rgba(255, 255, 255, 0.2)' }} />
                   </div>
                 )}
+              </div>
+            )}
+
+            {currentNode && exits.length === 0 && (
+              <div style={{ maxWidth: viewMode === 'mobile' ? '390px' : '680px', margin: '16px auto 0' }}>
+                {renderSummaryPanel()}
               </div>
             )}
 

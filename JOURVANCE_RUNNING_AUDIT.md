@@ -2,7 +2,21 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-27. Persona simulation switcher ("Simulate as Lead" vs "Simulate as Buyer") and Ask Jourvance AI Assistant tuning for universal business models.
+Checked: 2026-10-27. Native WooCommerce connection, multi-platform store modal rebrand, shareable client pitch link, and Simulation Journey Summary screen.
+
+## 2026-10-27: Native WooCommerce connection, multi-platform store modal, client simulation link, and journey summary
+
+**Limits first.** Not deployed; not committed. Verification: `npx tsc --noEmit` exited 0; 34 modal dialog and a11y tests passed; 43 journey storage and walk tests passed; 44 add-step tests passed; 69 wiring and UI tests passed; 4 woocommerce tests passed; `seeded-codes.test.mjs` passed 3/3; server booted with `node server.mjs`, verified with `curl -s http://localhost:3005/api/health` (status ok), `/api/workspace/ws_test/woocommerce/connect` (honest 401 refusal), `/api/workspace/ws_test/woocommerce/products` (honest 401 refusal), and `/api/webhooks/woocommerce/ws_test` (success true). No live paid API calls. No em dash in any modified file.
+
+**What was changed:**
+- `src/types/journey.ts`: Added `WooCommerceConfig` interface and updated `Workspace` model to support `storePlatform` ('shopify' | 'woocommerce' | 'stripe' | 'none') and `woocommerceConfig`.
+- `server/routes/woocommerceRoutes.mjs`: Added full server-side route controller for WooCommerce connection verification via standard REST API v3, disconnection, unified product mapping for landing page editors and upsells, and webhook intake for WooCommerce order attribution.
+- `server.mjs`: Mounted WooCommerce route controller with auth protection and workspace store isolation.
+- `src/lib/shopifyClient.ts`: Added `connectWooCommerceStore` and `disconnectWooCommerceStore`, and updated `fetchShopifyProducts` with automatic fallback to WooCommerce products when a workspace is connected to WooCommerce.
+- `src/components/shopify/ShopifyConnectModal.tsx`: Rebranded the modal into a multi-platform store connection center with a platform switcher ribbon (Shopify, WooCommerce, Stripe & Direct Links). Implemented WooCommerce connection form with REST API setup guidance and accessible form labels, while maintaining exact title ID semantics for overlay dialog accessibility tests.
+- `src/components/preview/LiveFunnelModal.tsx`: Added "Share Client Walk" button to the header toolbar that copies a direct simulation link (`?simulate=true&persona=...`). Implemented the "Simulation Journey Summary" screen at the end of the walkthrough (and on terminal thank-you steps), showing persona tested, traversed steps count, follow-up automations queued, and dynamic simulated transaction / pipeline value calculations with interactive pitch mode controls ("Test as Buyer" / "Test as Lead", "Share Client Link", and "Restart Walk").
+- `src/App.tsx`: Added deep-link URL query parameter recognition for `?simulate=true` and `?persona=buyer|lead`, allowing clients opening a shared preview link to launch straight into simulation pitch mode.
+- `woocommerce.test.mjs`: Added unit tests verifying URL normalization, protocol enforcement, and absence of em dashes in WooCommerce and modal source files.
 
 ## 2026-10-27: Persona simulation switcher and Ask Jourvance AI Assistant universal tuning
 

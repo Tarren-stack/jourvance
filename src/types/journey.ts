@@ -41,11 +41,26 @@ export interface ShopifyConfig {
   lastSyncedAt?: string;
 }
 
+export interface WooCommerceConfig {
+  storeUrl: string;
+  consumerKey?: string;
+  consumerSecretOnFile?: boolean;
+  storeName?: string;
+  currency?: string;
+  connectedAt?: string;
+  status: 'connected' | 'disconnected' | 'error';
+  productCount?: number;
+  ordersCount?: number;
+  lastSyncedAt?: string;
+}
+
 export interface Workspace {
   id: string;
   userId: string;
   name: string;
   shopifyConfig?: ShopifyConfig;
+  woocommerceConfig?: WooCommerceConfig;
+  storePlatform?: 'shopify' | 'woocommerce' | 'stripe' | 'none';
   planTier: 'starter' | 'pro' | 'enterprise';
   createdAt: string;
   updatedAt: string;

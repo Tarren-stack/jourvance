@@ -12,12 +12,16 @@ import {
   Clock,
   Check,
   AlertTriangle,
-  Radio
+  Radio,
+  Globe,
+  CreditCard
 } from 'lucide-react';
 import type { Workspace } from '../../types/journey';
 import {
   connectShopifyStore,
   disconnectShopifyStore,
+  connectWooCommerceStore,
+  disconnectWooCommerceStore,
   fetchShopifySignals,
   registerShopifyWebhooks,
   fetchWebhookHealth,
@@ -45,7 +49,10 @@ export const ShopifyConnectModal: React.FC<Props> = ({
   onWorkspaceUpdated,
   onOpenBilling
 }) => {
-  const [activeTab, setActiveTab] = useState<'connection' | 'webhooks'>('connection');
+  const [activeTab, setActiveTab] = useState<'connection' | 'woocommerce' | 'stripe' | 'webhooks'>(() => {
+    if (workspace?.woocommerceConfig?.status === 'connected') return 'woocommerce';
+    return 'connection';
+  });
   const [storeDomain, setStoreDomain] = useState(workspace?.shopifyConfig?.storeDomain || '');
   const [adminToken, setAdminToken] = useState('');
   const [webhookSecret, setWebhookSecret] = useState('');
@@ -57,12 +64,51 @@ export const ShopifyConnectModal: React.FC<Props> = ({
   const [signals, setSignals] = useState<Awaited<ReturnType<typeof fetchShopifySignals>> | null>(null);
   const [signalError, setSignalError] = useState('');
 
+  // WooCommerce Connection State
+  const [wooUrl, setWooUrl] = useState(workspace?.woocommerceConfig?.storeUrl || '');
+  const [wooKey, setWooKey] = useState(workspace?.woocommerceConfig?.consumerKey || '');
+  const [wooSecret, setWooSecret] = useState('');
+  const [wooLoading, setWooLoading] = useState(false);
+  const [wooError, setWooError] = useState<string | null>(null);
+  const [wooSuccess, setWooSuccess] = useState<string | null>(null);
+  const isWooConnected = Boolean(workspace?.woocommerceConfig?.status === 'connected');
+
   // Webhook Health & Live Diagnostics State
   const [webhookHealth, setWebhookHealth] = useState<WebhookHealthData | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [pingLoading, setPingLoading] = useState(false);
   const [pingSuccess, setPingSuccess] = useState<string | null>(null);
   const [selectedTopic, setSelectedTopic] = useState('orders/create');
+
+  const handleConnectWoo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workspace) return;
+    setWooLoading(true);
+    setWooError(null);
+    setWooSuccess(null);
+    const res = await connectWooCommerceStore(workspace.id, wooUrl, wooKey, wooSecret);
+    setWooLoading(false);
+    if (!res.success) {
+      setWooError(res.error || 'Failed connecting WooCommerce store.');
+    } else if (res.workspace) {
+      setWooSuccess('WooCommerce store connected successfully.');
+      onWorkspaceUpdated(res.workspace);
+    }
+  };
+
+  const handleDisconnectWoo = async () => {
+    if (!workspace) return;
+    setWooLoading(true);
+    setWooError(null);
+    const res = await disconnectWooCommerceStore(workspace.id);
+    setWooLoading(false);
+    if (res.success && res.workspace) {
+      onWorkspaceUpdated(res.workspace);
+      setWooSuccess('WooCommerce store disconnected.');
+    } else {
+      setWooError(res.error || 'Failed disconnecting WooCommerce store.');
+    }
+  };
 
   useEffect(() => {
     if (!isOpen || !workspace || workspace.shopifyConfig?.status !== 'connected') {
@@ -270,7 +316,7 @@ export const ShopifyConnectModal: React.FC<Props> = ({
                 Shopify Integration & Telemetry
               </h3>
               <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>
-                Workspace: <span style={{ color: '#ec4899', fontWeight: 500 }}>{workspace.name}</span>
+                Connect Store & Checkout: <span style={{ color: '#ec4899', fontWeight: 500 }}>{workspace.name}</span>
               </p>
             </div>
           </div>
@@ -290,14 +336,15 @@ export const ShopifyConnectModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* Tab Navigation (Option A) */}
+        {/* Tab Navigation */}
         <div
           style={{
             display: 'flex',
             borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
             padding: '0 24px',
             gap: '8px',
-            backgroundColor: 'rgba(0, 0, 0, 0.2)'
+            backgroundColor: 'rgba(0, 0, 0, 0.2)',
+            overflowX: 'auto'
           }}
         >
           <button
@@ -315,59 +362,106 @@ export const ShopifyConnectModal: React.FC<Props> = ({
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              transition: 'all 0.15s ease'
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap'
             }}
           >
             <ShoppingBag size={15} />
-            Store Connection
+            Shopify
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              setActiveTab('webhooks');
-              loadHealth();
-            }}
+            onClick={() => setActiveTab('woocommerce')}
             style={{
               padding: '12px 16px',
               background: 'transparent',
               border: 'none',
-              borderBottom: activeTab === 'webhooks' ? '2px solid #ec4899' : '2px solid transparent',
-              color: activeTab === 'webhooks' ? '#f3f4f6' : '#9ca3af',
-              fontWeight: activeTab === 'webhooks' ? 600 : 500,
+              borderBottom: activeTab === 'woocommerce' ? '2px solid #38bdf8' : '2px solid transparent',
+              color: activeTab === 'woocommerce' ? '#f3f4f6' : '#9ca3af',
+              fontWeight: activeTab === 'woocommerce' ? 600 : 500,
               fontSize: '13px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              transition: 'all 0.15s ease'
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap'
             }}
           >
-            <Activity size={15} />
-            Live Webhook Health & Logs
-            <span
-              style={{
-                display: 'inline-block',
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor:
-                  webhookHealth?.status === 'healthy'
-                    ? '#10b981'
-                    : webhookHealth?.status === 'degraded'
-                    ? '#f59e0b'
-                    : webhookHealth?.status === 'failing' || webhookHealth?.status === 'missing_secret'
-                    ? '#ef4444'
-                    : '#6b7280',
-                boxShadow:
-                  webhookHealth?.status === 'healthy'
-                    ? '0 0 8px rgba(16, 185, 129, 0.6)'
-                    : webhookHealth?.status === 'degraded'
-                    ? '0 0 8px rgba(245, 158, 11, 0.6)'
-                    : 'none'
-              }}
-            />
+            <Globe size={15} />
+            WooCommerce
+            {isWooConnected && (
+              <span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#38bdf8' }} />
+            )}
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('stripe')}
+            style={{
+              padding: '12px 16px',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: activeTab === 'stripe' ? '2px solid #10b981' : '2px solid transparent',
+              color: activeTab === 'stripe' ? '#f3f4f6' : '#9ca3af',
+              fontWeight: activeTab === 'stripe' ? 600 : 500,
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            <CreditCard size={15} />
+            Stripe & Direct Links
+          </button>
+
+          {isConnected && (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('webhooks');
+                loadHealth();
+              }}
+              style={{
+                padding: '12px 16px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: activeTab === 'webhooks' ? '2px solid #ec4899' : '2px solid transparent',
+                color: activeTab === 'webhooks' ? '#f3f4f6' : '#9ca3af',
+                fontWeight: activeTab === 'webhooks' ? 600 : 500,
+                fontSize: '13px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'all 0.15s ease',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <Activity size={15} />
+              Shopify Webhooks
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor:
+                    webhookHealth?.status === 'healthy'
+                      ? '#10b981'
+                      : webhookHealth?.status === 'degraded'
+                      ? '#f59e0b'
+                      : webhookHealth?.status === 'failing' || webhookHealth?.status === 'missing_secret'
+                      ? '#ef4444'
+                      : '#6b7280'
+                }}
+              />
+            </button>
+          )}
         </div>
 
         {/* Content Body */}
@@ -686,6 +780,252 @@ export const ShopifyConnectModal: React.FC<Props> = ({
                 </div>
               </form>
             </>
+          )}
+
+          {/* TAB 2: WooCommerce */}
+          {activeTab === 'woocommerce' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {isWooConnected ? (
+                <div
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px'
+                  }}
+                >
+                  <CheckCircle2 size={18} style={{ color: '#38bdf8', flexShrink: 0, marginTop: '2px' }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: '#38bdf8' }}>
+                      WooCommerce Connected: {workspace.woocommerceConfig?.storeName || workspace.woocommerceConfig?.storeUrl}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px', lineHeight: 1.5 }}>
+                      URL: {workspace.woocommerceConfig?.storeUrl} | Currency: {workspace.woocommerceConfig?.currency || 'USD'}
+                    </div>
+                    <div style={{ marginTop: '12px' }}>
+                      <button
+                        type="button"
+                        onClick={handleDisconnectWoo}
+                        disabled={wooLoading}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                          color: '#f87171',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {wooLoading ? 'Disconnecting...' : 'Disconnect WooCommerce Store'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(56, 189, 248, 0.05)',
+                    border: '1px solid rgba(56, 189, 248, 0.15)',
+                    fontSize: '13px',
+                    color: '#94a3b8',
+                    lineHeight: 1.5
+                  }}
+                >
+                  Connect your WordPress WooCommerce store via the native WooCommerce REST API. Products, variants, and order conversions sync automatically with zero monthly plugin fees.
+                </div>
+              )}
+
+              {wooError && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', color: '#f87171', fontSize: '13px' }}>
+                  {wooError}
+                </div>
+              )}
+              {wooSuccess && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.25)', color: '#34d399', fontSize: '13px' }}>
+                  {wooSuccess}
+                </div>
+              )}
+
+              <form onSubmit={handleConnectWoo} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label htmlFor="shopify-woo-store-url" style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#f3f4f6', marginBottom: '6px' }}>
+                    WordPress Store URL
+                  </label>
+                  <input
+                    id="shopify-woo-store-url"
+                    type="url"
+                    value={wooUrl}
+                    onChange={e => setWooUrl(e.target.value)}
+                    placeholder="https://mystore.com"
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '8px',
+                      color: '#f3f4f6',
+                      fontSize: '13px',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="shopify-woo-consumer-key" style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#f3f4f6', marginBottom: '6px' }}>
+                    Consumer Key (ck_...)
+                  </label>
+                  <input
+                    id="shopify-woo-consumer-key"
+                    type="text"
+                    value={wooKey}
+                    onChange={e => setWooKey(e.target.value)}
+                    placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '8px',
+                      color: '#f3f4f6',
+                      fontSize: '13px',
+                      fontFamily: 'monospace',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="shopify-woo-consumer-secret" style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#f3f4f6', marginBottom: '6px' }}>
+                    Consumer Secret (cs_...)
+                  </label>
+                  <input
+                    id="shopify-woo-consumer-secret"
+                    type="password"
+                    value={wooSecret}
+                    onChange={e => setWooSecret(e.target.value)}
+                    placeholder={workspace?.woocommerceConfig?.consumerSecretOnFile ? 'Saved on server. Leave blank to keep.' : 'cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '8px',
+                      color: '#f3f4f6',
+                      fontSize: '13px',
+                      fontFamily: 'monospace',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    padding: '12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    fontSize: '12px',
+                    color: '#9ca3af',
+                    lineHeight: 1.5
+                  }}
+                >
+                  <strong style={{ color: '#f3f4f6' }}>How to generate WooCommerce API keys:</strong>
+                  <ol style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
+                    <li>In your WordPress admin, go to <strong>WooCommerce &gt; Settings &gt; Advanced &gt; REST API</strong>.</li>
+                    <li>Click <strong>Add key</strong>, set Description to <em>Jourvance</em>, and Permissions to <em>Read</em> (or Read/Write).</li>
+                    <li>Click <strong>Generate API key</strong>, then copy and paste your Consumer Key and Consumer Secret above.</li>
+                  </ol>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={wooLoading}
+                  style={{
+                    alignSelf: 'flex-start',
+                    padding: '10px 18px',
+                    borderRadius: '8px',
+                    backgroundColor: '#38bdf8',
+                    border: 'none',
+                    color: '#0f172a',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: wooLoading ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {wooLoading ? 'Testing Connection...' : isWooConnected ? 'Update WooCommerce Connection' : 'Connect WooCommerce Store'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* TAB 3: Stripe & Direct Links */}
+          {activeTab === 'stripe' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div
+                style={{
+                  padding: '16px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '12px'
+                }}
+              >
+                <CreditCard size={20} style={{ color: '#10b981', flexShrink: 0, marginTop: '2px' }} />
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#f3f4f6' }}>
+                    Direct Action Destinations (No Store Connection Required)
+                  </div>
+                  <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#9ca3af', lineHeight: 1.5 }}>
+                    If you use Stripe Payment Links, Calendly, Google Calendar, or an external checkout form, you do not need to connect an API or store plugin.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  fontSize: '13px',
+                  color: '#cbd5e1',
+                  lineHeight: 1.5
+                }}
+              >
+                <div style={{ fontWeight: 600, color: '#f3f4f6' }}>How to link any landing page to your direct checkout:</div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', fontWeight: 700, fontSize: '11px' }}>1</span>
+                  <span>Create a Payment Link in your <strong>Stripe Dashboard</strong> (e.g. <code>https://buy.stripe.com/...</code>) or get your <strong>Calendly booking link</strong>.</span>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', fontWeight: 700, fontSize: '11px' }}>2</span>
+                  <span>Click any <strong>Landing Page</strong> card on your Jourvance canvas to open the Page Editor.</span>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', fontWeight: 700, fontSize: '11px' }}>3</span>
+                  <span>Under <strong>Product and checkout</strong>, paste your URL into <strong>Direct destination checkout or booking URL</strong>.</span>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', fontWeight: 700, fontSize: '11px' }}>4</span>
+                  <span>Save and test using <strong>Test Lead Flow</strong> to verify the visitor journey.</span>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* TAB 2: Live Webhook Health & Logs */}
