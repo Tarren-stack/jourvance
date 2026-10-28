@@ -6,7 +6,7 @@ Checked: 2026-10-27. Native WooCommerce connection, multi-platform store modal r
 
 ## 2026-10-27: Native WooCommerce connection, multi-platform store modal, client simulation link, and journey summary
 
-**Limits first.** Not deployed; not committed. Verification: `npx tsc --noEmit` exited 0; 34 modal dialog and a11y tests passed; 43 journey storage and walk tests passed; 44 add-step tests passed; 69 wiring and UI tests passed; 4 woocommerce tests passed; `seeded-codes.test.mjs` passed 3/3; server booted with `node server.mjs`, verified with `curl -s http://localhost:3005/api/health` (status ok), `/api/workspace/ws_test/woocommerce/connect` (honest 401 refusal), `/api/workspace/ws_test/woocommerce/products` (honest 401 refusal), and `/api/webhooks/woocommerce/ws_test` (success true). No live paid API calls. No em dash in any modified file.
+**Limits first.** Committed (cd728ca) and pushed to main; not deployed. Verification: `npx tsc --noEmit` exited 0; 34 modal dialog and a11y tests passed; 43 journey storage and walk tests passed; 44 add-step tests passed; 69 wiring and UI tests passed; 4 woocommerce tests passed; `seeded-codes.test.mjs` passed 3/3; server booted with `node server.mjs`, verified with `curl -s http://localhost:3005/api/health` (status ok), `/api/workspace/ws_test/woocommerce/connect` (honest 401 refusal), `/api/workspace/ws_test/woocommerce/products` (honest 401 refusal), and `/api/webhooks/woocommerce/ws_test` (success true). No live paid API calls. No em dash in any modified file.
 
 **What was changed:**
 - `src/types/journey.ts`: Added `WooCommerceConfig` interface and updated `Workspace` model to support `storePlatform` ('shopify' | 'woocommerce' | 'stripe' | 'none') and `woocommerceConfig`.
