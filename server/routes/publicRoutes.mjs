@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import dns from 'dns';
 import { fileURLToPath } from 'url';
 import { FAKE_STORE_DOMAINS } from './authWorkspaceRoutes.mjs';
+import { cleanWooUrl } from './woocommerceRoutes.mjs';
 
 import {
   shopifyId,
@@ -38,8 +39,10 @@ import {
   detectVisitorCurrency,
   buildLocalizedShopifyCartUrl
 } from '../../src/lib/geoCurrency.ts';
+import { buildChatConciergeHref } from '../../src/lib/pageEditorSections.ts';
 // Instructions older defaults stored as copy ("Describe what the visitor gets.") are never published (R19).
 import { ownCopy, ownCopyList } from '../../src/lib/stepDefaults.ts';
+import { renderThemeHeadAssets } from '../../src/lib/pageThemes.ts';
 import {
   submitCustomerReview,
   renderReviewPortalHtml,
@@ -119,6 +122,43 @@ const saveContacts = (contacts) => (getCtx().saveContacts ? getCtx().saveContact
 const contactOwnerId = (contact) => (getCtx().contactOwnerId ? getCtx().contactOwnerId(contact) : contact?.userId || '');
 const realStoreDomain = (shopify) => (getCtx().realStoreDomain ? getCtx().realStoreDomain(shopify) : String(shopify?.storeDomain || '').trim().toLowerCase());
 const realVariantId = (id) => (getCtx().realVariantId ? getCtx().realVariantId(id) : String(id || '').trim());
+const cleanDirectCheckoutUrl = (raw) => {
+  const s = String(raw || '').trim();
+  if (!/^https?:\/\/\S+$/i.test(s) || s.length > 2048) return '';
+  return s;
+};
+export function cleanWebhookUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s || s.length > 2048 || s.includes('..')) return '';
+  let parsed;
+  try {
+    parsed = new URL(s);
+  } catch {
+    return '';
+  }
+  if (parsed.protocol !== 'https:') return '';
+  if (parsed.username || parsed.password || parsed.port) return '';
+  const host = parsed.hostname.toLowerCase();
+  if (
+    !host ||
+    !host.includes('.') ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host.startsWith('[') ||
+    /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) ||
+    /^\d+\.\d+\.\d+\.\d+$/.test(host)
+  ) {
+    return '';
+  }
+  return parsed.toString();
+}
+const realWooStoreUrl = (woo) => {
+  if (!woo || typeof woo !== 'object') return '';
+  if (woo.status && woo.status !== 'connected') return '';
+  return cleanWooUrl(woo.storeUrl || '');
+};
 const realTrackingId = (id) => (getCtx().realTrackingId ? getCtx().realTrackingId(id) : String(id || '').trim());
 const cleanDomain = (raw) => (getCtx().cleanDomain ? getCtx().cleanDomain(raw) : String(raw || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''));
 const loadWorkspace = (uid, id) => (getCtx().loadWorkspace ? getCtx().loadWorkspace(uid, id) : null);
@@ -1325,6 +1365,7 @@ function renderBuilderPage(page, req) {
     const metaPixelId = realTrackingId(rawData.metaPixelId);
     const tiktokPixelId = realTrackingId(rawData.tiktokPixelId);
     const ga4TrackingId = realTrackingId(rawData.ga4TrackingId);
+    const gtmContainerId = realTrackingId(rawData.gtmContainerId);
 
     const script = builderFrameScript({
       slug,
@@ -1357,7 +1398,7 @@ function renderBuilderPage(page, req) {
   <meta property="og:image" content="${escapeHtml(heroImage)}">
   <meta property="og:type" content="product">
   ${fontsLinkHtml(out.fonts)}
-  ${builderPixelsHtml({ metaPixelId, tiktokPixelId, ga4TrackingId })}
+  ${builderPixelsHtml({ metaPixelId, tiktokPixelId, ga4TrackingId, gtmContainerId })}
   <style id="jv-frame-style">
     ${builderFrameCss(background)}
   </style>
@@ -1406,6 +1447,8 @@ function renderPublicFunnelHtml(page, req, res) {
   const builtPage = renderBuilderPage(page, req);
   if (builtPage !== null) return builtPage;
   const rawData = page.data || {};
+  const themeId = rawData.theme || page.theme || null;
+  const themeHeadAssets = renderThemeHeadAssets(themeId, 'landing');
   const activeVariant = resolveSplitVariant(page, req, res);
   const isVariantB = activeVariant === 'b' && rawData.variantB;
   const vB = isVariantB ? rawData.variantB : {};
@@ -1424,6 +1467,9 @@ function renderPublicFunnelHtml(page, req, res) {
   const shopify = page.shopifyConfig || {};
   const storeDomain = realStoreDomain(shopify);
   const variantId = realVariantId(data.shopifyVariantId);
+  const directCheckoutUrl = cleanDirectCheckoutUrl(data.checkoutUrl);
+  const wooStoreUrl = realWooStoreUrl(page.woocommerceConfig);
+  const hasAltCheckout = Boolean(directCheckoutUrl || (wooStoreUrl && variantId));
   const productId = shopifyId(data.shopifyProductId);
   // A product picked with a placeholder variant (an old blueprint id, or the sample catalog the
   // product picker used to offer) is nobody's: its title, price and image are invented, so none of
@@ -1464,13 +1510,16 @@ function renderPublicFunnelHtml(page, req, res) {
   // With no store there is no checkout to continue to, so the button always opens this form, which
   // saves the details and says so in place. It used to alert an invented "preparing for launch"
   // notice, or promise checkout and then send the visitor to https:///cart/ (R18).
-  const leadOnly = !storeDomain;
+  const leadOnly = !storeDomain && !hasAltCheckout;
   const leadHasCode = Boolean(effectiveDiscountCode) && !leadOnly;
   const leadSubmitLabel = leadOnly ? 'Send' : leadHasCode ? 'Claim Voucher & Checkout &rarr;' : 'Continue to Checkout &rarr;';
   const leadBumpSubmitLabel = leadOnly ? 'Send' : leadHasCode ? 'Claim Voucher & Upgrade Order &rarr;' : 'Upgrade Order & Checkout &rarr;';
   const metaPixelId = realTrackingId(data.metaPixelId);
   const tiktokPixelId = realTrackingId(data.tiktokPixelId);
   const ga4TrackingId = realTrackingId(data.ga4TrackingId);
+  const gtmContainerId = realTrackingId(data.gtmContainerId);
+  const chatConciergeHref = buildChatConciergeHref(data);
+  const chatConciergeText = String(data.chatConciergeText || '').trim() || (data.chatConciergeChannel === 'sms' ? 'Have a question? Text our specialist' : 'Have a question? Chat on WhatsApp');
   const slug = page.slug || 'offer';
 
   // Wave 4: Urgency & Scarcity Boosters
@@ -1583,6 +1632,18 @@ function renderPublicFunnelHtml(page, req, res) {
     gtag('config', ${scriptStr(ga4TrackingId)});
   </script>
   <!-- End Google Analytics -->
+  ` : ''}${gtmContainerId ? `
+  <!-- Google Tag Manager -->
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
+    (function(w,d,s,l,i){var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer',${scriptStr(gtmContainerId)});
+  </script>
+  <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${escapeHtml(gtmContainerId)}" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+  <!-- End Google Tag Manager -->
   ` : ''}
 
   <style>
@@ -2200,7 +2261,7 @@ function renderPublicFunnelHtml(page, req, res) {
       text-decoration: underline;
     }
   </style>
-</head>
+${themeHeadAssets}</head>
 <body>
 
   ${isPreviewMode ? renderGeoPricingSimulatorToolbar({ activeCurrency: initialCurrency, slug, isUpsell: false, isDownsell: false, hasUpsell: Boolean(rawData.hasUpsell || rawData.upsell), storeDomain }) : ''}
@@ -2292,7 +2353,10 @@ function renderPublicFunnelHtml(page, req, res) {
 
         <button id="main-cta-btn" class="cta-btn" type="button">
           ${escapeHtml(buttonText)}
-        </button>
+        </button>${chatConciergeHref ? `
+        <a id="jv-chat-concierge-btn" href="${escapeHtml(chatConciergeHref)}" target="_blank" rel="noopener noreferrer" style="margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; padding:11px 16px; border-radius:10px; background:rgba(16, 185, 129, 0.1); border:1px solid rgba(16, 185, 129, 0.3); color:#34D399; font-size:13px; font-weight:700; text-decoration:none; text-align:center;">
+          <span>${escapeHtml(chatConciergeText)}</span>
+        </a>` : ''}
         ${variantId ? `
         <form id="jv-restock-form" style="margin-top:14px; display:flex; flex-direction:column; gap:8px;">
           <label for="jv-restock-email" style="font-size:13px; color:#e5e7eb;">Email me when this is back</label>
@@ -2588,7 +2652,37 @@ function renderPublicFunnelHtml(page, req, res) {
       if (bumpCbPage) bumpCbPage.addEventListener('change', function(e) { setBumpState(e.target.checked); });
       if (bumpCbModal) bumpCbModal.addEventListener('change', function(e) { setBumpState(e.target.checked); });
 
-      function buildCheckoutUrl() {
+      function buildCheckoutUrl() {${hasAltCheckout ? `
+        const directCheckoutUrl = ${scriptStr(directCheckoutUrl)};
+        const wooStoreUrl = ${scriptStr(wooStoreUrl)};
+        if (directCheckoutUrl) {
+          try {
+            const u = new URL(directCheckoutUrl, window.location.origin);
+            if (discountCode && !u.searchParams.has('discount')) u.searchParams.set('discount', discountCode);
+            if (utm_source && !u.searchParams.has('utm_source')) u.searchParams.set('utm_source', utm_source);
+            if (utm_medium && !u.searchParams.has('utm_medium')) u.searchParams.set('utm_medium', utm_medium);
+            if (utm_campaign && !u.searchParams.has('utm_campaign')) u.searchParams.set('utm_campaign', utm_campaign);
+            if (utm_content && !u.searchParams.has('utm_content')) u.searchParams.set('utm_content', utm_content);
+            var vidDirect = window.jourvanceVisitor ? window.jourvanceVisitor() : '';
+            if (vidDirect && !u.searchParams.has('jv_vid')) u.searchParams.set('jv_vid', vidDirect);
+            if (slug && !u.searchParams.has('jv_slug')) u.searchParams.set('jv_slug', slug);
+            return u.toString();
+          } catch (e) {
+            return directCheckoutUrl;
+          }
+        }
+        if (!storeDomain && wooStoreUrl && variantId) {
+          const wooOut = new URLSearchParams();
+          wooOut.set('add-to-cart', variantId);
+          if (discountCode) wooOut.set('coupon_code', discountCode);
+          if (utm_source) wooOut.set('utm_source', utm_source);
+          if (utm_medium) wooOut.set('utm_medium', utm_medium);
+          if (utm_campaign) wooOut.set('utm_campaign', utm_campaign);
+          var vidWoo = window.jourvanceVisitor ? window.jourvanceVisitor() : '';
+          if (vidWoo) wooOut.set('jv_vid', vidWoo);
+          if (slug) wooOut.set('jv_slug', slug);
+          return wooStoreUrl + '/checkout/?' + wooOut.toString();
+        }` : ''}
         let items = [];
         if (variantId) items.push(variantId + ':1');
         if (isBumpChecked && bumpVariantId) items.push(bumpVariantId + ':1');
@@ -3091,6 +3185,8 @@ function renderPublicThankYouHtml(page, req, res) {
   // Publish stores the thank-you step's own data under d.thankYou (journeyRoutes.mjs landingData).
   // The top-level fields are the older record shape and stay as fallbacks.
   const t = d.thankYou && typeof d.thankYou === 'object' ? d.thankYou : {};
+  const themeId = t.theme || d.theme || page.theme || null;
+  const themeHeadAssets = renderThemeHeadAssets(themeId, 'thank-you');
   const shopify = page.shopifyConfig || {};
   const storeDomain = realStoreDomain(shopify);
   const headline = t.headline || d.thankYouHeadline || 'Thank you';
@@ -3296,7 +3392,7 @@ function renderPublicThankYouHtml(page, req, res) {
       text-align: center;
     }
   </style>
-</head>
+${themeHeadAssets}</head>
 <body>
   <div class="container">
     <div class="card hero-header">
@@ -3347,6 +3443,8 @@ function renderPublicThankYouHtml(page, req, res) {
 function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
   const d = page.data || {};
   const upsell = isDownsell ? (d.downsell || {}) : (d.upsell || {});
+  const themeId = upsell.theme || d.theme || page.theme || null;
+  const themeHeadAssets = renderThemeHeadAssets(themeId, isDownsell ? 'downsell' : 'upsell');
   const shopify = page.shopifyConfig || {};
   const storeDomain = realStoreDomain(shopify);
   const slug = page.slug || req.params.slug || 'offer';
@@ -3444,10 +3542,18 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
 
   const nextDeclineBase = (!isDownsell && (d.hasDownsell || d.downsell)) ? `/p/${slug}/downsell` : `/p/${slug}/thank-you`;
   const nextDeclineUrl = activeCurrency !== 'USD' ? `${nextDeclineBase}?currency=${activeCurrency}` : nextDeclineBase;
+  const directUpsellUrl = cleanDirectCheckoutUrl(upsell.checkoutUrl || d.upsellCheckoutUrl || d.checkoutUrl);
+  const wooStoreUrl = realWooStoreUrl(page.woocommerceConfig);
   const rawCheckoutUrl = storeDomain && variantId
     ? `https://${storeDomain}/cart/${variantId}:1${(effectiveCoupon && !isCourtesyExpired) ? `?discount=${encodeURIComponent(effectiveCoupon)}` : ''}`
+    : directUpsellUrl
+      ? directUpsellUrl
+      : (wooStoreUrl && variantId
+        ? `${wooStoreUrl}/checkout/?add-to-cart=${encodeURIComponent(variantId)}${(effectiveCoupon && !isCourtesyExpired) ? `&coupon_code=${encodeURIComponent(effectiveCoupon)}` : ''}`
+        : '');
+  const checkoutUrl = rawCheckoutUrl
+    ? (storeDomain ? buildLocalizedShopifyCartUrl(rawCheckoutUrl, activeCurrency) : rawCheckoutUrl)
     : '';
-  const checkoutUrl = rawCheckoutUrl ? buildLocalizedShopifyCartUrl(rawCheckoutUrl, activeCurrency) : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -3832,7 +3938,7 @@ function renderPublicUpsellHtml(page, req, res, isDownsell = false) {
       color: #CBD5E1;
     }
   </style>
-</head>
+${themeHeadAssets}</head>
 <body>
   ${isPreviewMode ? renderGeoPricingSimulatorToolbar({ activeCurrency, slug, isUpsell: !isDownsell, isDownsell, hasUpsell: false, storeDomain }) : ''}
   <div class="container">
@@ -4755,8 +4861,25 @@ app.post('/api/public/lead', async (req, res) => {
   if (variantId) cartItems.push(`${variantId}:1`);
   if (bumpSelected && bumpVariantId) cartItems.push(`${bumpVariantId}:1`);
 
-  let checkoutUrl = storeConnected && cartItems.length ? `https://${storeDomain}/cart/${cartItems.join(',')}` : null;
+  const directLeadCheckoutUrl = page?.data?.postSubmitAction === 'custom_url' && cleanDirectCheckoutUrl(page?.data?.customRedirectUrl)
+    ? cleanDirectCheckoutUrl(page.data.customRedirectUrl)
+    : cleanDirectCheckoutUrl(page?.data?.checkoutUrl);
+  const wooLeadStoreUrl = realWooStoreUrl(page?.woocommerceConfig);
+
+  let checkoutUrl = storeConnected && cartItems.length
+    ? `https://${storeDomain}/cart/${cartItems.join(',')}`
+    : directLeadCheckoutUrl
+      ? directLeadCheckoutUrl
+      : (wooLeadStoreUrl && variantId ? `${wooLeadStoreUrl}/checkout/?add-to-cart=${encodeURIComponent(variantId)}` : null);
   const outParams = new URLSearchParams();
+  // Pre-fill captured lead email and name into direct booking/payment destinations (Google Calendar, Calendly, Cal.com, Stripe).
+  if (!storeConnected && directLeadCheckoutUrl) {
+    outParams.set('email', contact.email);
+    if (contact.name) outParams.set('name', contact.name);
+    if (/buy\.stripe\.com/i.test(directLeadCheckoutUrl)) {
+      outParams.set('prefilled_email', contact.email);
+    }
+  }
   // GIVE15 only for a referral link, and only while the merchant has it for this store (R24).
   const effectiveLeadDiscount = isReferralLink(refCode) && definedReferralRule(loadDiscounts(), storeDomain) ? 'GIVE15' : discountCode;
   if (effectiveLeadDiscount) outParams.set('discount', effectiveLeadDiscount);
@@ -4784,20 +4907,20 @@ app.post('/api/public/lead', async (req, res) => {
   });
 
   const qs = outParams.toString();
-  if (qs && checkoutUrl) checkoutUrl += `?${qs}`;
+  if (qs && checkoutUrl) checkoutUrl += (checkoutUrl.includes('?') ? '&' : '?') + qs;
 
   // Phase 2: Localize checkout permalink with visitor/selected currency
   const requestedCurrency = req.body?.currency || detectVisitorCurrency({
     cookie: req.headers?.cookie,
     countryCode: req.headers?.['cf-ipcountry'] || req.headers?.['x-country-code']
   });
-  if (checkoutUrl) {
+  if (checkoutUrl && storeConnected) {
     checkoutUrl = buildLocalizedShopifyCartUrl(checkoutUrl, requestedCurrency);
   }
 
-  // Wave 3 & 4: Outbound Webhook Relay (Klaviyo / Zapier / Make / Custom Webhook with variant)
-  const webhookUrl = customWebhookUrl || externalWebhookUrl || page?.data?.webhookUrl;
-  if (webhookUrl && (webhookUrl.startsWith('http://') || webhookUrl.startsWith('https://'))) {
+  // Wave 3 & 4: Outbound Webhook Relay (Google Sheets Apps Script / Klaviyo / Zapier / Make / Custom Webhook)
+  const webhookUrl = cleanWebhookUrl(customWebhookUrl || externalWebhookUrl || page?.data?.webhookUrl);
+  if (webhookUrl) {
     const bumpTitle = builderCommerce ? builderCommerce.bumpTitle : (page?.data?.orderBumpTitle || page?.data?.orderBumpHeadline || '').trim();
     fetch(webhookUrl, {
       method: 'POST',
@@ -4879,6 +5002,69 @@ app.post('/api/public/lead', async (req, res) => {
     couponNote: formCoupon.note || '',
     contact
   });
+});
+
+// Send a verified sample lead row to a Google Sheets Apps Script or outbound HTTPS webhook URL.
+app.post('/api/public/webhook-test', async (req, res) => {
+  const clientIp = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  if (isLeadRateLimited(clientIp)) {
+    return res.status(429).json({ success: false, error: 'Too many requests. Please wait a moment and try again.' });
+  }
+  const cleanUrl = cleanWebhookUrl(req.body?.webhookUrl);
+  if (!cleanUrl) {
+    return res.status(400).json({
+      success: false,
+      error: 'Enter a valid public https:// webhook or Google Apps Script URL.'
+    });
+  }
+  const sampleSlug = String(req.body?.slug || 'sample-offer').trim().slice(0, 80) || 'sample-offer';
+  const payload = {
+    event: 'funnel_lead_test',
+    email: 'sample@jourvance.example',
+    name: 'Alex Morgan (Sample Lead)',
+    phone: '+15550199',
+    pageSlug: sampleSlug,
+    variant: 'a',
+    currency: 'USD',
+    exitIntent: false,
+    bumpAccepted: true,
+    bumpProductTitle: 'Sample Add-On',
+    discountCode: 'WELCOME10',
+    contact: {
+      email: 'sample@jourvance.example',
+      name: 'Alex Morgan (Sample Lead)',
+      phone: '+15550199',
+      utm_source: 'google_sheets_test',
+      utm_campaign: 'setup_verification'
+    },
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    const upstreamRes = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'Jourvance-Webhook/1.0' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000)
+    });
+    if (upstreamRes.status >= 200 && upstreamRes.status < 400) {
+      return res.json({
+        success: true,
+        status: upstreamRes.status,
+        message: 'Sample lead row sent. Check your Google Sheet or webhook receiver.'
+      });
+    }
+    return res.status(502).json({
+      success: false,
+      status: upstreamRes.status,
+      error: `Webhook endpoint returned HTTP ${upstreamRes.status}. Verify your Google Apps Script is deployed with access set to Anyone.`
+    });
+  } catch (err) {
+    return res.status(502).json({
+      success: false,
+      error: `Could not reach webhook endpoint (${err?.message || 'network error'}).`
+    });
+  }
 });
 
 app.get('/api/public/form-confirm/:token', async (req, res) => {

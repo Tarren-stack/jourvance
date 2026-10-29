@@ -710,6 +710,18 @@ export function createHubClient(config = {}) {
     return get(STORE + "/rows/" + encodeURIComponent(collection) + (q.length ? "?" + q.join("&") : ""));
   }
 
+  // The optional SEO fields a call may carry, picked by name so an opts object can never
+  // override appId or the route's own fields. `location` = { city, region?, country? };
+  // `sitePath` = this site's path prefix on a SHARED host ("/site/glow"), so only a result
+  // under it counts as this site's.
+  function seoPlace(opts) {
+    var o = opts || {};
+    var out = {};
+    if (o.location) out.location = o.location;
+    if (typeof o.sitePath === "string" && o.sitePath) out.sitePath = o.sitePath;
+    return out;
+  }
+
   return {
     /** The shared hierarchical AI Brain (biz → app → main), scoped to this app + account. */
     brain: {
@@ -856,14 +868,27 @@ export function createHubClient(config = {}) {
       setRankSchedule: (opts = {}) => post("/api/seo/rank/schedule", { appId, ...opts }),
 
       // ── Metered actions (indicative credits — pricing endpoint is the contract) ──
+      // `opts.location` = { city, region?, country? } (country defaults to "US") measures from
+      // that place instead of the whole US; the answer echoes `location: { name, code }` (code is
+      // null for a city), plus `fallback: true` and a `reason` when the place was not applied.
+      // Same price.
+      // `opts.sitePath` (rankCheck, cluster, brief, rankedKeywords, and in the opts of
+      // localCheck, aiVisibilityCheck and setRankSchedule) is this site's prefix on a SHARED
+      // host: only a result under it counts as "mine". Absent or "" keeps the host rule.
       siteSync: (url, opts = {}) => post("/api/seo/site/sync", { appId, url, ...opts }),               // 5
-      rankCheck: (target, keywords) => post("/api/seo/rank/check", { appId, target, keywords }),       // 2/kw
-      volumes: (keywords) => post("/api/seo/keywords/volume", { keywords }),                           // 25
-      cluster: (target, keywords) => post("/api/seo/keywords/cluster", { target, keywords }),          // 2/kw
-      keywordGap: (target, competitor) => post("/api/seo/keywords/gap", { target, competitor }),       // 10
-      keywordSuggestions: (keyword) => post("/api/seo/keywords/suggestions", { keyword }),             // 10
+      rankCheck: (target, keywords, opts = {}) =>
+        post("/api/seo/rank/check", { appId, target, keywords, ...seoPlace(opts) }),                     // 2/kw
+      volumes: (keywords, opts = {}) => post("/api/seo/keywords/volume", { keywords, ...seoPlace(opts) }), // 25
+      cluster: (target, keywords, opts = {}) =>
+        post("/api/seo/keywords/cluster", { target, keywords, ...seoPlace(opts) }),                      // 2/kw
+      keywordGap: (target, competitor, opts = {}) =>
+        post("/api/seo/keywords/gap", { target, competitor, ...seoPlace(opts) }),                        // 10
+      keywordSuggestions: (keyword, opts = {}) =>
+        post("/api/seo/keywords/suggestions", { keyword, ...seoPlace(opts) }),                           // 10
       domainOverview: (target) => get(`/api/seo/domain/overview?target=${encodeURIComponent(target)}`),          // 10
-      rankedKeywords: (target) => get(`/api/seo/domain/ranked-keywords?target=${encodeURIComponent(target)}`),   // 10
+      rankedKeywords: (target, opts = {}) =>
+        get(`/api/seo/domain/ranked-keywords?target=${encodeURIComponent(target)}` +
+          (opts.sitePath ? `&sitePath=${encodeURIComponent(opts.sitePath)}` : "")),                         // 10
       competitors: (target) => get(`/api/seo/domain/competitors?target=${encodeURIComponent(target)}`),          // 10
       backlinks: (target) => get(`/api/seo/backlinks/summary?target=${encodeURIComponent(target)}`),             // 10
       prospect: (target, competitor) => post("/api/seo/links/prospect", { appId, target, competitor }),          // 25
@@ -873,7 +898,8 @@ export function createHubClient(config = {}) {
       onpageAudit: (url) => post("/api/seo/onpage/audit", { url }),                                    // 1
       aifix: (url, targetKeyword) =>
         post("/api/seo/onpage/aifix", { url, ...(targetKeyword ? { targetKeyword } : {}) }),           // 2
-      brief: (keyword, target) => post("/api/seo/brief", { appId, keyword, ...(target ? { target } : {}) }), // 10
+      brief: (keyword, target, opts = {}) =>
+        post("/api/seo/brief", { appId, keyword, ...(target ? { target } : {}), ...seoPlace(opts) }), // 10
       explainTask: (task = {}) => post("/api/seo/tasks/explain", task), // {title, detail, source} — 1
       copilotAsk: (question, history = []) => post("/api/seo/copilot/ask", { appId, question, history }),    // 5
       generateLandingPages: (opts = {}) => post("/api/seo/progpages/generate", { appId, ...opts }), // {businessName, services, locations, facts} — 3/page
@@ -1026,9 +1052,13 @@ export function createHubClient(config = {}) {
       // acct-<accountId>@<host> lands in that account's inbox. (free)
       inboundParse: {
         // Status of the app's receiving hostname (e.g. reply.acme.com). → { configured, hostname }
-        status: () => get("/api/email/inbound-parse/status?appId=" + encodeURIComponent(appId)),
+        // With an accountId, the status of THAT account's own receiving hostname.
+        status: (accountId) => get("/api/email/inbound-parse/status?appId=" + encodeURIComponent(appId) + (accountId ? "&accountId=" + encodeURIComponent(accountId) : "")),
         // Register a receiving hostname. { hostname } → { hostname, mx:{type,host,value,mxPref}, note }
-        setup: (hostname) => post("/api/email/inbound-parse/setup", { appId: appId, hostname }),
+        // With an accountId the hostname belongs to that account: mail to anyone@hostname lands in its inbox.
+        setup: (hostname, accountId) => post("/api/email/inbound-parse/setup", { appId: appId, hostname, ...(accountId ? { accountId } : {}) }),
+        // Stop receiving on an account's own hostname. → { accountId, removed }
+        remove: (accountId) => post("/api/email/inbound-parse/remove", { appId: appId, accountId }),
       },
       // Engagement tracking (SendGrid Event Webhook): delivered/opens/clicks/bounces
       // attributed back to each send, scoped per accountId. (free)

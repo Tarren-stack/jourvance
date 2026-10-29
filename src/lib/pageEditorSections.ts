@@ -48,6 +48,13 @@ export function sectionSummary(
 ): SectionSummary {
   switch (id) {
     case 'commerce': {
+      const hasProduct = ctx.storeConnected && !isDemoVariantId(data.shopifyVariantId) && Boolean(data.shopifyVariantId) && Boolean(data.shopifyProductTitle);
+      if (!hasProduct && hasText(data.checkoutUrl)) {
+        return {
+          text: data.checkoutMode === 'lead-gate' ? 'Direct destination · Email first' : 'Direct destination · Direct link',
+          tone: 'on'
+        };
+      }
       if (!ctx.storeConnected) return { text: 'No store connected', tone: 'neutral' };
       // PageEditor.tsx "Placeholder / Missing Variant Warning" predicate.
       if (isDemoVariantId(data.shopifyVariantId) || !data.shopifyVariantId || !data.shopifyProductTitle) {
@@ -86,8 +93,8 @@ export function sectionSummary(
     case 'privacy': {
       // GDPR & CCPA cookie consent: checked={data.cookieConsentEnabled !== false}.
       const cookie = data.cookieConsentEnabled !== false ? 'on' : 'off';
-      // SECTION 3 pixel inputs: metaPixelId, tiktokPixelId, ga4TrackingId.
-      const pixels = [data.metaPixelId, data.tiktokPixelId, data.ga4TrackingId].filter(hasText).length;
+      // SECTION 3 pixel inputs: metaPixelId, tiktokPixelId, ga4TrackingId, gtmContainerId.
+      const pixels = [data.metaPixelId, data.tiktokPixelId, data.ga4TrackingId, data.gtmContainerId].filter(hasText).length;
       const pixelText = pixels === 0 ? 'No pixels' : pixels === 1 ? '1 pixel' : `${pixels} pixels`;
       return { text: `Cookie notice ${cookie} · ${pixelText}`, tone: 'neutral' };
     }
@@ -125,3 +132,36 @@ export function parseOpenSections(raw: string | null): SectionId[] {
 export function toggleSection(open: SectionId[], id: SectionId): SectionId[] {
   return open.includes(id) ? open.filter(s => s !== id) : [...open, id];
 }
+
+// Builds a client-side WhatsApp (https://wa.me/...) or SMS (sms:...) link when Click-to-Chat is enabled.
+export function buildChatConciergeHref(data?: Partial<PageNodeData> | null): string {
+  if (!data || !data.chatConciergeEnabled) return '';
+  const digits = String(data.chatConciergePhone || '').replace(/[^0-9]/g, '');
+  if (digits.length < 7 || digits.length > 16) return '';
+  const msg = String(data.chatConciergeMessage || '').trim();
+  if (data.chatConciergeChannel === 'sms') {
+    return msg ? `sms:+${digits}?body=${encodeURIComponent(msg)}` : `sms:+${digits}`;
+  }
+  return msg ? `https://wa.me/${digits}?text=${encodeURIComponent(msg)}` : `https://wa.me/${digits}`;
+}
+
+export const GOOGLE_SHEETS_APPS_SCRIPT = `function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var p = JSON.parse(e.postData.contents || '{}');
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Timestamp', 'Event', 'Name', 'Email', 'Phone', 'Offer Slug', 'Variant', 'Order Bump', 'UTM Source', 'UTM Campaign']);
+  }
+  sheet.appendRow([
+    p.timestamp || new Date().toISOString(),
+    p.event || 'funnel_lead',
+    p.name || '',
+    p.email || '',
+    p.phone || '',
+    p.pageSlug || '',
+    p.variant || 'a',
+    p.bumpAccepted ? (p.bumpProductTitle || 'Yes') : 'No',
+    (p.contact && p.contact.utm_source) || '',
+    (p.contact && p.contact.utm_campaign) || ''
+  ]);
+  return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+}`;

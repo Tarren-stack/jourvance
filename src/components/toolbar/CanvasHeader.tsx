@@ -1,5 +1,10 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useId } from 'react';
 import { Save, CheckCircle2, Plus, Compass, Globe, Circle, AlertTriangle, Loader2, Undo2, Redo2, Library, ChevronDown } from 'lucide-react';
+import {
+  UNIVERSAL_BUSINESS_CATEGORIES,
+  isUniversalBusinessCategory,
+  normalizeBusinessCategory
+} from '../../types/journey';
 import type { JourneyProject, Workspace, CanvasViewMode, NodeType, ActiveAppView } from '../../types/journey';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { checkJourneyDesign } from '../../lib/designChecks';
@@ -90,6 +95,7 @@ const historyButtonStyle = (enabled: boolean): React.CSSProperties => ({
 interface Props {
   project: JourneyProject;
   onUpdateProjectName: (name: string) => void;
+  onUpdateBusinessType?: (category: string) => void;
   onSave: () => void;
   onAddNode: (type: NodeType) => void;
   onOpenWebsite?: () => void;
@@ -141,6 +147,7 @@ interface Props {
 export const CanvasHeader: React.FC<Props> = ({
   project,
   onUpdateProjectName,
+  onUpdateBusinessType,
   onSave,
   onAddNode,
   onOpenWebsite,
@@ -723,6 +730,45 @@ export const CanvasHeader: React.FC<Props> = ({
               onFocus={e => { e.target.style.background = 'rgba(255, 255, 255, 0.05)'; e.target.style.borderColor = 'rgba(99, 102, 241, 0.6)'; }}
               onBlur={e => { e.target.style.background = 'transparent'; e.target.style.borderColor = 'transparent'; }}
             />
+
+            {/* Business Category Selector */}
+            <select
+              value={
+                isUniversalBusinessCategory(project.businessType)
+                  ? project.businessType
+                  : normalizeBusinessCategory(project.businessType)
+              }
+              onChange={e => onUpdateBusinessType?.(e.target.value)}
+              aria-label="Business category"
+              title="Business category"
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#CBD5E1',
+                background: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                borderRadius: '8px',
+                padding: '5px 8px',
+                cursor: 'pointer',
+                height: '30px',
+                maxWidth: smallPhone ? '100px' : phone ? '120px' : '160px',
+                flexShrink: 0
+              }}
+            >
+              {UNIVERSAL_BUSINESS_CATEGORIES.map(category => (
+                <option
+                  key={category}
+                  value={category}
+                  style={{
+                    background: '#0B0F19',
+                    color: '#F8FAFC',
+                    fontSize: '12px'
+                  }}
+                >
+                  {category}
+                </option>
+              ))}
+            </select>
 
             {/* Undo and Redo: one step is one drag, one delete, or one burst of typing. aria-disabled,
                 not disabled, so undoing the last step does not throw keyboard focus off the button. */}

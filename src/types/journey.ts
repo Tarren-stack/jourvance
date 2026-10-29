@@ -95,6 +95,7 @@ export interface PageNodeData extends Record<string, unknown> {
   trustBadge: string;
   buttonText: string;
   heroImageUrl?: string;
+  theme?: PageThemeId;
   // Shopify Commerce Link
   shopifyProductId?: string;
   shopifyVariantId?: string;
@@ -118,6 +119,13 @@ export interface PageNodeData extends Record<string, unknown> {
   metaPixelId?: string;
   tiktokPixelId?: string;
   ga4TrackingId?: string;
+  gtmContainerId?: string;
+  // Click-to-Chat Concierge (WhatsApp / SMS)
+  chatConciergeEnabled?: boolean;
+  chatConciergeChannel?: 'whatsapp' | 'sms';
+  chatConciergePhone?: string;
+  chatConciergeText?: string;
+  chatConciergeMessage?: string;
   // Post-Submit Action for Lead-Gate Mode
   postSubmitAction?: 'redirect_checkout' | 'modal_voucher' | 'custom_url';
   customRedirectUrl?: string;
@@ -277,6 +285,7 @@ export interface ThankYouNodeData extends Record<string, unknown> {
   type: 'thank-you';
   label: string;
   slug?: string;
+  theme?: PageThemeId;
   headline: string;
   subhead: string;
   badgeText?: string;
@@ -297,6 +306,7 @@ export interface UpsellNodeData extends Record<string, unknown> {
   type: 'upsell';
   label: string;
   slug?: string;
+  theme?: PageThemeId;
   offerType: 'upsell' | 'downsell';
   headline: string;
   subhead: string;
@@ -383,10 +393,63 @@ export interface ConversionEdgeData extends Record<string, unknown> {
 
 export type JourneyEdge = Edge<ConversionEdgeData>;
 
+// -- Universal Business Categories (Milestone 1) --------------------------------
+
+export const UNIVERSAL_BUSINESS_CATEGORIES = [
+  'E-Commerce & Physical Retail',
+  'Local & Client Services',
+  'B2B, Agencies & Consulting',
+  'Digital Products, Courses & Creators',
+  'SaaS, Tech & Events'
+] as const;
+
+export type UniversalBusinessCategory = typeof UNIVERSAL_BUSINESS_CATEGORIES[number];
+
+export function isUniversalBusinessCategory(val: unknown): val is UniversalBusinessCategory {
+  return typeof val === 'string' && (UNIVERSAL_BUSINESS_CATEGORIES as readonly string[]).includes(val);
+}
+
+export function normalizeBusinessCategory(raw?: string | null): UniversalBusinessCategory {
+  if (!raw) return 'E-Commerce & Physical Retail';
+  const trimmed = raw.trim();
+  if (isUniversalBusinessCategory(trimmed)) return trimmed;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes('local') || lower.includes('client') || lower.includes('service')) {
+    return 'Local & Client Services';
+  }
+  if (lower.includes('agency') || lower.includes('consult') || lower.includes('b2b')) {
+    return 'B2B, Agencies & Consulting';
+  }
+  if (lower.includes('course') || lower.includes('creator') || lower.includes('digital') || lower.includes('membership')) {
+    return 'Digital Products, Courses & Creators';
+  }
+  if (lower.includes('saas') || lower.includes('tech') || lower.includes('event') || lower.includes('software')) {
+    return 'SaaS, Tech & Events';
+  }
+  return 'E-Commerce & Physical Retail';
+}
+
+// Universal Published Page Themes (Milestone 2)
+
+export const PAGE_THEME_IDS = [
+  'clean-executive',
+  'bold-commerce',
+  'warm-editorial',
+  'creator-minimal',
+  'midnight-modern'
+] as const;
+
+export type PageThemeId = typeof PAGE_THEME_IDS[number];
+
+export function isPageThemeId(val: unknown): val is PageThemeId {
+  return typeof val === 'string' && (PAGE_THEME_IDS as readonly string[]).includes(val);
+}
+
 export interface JourneyProject {
   id: string;
   name: string;
   businessType: string;
+  theme?: PageThemeId;
   offerHeadline: string;
   goal: string;
   workspaceId?: string;

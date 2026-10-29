@@ -664,3 +664,13 @@ test('App, the header and the server wire the builder', () => {
   assert.ok(sidebar.includes('data-ai-builder-trigger'));
   assert.ok(read('./server.mjs').includes('setupAiJourneyRoutes(app'));
 });
+
+test('buildJourneyFromPlan accepts universal business categories and defaults cleanly', () => {
+  const universalBrief = brief({ businessType: 'Digital Products, Courses & Creators' });
+  const project = buildJourneyFromPlan(fixturePlan(universalBrief), universalBrief, { id: 'u1', now: 'now' });
+  assert.equal(project.businessType, 'Digital Products, Courses & Creators');
+
+  const emptyBrief = brief({ businessType: '' });
+  const defaultProject = buildJourneyFromPlan(fixturePlan(emptyBrief), emptyBrief, { id: 'u2', now: 'now' });
+  assert.equal(defaultProject.businessType, 'E-Commerce & Physical Retail');
+});

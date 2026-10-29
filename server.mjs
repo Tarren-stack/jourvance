@@ -181,7 +181,7 @@ app.use(express.json({
   limit: '1mb',
   verify: (req, _res, buf) => {
     const url = String(req.originalUrl || '');
-    if (url.startsWith('/api/webhooks/shopify') || url.startsWith('/api/billing/webhook')) req.rawBody = buf;
+    if (url.startsWith('/api/webhooks/shopify') || url.startsWith('/api/webhooks/woocommerce') || url.startsWith('/api/billing/webhook')) req.rawBody = buf;
   }
 }));
 // A body over the limit is a JSON 413 like every other refusal here, not Express's HTML page.

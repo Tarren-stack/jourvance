@@ -219,7 +219,7 @@ export const AppSidebar: React.FC<Props> = ({
                     <span style={{ fontSize: '14px', fontWeight: 800, letterSpacing: '-0.02em', color: '#FFFFFF' }}>
                       Jourvance
                     </span>
-                    <span style={{ fontSize: '10px', fontWeight: 600, color: '#EC4899', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#F472B6', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                       Studio
                     </span>
                   </div>
@@ -253,7 +253,7 @@ export const AppSidebar: React.FC<Props> = ({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {isExpanded && (
-                <span style={{ fontSize: '10px', fontWeight: 700, color: '#64748B', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   Views
                 </span>
               )}
@@ -316,7 +316,7 @@ export const AppSidebar: React.FC<Props> = ({
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {isExpanded && (
-                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#64748B', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                       Creation
                     </span>
                   )}
@@ -455,7 +455,7 @@ export const AppSidebar: React.FC<Props> = ({
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {isExpanded && (
-                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#64748B', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                       Diagnostics
                     </span>
                   )}
@@ -482,8 +482,8 @@ export const AppSidebar: React.FC<Props> = ({
                               fontWeight: 700,
                               padding: '1px 6px',
                               borderRadius: '9999px',
-                              backgroundColor: launchCompleted === launchTotal ? '#10B981' : '#EC4899',
-                              color: '#FFFFFF'
+                              backgroundColor: launchCompleted === launchTotal ? '#34D399' : '#BE185D',
+                              color: launchCompleted === launchTotal ? '#0B0F19' : '#FFFFFF'
                             }}
                           >
                             {launchCompleted === launchTotal ? 'Ready' : `${launchCompleted}/${launchTotal}`}
@@ -518,8 +518,8 @@ export const AppSidebar: React.FC<Props> = ({
                             fontWeight: 700,
                             padding: '1px 6px',
                             borderRadius: '9999px',
-                            backgroundColor: designCount > 0 ? '#F59E0B' : '#10B981',
-                            color: '#FFFFFF'
+                            backgroundColor: designCount > 0 ? '#F59E0B' : '#34D399',
+                            color: '#0B0F19'
                           }}
                         >
                           {designCount > 0 ? designCount : 'Passed'}
@@ -535,7 +535,7 @@ export const AppSidebar: React.FC<Props> = ({
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       {isExpanded && (
-                        <span style={{ fontSize: '10px', fontWeight: 700, color: '#64748B', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', padding: '0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                           Tools
                         </span>
                       )}

@@ -1,4 +1,4 @@
-import type { JourneyNode, JourneyEdge } from '../types/journey';
+import type { JourneyNode, JourneyEdge, UniversalBusinessCategory } from '../types/journey';
 
 export type BlueprintCategory = 'direct-checkout' | 'lead-magnet' | 'aov-booster' | 'high-ticket' | 'digital-product' | 'retention';
 
@@ -7,6 +7,7 @@ export interface EcomBlueprint {
   title: string;
   tagline: string;
   category: BlueprintCategory;
+  businessType?: UniversalBusinessCategory;
   badge: string;
   description: string;
   expectedAovLift: string;
@@ -39,15 +40,38 @@ export const BLUEPRINT_CARD_HEIGHTS: Record<string, number> = {
 export const BLUEPRINT_LINE_ROOM = 60;
 export const BLUEPRINT_CARD_MAX_WIDTH = 300;
 
+export const BLUEPRINT_CATEGORY_MAP: Record<string, UniversalBusinessCategory> = {
+  'single-product-flash-drop': 'E-Commerce & Physical Retail',
+  'high-ticket-consultation': 'B2B, Agencies & Consulting',
+  'digital-product-membership': 'Digital Products, Courses & Creators',
+  'vip-lead-magnet-discount': 'Local & Client Services',
+  'oto-upsell-funnel-system': 'E-Commerce & Physical Retail',
+  'turnkey-retention-ecosystem': 'SaaS, Tech & Events',
+  'direct-checkout': 'E-Commerce & Physical Retail',
+  'aov-booster': 'E-Commerce & Physical Retail',
+  'high-ticket': 'B2B, Agencies & Consulting',
+  'services': 'Local & Client Services',
+  'digital-product': 'Digital Products, Courses & Creators',
+  'lead-magnet': 'Local & Client Services',
+  'retention': 'SaaS, Tech & Events'
+};
+
+export function getBlueprintUniversalCategory(id?: string, category?: string): UniversalBusinessCategory {
+  if (id && BLUEPRINT_CATEGORY_MAP[id]) return BLUEPRINT_CATEGORY_MAP[id];
+  if (category && BLUEPRINT_CATEGORY_MAP[category]) return BLUEPRINT_CATEGORY_MAP[category];
+  return 'E-Commerce & Physical Retail';
+}
+
 export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
   {
     id: 'single-product-flash-drop',
     title: 'Direct-to-Consumer Product Drop',
     tagline: '1-Click Direct to Checkout (Frictionless Default)',
     category: 'direct-checkout',
+    businessType: 'E-Commerce & Physical Retail',
     badge: 'Fastest Checkout',
     expectedAovLift: 'High Conversion Velocity',
-    description: 'Designed for retail goods and physical e-commerce brands. Eliminates multi-step cart hurdles and sends shoppers directly into accelerated checkout with an auto-applied incentive.',
+    description: 'Designed for physical goods, retail products, and direct orders. Eliminates multi-step checkout friction and sends buyers directly into accelerated checkout with an auto-applied incentive.',
     nodes: [
       {
         id: 'bp1-ad',
@@ -166,6 +190,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     title: 'High-Ticket Client Consultation & Application',
     tagline: 'Authority Stack → Qualified Application → Calendar Booking',
     category: 'high-ticket',
+    businessType: 'B2B, Agencies & Consulting',
     badge: 'Application & Booking',
     expectedAovLift: 'High Client Value',
     description: 'Designed for consulting firms, agencies, specialized professionals, and high-ticket service specialists. Filters traffic through an application gate and books pre-qualified discovery consultations.',
@@ -302,6 +327,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     title: 'Digital Product, Course & SaaS Access Funnel',
     tagline: 'Sales Page → Instant Access Checkout + Order Bump Add-on',
     category: 'digital-product',
+    businessType: 'Digital Products, Courses & Creators',
     badge: 'Instant Delivery',
     expectedAovLift: 'High Digital Margins',
     description: 'Designed for digital assets, SaaS subscriptions, training programs, and resource vaults. Features an integrated order bump for complementary resources and automated digital delivery.',
@@ -431,6 +457,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     title: 'Universal VIP Lead Magnet & Nurture Series',
     tagline: '2-Step Value Gate (Lead Capture → Welcome Offer)',
     category: 'lead-magnet',
+    businessType: 'Local & Client Services',
     badge: 'List Builder + Sales',
     expectedAovLift: 'List Growth & Front-End Conversions',
     description: 'Captures first-party email and phone leads with a high-value incentive (checklist, guide, or welcome voucher). Automatically delivers the asset via email and presents a limited-time welcome offer.',
@@ -556,6 +583,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     title: 'Post-Purchase Upsell & Downsell Funnel',
     tagline: 'Landing Page → 1-Click Upsell (OTO) → Downsell → VIP Portal',
     category: 'aov-booster',
+    businessType: 'E-Commerce & Physical Retail',
     badge: 'Post-Purchase Upsell',
     expectedAovLift: 'Maximum Order Value',
     description: 'The industry-standard architecture for maximizing customer lifetime value. After the initial purchase, customers are offered an exclusive 1-click upgrade. If declined, a lower-barrier downsell is presented before reaching the final confirmation.',
@@ -568,7 +596,7 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
           type: 'ad-source',
           label: 'Acquisition Ad • Core Offer',
           platform: 'meta',
-          headline: 'The All-in-One Solution for Modern Teams: Save 20%',
+          headline: 'Complete Performance Bundle for Modern Teams: Save 20%',
           body: 'Built for speed, durability, and daily ease of use. Claim your special bundle before inventory sells out.',
           ctaText: 'Claim Special Bundle',
           imageUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=800&q=80',
@@ -705,9 +733,10 @@ export const ECOM_BLUEPRINTS: EcomBlueprint[] = [
     title: 'The Complete Acquisition & Courtesy Retention Engine',
     tagline: 'Paid Ad → Hero Landing Page → 1-Click OTO Upsell → 24h Courtesy Rescue & Cart Recovery',
     category: 'retention',
+    businessType: 'SaaS, Tech & Events',
     badge: 'Flagship Retention Engine',
     expectedAovLift: '+38% Net Revenue Recovered',
-    description: 'Engineered for modern high-retention brands. Pairs high-converting front-end acquisition and 1-click upsells with automated 24h courtesy rescue and abandoned cart safety nets.',
+    description: 'Engineered for subscription products, high-retention brands, and digital platforms. Pairs high-converting front-end acquisition and 1-click upgrades with automated 24h courtesy rescue and checkout recovery.',
     nodes: [
       {
         id: 'bp6-ad',

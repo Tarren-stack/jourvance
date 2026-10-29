@@ -2,9 +2,11 @@ import React, { useState, useEffect, useId, useRef } from 'react';
 import {
   Sparkles, RefreshCw, Plus, Trash2, Globe, ExternalLink,
   ShoppingBag, Link2, CheckCircle2, Copy, Check, Tag,
-  Activity, Eye, Share2, Zap, GitFork, Clock, ShieldAlert, ShieldCheck, Star
+  Activity, Eye, Share2, Zap, GitFork, Clock, ShieldAlert, ShieldCheck, Star, ChevronDown,
+  Palette
 } from 'lucide-react';
-import type { PageNodeData, PageVariantData, Workspace, ShopifyProduct } from '../../types/journey';
+import { normalizeBusinessCategory } from '../../types/journey';
+import type { PageNodeData, PageVariantData, Workspace, ShopifyProduct, PageThemeId } from '../../types/journey';
 import { requestAICopyAnswer } from '../../lib/hubClient';
 import {
   readCopyAnswer,
@@ -26,8 +28,11 @@ import {
   toggleSection,
   PAGE_FIELD_IDS,
   OPEN_SECTIONS_STORAGE_KEY,
+  GOOGLE_SHEETS_APPS_SCRIPT,
+  buildChatConciergeHref,
   type SectionId
 } from '../../lib/pageEditorSections';
+import { getPageTheme, getThemeCssVariables } from '../../lib/pageThemes';
 import { EditorSection } from './EditorSection';
 import { CopyProposalCard } from './CopyProposalCard';
 import { fetchShopifyProducts, buildCheckoutPermalink, buildMultiItemCheckoutPermalink } from '../../lib/shopifyClient';
@@ -70,6 +75,59 @@ interface Props {
 
 const sectionTitle = (id: SectionId) => PAGE_EDITOR_SECTIONS.find(s => s.id === id)?.title ?? id;
 
+interface ThemeOption {
+  id: PageThemeId | 'default';
+  name: string;
+  industry: string;
+  primaryColor: string;
+  bgColor: string;
+}
+
+const PAGE_THEME_OPTIONS: readonly ThemeOption[] = [
+  {
+    id: 'default',
+    name: 'Original (Default)',
+    industry: 'Classic Jourvance styling',
+    primaryColor: '#EC4899',
+    bgColor: '#09080E'
+  },
+  {
+    id: 'clean-executive',
+    name: 'Clean Executive',
+    industry: 'B2B, SaaS and financial consulting',
+    primaryColor: '#2563EB',
+    bgColor: '#F8FAFC'
+  },
+  {
+    id: 'bold-commerce',
+    name: 'Bold Commerce',
+    industry: 'Retail, consumer goods and flash sales',
+    primaryColor: '#F59E0B',
+    bgColor: '#0A0A0A'
+  },
+  {
+    id: 'warm-editorial',
+    name: 'Warm Editorial',
+    industry: 'Lifestyle, artisan, publishing and wellness',
+    primaryColor: '#C2410C',
+    bgColor: '#FAF7F2'
+  },
+  {
+    id: 'creator-minimal',
+    name: 'Creator Minimal',
+    industry: 'Digital products, courses and creators',
+    primaryColor: '#6D28D9',
+    bgColor: '#FFFFFF'
+  },
+  {
+    id: 'midnight-modern',
+    name: 'Midnight Modern',
+    industry: 'Developer tools, tech and events',
+    primaryColor: '#6366F1',
+    bgColor: '#030712'
+  }
+];
+
 export const PageEditor: React.FC<Props> = ({
   data,
   onChange,
@@ -92,9 +150,11 @@ export const PageEditor: React.FC<Props> = ({
   const [previewViewMode, setPreviewViewMode] = useState<'page' | 'modal'>('page');
   const [activeVariantTab, setActiveVariantTab] = useState<'a' | 'b'>('a');
   const [previewVariant, setPreviewVariant] = useState<'a' | 'b'>('a');
+  const [moreCommerceOpen, setMoreCommerceOpen] = useState(false);
   // Version B is only editable while the test is on. The tab state alone would keep editing a
   // hidden version B after A/B was turned off.
   const editingB = Boolean(data.abTestingEnabled) && activeVariantTab === 'b';
+  const currentThemeId: PageThemeId | 'default' = data.theme || 'default';
   const pageWordsHeadingId = useId();
   // Ties each label to its control, unique per mounted editor.
   const fid = useFieldIds();
@@ -185,6 +245,11 @@ export const PageEditor: React.FC<Props> = ({
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedLiveUrl, setCopiedLiveUrl] = useState(false);
+  const [copiedConfirmUrl, setCopiedConfirmUrl] = useState(false);
+  const [showSheetsGuide, setShowSheetsGuide] = useState(false);
+  const [copiedSheetsScript, setCopiedSheetsScript] = useState(false);
+  const [testingWebhook, setTestingWebhook] = useState(false);
+  const [webhookTestResult, setWebhookTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [isPrimaryPickerOpen, setIsPrimaryPickerOpen] = useState(false);
   const [isBumpPickerOpen, setIsBumpPickerOpen] = useState(false);
 
@@ -193,11 +258,48 @@ export const PageEditor: React.FC<Props> = ({
   const livePageUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/p/${data.slug || 'offer'}`
     : `/p/${data.slug || 'offer'}`;
+  const confirmRedirectUrl = `${livePageUrl}/thank-you`;
 
   const handleCopyLiveUrl = () => {
     navigator.clipboard.writeText(livePageUrl);
     setCopiedLiveUrl(true);
     setTimeout(() => setCopiedLiveUrl(false), 2000);
+  };
+
+  const handleCopyConfirmUrl = () => {
+    navigator.clipboard.writeText(confirmRedirectUrl);
+    setCopiedConfirmUrl(true);
+    setTimeout(() => setCopiedConfirmUrl(false), 2000);
+  };
+
+  const handleCopySheetsScript = () => {
+    navigator.clipboard.writeText(GOOGLE_SHEETS_APPS_SCRIPT);
+    setCopiedSheetsScript(true);
+    setTimeout(() => setCopiedSheetsScript(false), 2000);
+  };
+
+  const handleTestWebhook = async () => {
+    const url = (data.webhookUrl || '').trim();
+    if (!url || testingWebhook) return;
+    setTestingWebhook(true);
+    setWebhookTestResult(null);
+    try {
+      const res = await fetch('/api/public/webhook-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhookUrl: url, slug: data.slug || 'offer' })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body?.success) {
+        setWebhookTestResult({ ok: true, text: body.message || 'Sample lead row sent to your Google Sheet / webhook.' });
+      } else {
+        setWebhookTestResult({ ok: false, text: body?.error || 'Webhook test failed. Verify your URL and deployment access.' });
+      }
+    } catch {
+      setWebhookTestResult({ ok: false, text: 'Could not reach the server to test the webhook.' });
+    } finally {
+      setTestingWebhook(false);
+    }
   };
 
   useEffect(() => {
@@ -219,18 +321,24 @@ export const PageEditor: React.FC<Props> = ({
   }, [workspace?.id]);
 
   const selectedProduct = products.find(p => p.id === data.shopifyProductId) || null;
+  const wooStoreUrl = workspace?.woocommerceConfig?.status === 'connected' && workspace?.woocommerceConfig?.storeUrl
+    ? workspace.woocommerceConfig.storeUrl.replace(/^https?:\/\//, '')
+    : '';
   const storeDomain = workspace?.shopifyConfig?.storeDomain && workspace.shopifyConfig.storeDomain !== 'demo.myshopify.com'
     ? workspace.shopifyConfig.storeDomain
-    : '';
-  const isStoreConnected = workspace?.shopifyConfig?.status === 'connected' && !!workspace?.shopifyConfig?.storeDomain;
-  // With no store the page publishes only the email form, whatever the checkout mode, and names no
-  // voucher or checkout (publicRoutes leadOnly and leadHasCode, R18). The preview says the same.
-  const leadOnly = !storeDomain;
-  const leadHasCode = !!data.discountCode && !leadOnly;
-  const hasLeadModal = data.checkoutMode === 'lead-gate' || leadOnly;
-  const showModalScreen = previewViewMode === 'modal' && hasLeadModal;
+    : wooStoreUrl;
+  const isStoreConnected = (workspace?.shopifyConfig?.status === 'connected' && !!workspace?.shopifyConfig?.storeDomain)
+    || (workspace?.woocommerceConfig?.status === 'connected' && !!workspace?.woocommerceConfig?.storeUrl);
+  // Direct booking or payment link (e.g. Stripe Payment Link, Calendly, or custom checkout URL)
+  const directCheckoutUrl = (
+    (typeof data.checkoutUrl === 'string' && data.checkoutUrl.trim()) ||
+    (typeof data.bookingUrl === 'string' && data.bookingUrl.trim()) ||
+    (typeof data.externalUrl === 'string' && data.externalUrl.trim()) ||
+    (typeof data.directUrl === 'string' && data.directUrl.trim()) ||
+    ''
+  );
 
-  const currentCheckoutUrl = (data.orderBumpEnabled && data.orderBumpVariantId)
+  const permalinkCheckoutUrl = (data.orderBumpEnabled && data.orderBumpVariantId)
     ? buildMultiItemCheckoutPermalink({
         storeDomain,
         items: [
@@ -246,6 +354,16 @@ export const PageEditor: React.FC<Props> = ({
         discountCode: data.discountCode,
         utmCampaign: data.slug || 'spring-promo'
       });
+
+  const currentCheckoutUrl = directCheckoutUrl || permalinkCheckoutUrl;
+
+  // With neither a connected store nor a direct checkout/booking link, the page publishes
+  // only the email form (leadOnly).
+  const leadOnly = !storeDomain && !directCheckoutUrl;
+  const leadHasCode = !!data.discountCode && !leadOnly;
+  const hasLeadModal = data.checkoutMode === 'lead-gate' || leadOnly;
+  const showModalScreen = previewViewMode === 'modal' && hasLeadModal;
+  const activeTheme = getPageTheme(data.theme);
 
   const handleFieldChange = (field: keyof PageNodeData, val: any) => {
     onChange({ ...data, [field]: val });
@@ -442,7 +560,20 @@ export const PageEditor: React.FC<Props> = ({
   const previewLeadHasCode = !!pageCopy.discountCode && !leadOnly;
   // An editor note inside the mockup: italic in a dashed box, so it never reads as page copy.
   const previewHint = (text: string, marginBottom = '12px') => (
-    <p style={{ margin: `0 0 ${marginBottom}`, padding: '4px 8px', border: '1px dashed rgba(148, 163, 184, 0.45)', borderRadius: '6px', fontSize: '11px', fontStyle: 'italic', color: '#94A3B8', lineHeight: 1.4 }}>
+    <p
+      style={{
+        margin: `0 0 ${marginBottom}`,
+        padding: '4px 8px',
+        border: activeTheme
+          ? `1px dashed ${activeTheme.cssVariables['--border'] || 'rgba(148, 163, 184, 0.45)'}`
+          : '1px dashed rgba(148, 163, 184, 0.45)',
+        borderRadius: '6px',
+        fontSize: '11px',
+        fontStyle: 'italic',
+        color: activeTheme ? (activeTheme.cssVariables['--text-muted'] || '#94A3B8') : '#94A3B8',
+        lineHeight: 1.4
+      }}
+    >
       {text}
     </p>
   );
@@ -734,17 +865,26 @@ export const PageEditor: React.FC<Props> = ({
 
           {/* Rendered Live Page Mockup */}
           <div
+            id="jv-preview-frame"
+            data-theme={data.theme || undefined}
             style={{
-              backgroundColor: '#070A12',
+              colorScheme: activeTheme?.mode,
+              backgroundColor: activeTheme ? (activeTheme.cssVariables['--bg'] || '#070A12') : '#070A12',
+              color: activeTheme ? (activeTheme.cssVariables['--text'] || '#FFFFFF') : '#FFFFFF',
+              fontFamily: activeTheme?.fontBody || 'inherit',
               borderRadius: '12px',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
+              border: `1px solid ${activeTheme ? (activeTheme.cssVariables['--border'] || 'rgba(255, 255, 255, 0.12)') : 'rgba(255, 255, 255, 0.12)'}`,
               overflow: 'hidden',
               boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5)',
               maxWidth: previewDevice === 'mobile' ? '300px' : '100%',
               margin: '0 auto',
-              width: '100%'
+              width: '100%',
+              ...(activeTheme ? (activeTheme.cssVariables as React.CSSProperties) : {})
             }}
           >
+            {activeTheme?.googleFontsUrl && (
+              <link rel="stylesheet" href={activeTheme.googleFontsUrl} />
+            )}
             {/* Browser chrome */}
             <div
               style={{
@@ -766,17 +906,57 @@ export const PageEditor: React.FC<Props> = ({
 
             {/* Top Announcement Bar */}
             {pageCopy.discountCode ? (
-              <div style={{ background: 'linear-gradient(90deg, #ec4899, #db2777, #9333ea)', color: '#FFFFFF', fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', textAlign: 'center', padding: '4px 8px' }}>
+              <div style={{
+                background: activeTheme?.topbarGradient || 'linear-gradient(90deg, #ec4899, #db2777, #9333ea)',
+                color: '#FFFFFF',
+                fontSize: '11px',
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                textAlign: 'center',
+                padding: '4px 8px'
+              }}>
                 Code {pageCopy.discountCode} is ready at checkout
               </div>
             ) : null}
 
             {/* Urgency Reservation Bar */}
             {pageCopy.urgency ? (
-              <div style={{ background: 'linear-gradient(90deg, rgba(236, 72, 153, 0.16) 0%, rgba(147, 51, 234, 0.12) 50%, rgba(236, 72, 153, 0.16) 100%)', borderBottom: '1px solid rgba(236, 72, 153, 0.28)', padding: '5px 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '11px', color: '#FCE7F3' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#F472B6', boxShadow: '0 0 6px #EC4899' }} />
+              <div
+                style={{
+                  background: activeTheme
+                    ? (activeTheme.cssVariables['--surface-tint'] || 'rgba(236, 72, 153, 0.16)')
+                    : 'linear-gradient(90deg, rgba(236, 72, 153, 0.16) 0%, rgba(147, 51, 234, 0.12) 50%, rgba(236, 72, 153, 0.16) 100%)',
+                  borderBottom: `1px solid ${activeTheme ? (activeTheme.cssVariables['--border'] || 'rgba(236, 72, 153, 0.28)') : 'rgba(236, 72, 153, 0.28)'}`,
+                  padding: '5px 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  fontSize: '11px',
+                  color: activeTheme ? (activeTheme.cssVariables['--text'] || '#FCE7F3') : '#FCE7F3'
+                }}
+              >
+                <span
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: activeTheme ? (activeTheme.cssVariables['--primary'] || '#F472B6') : '#F472B6',
+                    boxShadow: `0 0 6px ${activeTheme ? (activeTheme.cssVariables['--primary-glow'] || '#EC4899') : '#EC4899'}`
+                  }}
+                />
                 <span>{pageCopy.urgency.text}</span>
-                <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#F472B6', background: 'rgba(236, 72, 153, 0.2)', padding: '1px 5px', borderRadius: '4px' }}>
+                <span
+                  style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 800,
+                    color: activeTheme ? (activeTheme.cssVariables['--primary'] || '#F472B6') : '#F472B6',
+                    background: activeTheme ? (activeTheme.cssVariables['--card-bg'] || 'rgba(236, 72, 153, 0.2)') : 'rgba(236, 72, 153, 0.2)',
+                    padding: '1px 5px',
+                    borderRadius: '4px'
+                  }}
+                >
                   {`${String(pageCopy.urgency.minutes).padStart(2, '0')}:00`}
                 </span>
               </div>
@@ -787,7 +967,13 @@ export const PageEditor: React.FC<Props> = ({
             {showModalScreen ? (
               /* Modal Mockup: the same words the published modal uses, which name a discount only when
                  the page has a code and a store, and ask only for an email when there is no store */
-              <div style={{ padding: '20px 16px', backgroundColor: '#0B0F19', textAlign: 'center' }}>
+              <div
+                style={{
+                  padding: '20px 16px',
+                  backgroundColor: activeTheme ? (activeTheme.cssVariables['--bg'] || '#0B0F19') : '#0B0F19',
+                  textAlign: 'center'
+                }}
+              >
                 {previewLeadHasCode ? (<span
                   style={{
                     display: 'inline-block',
@@ -795,8 +981,8 @@ export const PageEditor: React.FC<Props> = ({
                     fontWeight: 800,
                     textTransform: 'uppercase',
                     letterSpacing: '0.08em',
-                    color: '#ec4899',
-                    backgroundColor: 'rgba(236, 72, 153, 0.15)',
+                    color: activeTheme ? (activeTheme.cssVariables['--primary'] || '#ec4899') : '#ec4899',
+                    backgroundColor: activeTheme ? (activeTheme.cssVariables['--surface-tint'] || 'rgba(236, 72, 153, 0.15)') : 'rgba(236, 72, 153, 0.15)',
                     padding: '3px 8px',
                     borderRadius: '9999px',
                     marginBottom: '8px'
@@ -804,11 +990,19 @@ export const PageEditor: React.FC<Props> = ({
                 >
                   VIP Access
                 </span>) : null}
-                <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#FFFFFF', marginBottom: leadOnly ? '14px' : '4px' }}>
+                <h3
+                  style={{
+                    fontFamily: activeTheme?.fontHeading || 'inherit',
+                    fontSize: '15px',
+                    fontWeight: 800,
+                    color: activeTheme ? (activeTheme.cssVariables['--text'] || '#FFFFFF') : '#FFFFFF',
+                    marginBottom: leadOnly ? '14px' : '4px'
+                  }}
+                >
                   {previewLeadHasCode ? 'Unlock Your Exclusive Discount' : leadOnly ? 'Leave your email' : 'Continue to checkout'}
                 </h3>
                 {!leadOnly && (
-                  <p style={{ fontSize: '11px', color: '#94A3B8', marginBottom: '14px' }}>
+                  <p style={{ fontSize: '11px', color: activeTheme ? (activeTheme.cssVariables['--text-muted'] || '#94A3B8') : '#94A3B8', marginBottom: '14px' }}>
                     {previewLeadHasCode
                       ? <>Enter your email to claim your <strong>{pageCopy.discountCode}</strong> coupon and route straight to checkout.</>
                       : 'Enter your email to go straight to checkout.'}
@@ -833,9 +1027,9 @@ export const PageEditor: React.FC<Props> = ({
                         boxSizing: 'border-box',
                         padding: '8px 10px',
                         borderRadius: '6px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        border: '1px solid rgba(255, 255, 255, 0.15)',
-                        color: '#E2E8F0',
+                        backgroundColor: activeTheme ? (activeTheme.cssVariables['--card-bg'] || 'rgba(255, 255, 255, 0.05)') : 'rgba(255, 255, 255, 0.05)',
+                        border: `1px solid ${activeTheme ? (activeTheme.cssVariables['--border'] || 'rgba(255, 255, 255, 0.15)') : 'rgba(255, 255, 255, 0.15)'}`,
+                        color: activeTheme ? (activeTheme.cssVariables['--text'] || '#E2E8F0') : '#E2E8F0',
                         fontSize: '11px'
                       }}
                     />
@@ -847,8 +1041,14 @@ export const PageEditor: React.FC<Props> = ({
                 {pageCopy.bump && (
                   <div
                     style={{
-                      backgroundColor: previewBumpChecked ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255, 255, 255, 0.04)',
-                      border: `1.5px solid ${previewBumpChecked ? '#ec4899' : 'rgba(255, 255, 255, 0.12)'}`,
+                      backgroundColor: activeTheme
+                        ? (activeTheme.cssVariables['--surface-tint'] || 'rgba(255, 255, 255, 0.04)')
+                        : (previewBumpChecked ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255, 255, 255, 0.04)'),
+                      border: `1.5px solid ${
+                        activeTheme
+                          ? (previewBumpChecked ? activeTheme.cssVariables['--primary'] : activeTheme.cssVariables['--border'])
+                          : (previewBumpChecked ? '#ec4899' : 'rgba(255, 255, 255, 0.12)')
+                      }`,
                       borderRadius: '8px',
                       padding: '10px',
                       marginBottom: '14px',
@@ -864,15 +1064,15 @@ export const PageEditor: React.FC<Props> = ({
                         aria-labelledby={fid('modal-bump')}
                         checked={previewBumpChecked}
                         onChange={e => setPreviewBumpChecked(e.target.checked)}
-                        style={{ marginTop: '2px', accentColor: '#ec4899', cursor: 'pointer' }}
+                        style={{ marginTop: '2px', accentColor: activeTheme ? (activeTheme.cssVariables['--primary'] || '#ec4899') : '#ec4899', cursor: 'pointer' }}
                       />
                       <div style={{ flex: 1 }}>
                         <span
                           style={{
                             fontSize: '11px',
                             fontWeight: 800,
-                            color: '#f472b6',
-                            backgroundColor: 'rgba(236, 72, 153, 0.2)',
+                            color: activeTheme ? (activeTheme.cssVariables['--primary'] || '#f472b6') : '#f472b6',
+                            backgroundColor: activeTheme ? (activeTheme.cssVariables['--surface-tint'] || 'rgba(236, 72, 153, 0.2)') : 'rgba(236, 72, 153, 0.2)',
                             padding: '1px 6px',
                             borderRadius: '4px',
                             textTransform: 'uppercase',
@@ -881,20 +1081,28 @@ export const PageEditor: React.FC<Props> = ({
                         >
                           ✦ One-Time VIP Upgrade
                         </span>
-                        <div id={fid('modal-bump')} style={{ fontSize: '11px', fontWeight: 700, color: '#FFFFFF', marginTop: '2px' }}>
+                        <div
+                          id={fid('modal-bump')}
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: activeTheme ? (activeTheme.cssVariables['--text'] || '#FFFFFF') : '#FFFFFF',
+                            marginTop: '2px'
+                          }}
+                        >
                           {pageCopy.bump.headline}
                         </div>
-                        <p style={{ fontSize: '11px', color: '#94A3B8', margin: '4px 0 6px 0', lineHeight: 1.4 }}>
+                        <p style={{ fontSize: '11px', color: activeTheme ? (activeTheme.cssVariables['--text-muted'] || '#94A3B8') : '#94A3B8', margin: '4px 0 6px 0', lineHeight: 1.4 }}>
                           {pageCopy.bump.description}
                         </p>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px' }}>
-                          <span style={{ color: '#E2E8F0', fontWeight: 600 }}>{pageCopy.bump.title}</span>
+                          <span style={{ color: activeTheme ? (activeTheme.cssVariables['--text'] || '#E2E8F0') : '#E2E8F0', fontWeight: 600 }}>{pageCopy.bump.title}</span>
                           {pageCopy.bump.price ? (
-                            <span style={{ color: '#34D399', fontWeight: 700 }}>
+                            <span style={{ color: activeTheme ? (activeTheme.cssVariables['--secondary'] || '#34D399') : '#34D399', fontWeight: 700 }}>
                               {orderBumpPriceText(data.orderBumpPrice, price => previewCurrency === 'USD' ? price : convertCurrencyCharm(price, previewCurrency).formatted)}
                             </span>
                           ) : (
-                            <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>{NO_BUMP_PRICE}</span>
+                            <span style={{ color: activeTheme ? (activeTheme.cssVariables['--text-muted'] || '#94A3B8') : '#94A3B8', fontStyle: 'italic' }}>{NO_BUMP_PRICE}</span>
                           )}
                         </div>
                       </div>
@@ -907,14 +1115,17 @@ export const PageEditor: React.FC<Props> = ({
                   style={{
                     width: '100%',
                     padding: '10px',
-                    borderRadius: '8px',
-                    background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-                    color: '#FFFFFF',
+                    borderRadius: activeTheme?.radiusBtn || '8px',
+                    background: activeTheme?.btnGradient || 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
+                    color: activeTheme?.btnText || '#FFFFFF',
+                    fontFamily: activeTheme?.fontHeading || 'inherit',
                     fontSize: '12px',
                     fontWeight: 700,
                     border: 'none',
                     cursor: 'pointer',
-                    boxShadow: '0 4px 12px rgba(236, 72, 153, 0.35)'
+                    boxShadow: activeTheme
+                      ? `0 4px 12px ${activeTheme.cssVariables['--primary-glow'] || 'rgba(236, 72, 153, 0.35)'}`
+                      : '0 4px 12px rgba(236, 72, 153, 0.35)'
                   }}
                 >
                   {leadOnly
@@ -929,8 +1140,22 @@ export const PageEditor: React.FC<Props> = ({
               <div style={{ padding: previewDevice === 'mobile' ? '16px' : '24px', textAlign: 'center' }}>
                 {/* Scarcity Batch Indicator */}
                 {pageCopy.scarcity ? (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(236, 72, 153, 0.1)', border: '1px solid rgba(236, 72, 153, 0.28)', padding: '3px 8px', borderRadius: '9999px', fontSize: '11px', fontWeight: 700, color: '#F472B6', marginBottom: '10px' }}>
-                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#EC4899' }} />
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      background: activeTheme ? (activeTheme.cssVariables['--surface-tint'] || 'rgba(236, 72, 153, 0.1)') : 'rgba(236, 72, 153, 0.1)',
+                      border: `1px solid ${activeTheme ? (activeTheme.cssVariables['--border'] || 'rgba(236, 72, 153, 0.28)') : 'rgba(236, 72, 153, 0.28)'}`,
+                      padding: '3px 8px',
+                      borderRadius: '9999px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: activeTheme ? (activeTheme.cssVariables['--primary'] || '#F472B6') : '#F472B6',
+                      marginBottom: '10px'
+                    }}
+                  >
+                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: activeTheme ? (activeTheme.cssVariables['--primary'] || '#EC4899') : '#EC4899' }} />
                     <span>{pageCopy.scarcity}</span>
                   </div>
                 ) : null}
@@ -946,7 +1171,7 @@ export const PageEditor: React.FC<Props> = ({
                         maxHeight: '160px',
                         objectFit: 'cover',
                         borderRadius: '8px',
-                        border: '1px solid rgba(255, 255, 255, 0.1)'
+                        border: `1px solid ${activeTheme ? (activeTheme.cssVariables['--border'] || 'rgba(255, 255, 255, 0.1)') : 'rgba(255, 255, 255, 0.1)'}`
                       }}
                     />
                     {pageCopy.productPrice && (
@@ -955,14 +1180,14 @@ export const PageEditor: React.FC<Props> = ({
                           position: 'absolute',
                           top: '8px',
                           right: '8px',
-                          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                          backgroundColor: activeTheme ? (activeTheme.cssVariables['--card-bg'] || 'rgba(0, 0, 0, 0.75)') : 'rgba(0, 0, 0, 0.75)',
                           backdropFilter: 'blur(4px)',
-                          color: '#34d399',
+                          color: activeTheme ? (activeTheme.cssVariables['--secondary'] || '#34d399') : '#34d399',
                           padding: '3px 8px',
                           borderRadius: '6px',
                           fontSize: '11px',
                           fontWeight: 700,
-                          border: '1px solid rgba(16, 185, 129, 0.3)'
+                          border: `1px solid ${activeTheme ? (activeTheme.cssVariables['--secondary'] || 'rgba(16, 185, 129, 0.3)') : 'rgba(16, 185, 129, 0.3)'}`
                         }}
                       >
                         {previewCurrency === 'USD' ? pageCopy.productPrice : convertCurrencyCharm(pageCopy.productPrice, previewCurrency).formatted}
@@ -980,8 +1205,8 @@ export const PageEditor: React.FC<Props> = ({
                       fontWeight: 800,
                       textTransform: 'uppercase',
                       letterSpacing: '0.08em',
-                      color: '#ec4899',
-                      backgroundColor: 'rgba(236, 72, 153, 0.12)',
+                      color: activeTheme ? (activeTheme.cssVariables['--primary'] || '#ec4899') : '#ec4899',
+                      backgroundColor: activeTheme ? (activeTheme.cssVariables['--surface-tint'] || 'rgba(236, 72, 153, 0.12)') : 'rgba(236, 72, 153, 0.12)',
                       padding: '2px 8px',
                       borderRadius: '9999px',
                       marginBottom: '10px'
@@ -993,9 +1218,10 @@ export const PageEditor: React.FC<Props> = ({
 
                 <h2
                   style={{
+                    fontFamily: activeTheme?.fontHeading || 'inherit',
                     fontSize: previewDevice === 'mobile' ? '16px' : '20px',
                     fontWeight: 800,
-                    color: '#FFFFFF',
+                    color: activeTheme ? (activeTheme.cssVariables['--text'] || '#FFFFFF') : '#FFFFFF',
                     lineHeight: 1.3,
                     marginBottom: '8px'
                   }}
@@ -1006,7 +1232,7 @@ export const PageEditor: React.FC<Props> = ({
                   <p
                     style={{
                       fontSize: previewDevice === 'mobile' ? '11px' : '12px',
-                      color: '#94A3B8',
+                      color: activeTheme ? (activeTheme.cssVariables['--text-muted'] || '#94A3B8') : '#94A3B8',
                       lineHeight: 1.5,
                       marginBottom: '16px'
                     }}
@@ -1020,16 +1246,26 @@ export const PageEditor: React.FC<Props> = ({
                   <div
                     style={{
                       textAlign: 'left',
-                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                      border: '1px solid rgba(255, 255, 255, 0.06)',
-                      borderRadius: '8px',
+                      backgroundColor: activeTheme ? (activeTheme.cssVariables['--card-bg'] || 'rgba(255, 255, 255, 0.03)') : 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid ${activeTheme ? (activeTheme.cssVariables['--border'] || 'rgba(255, 255, 255, 0.06)') : 'rgba(255, 255, 255, 0.06)'}`,
+                      borderRadius: activeTheme?.radiusCard || '8px',
                       padding: '12px',
                       marginBottom: '16px'
                     }}
                   >
                     {pageCopy.bullets.map((b, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#E2E8F0', marginBottom: '6px' }}>
-                        <span style={{ color: '#10B981', fontWeight: 800 }}>✓</span>
+                      <div
+                        key={i}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '11px',
+                          color: activeTheme ? (activeTheme.cssVariables['--text'] || '#E2E8F0') : '#E2E8F0',
+                          marginBottom: '6px'
+                        }}
+                      >
+                        <span style={{ color: activeTheme ? (activeTheme.cssVariables['--secondary'] || '#10B981') : '#10B981', fontWeight: 800 }}>✓</span>
                         <span>{b}</span>
                       </div>
                     ))}
@@ -1038,7 +1274,7 @@ export const PageEditor: React.FC<Props> = ({
 
                 {/* Trust Badge */}
                 {pageCopy.trustBadge && (
-                  <div style={{ fontSize: '11px', color: '#94A3B8', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '11px', color: activeTheme ? (activeTheme.cssVariables['--text-muted'] || '#94A3B8') : '#94A3B8', marginBottom: '12px' }}>
                     {pageCopy.trustBadge}
                   </div>
                 )}
@@ -1048,8 +1284,14 @@ export const PageEditor: React.FC<Props> = ({
                 {pageCopy.bump && (
                   <div
                     style={{
-                      backgroundColor: previewBumpChecked ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255, 255, 255, 0.04)',
-                      border: `1.5px solid ${previewBumpChecked ? '#ec4899' : 'rgba(255, 255, 255, 0.12)'}`,
+                      backgroundColor: activeTheme
+                        ? (activeTheme.cssVariables['--surface-tint'] || 'rgba(255, 255, 255, 0.04)')
+                        : (previewBumpChecked ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255, 255, 255, 0.04)'),
+                      border: `1.5px solid ${
+                        activeTheme
+                          ? (previewBumpChecked ? activeTheme.cssVariables['--primary'] : activeTheme.cssVariables['--border'])
+                          : (previewBumpChecked ? '#ec4899' : 'rgba(255, 255, 255, 0.12)')
+                      }`,
                       borderRadius: '8px',
                       padding: '10px',
                       marginBottom: '14px',
@@ -1065,15 +1307,15 @@ export const PageEditor: React.FC<Props> = ({
                         aria-labelledby={fid('page-bump')}
                         checked={previewBumpChecked}
                         onChange={e => setPreviewBumpChecked(e.target.checked)}
-                        style={{ marginTop: '2px', accentColor: '#ec4899', cursor: 'pointer' }}
+                        style={{ marginTop: '2px', accentColor: activeTheme ? (activeTheme.cssVariables['--primary'] || '#ec4899') : '#ec4899', cursor: 'pointer' }}
                       />
                       <div style={{ flex: 1 }}>
                         <span
                           style={{
                             fontSize: '11px',
                             fontWeight: 800,
-                            color: '#f472b6',
-                            backgroundColor: 'rgba(236, 72, 153, 0.2)',
+                            color: activeTheme ? (activeTheme.cssVariables['--primary'] || '#f472b6') : '#f472b6',
+                            backgroundColor: activeTheme ? (activeTheme.cssVariables['--surface-tint'] || 'rgba(236, 72, 153, 0.2)') : 'rgba(236, 72, 153, 0.2)',
                             padding: '1px 6px',
                             borderRadius: '4px',
                             textTransform: 'uppercase',
@@ -1082,20 +1324,28 @@ export const PageEditor: React.FC<Props> = ({
                         >
                           ✦ One-Time Offer
                         </span>
-                        <div id={fid('page-bump')} style={{ fontSize: '11px', fontWeight: 700, color: '#FFFFFF', marginTop: '2px' }}>
+                        <div
+                          id={fid('page-bump')}
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: activeTheme ? (activeTheme.cssVariables['--text'] || '#FFFFFF') : '#FFFFFF',
+                            marginTop: '2px'
+                          }}
+                        >
                           {pageCopy.bump.headline}
                         </div>
-                        <p style={{ fontSize: '11px', color: '#94A3B8', margin: '4px 0 6px 0', lineHeight: 1.4 }}>
+                        <p style={{ fontSize: '11px', color: activeTheme ? (activeTheme.cssVariables['--text-muted'] || '#94A3B8') : '#94A3B8', margin: '4px 0 6px 0', lineHeight: 1.4 }}>
                           {pageCopy.bump.description}
                         </p>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px' }}>
-                          <span style={{ color: '#E2E8F0', fontWeight: 600 }}>{pageCopy.bump.title}</span>
+                          <span style={{ color: activeTheme ? (activeTheme.cssVariables['--text'] || '#E2E8F0') : '#E2E8F0', fontWeight: 600 }}>{pageCopy.bump.title}</span>
                           {pageCopy.bump.price ? (
-                            <span style={{ color: '#34D399', fontWeight: 700 }}>
+                            <span style={{ color: activeTheme ? (activeTheme.cssVariables['--secondary'] || '#34D399') : '#34D399', fontWeight: 700 }}>
                               {orderBumpPriceText(data.orderBumpPrice, price => previewCurrency === 'USD' ? price : convertCurrencyCharm(price, previewCurrency).formatted)}
                             </span>
                           ) : (
-                            <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>{NO_BUMP_PRICE}</span>
+                            <span style={{ color: activeTheme ? (activeTheme.cssVariables['--text-muted'] || '#94A3B8') : '#94A3B8', fontStyle: 'italic' }}>{NO_BUMP_PRICE}</span>
                           )}
                         </div>
                       </div>
@@ -1109,7 +1359,7 @@ export const PageEditor: React.FC<Props> = ({
                   onClick={e => {
                     if (!currentCheckoutUrl) {
                       e.preventDefault();
-                      alert('Please connect your Shopify store and select a product variant to activate checkout.');
+                      alert('Please connect a store or set a checkout or booking link to activate checkout.');
                     }
                   }}
                   target={currentCheckoutUrl ? "_blank" : undefined}
@@ -1118,15 +1368,18 @@ export const PageEditor: React.FC<Props> = ({
                     display: 'block',
                     width: '100%',
                     padding: '10px',
-                    borderRadius: '8px',
-                    background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
-                    color: '#FFFFFF',
+                    borderRadius: activeTheme?.radiusBtn || '8px',
+                    background: activeTheme?.btnGradient || 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
+                    color: activeTheme?.btnText || '#FFFFFF',
+                    fontFamily: activeTheme?.fontHeading || 'inherit',
                     fontSize: '12px',
                     fontWeight: 700,
                     border: 'none',
                     textDecoration: 'none',
                     textAlign: 'center',
-                    boxShadow: '0 4px 12px rgba(236, 72, 153, 0.35)',
+                    boxShadow: activeTheme
+                      ? `0 4px 12px ${activeTheme.cssVariables['--primary-glow'] || 'rgba(236, 72, 153, 0.35)'}`
+                      : '0 4px 12px rgba(236, 72, 153, 0.35)',
                     boxSizing: 'border-box'
                   }}
                 >
@@ -1135,15 +1388,46 @@ export const PageEditor: React.FC<Props> = ({
                     : pageCopy.buttonText}
                 </a>
 
+                {/* Click-to-Chat Concierge Button */}
+                {data.chatConciergeEnabled && data.chatConciergePhone ? (
+                  <a
+                    id="jv-chat-concierge-btn"
+                    href={buildChatConciergeHref(data) || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      marginTop: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '11px 16px',
+                      borderRadius: activeTheme?.radiusBtn || '10px',
+                      background: activeTheme ? (activeTheme.cssVariables['--surface-tint'] || 'rgba(16, 185, 129, 0.1)') : 'rgba(16, 185, 129, 0.1)',
+                      border: `1px solid ${activeTheme ? (activeTheme.cssVariables['--border'] || 'rgba(16, 185, 129, 0.3)') : 'rgba(16, 185, 129, 0.3)'}`,
+                      color: activeTheme ? (activeTheme.cssVariables['--secondary'] || '#34D399') : '#34D399',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      textAlign: 'center',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <span>{String(data.chatConciergeText || '').trim() || (data.chatConciergeChannel === 'sms' ? 'Have a question? Text our specialist' : 'Have a question? Chat on WhatsApp')}</span>
+                  </a>
+                ) : null}
+
                 {/* What the button does: an editor note, so it is styled as one */}
                 <div style={{ marginTop: '8px' }}>
                   {previewHint(leadOnly
                     ? 'Opens the email form. No checkout until a store is connected.'
-                    : data.checkoutMode === 'lead-gate'
-                      ? 'Opens the email form, then goes to Shopify checkout.'
-                      : pageCopy.discountCode
-                        ? `Goes straight to Shopify checkout with code ${pageCopy.discountCode}.`
-                        : 'Goes straight to Shopify checkout.', '0')}
+                    : directCheckoutUrl
+                      ? 'Goes straight to your checkout or booking link.'
+                      : data.checkoutMode === 'lead-gate'
+                        ? 'Opens the email form, then goes to Shopify checkout.'
+                        : pageCopy.discountCode
+                          ? `Goes straight to Shopify checkout with code ${pageCopy.discountCode}.`
+                          : 'Goes straight to Shopify checkout.', '0')}
                 </div>
               </div>
             )}
@@ -1152,6 +1436,123 @@ export const PageEditor: React.FC<Props> = ({
       ) : (
         <>
           {/* PAGE WORDS: always open, first */}
+          {/* PAGE THEME SELECTOR CARD: accessible styling controls outside PAGE_EDITOR_SECTIONS */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              padding: '12px',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Palette size={14} style={{ color: '#F472B6' }} aria-hidden="true" />
+                <div
+                  id={fid('page-theme-heading')}
+                  style={{ fontSize: '12px', fontWeight: 700, color: '#F3F4F6' }}
+                >
+                  Page theme
+                </div>
+              </div>
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: '#94A3B8',
+                  backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                  padding: '2px 8px',
+                  borderRadius: '9999px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)'
+                }}
+              >
+                {PAGE_THEME_OPTIONS.find(t => t.id === currentThemeId)?.name || 'Original (Default)'}
+              </span>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '11px', color: '#94A3B8', lineHeight: 1.45 }}>
+              Choose an all-industry published theme. Pure CSS variables style typography, colors, and buttons with zero external script overhead.
+            </p>
+
+            <div
+              role="group"
+              aria-labelledby={fid('page-theme-heading')}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: '8px'
+              }}
+            >
+              {PAGE_THEME_OPTIONS.map(opt => {
+                const isSelected = currentThemeId === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => handleFieldChange('theme', opt.id === 'default' ? undefined : opt.id)}
+                    aria-pressed={isSelected}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: '6px',
+                      padding: '10px',
+                      borderRadius: '6px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      border: `1px solid ${isSelected ? '#38BDF8' : 'rgba(255, 255, 255, 0.10)'}`,
+                      backgroundColor: isSelected ? 'rgba(56, 189, 248, 0.12)' : 'rgba(0, 0, 0, 0.25)',
+                      color: isSelected ? '#FFFFFF' : '#94A3B8',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span
+                          style={{
+                            width: '12px',
+                            height: '12px',
+                            borderRadius: '50%',
+                            backgroundColor: opt.primaryColor,
+                            border: '1px solid rgba(255, 255, 255, 0.25)',
+                            boxShadow: isSelected ? `0 0 6px ${opt.primaryColor}88` : 'none',
+                            display: 'inline-block'
+                          }}
+                          aria-hidden="true"
+                        />
+                        <span
+                          style={{
+                            width: '12px',
+                            height: '12px',
+                            borderRadius: '50%',
+                            backgroundColor: opt.bgColor,
+                            border: '1px solid rgba(148, 163, 184, 0.45)',
+                            display: 'inline-block'
+                          }}
+                          aria-hidden="true"
+                        />
+                      </div>
+                      {isSelected && (
+                        <Check size={12} style={{ color: '#38BDF8' }} aria-hidden="true" />
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: isSelected ? '#FFFFFF' : '#E2E8F0' }}>
+                        {opt.name}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#94A3B8', lineHeight: 1.35, marginTop: '2px' }}>
+                        {opt.industry}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <section aria-labelledby={pageWordsHeadingId} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
@@ -1519,19 +1920,47 @@ export const PageEditor: React.FC<Props> = ({
               open={openSections.includes('commerce')}
               onToggle={() => setOpenSections(o => toggleSection(o, 'commerce'))}
             >
-              {/* SECTION 1: SHOPIFY PRODUCT LINK */}
-              <div
-                style={{
-                  padding: '14px',
-                  borderRadius: '10px',
-                  backgroundColor: 'rgba(16, 185, 129, 0.08)',
-                  border: '1px solid rgba(16, 185, 129, 0.25)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              {(() => {
+                const activeCategory = normalizeBusinessCategory(businessType);
+                const isStoreActive = Boolean(data.shopifyVariantId || data.shopifyProductId);
+                const isDirectActive = Boolean(data.checkoutUrl);
+                const isConciergeActive = Boolean(data.chatConciergeEnabled);
+                const isDiscountActive = Boolean(data.discountCode);
+                const isBumpActive = Boolean(data.orderBumpEnabled);
+
+                let secondaryActiveCount = 0;
+                if (activeCategory === 'E-Commerce & Physical Retail') {
+                  if (isDirectActive) secondaryActiveCount++;
+                  if (isConciergeActive) secondaryActiveCount++;
+                } else if (activeCategory === 'Local & Client Services' || activeCategory === 'B2B, Agencies & Consulting') {
+                  if (isStoreActive) secondaryActiveCount++;
+                  if (isDiscountActive) secondaryActiveCount++;
+                  if (isBumpActive) secondaryActiveCount++;
+                } else if (activeCategory === 'Digital Products, Courses & Creators') {
+                  if (isStoreActive) secondaryActiveCount++;
+                  if (isConciergeActive) secondaryActiveCount++;
+                  if (isBumpActive) secondaryActiveCount++;
+                } else {
+                  if (isStoreActive) secondaryActiveCount++;
+                  if (isConciergeActive) secondaryActiveCount++;
+                  if (isDiscountActive) secondaryActiveCount++;
+                  if (isBumpActive) secondaryActiveCount++;
+                }
+
+                const storeProductBlock = (
+                  <div
+                    key="block-store-product"
+                    style={{
+                      padding: '14px',
+                      borderRadius: '10px',
+                      backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <ShoppingBag size={16} style={{ color: '#10b981' }} />
                     <span style={{ fontSize: '13px', fontWeight: 700, color: '#f3f4f6' }}>
@@ -1562,45 +1991,7 @@ export const PageEditor: React.FC<Props> = ({
                   )}
                 </div>
 
-                {/* Direct Checkout / Booking URL (Stripe, Calendly, Google Calendar, or Custom Link) */}
-                <div
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '8px',
-                    padding: '12px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px'
-                  }}
-                >
-                  <label htmlFor={fid('checkout-url')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af' }}>
-                    Direct Checkout or Booking Destination Link (Optional):
-                  </label>
-                  <input
-                    id={fid('checkout-url')}
-                    type="url"
-                    value={data.checkoutUrl || ''}
-                    onChange={e => handleFieldChange('checkoutUrl', e.target.value)}
-                    placeholder="https://buy.stripe.com/... or https://calendar.google.com/..."
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '8px 10px',
-                      borderRadius: '6px',
-                      backgroundColor: '#0a0a0f',
-                      border: '1px solid rgba(255, 255, 255, 0.15)',
-                      color: '#ffffff',
-                      fontSize: '12px',
-                      outline: 'none'
-                    }}
-                  />
-                  <p style={{ margin: 0, fontSize: '11px', color: '#64748b', lineHeight: 1.35 }}>
-                    Connects your call-to-action button to a Stripe Payment Link, Calendly, Google Calendar appointment, or custom intake URL with zero server costs.
-                  </p>
-                </div>
-
-                {/* Placeholder / Missing Variant Warning */}
+                    {/* Placeholder / Missing Variant Warning */}
                 {!data.checkoutUrl && (isDemoVariantId(data.shopifyVariantId) || !data.shopifyVariantId || !data.shopifyProductTitle) && (
                   <div
                     style={{
@@ -1905,8 +2296,296 @@ export const PageEditor: React.FC<Props> = ({
                   </div>
                 )}
 
-                {/* Checkout Mode Toggle: Choice by user, default is less friction */}
-                <div>
+                    {/* Live Permalink Preview */}
+                <div
+                  style={{
+                    backgroundColor: '#070a12',
+                    borderRadius: '6px',
+                    padding: '8px 10px',
+                    border: '1px solid rgba(255, 255, 255, 0.08)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Target Shopify Permalink:
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={copyPermalink}
+                        style={{ background: 'transparent', border: 'none', color: '#10b981', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                      >
+                        {copiedLink ? <Check size={11} /> : <Copy size={11} />}
+                        <span>{copiedLink ? 'Copied' : 'Copy'}</span>
+                      </button>
+                      <a
+                        href={currentCheckoutUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: '#60a5fa', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', textDecoration: 'none' }}
+                      >
+                        <span>Test</span>
+                        <ExternalLink size={10} />
+                      </a>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#94A3B8', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                    {currentCheckoutUrl}
+                  </div>
+                </div>
+                  </div>
+                );
+
+                const directDestinationBlock = (
+                  <div
+                  key="block-direct-destination"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}
+                >
+                  <label htmlFor={fid('checkout-url')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af' }}>
+                    Direct Checkout or Booking Destination Link (Optional):
+                  </label>
+                  <input
+                    id={fid('checkout-url')}
+                    type="url"
+                    value={data.checkoutUrl || ''}
+                    onChange={e => handleFieldChange('checkoutUrl', e.target.value)}
+                    placeholder="https://buy.stripe.com/... or https://calendar.google.com/..."
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: '#0a0a0f',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontSize: '12px',
+                      outline: 'none'
+                    }}
+                  />
+                  <p style={{ margin: 0, fontSize: '11px', color: '#64748b', lineHeight: 1.35 }}>
+                    Connects your call-to-action button to a Stripe Payment Link, Calendly, Google Calendar appointment, or custom intake URL with zero server costs.
+                  </p>
+                  <div
+                    style={{
+                      marginTop: '4px',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      backgroundColor: 'rgba(15, 23, 42, 0.7)',
+                      border: '1px solid rgba(56, 189, 248, 0.2)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '5px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: '#cbd5e1' }}>
+                        Confirmation Redirect URL (for Stripe or Calendar):
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopyConfirmUrl}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: copiedConfirmUrl ? '#10b981' : '#38bdf8',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        {copiedConfirmUrl ? <Check size={12} /> : <Copy size={12} />}
+                        <span>{copiedConfirmUrl ? 'Copied' : 'Copy Redirect Link'}</span>
+                      </button>
+                    </div>
+                    <code style={{ fontSize: '11px', color: '#38bdf8', wordBreak: 'break-all' }}>
+                      {confirmRedirectUrl}
+                    </code>
+                    <span style={{ fontSize: '11px', color: '#94a3b8', lineHeight: 1.3 }}>
+                      Paste this as the post-payment or post-booking confirmation page in Stripe, Google Calendar, or Calendly to send guests to your Thank-You step.
+                    </span>
+                  </div>
+                </div>
+                );
+
+                const conciergeBlock = (
+                  <div
+                  key="block-concierge"
+                  style={{
+                    backgroundColor: data.chatConciergeEnabled ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                    border: data.chatConciergeEnabled ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>
+                        WhatsApp or SMS Click-to-Chat Button
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                        Adds a secondary consultation button directly below your main CTA (100% client-side, zero SMS carrier cost).
+                      </div>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        aria-label="WhatsApp or SMS click-to-chat button"
+                        checked={Boolean(data.chatConciergeEnabled)}
+                        onChange={e => handleFieldChange('chatConciergeEnabled', e.target.checked)}
+                        style={{ accentColor: '#10b981', width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: data.chatConciergeEnabled ? '#10b981' : '#64748b' }}>
+                        {data.chatConciergeEnabled ? 'Enabled' : 'Off'}
+                      </span>
+                    </label>
+                  </div>
+
+                  {data.chatConciergeEnabled && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <div>
+                        <div id={fid('chat-channel')} style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
+                          Chat Channel:
+                        </div>
+                        <div role="group" aria-labelledby={fid('chat-channel')} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleFieldChange('chatConciergeChannel', 'whatsapp')}
+                            aria-pressed={data.chatConciergeChannel !== 'sms'}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              border: data.chatConciergeChannel !== 'sms' ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
+                              background: data.chatConciergeChannel !== 'sms' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.02)',
+                              color: data.chatConciergeChannel !== 'sms' ? '#34d399' : '#94a3b8'
+                            }}
+                          >
+                            WhatsApp (wa.me)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleFieldChange('chatConciergeChannel', 'sms')}
+                            aria-pressed={data.chatConciergeChannel === 'sms'}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              border: data.chatConciergeChannel === 'sms' ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
+                              background: data.chatConciergeChannel === 'sms' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.02)',
+                              color: data.chatConciergeChannel === 'sms' ? '#34d399' : '#94a3b8'
+                            }}
+                          >
+                            SMS Text Message
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <div>
+                          <label htmlFor={fid('chat-phone')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
+                            Phone Number (with country code):
+                          </label>
+                          <input
+                            id={fid('chat-phone')}
+                            type="tel"
+                            placeholder="e.g. 15552345678"
+                            value={data.chatConciergePhone || ''}
+                            onChange={e => handleFieldChange('chatConciergePhone', e.target.value)}
+                            style={{
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              padding: '7px 10px',
+                              borderRadius: '6px',
+                              backgroundColor: '#0a0a0f',
+                              border: '1px solid rgba(255, 255, 255, 0.15)',
+                              color: '#ffffff',
+                              fontSize: '12px'
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor={fid('chat-text')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
+                            Button Label:
+                          </label>
+                          <input
+                            id={fid('chat-text')}
+                            type="text"
+                            placeholder={data.chatConciergeChannel === 'sms' ? 'Have a question? Text our specialist' : 'Have a question? Chat on WhatsApp'}
+                            value={data.chatConciergeText || ''}
+                            onChange={e => handleFieldChange('chatConciergeText', e.target.value)}
+                            style={{
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              padding: '7px 10px',
+                              borderRadius: '6px',
+                              backgroundColor: '#0a0a0f',
+                              border: '1px solid rgba(255, 255, 255, 0.15)',
+                              color: '#ffffff',
+                              fontSize: '12px'
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label htmlFor={fid('chat-message')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
+                          Pre-Filled Greeting Message:
+                        </label>
+                        <input
+                          id={fid('chat-message')}
+                          type="text"
+                          placeholder="Hi! I have a quick question about this offer:"
+                          value={data.chatConciergeMessage || ''}
+                          onChange={e => handleFieldChange('chatConciergeMessage', e.target.value)}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '7px 10px',
+                            borderRadius: '6px',
+                            backgroundColor: '#0a0a0f',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            color: '#ffffff',
+                            fontSize: '12px'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                );
+
+                const checkoutModeBlock = (
+                  <div
+                    key="block-checkout-mode"
+                    style={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      padding: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px'
+                    }}
+                  >
+                    <div>
                   <div id={fid('checkout-mode')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af', marginBottom: '6px' }}>
                     Checkout Flow Mode:
                   </div>
@@ -2004,9 +2683,23 @@ export const PageEditor: React.FC<Props> = ({
                     )}
                   </div>
                 )}
+                  </div>
+                );
 
-                {/* Discount Code */}
-                <div>
+                const discountBlock = (
+                  <div
+                    key="block-discount"
+                    style={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      padding: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px'
+                    }}
+                  >
+                    <div>
                   <label htmlFor={fid('discount-code')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af', marginBottom: '4px' }}>
                     Auto-Applied Discount Code (Optional)
                   </label>
@@ -2130,52 +2823,16 @@ export const PageEditor: React.FC<Props> = ({
                     </div>
                   )}
                 </div>
-
-                {/* Live Permalink Preview */}
-                <div
-                  style={{
-                    backgroundColor: '#070a12',
-                    borderRadius: '6px',
-                    padding: '8px 10px',
-                    border: '1px solid rgba(255, 255, 255, 0.08)'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Target Shopify Permalink:
-                    </span>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        type="button"
-                        onClick={copyPermalink}
-                        style={{ background: 'transparent', border: 'none', color: '#10b981', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
-                      >
-                        {copiedLink ? <Check size={11} /> : <Copy size={11} />}
-                        <span>{copiedLink ? 'Copied' : 'Copy'}</span>
-                      </button>
-                      <a
-                        href={currentCheckoutUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ color: '#60a5fa', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', textDecoration: 'none' }}
-                      >
-                        <span>Test</span>
-                        <ExternalLink size={10} />
-                      </a>
-                    </div>
                   </div>
-                  <div style={{ fontSize: '11px', color: '#94A3B8', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                    {currentCheckoutUrl}
-                  </div>
-                </div>
-              </div>
+                );
 
-              {/* SECTION 1.5: 1-CLICK ORDER BUMP / ADD-ON OFFER (AOV BOOSTER) */}
-              <div
-                style={{
-                  padding: '14px',
-                  borderRadius: '10px',
-                  backgroundColor: 'rgba(236, 72, 153, 0.08)',
+                const orderBumpBlock = (
+                  <div
+                    key="block-order-bump"
+                    style={{
+                      padding: '14px',
+                      borderRadius: '10px',
+                      backgroundColor: 'rgba(236, 72, 153, 0.08)',
                   border: '1px solid rgba(236, 72, 153, 0.25)',
                   display: 'flex',
                   flexDirection: 'column',
@@ -2406,6 +3063,101 @@ export const PageEditor: React.FC<Props> = ({
                   </div>
                 )}
               </div>
+                );
+
+                let primary: React.ReactNode[];
+                let secondary: React.ReactNode[];
+
+                if (activeCategory === 'Local & Client Services' || activeCategory === 'B2B, Agencies & Consulting') {
+                  primary = [directDestinationBlock, conciergeBlock, checkoutModeBlock];
+                  secondary = [storeProductBlock, discountBlock, orderBumpBlock];
+                } else if (activeCategory === 'Digital Products, Courses & Creators') {
+                  primary = [directDestinationBlock, discountBlock, checkoutModeBlock];
+                  secondary = [storeProductBlock, conciergeBlock, orderBumpBlock];
+                } else if (activeCategory === 'SaaS, Tech & Events') {
+                  primary = [directDestinationBlock, checkoutModeBlock];
+                  secondary = [storeProductBlock, conciergeBlock, discountBlock, orderBumpBlock];
+                } else {
+                  primary = [storeProductBlock, checkoutModeBlock, discountBlock, orderBumpBlock];
+                  secondary = [directDestinationBlock, conciergeBlock];
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {primary}
+
+                    {secondary.length > 0 && (
+                      <div style={{ marginTop: '4px' }}>
+                        <button
+                          type="button"
+                          id={fid('more-commerce-toggle')}
+                          aria-expanded={moreCommerceOpen}
+                          aria-controls={fid('more-commerce-panel')}
+                          onClick={() => setMoreCommerceOpen(open => !open)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            width: '100%',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            color: '#cbd5e1',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            outline: 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Sparkles size={14} style={{ color: '#818cf8' }} />
+                            <span>More commerce options</span>
+                            {secondaryActiveCount > 0 && (
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  color: '#34d399',
+                                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                                  padding: '2px 7px',
+                                  borderRadius: '9999px',
+                                  border: '1px solid rgba(16, 185, 129, 0.3)'
+                                }}
+                              >
+                                {secondaryActiveCount} active
+                              </span>
+                            )}
+                          </div>
+                          <ChevronDown
+                            size={14}
+                            style={{
+                              color: '#94a3b8',
+                              transform: moreCommerceOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                              transition: 'transform 0.2s ease'
+                            }}
+                          />
+                        </button>
+                        <div
+                          id={fid('more-commerce-panel')}
+                          role="region"
+                          aria-labelledby={fid('more-commerce-toggle')}
+                          hidden={!moreCommerceOpen}
+                          style={{
+                            display: moreCommerceOpen ? 'flex' : 'none',
+                            flexDirection: 'column',
+                            gap: '12px',
+                            marginTop: '10px'
+                          }}
+                        >
+                          {secondary}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </EditorSection>
             <EditorSection
               title={sectionTitle('ab-test')}
@@ -3246,6 +3998,31 @@ export const PageEditor: React.FC<Props> = ({
                       }}
                     />
                   </div>
+
+                  <div>
+                    <label htmlFor={fid('gtm-container-id')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af', marginBottom: '4px' }}>
+                      Google Tag Manager (GTM) Container ID:
+                    </label>
+                    <input
+                      id={fid('gtm-container-id')}
+                      type="text"
+                      placeholder="e.g. GTM-XXXXXXX"
+                      value={data.gtmContainerId || ''}
+                      onChange={e => handleFieldChange('gtmContainerId', e.target.value.trim())}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '7px 10px',
+                        borderRadius: '6px',
+                        backgroundColor: '#0a0a0f',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        color: '#ffffff',
+                        fontSize: '12px',
+                        fontFamily: 'monospace',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <div
@@ -3524,7 +4301,7 @@ export const PageEditor: React.FC<Props> = ({
                   </div>
                 </div>
 
-                {/* Outbound Webhook Relay (Klaviyo / Zapier / Make) */}
+                {/* Google Sheets & Outbound Webhook Relay (Apps Script / Klaviyo / Zapier / Make) */}
                 <div
                   style={{
                     backgroundColor: '#070a12',
@@ -3533,33 +4310,139 @@ export const PageEditor: React.FC<Props> = ({
                     border: '1px solid rgba(255, 255, 255, 0.08)',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '6px'
+                    gap: '8px'
                   }}
                 >
-                  <label htmlFor={fid('webhook-url')} style={{ fontSize: '11px', fontWeight: 600, color: '#f3f4f6' }}>
-                    Outbound Lead &amp; Bump Webhook Relay (Optional):
-                  </label>
-                  <input
-                    id={fid('webhook-url')}
-                    type="url"
-                    placeholder="https://hooks.zapier.com/hooks/catch/..."
-                    value={data.webhookUrl || ''}
-                    onChange={e => handleFieldChange('webhookUrl', e.target.value.trim())}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '7px 10px',
-                      borderRadius: '6px',
-                      backgroundColor: '#0a0a0f',
-                      border: '1px solid rgba(255, 255, 255, 0.15)',
-                      color: '#ffffff',
-                      fontSize: '12px',
-                      fontFamily: 'monospace',
-                      outline: 'none'
-                    }}
-                  />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                    <label htmlFor={fid('webhook-url')} style={{ fontSize: '11px', fontWeight: 600, color: '#f3f4f6' }}>
+                      Google Sheets &amp; Outbound Lead Webhook Relay (Optional):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowSheetsGuide(v => !v)}
+                      aria-expanded={showSheetsGuide}
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.14)',
+                        border: '1px solid rgba(16, 185, 129, 0.35)',
+                        color: '#34d399',
+                        borderRadius: '6px',
+                        padding: '3px 8px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {showSheetsGuide ? 'Hide Google Sheets Script' : 'Free Google Sheets Script (60s)'}
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      id={fid('webhook-url')}
+                      type="url"
+                      placeholder="https://script.google.com/macros/s/.../exec or https://hooks.zapier.com/..."
+                      value={data.webhookUrl || ''}
+                      onChange={e => {
+                        handleFieldChange('webhookUrl', e.target.value.trim());
+                        setWebhookTestResult(null);
+                      }}
+                      style={{
+                        flex: 1,
+                        boxSizing: 'border-box',
+                        padding: '7px 10px',
+                        borderRadius: '6px',
+                        backgroundColor: '#0a0a0f',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        color: '#ffffff',
+                        fontSize: '12px',
+                        fontFamily: 'monospace',
+                        outline: 'none'
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleTestWebhook}
+                      disabled={!data.webhookUrl || testingWebhook}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        backgroundColor: data.webhookUrl ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+                        border: '1px solid rgba(16, 185, 129, 0.35)',
+                        color: data.webhookUrl ? '#34d399' : '#64748b',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: data.webhookUrl && !testingWebhook ? 'pointer' : 'default',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {testingWebhook ? 'Sending…' : 'Send Test Row'}
+                    </button>
+                  </div>
+
+                  <div aria-live="polite">
+                    {webhookTestResult && (
+                      <div
+                        style={{
+                          fontSize: '11px',
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          backgroundColor: webhookTestResult.ok ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                          border: `1px solid ${webhookTestResult.ok ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                          color: webhookTestResult.ok ? '#34d399' : '#fca5a5'
+                        }}
+                      >
+                        {webhookTestResult.text}
+                      </div>
+                    )}
+                  </div>
+
+                  {showSheetsGuide && (
+                    <div
+                      style={{
+                        padding: '10px',
+                        borderRadius: '6px',
+                        backgroundColor: 'rgba(16, 185, 129, 0.06)',
+                        border: '1px solid rgba(16, 185, 129, 0.25)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#a7f3d0' }}>
+                          Zero-Cost Google Sheets Sync (No Zapier Needed)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleCopySheetsScript}
+                          style={{
+                            background: 'rgba(16, 185, 129, 0.2)',
+                            border: '1px solid rgba(16, 185, 129, 0.4)',
+                            color: '#34d399',
+                            borderRadius: '5px',
+                            padding: '3px 8px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          {copiedSheetsScript ? <Check size={11} /> : <Copy size={11} />}
+                          <span>{copiedSheetsScript ? 'Copied Script' : 'Copy Apps Script'}</span>
+                        </button>
+                      </div>
+                      <ol style={{ margin: 0, paddingLeft: '16px', fontSize: '11px', color: '#cbd5e1', lineHeight: 1.45 }}>
+                        <li>Open any Google Sheet and click <strong>Extensions &rarr; Apps Script</strong>.</li>
+                        <li>Paste the copied script, click <strong>Deploy &rarr; New deployment &rarr; Web app</strong>, and set <em>Who has access</em> to <strong>Anyone</strong>.</li>
+                        <li>Paste your <code>https://script.google.com/macros/s/.../exec</code> URL above and click <strong>Send Test Row</strong>.</li>
+                      </ol>
+                    </div>
+                  )}
+
                   <div style={{ fontSize: '11px', color: '#64748b' }}>
-                    Relays new leads, bump selections, and UTM attribution in real time to Klaviyo, Zapier, or your CRM.
+                    Relays new leads, bump selections, and UTM attribution in real time to Google Sheets, Klaviyo, Zapier, or your CRM.
                   </div>
                 </div>
               </div>

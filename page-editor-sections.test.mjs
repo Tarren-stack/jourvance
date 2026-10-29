@@ -6,7 +6,9 @@ import {
   OPEN_SECTIONS_STORAGE_KEY,
   sectionSummary,
   parseOpenSections,
-  toggleSection
+  toggleSection,
+  buildChatConciergeHref,
+  GOOGLE_SHEETS_APPS_SCRIPT
 } from './src/lib/pageEditorSections.ts';
 import { DEFAULT_LEAD_CAPTURE_PROJECT } from './src/lib/defaultBlueprint.ts';
 
@@ -118,4 +120,40 @@ test('no title or summary carries an em dash', () => {
       }
     }
   }
+});
+
+test('privacy summary counts gtmContainerId alongside Meta, TikTok, and GA4', () => {
+  const data = {
+    ...defaultPage(),
+    metaPixelId: '12345',
+    tiktokPixelId: 'C123',
+    ga4TrackingId: 'G-ABC',
+    gtmContainerId: 'GTM-XYZ789'
+  };
+  assert.equal(summary('privacy', data).text, 'Cookie notice on · 4 pixels');
+});
+
+test('buildChatConciergeHref builds WhatsApp and SMS deep links and returns empty when disabled or invalid', () => {
+  assert.equal(buildChatConciergeHref({ chatConciergeEnabled: false, chatConciergePhone: '+1 (555) 234-5678' }), '');
+  assert.equal(buildChatConciergeHref({ chatConciergeEnabled: true, chatConciergePhone: '123' }), '');
+  assert.equal(
+    buildChatConciergeHref({
+      chatConciergeEnabled: true,
+      chatConciergeChannel: 'whatsapp',
+      chatConciergePhone: '+1 (555) 234-5678',
+      chatConciergeMessage: 'Hi! Do you have availability?'
+    }),
+    'https://wa.me/15552345678?text=Hi!%20Do%20you%20have%20availability%3F'
+  );
+  assert.equal(
+    buildChatConciergeHref({
+      chatConciergeEnabled: true,
+      chatConciergeChannel: 'sms',
+      chatConciergePhone: '1-555-234-5678',
+      chatConciergeMessage: 'Quick question'
+    }),
+    'sms:+15552345678?body=Quick%20question'
+  );
+  assert.match(GOOGLE_SHEETS_APPS_SCRIPT, /function doPost\(e\)/);
+  assert.doesNotMatch(GOOGLE_SHEETS_APPS_SCRIPT, /—|\s–\s/);
 });

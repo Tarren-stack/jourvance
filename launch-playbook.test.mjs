@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const modalSource = fs.readFileSync(new URL('./src/components/modals/LaunchPlaybookModal.tsx', import.meta.url), 'utf8');
+const welcomeTourSource = fs.readFileSync(new URL('./src/components/modals/WelcomeTourModal.tsx', import.meta.url), 'utf8');
+const stepDockSource = fs.readFileSync(new URL('./src/components/drawers/StepDock.tsx', import.meta.url), 'utf8');
 const sidebarSource = fs.readFileSync(new URL('./src/components/navigation/AppSidebar.tsx', import.meta.url), 'utf8');
 const appSource = fs.readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8');
 const headerSource = fs.readFileSync(new URL('./src/components/toolbar/CanvasHeader.tsx', import.meta.url), 'utf8');
@@ -54,4 +56,37 @@ test('CanvasHeader remains free of dead checklist code', () => {
   for (const s of ['showChecklist', 'Launch Readiness', 'isOfferDone', 'isStoreDone', 'isPublishDone']) {
     assert.ok(!headerSource.includes(s), `CanvasHeader still contains ${s}`);
   }
+});
+
+test('WelcomeTourModal provides a 4-step interactive walkthrough with Skip Tour and no em dashes', () => {
+  assert.ok(welcomeTourSource.includes('export const WelcomeTourModal'));
+  assert.ok(welcomeTourSource.includes('ModalDialog labelledBy="welcome-tour-title"'));
+  assert.ok(welcomeTourSource.includes("export const WELCOME_TOUR_STORAGE_KEY = 'jourvance_welcome_tour_seen'"));
+  assert.ok(welcomeTourSource.includes('Skip Tour'));
+  assert.ok(welcomeTourSource.includes('Start with a Turnkey Blueprint or Draft with AI'));
+  assert.ok(welcomeTourSource.includes('Edit Your Page & Connect Checkout or Calendar Links'));
+  assert.ok(welcomeTourSource.includes('Simulate as Lead or Buyer & Share Client Pitch Links'));
+  assert.ok(welcomeTourSource.includes('Run Pre-Flight Checks & Publish in One Click'));
+  assert.ok(!welcomeTourSource.includes('—'), 'WelcomeTourModal contains em dash');
+  assert.ok(!welcomeTourSource.includes(' – '), 'WelcomeTourModal contains spaced en dash');
+});
+
+test('StepDock unselected state includes Quick-start guide and 60s tour trigger', () => {
+  assert.ok(stepDockSource.includes('aria-label="Quick-start guide"'));
+  assert.ok(stepDockSource.includes('Quick-Start & New Features'));
+  assert.ok(stepDockSource.includes('Take 60s Tour'));
+  assert.ok(stepDockSource.includes('1. Pick a Business Blueprint'));
+  assert.ok(stepDockSource.includes('2. Edit Landing Page & Offer'));
+  assert.ok(stepDockSource.includes('3. Connect Store or Booking Link'));
+  assert.ok(stepDockSource.includes('4. Simulate Lead vs. Buyer Flow'));
+  assert.ok(!stepDockSource.includes('—'), 'StepDock contains em dash');
+  assert.ok(!stepDockSource.includes(' – '), 'StepDock contains spaced en dash');
+});
+
+test('LaunchPlaybookModal and App.tsx count Shopify, WooCommerce, or a direct checkout/booking link for Milestone 1', () => {
+  assert.ok(modalSource.includes('1. Connect Shopify Store, WooCommerce, or Booking Link'));
+  assert.ok(modalSource.includes('Replay 60s Tour'));
+  assert.ok(appSource.includes('currentWorkspace?.woocommerceConfig?.status === \'connected\''));
+  assert.ok(appSource.includes('hasDirectCheckoutLink'));
+  assert.ok(appSource.includes('<WelcomeTourModal'));
 });

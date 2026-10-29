@@ -225,14 +225,16 @@ export function sanitizeWorkspace(ws) {
   return next;
 }
 
-/** API responses keep the admin token for this signed-in user, and omit the webhook secret. */
+/** API responses keep the admin token for this signed-in user, and omit the webhook secret and WooCommerce consumer secret. */
 export function presentWorkspace(ws) {
   const clean = sanitizeWorkspace(ws);
   if (!clean) return clean;
   const source = clean.shopifyConfig || null;
+  const wooSource = clean.woocommerceConfig || null;
   const copy = {
     ...clean,
-    shopifyConfig: source ? { ...source } : source
+    shopifyConfig: source ? { ...source } : source,
+    ...(wooSource ? { woocommerceConfig: { ...wooSource } } : {})
   };
   if (copy.shopifyConfig) {
     const onFile = Boolean(String(copy.shopifyConfig.webhookSecret || '').trim());
@@ -241,6 +243,12 @@ export function presentWorkspace(ws) {
     delete copy.shopifyConfig.pixelKey;
     copy.shopifyConfig.webhookSecretOnFile = onFile;
     copy.shopifyConfig.pixelKeyOnFile = pixelOnFile;
+  }
+  if (copy.woocommerceConfig) {
+    const secretOnFile = Boolean(String(copy.woocommerceConfig.consumerSecret || '').trim() || copy.woocommerceConfig.consumerSecretOnFile);
+    delete copy.woocommerceConfig.consumerSecret;
+    delete copy.woocommerceConfig.webhookSecret;
+    copy.woocommerceConfig.consumerSecretOnFile = secretOnFile;
   }
   return copy;
 }

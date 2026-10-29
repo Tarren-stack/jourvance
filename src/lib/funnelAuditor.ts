@@ -50,14 +50,44 @@ export interface FunnelAuditReport {
   fixableChecks: number;
 }
 
-/** True when the workspace has a connected store. Store checks need one. */
-export function isStoreConnected(workspace: Pick<Workspace, 'shopifyConfig'> | null | undefined): boolean {
-  return workspace?.shopifyConfig?.status === 'connected';
+/** Helper to detect direct checkout, booking, or external payment links on journey steps. */
+export function hasDirectCheckoutLink(project?: JourneyProject | null): boolean {
+  if (!project?.nodes || project.nodes.length === 0) return false;
+  return project.nodes.some(n => {
+    if (n.type !== 'landing-page' && n.type !== 'upsell') return false;
+    const d = n.data as Record<string, unknown> | undefined;
+    const checkoutUrl = typeof d?.checkoutUrl === 'string' ? d.checkoutUrl.trim() : '';
+    const externalUrl = typeof d?.externalUrl === 'string' ? d.externalUrl.trim() : '';
+    const bookingUrl = typeof d?.bookingUrl === 'string' ? d.bookingUrl.trim() : '';
+    return Boolean(checkoutUrl || externalUrl || bookingUrl);
+  });
+}
+
+/** True when the workspace has a connected store or the journey has direct checkout/booking links. */
+export function isStoreConnected(
+  workspace: Pick<Workspace, 'shopifyConfig' | 'woocommerceConfig'> | null | undefined,
+  project?: JourneyProject | null
+): boolean {
+  const shopifyConnected = workspace?.shopifyConfig?.status === 'connected';
+  const wooConnected = workspace?.woocommerceConfig?.status === 'connected';
+  const directLink = hasDirectCheckoutLink(project);
+  return Boolean(shopifyConnected || wooConnected || directLink);
 }
 
 /** The store score, or null when no store is connected (the score would only measure what is absent). */
 export function storeScoreFor(project: JourneyProject, workspace: Workspace | null | undefined): FunnelAuditReport | null {
-  return isStoreConnected(workspace) ? auditFunnel(project, workspace) : null;
+  return isStoreConnected(workspace, project) ? auditFunnel(project, workspace) : null;
+}
+
+export function pageSellsThroughCheckout(page: JourneyNode | undefined): boolean {
+  if (!page) return false;
+  if (sellsThroughCheckout(page)) return true;
+  const d = page.data as Record<string, unknown> | undefined;
+  return Boolean(
+    (typeof d?.checkoutUrl === 'string' && d.checkoutUrl.trim().length > 0) ||
+    (typeof d?.bookingUrl === 'string' && d.bookingUrl.trim().length > 0) ||
+    (typeof d?.externalUrl === 'string' && d.externalUrl.trim().length > 0)
+  );
 }
 
 /**
@@ -68,7 +98,7 @@ export function storeScoreFor(project: JourneyProject, workspace: Workspace | nu
  */
 function upsellSlot(nodes: JourneyNode[], edges: JourneyEdge[]): { page: JourneyNode; next: JourneyEdge | undefined } | null {
   const page = nodes.find(n => n.type === 'landing-page');
-  if (!page || nodes.some(n => n.type === 'upsell') || !sellsThroughCheckout(page)) return null;
+  if (!page || nodes.some(n => n.type === 'upsell') || !pageSellsThroughCheckout(page)) return null;
   const byId = nodeLookup(nodes);
   const onward = edges.filter(e =>
     e.source === page.id && !e.sourceHandle && lineIsDrawable(e, byId) &&
@@ -101,10 +131,14 @@ export function auditFunnel(project: JourneyProject, workspace?: Workspace | nul
     typeof text === 'string' && text.trim().length > 3 && !isPlaceholderText(text);
   const isHeadlineDefined = ownHeadline(project.offerHeadline) || ownHeadline(lpData?.headline);
 
-  const isProductLinked = sellsThroughCheckout(landingPageNode);
+  const isProductLinked = pageSellsThroughCheckout(landingPageNode);
   // The forecaster falls back to 58.00 when there is no price, which is not a configured price.
-  const configuredPrice = lpData?.shopifyProductPrice && parseNumericPrice(lpData.shopifyProductPrice, 0) > 0
-    ? lpData.shopifyProductPrice.trim()
+  const rawLp = lpData as Record<string, unknown> | undefined;
+  const rawPrice = (typeof rawLp?.shopifyProductPrice === 'string' && rawLp.shopifyProductPrice)
+    || (typeof rawLp?.productPrice === 'string' && rawLp.productPrice)
+    || '';
+  const configuredPrice = rawPrice && parseNumericPrice(rawPrice, 0) > 0
+    ? rawPrice.trim()
     : '';
 
   const isMobileStickyEnabled = Boolean(lpData?.mobileStickyBarEnabled);
@@ -156,7 +190,13 @@ export function auditFunnel(project: JourneyProject, workspace?: Workspace | nul
   // Order value (30 pts)
   // -------------------------------------------------------------
   const isBumpActive = Boolean(lpData?.orderBumpEnabled && pricing.hasBump && pricing.bumpPrice > 0);
-  const isUpsellActive = Boolean(pricing.hasUpsell && pricing.upsellPrice > 0);
+  const primaryUpsellData = primaryUpsell?.data as Record<string, unknown> | undefined;
+  const hasDirectUpsellLink = Boolean(
+    (typeof primaryUpsellData?.checkoutUrl === 'string' && primaryUpsellData.checkoutUrl.trim().length > 0) ||
+    (typeof primaryUpsellData?.bookingUrl === 'string' && primaryUpsellData.bookingUrl.trim().length > 0) ||
+    (typeof primaryUpsellData?.externalUrl === 'string' && primaryUpsellData.externalUrl.trim().length > 0)
+  );
+  const isUpsellActive = Boolean((pricing.hasUpsell && pricing.upsellPrice > 0) || hasDirectUpsellLink);
   const bumpPrice = lpData?.orderBumpPrice ? lpData.orderBumpPrice.trim() : '';
 
   const aovItems: AuditCheckItem[] = [

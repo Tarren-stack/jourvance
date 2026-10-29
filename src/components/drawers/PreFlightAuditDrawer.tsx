@@ -10,7 +10,7 @@ import {
 import type { JourneyProject, Workspace } from '../../types/journey';
 import { checkJourneyDesign, planDesignFix, applyFixPlan, revertFixPlan } from '../../lib/designChecks';
 import type { DesignIssue, FixPlan } from '../../lib/designChecks';
-import { storeScoreFor, planAuditFix } from '../../lib/funnelAuditor';
+import { storeScoreFor, planAuditFix, hasDirectCheckoutLink } from '../../lib/funnelAuditor';
 import type { AuditCheckItem } from '../../lib/funnelAuditor';
 import { useDialogFocus } from '../../lib/a11yHooks';
 // This drawer is written in utility classes; Jourvance has no Tailwind, so they come from a
@@ -65,6 +65,21 @@ export const PreFlightAuditDrawer: React.FC<PreFlightAuditDrawerProps> = ({
     }
     return plans;
   }, [design, project]);
+
+  const checkoutEngineLabel = useMemo(() => {
+    if (!isOpen) return '';
+    if (workspace?.shopifyConfig?.status === 'connected') {
+      const shopDomain = workspace.shopifyConfig.storeDomain;
+      return shopDomain ? `Shopify: ${shopDomain}` : 'Shopify connected';
+    }
+    if (workspace?.woocommerceConfig?.status === 'connected') {
+      return 'WooCommerce connected';
+    }
+    if (hasDirectCheckoutLink(project)) {
+      return 'Direct checkout or booking link';
+    }
+    return 'No store connected';
+  }, [isOpen, workspace, project]);
 
   const [preview, setPreview] = useState<FixPlan | null>(null);
   const [lastFix, setLastFix] = useState<FixPlan | null>(null);
@@ -355,7 +370,24 @@ export const PreFlightAuditDrawer: React.FC<PreFlightAuditDrawerProps> = ({
                     </div>
                   </div>
                   <div className="flex-1 space-y-2 text-center sm:text-left">
-                    <p className="text-sm font-bold text-white tracking-tight">{store.headline}</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+                      <p className="text-sm font-bold text-white tracking-tight">{store.headline}</p>
+                      {checkoutEngineLabel && (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            background: 'rgba(6, 78, 59, 0.6)',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                            color: '#34D399'
+                          }}
+                        >
+                          {checkoutEngineLabel}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-slate-300 leading-relaxed">{store.subhead}</p>
                     <p className="text-[11px] font-semibold text-slate-300">
                       {store.passedChecks} of {store.totalChecks} store checks passed

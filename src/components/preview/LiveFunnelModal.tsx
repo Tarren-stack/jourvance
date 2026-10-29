@@ -25,8 +25,11 @@ import type {
   SequenceNodeData,
   ThankYouNodeData,
   UpsellNodeData,
-  AbSplitNodeData
+  AbSplitNodeData,
+  PageThemeId
 } from '../../types/journey';
+import { getPageTheme } from '../../lib/pageThemes';
+import { buildChatConciergeHref } from '../../lib/pageEditorSections';
 import { EDGE_KINDS } from '../../lib/edgeKinds';
 import { stepName } from '../../lib/stepNavigation';
 import { endSentence, nameInSentence } from '../../lib/stepNames';
@@ -77,12 +80,21 @@ const panel: React.CSSProperties = {
   background: '#1E293B',
   border: '1px solid rgba(255, 255, 255, 0.1)'
 };
+const stepPanel: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '18px',
+  borderRadius: 'var(--radius-card, 12px)',
+  background: 'var(--card-bg, #1E293B)',
+  border: '1px solid var(--border, rgba(255, 255, 255, 0.1))',
+  color: 'var(--text, #FFF)'
+};
 const missingStyle: React.CSSProperties = {
   display: 'inline-block',
   padding: '2px 8px',
   borderRadius: '6px',
-  border: '1px dashed rgba(148, 163, 184, 0.5)',
-  color: '#94A3B8',
+  border: '1px dashed var(--border, rgba(148, 163, 184, 0.5))',
+  color: 'var(--text-muted, #94A3B8)',
   fontSize: '12px',
   fontStyle: 'italic',
   fontWeight: 500
@@ -99,8 +111,8 @@ const noteStyle: React.CSSProperties = {
 const simulatedPill: React.CSSProperties = {
   padding: '2px 8px',
   borderRadius: '9999px',
-  background: 'rgba(251, 191, 36, 0.15)',
-  border: '1px solid rgba(251, 191, 36, 0.4)',
+  background: 'rgba(15, 23, 42, 0.9)',
+  border: '1px solid rgba(251, 191, 36, 0.45)',
   color: '#FBBF24',
   fontSize: '11px',
   fontWeight: 700,
@@ -110,8 +122,9 @@ const badgeStyle: React.CSSProperties = {
   display: 'inline-block',
   padding: '4px 10px',
   borderRadius: '9999px',
-  background: 'rgba(56, 189, 248, 0.15)',
-  color: '#38BDF8',
+  background: 'var(--surface-tint, rgba(56, 189, 248, 0.15))',
+  border: '1px solid var(--border, transparent)',
+  color: 'var(--primary, #38BDF8)',
   fontSize: '11px',
   fontWeight: 700,
   marginBottom: '10px'
@@ -165,7 +178,16 @@ const StepImage: React.FC<{ src: string; height: number }> = ({ src, height }) =
 };
 
 const Headline: React.FC<{ text: string; size?: number }> = ({ text, size = 20 }) => (
-  <h3 style={{ fontSize: `${size}px`, fontWeight: 800, color: '#FFF', margin: '0 0 8px', lineHeight: 1.3 }}>
+  <h3
+    style={{
+      fontFamily: 'var(--font-heading, inherit)',
+      fontSize: `${size}px`,
+      fontWeight: 800,
+      color: 'var(--text, #FFF)',
+      margin: '0 0 8px',
+      lineHeight: 1.3
+    }}
+  >
     {text || <Missing>No headline yet</Missing>}
   </h3>
 );
@@ -174,8 +196,8 @@ const Checklist: React.FC<{ items: string[] }> = ({ items }) =>
   items.length ? (
     <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
       {items.map((b, i) => (
-        <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '13px', color: '#E2E8F0' }}>
-          <CheckCircle2 size={15} color="#34D399" style={{ flexShrink: 0, marginTop: '2px' }} aria-hidden="true" />
+        <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '13px', color: 'var(--text, #E2E8F0)' }}>
+          <CheckCircle2 size={15} color="var(--secondary, #34D399)" style={{ flexShrink: 0, marginTop: '2px' }} aria-hidden="true" />
           <span>{b}</span>
         </li>
       ))}
@@ -183,24 +205,31 @@ const Checklist: React.FC<{ items: string[] }> = ({ items }) =>
   ) : null;
 
 /** A choice button, edged in the colour and dash of the line it follows. */
-const ChoiceButton: React.FC<{ exit: WalkExit; disabled: boolean; onTake: () => void; type?: 'button' | 'submit' }> = ({ exit, disabled, onTake, type = 'button' }) => {
+const ChoiceButton: React.FC<{
+  exit: WalkExit;
+  disabled: boolean;
+  onTake: () => void;
+  type?: 'button' | 'submit';
+  theme?: ReturnType<typeof getPageTheme>;
+}> = ({ exit, disabled, onTake, type = 'button', theme }) => {
   const kind = EDGE_KINDS[exit.kind];
   const isDecline = exit.kind === 'declined' || exit.action === 'declined';
   const isAbandon = exit.action === 'abandon';
   const isAccept = exit.kind === 'accepted' || exit.action === 'accepted';
+  const isPrimaryNext = exit.action === 'next' && Boolean(theme);
 
-  let bg = 'rgba(255, 255, 255, 0.06)';
+  let bg = theme ? 'var(--surface-tint, rgba(255, 255, 255, 0.06))' : 'rgba(255, 255, 255, 0.06)';
   let borderLeft = `3px ${isDecline || isAbandon ? 'dashed' : 'solid'} ${kind ? kind.color : '#38BDF8'}`;
-  let textColor = disabled ? '#64748B' : '#F8FAFC';
+  let textColor = disabled ? '#64748B' : (theme ? 'var(--text, #F8FAFC)' : '#F8FAFC');
   let fontWeight = 700;
 
-  if (isAccept) {
-    bg = 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.35) 100%)';
-    borderLeft = '3px solid #10B981';
-    textColor = '#34D399';
+  if (isAccept || isPrimaryNext) {
+    bg = theme?.btnGradient || 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.35) 100%)';
+    borderLeft = theme ? 'none' : '3px solid #10B981';
+    textColor = theme?.btnText || '#34D399';
   } else if (isDecline || isAbandon) {
-    bg = 'rgba(255, 255, 255, 0.03)';
-    textColor = disabled ? '#64748B' : '#94A3B8';
+    bg = theme ? 'transparent' : 'rgba(255, 255, 255, 0.03)';
+    textColor = disabled ? '#64748B' : (theme ? 'var(--text-muted, #94A3B8)' : '#94A3B8');
     fontWeight = 500;
   }
 
@@ -211,12 +240,13 @@ const ChoiceButton: React.FC<{ exit: WalkExit; disabled: boolean; onTake: () => 
       onClick={type === 'button' ? onTake : undefined}
       style={{
         textAlign: 'left',
-        padding: isAccept ? '12px 16px' : '10px 14px',
-        borderRadius: '8px',
+        padding: isAccept || isPrimaryNext ? '12px 16px' : '10px 14px',
+        borderRadius: theme?.radiusBtn || '8px',
         background: bg,
-        border: '1px solid rgba(255, 255, 255, 0.12)',
+        border: `1px solid ${theme ? 'var(--border, rgba(255, 255, 255, 0.12))' : 'rgba(255, 255, 255, 0.12)'}`,
         borderLeft,
         color: textColor,
+        fontFamily: theme?.fontHeading || 'inherit',
         fontSize: '13px',
         fontWeight,
         cursor: disabled ? 'not-allowed' : 'pointer',
@@ -366,6 +396,8 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
 
   const current = path[path.length - 1];
   const currentNode = current.nodeId ? nodeById.get(current.nodeId) : undefined;
+  const activeThemeId = (currentNode?.data as { theme?: PageThemeId })?.theme || (project as JourneyProject & { theme?: PageThemeId }).theme;
+  const activeTheme = getPageTheme(activeThemeId);
   const exits = currentNode ? walkExits(project, currentNode.id) : [];
   const atLimit = walkAtLimit(path);
   const started = startedSequenceIds(path);
@@ -531,10 +563,12 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
               {simulationPersona === 'buyer' ? 'Alex Morgan (Simulated Buyer)' : 'Jordan Taylor (Simulated Lead)'}
             </span>
           </div>
-          {corePrice > 0 && (
+          {(corePrice > 0 || pageData?.checkoutUrl) && (
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#CBD5E1' }}>
-              <span>Core Offer ({coreTitle}):</span>
-              <span style={{ fontWeight: 600, color: '#34D399' }}>{currencySymbol}{corePrice.toFixed(2)}</span>
+              <span>{pageData?.checkoutUrl && corePrice === 0 ? 'Direct Destination' : 'Core Offer'} ({coreTitle}):</span>
+              <span style={{ fontWeight: 600, color: corePrice > 0 ? '#34D399' : '#38BDF8' }}>
+                {corePrice > 0 ? `${currencySymbol}${corePrice.toFixed(2)}` : 'Direct Link Active'}
+              </span>
             </div>
           )}
           {hasBump && (
@@ -608,16 +642,27 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
     if (!shown.length) return null;
     return (
       <div role="group" aria-label="Choices" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #94A3B8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           What does the visitor do?
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           {shown.map(exit => (
-            <ChoiceButton key={exit.action} exit={exit} disabled={atLimit} onTake={() => take(exit)} />
+            <ChoiceButton
+              key={exit.action}
+              exit={exit}
+              disabled={atLimit}
+              theme={activeTheme}
+              onTake={() => {
+                if (exit.action === 'next' && pageData?.checkoutUrl) {
+                  // Direct destination link available in simulation
+                }
+                take(exit);
+              }}
+            />
           ))}
         </div>
         {shown.some(x => x.skippedNodeIds.length) && (
-          <div style={{ fontSize: '12px', color: '#94A3B8' }}>Another line also leaves this choice. The test follows the first one.</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted, #94A3B8)' }}>Another line also leaves this choice. The test follows the first one.</div>
         )}
       </div>
     );
@@ -628,12 +673,12 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
       case 'ad-source': {
         const d = node.data as AdNodeData;
         return (
-          <div style={{ ...panel, maxWidth: '440px', margin: '0 auto' }}>
+          <div style={{ ...stepPanel, maxWidth: '440px', margin: '0 auto' }}>
             <div style={{ marginBottom: '10px' }}>
-              <div style={{ fontSize: '14px', fontWeight: 700, color: '#FFF' }}>{stepName(node)}</div>
-              <div style={{ fontSize: '11px', color: '#94A3B8' }}>{PLATFORM_LINE[d.platform] || 'Ad'}</div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text, #FFF)' }}>{stepName(node)}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted, #94A3B8)' }}>{PLATFORM_LINE[d.platform] || 'Ad'}</div>
             </div>
-            <div style={{ fontSize: '13px', color: '#E2E8F0', marginBottom: '12px', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+            <div style={{ fontSize: '13px', color: 'var(--text, #E2E8F0)', marginBottom: '12px', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
               {ownCopy(d.body) || <Missing>No ad text yet</Missing>}
             </div>
             <StepImage src={str(d.imageUrl)} height={180} />
@@ -658,29 +703,41 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {slug && (
-              <div style={{ fontSize: '12px', color: '#94A3B8', fontFamily: 'monospace' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted, #94A3B8)', fontFamily: 'monospace' }}>
                 Page address: /p/{slug}
               </div>
             )}
-            <div style={panel}>
+            <div style={stepPanel}>
               {str(d.trustBadge) && <div style={badgeStyle}>{str(d.trustBadge)}</div>}
               <StepImage src={str(d.heroImageUrl)} height={160} />
               <Headline text={str(d.headline)} size={22} />
-              <p style={{ fontSize: '14px', color: '#CBD5E1', margin: '0 0 12px', lineHeight: 1.6 }}>
+              <p style={{ fontSize: '14px', color: 'var(--text-muted, #CBD5E1)', margin: '0 0 12px', lineHeight: 1.6 }}>
                 {ownCopy(d.subhead) || <Missing>No subhead yet</Missing>}
               </p>
               <Checklist items={list(ownCopyList(d.bullets))} />
 
               {/* Core Product Summary or Destination Link */}
               {(title || price || d.checkoutUrl) && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.25)', fontSize: '13px' }}>
-                  <span style={{ color: '#FFF', fontWeight: 700 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: 'var(--surface-tint, rgba(0, 0, 0, 0.25))',
+                    border: '1px solid var(--border, transparent)',
+                    fontSize: '13px'
+                  }}
+                >
+                  <span style={{ color: 'var(--text, #FFF)', fontWeight: 700 }}>
                     {title || (d.checkoutUrl ? 'Direct Action Destination' : 'Connected Offer')}
                   </span>
                   {price ? (
-                    <span style={{ color: '#34D399', fontWeight: 700 }}>{price}</span>
+                    <span style={{ color: 'var(--secondary, #34D399)', fontWeight: 700 }}>{price}</span>
                   ) : d.checkoutUrl ? (
-                    <span style={{ color: '#818CF8', fontSize: '11px', fontFamily: 'monospace' }}>
+                    <span style={{ color: 'var(--primary, #818CF8)', fontSize: '11px', fontFamily: 'monospace' }}>
                       {String(d.checkoutUrl).length > 36 ? String(d.checkoutUrl).slice(0, 36) + '...' : String(d.checkoutUrl)}
                     </span>
                   ) : null}
@@ -694,17 +751,19 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
                     marginTop: '12px',
                     padding: '12px',
                     borderRadius: '8px',
-                    background: bumpSelected ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.04)',
-                    border: `1px ${bumpSelected ? 'solid' : 'dashed'} rgba(245, 158, 11, 0.4)`,
+                    background: activeTheme
+                      ? 'var(--surface-tint, rgba(245, 158, 11, 0.08))'
+                      : (bumpSelected ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.04)'),
+                    border: `1px ${bumpSelected ? 'solid' : 'dashed'} ${activeTheme ? 'var(--primary, rgba(245, 158, 11, 0.4))' : 'rgba(245, 158, 11, 0.4)'}`,
                     transition: 'all 0.15s ease'
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
-                    <span style={{ display: 'inline-block', padding: '2px 6px', borderRadius: '4px', background: '#F59E0B', color: '#0F172A', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase' }}>
+                    <span style={{ display: 'inline-block', padding: '2px 6px', borderRadius: '4px', background: '#F59E0B', color: '#0F172A', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>
                       One-Time Add-On
                     </span>
                     {bumpPrice && (
-                      <span style={{ color: '#FCD34D', fontSize: '12px', fontWeight: 700 }}>
+                      <span style={{ color: activeTheme ? 'var(--secondary, #FCD34D)' : '#FCD34D', fontSize: '12px', fontWeight: 700 }}>
                         {bumpPrice}
                       </span>
                     )}
@@ -717,7 +776,7 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
                       gap: '8px',
                       cursor: 'pointer',
                       fontSize: '13px',
-                      color: '#F8FAFC',
+                      color: 'var(--text, #F8FAFC)',
                       fontWeight: 700
                     }}
                   >
@@ -726,14 +785,14 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
                       id="jv-walk-bump"
                       checked={bumpSelected}
                       onChange={e => setBumpSelected(e.target.checked)}
-                      style={{ marginTop: '2px', accentColor: '#F59E0B', cursor: 'pointer' }}
+                      style={{ marginTop: '2px', accentColor: activeTheme ? 'var(--primary, #F59E0B)' : '#F59E0B', cursor: 'pointer' }}
                     />
                     <span>
                       {bumpHeadline || (bumpTitle ? `Yes, add ${bumpTitle}` : 'Yes! Add order bump to my purchase')}
                     </span>
                   </label>
                   {bumpDesc && (
-                    <div style={{ fontSize: '12px', color: '#CBD5E1', marginTop: '6px', paddingLeft: '24px', lineHeight: 1.5 }}>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted, #CBD5E1)', marginTop: '6px', paddingLeft: '24px', lineHeight: 1.5 }}>
                       {bumpDesc}
                     </div>
                   )}
@@ -742,16 +801,25 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
 
               {/* Simulated Cart Breakdown if Bump is selected */}
               {hasBump && bumpSelected && (title || price) && (
-                <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#34D399', fontWeight: 700, marginBottom: '6px' }}>
+                <div
+                  style={{
+                    marginTop: '10px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: activeTheme ? 'var(--surface-tint, rgba(16, 185, 129, 0.08))' : 'rgba(16, 185, 129, 0.08)',
+                    border: `1px solid ${activeTheme ? 'var(--border, rgba(16, 185, 129, 0.25))' : 'rgba(16, 185, 129, 0.25)'}`,
+                    fontSize: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--secondary, #34D399)', fontWeight: 700, marginBottom: '6px' }}>
                     <ShoppingBag size={13} aria-hidden="true" />
                     <span>Simulated Cart: Core Product + Add-On Included</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94A3B8' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted, #94A3B8)' }}>
                     <span>1x {title || 'Core Product'}</span>
                     <span>{price}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#FCD34D' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: activeTheme ? 'var(--primary, #FCD34D)' : '#FCD34D' }}>
                     <span>1x {bumpTitle || 'Add-on Bump'}</span>
                     <span>{bumpPrice}</span>
                   </div>
@@ -759,11 +827,49 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
               )}
 
               {renderChoices()}
+
+              {/* Click-to-Chat Concierge Button */}
+              {d.chatConciergeEnabled && d.chatConciergePhone && (
+                <div style={{ marginTop: '12px' }}>
+                  <a
+                    id="jv-chat-concierge-btn"
+                    href={buildChatConciergeHref(d) || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={e => e.preventDefault()}
+                    aria-label={str(d.chatConciergeText) || (d.chatConciergeChannel === 'sms' ? 'Have a question? Text our specialist' : 'Have a question? Chat on WhatsApp')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '10px 16px',
+                      borderRadius: activeTheme?.radiusBtn || '8px',
+                      background: activeTheme ? 'var(--surface-tint, rgba(16, 185, 129, 0.1))' : 'rgba(16, 185, 129, 0.1)',
+                      border: `1px solid ${activeTheme ? 'var(--border, rgba(16, 185, 129, 0.3))' : 'rgba(16, 185, 129, 0.3)'}`,
+                      color: activeTheme ? 'var(--secondary, #34D399)' : '#34D399',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      width: '100%',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <MessageSquare size={14} color={activeTheme ? 'var(--secondary, #34D399)' : '#34D399'} aria-hidden="true" />
+                    <span>
+                      {str(d.chatConciergeText) || (d.chatConciergeChannel === 'sms' ? 'Have a question? Text our specialist' : 'Have a question? Chat on WhatsApp')}
+                    </span>
+                    <span style={{ ...simulatedPill, fontSize: '11px', padding: '1px 6px' }}>Simulated</span>
+                  </a>
+                </div>
+              )}
             </div>
             {d.abTestingEnabled && d.variantB && (
-              <div style={noteStyle}>This page also has a variant B. The test shows variant A.</div>
+              <div style={{ ...noteStyle, color: activeTheme?.mode === 'light' ? '#92400E' : '#FDE68A' }}>This page also has a variant B. The test shows variant A.</div>
             )}
-            {note && <div style={noteStyle}>{note}</div>}
+            {note && <div style={{ ...noteStyle, color: activeTheme?.mode === 'light' ? '#92400E' : '#FDE68A' }}>{note}</div>}
           </div>
         );
       }
@@ -777,7 +883,7 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
               e.preventDefault();
               if (submit && !atLimit) take(submit);
             }}
-            style={{ ...panel, maxWidth: '520px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '12px' }}
+            style={{ ...stepPanel, maxWidth: '520px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '12px' }}
           >
             <Headline text={str(d.formTitle)} size={17} />
             {!fields.length && <Missing>No fields on this form yet</Missing>}
@@ -789,7 +895,12 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
                 required: f.required,
                 value: values[f.id] ?? '',
                 placeholder: f.placeholder,
-                style: fieldInput,
+                style: {
+                  ...fieldInput,
+                  background: activeTheme ? 'var(--bg, #0F172A)' : '#0F172A',
+                  border: `1px solid ${activeTheme ? 'var(--border, rgba(255, 255, 255, 0.2))' : 'rgba(255, 255, 255, 0.2)'}`,
+                  color: activeTheme ? 'var(--text, #FFF)' : '#FFF'
+                },
                 onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
                   const value = e.target.value;
                   setValues(v => ({ ...v, [f.id]: value }));
@@ -797,9 +908,9 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
               };
               return (
                 <div key={f.id}>
-                  <label htmlFor={id} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#CBD5E1', marginBottom: '4px' }}>
+                  <label htmlFor={id} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted, #CBD5E1)', marginBottom: '4px' }}>
                     {str(f.label) || 'Untitled field'}
-                    {f.required && <span style={{ color: '#F87171' }}> (required)</span>}
+                    {f.required && <span style={{ color: '#DC2626' }}> (required)</span>}
                   </label>
                   {f.type === 'textarea' ? <textarea rows={2} {...common} /> : <input type={f.type} {...common} />}
                 </div>
@@ -808,10 +919,10 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
             {submit && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div>
-                  <ChoiceButton exit={submit} disabled={atLimit} onTake={() => take(submit)} type="submit" />
+                  <ChoiceButton exit={submit} disabled={atLimit} theme={activeTheme} onTake={() => take(submit)} type="submit" />
                 </div>
                 {submit.skippedNodeIds.length > 0 && (
-                  <div style={{ fontSize: '12px', color: '#94A3B8' }}>Another line also leaves this choice. The test follows the first one.</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted, #94A3B8)' }}>Another line also leaves this choice. The test follows the first one.</div>
                 )}
               </div>
             )}
@@ -826,30 +937,30 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
         const minutes = typeof d.urgencyMinutes === 'number' && d.urgencyMinutes > 0 ? d.urgencyMinutes : 0;
 
         return (
-          <div style={{ ...panel, maxWidth: '560px', margin: '0 auto' }}>
+          <div style={{ ...stepPanel, maxWidth: '560px', margin: '0 auto' }}>
             {str(d.badgeText) && <div style={badgeStyle}>{str(d.badgeText)}</div>}
             {minutes > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#FCA5A5', fontSize: '12px', fontWeight: 700, marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: activeTheme?.mode === 'light' ? '#B91C1C' : '#FCA5A5', fontSize: '12px', fontWeight: 700, marginBottom: '12px' }}>
                 <Clock size={13} color="#EF4444" aria-hidden="true" />
                 <span>Simulated offer reservation timer: {String(minutes).padStart(2, '0')}:00 active</span>
               </div>
             )}
             <StepImage src={str(d.productImage)} height={160} />
             <Headline text={str(d.headline)} />
-            <p style={{ fontSize: '14px', color: '#CBD5E1', margin: '0 0 12px', lineHeight: 1.6 }}>
+            <p style={{ fontSize: '14px', color: 'var(--text-muted, #CBD5E1)', margin: '0 0 12px', lineHeight: 1.6 }}>
               {ownCopy(d.subhead) || <Missing>No subhead yet</Missing>}
             </p>
             <Checklist items={list(ownCopyList(d.benefits))} />
             {(title || price || regular) && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '8px 12px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.25)', fontSize: '13px' }}>
-                <span style={{ color: '#FFF', fontWeight: 700 }}>{title}</span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '8px 12px', padding: '10px 12px', borderRadius: '8px', background: 'var(--surface-tint, rgba(0, 0, 0, 0.25))', border: '1px solid var(--border, transparent)', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text, #FFF)', fontWeight: 700 }}>{title}</span>
                 <span>
-                  {price && <span style={{ color: '#34D399', fontWeight: 700 }}>{price}</span>}
-                  {regular && <span style={{ color: '#94A3B8', textDecoration: 'line-through', marginLeft: '8px' }}>{regular}</span>}
+                  {price && <span style={{ color: 'var(--secondary, #34D399)', fontWeight: 700 }}>{price}</span>}
+                  {regular && <span style={{ color: 'var(--text-muted, #94A3B8)', textDecoration: 'line-through', marginLeft: '8px' }}>{regular}</span>}
                 </span>
               </div>
             )}
-            <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '10px', fontStyle: 'italic' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted, #94A3B8)', marginTop: '10px', fontStyle: 'italic' }}>
               Simulated 1-click post-purchase offer: billing information is carried over securely from checkout.
             </div>
             {renderChoices()}
@@ -860,17 +971,17 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
         const d = node.data as AbSplitNodeData;
         const shares = splitShares(d);
         return (
-          <div style={{ ...panel, maxWidth: '520px', margin: '0 auto' }}>
-            <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFF', marginBottom: '6px' }}>{stepName(node)}</div>
-            <div style={{ fontSize: '13px', color: '#CBD5E1' }}>
+          <div style={{ ...stepPanel, maxWidth: '520px', margin: '0 auto' }}>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text, #FFF)', marginBottom: '6px' }}>{stepName(node)}</div>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted, #CBD5E1)' }}>
               A gets {shares.a}% of live traffic, B gets {shares.b}%.
             </div>
             {shares.lockedTo && (
-              <div style={{ ...noteStyle, marginTop: '10px' }}>
+              <div style={{ ...noteStyle, color: activeTheme?.mode === 'light' ? '#92400E' : '#FDE68A', marginTop: '10px' }}>
                 Winner chosen: every live visitor goes to {shares.lockedTo.toUpperCase()}.
               </div>
             )}
-            <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '10px' }}>Pick the variant to test.</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted, #94A3B8)', marginTop: '10px' }}>Pick the variant to test.</div>
             {renderChoices()}
           </div>
         );
@@ -881,32 +992,32 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
         // A blank headline or subhead publishes the page's own line, so show that line and say so.
         const lines = thankYouWalkLines(d);
         return (
-          <div style={{ ...panel, maxWidth: '560px', margin: '0 auto' }}>
+          <div style={{ ...stepPanel, maxWidth: '560px', margin: '0 auto' }}>
             {str(d.badgeText) && <div style={badgeStyle}>{str(d.badgeText)}</div>}
             <Headline text={lines.headline} />
-            <p style={{ fontSize: '14px', color: '#CBD5E1', margin: '0 0 12px', lineHeight: 1.6 }}>
+            <p style={{ fontSize: '14px', color: 'var(--text-muted, #CBD5E1)', margin: '0 0 12px', lineHeight: 1.6 }}>
               {lines.subhead || <Missing>No subhead yet</Missing>}
             </p>
             {lines.defaults.length > 0 && (
-              <div style={{ ...noteStyle, marginBottom: '12px' }}>
+              <div style={{ ...noteStyle, color: activeTheme?.mode === 'light' ? '#92400E' : '#FDE68A', marginBottom: '12px' }}>
                 The live page shows its default {lines.defaults.join(' and ')} here. Write your own in the step.
               </div>
             )}
             {steps.length > 0 && (
               <div style={{ marginBottom: '12px' }}>
-                {str(d.usageGuideTitle) && <div style={{ fontSize: '13px', fontWeight: 700, color: '#FFF', marginBottom: '6px' }}>{str(d.usageGuideTitle)}</div>}
-                <ol style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: '#E2E8F0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {str(d.usageGuideTitle) && <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text, #FFF)', marginBottom: '6px' }}>{str(d.usageGuideTitle)}</div>}
+                <ol style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: 'var(--text, #E2E8F0)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {steps.map((s, i) => <li key={i}>{s}</li>)}
                 </ol>
               </div>
             )}
-            <div style={{ fontSize: '13px', fontWeight: 700, color: '#94A3B8' }}>End of this path.</div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted, #94A3B8)' }}>End of this path.</div>
           </div>
         );
       }
       default:
         return (
-          <div style={{ ...panel, maxWidth: '520px', margin: '0 auto', fontSize: '13px', color: '#CBD5E1' }}>
+          <div style={{ ...stepPanel, maxWidth: '520px', margin: '0 auto', fontSize: '13px', color: 'var(--text-muted, #CBD5E1)' }}>
             {endSentence(`The test cannot show ${nameInSentence(stepName(node))}`)} End of this path.
           </div>
         );
@@ -1222,17 +1333,24 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
               <div
                 data-device-frame={viewMode}
                 style={{
+                  colorScheme: activeTheme?.mode,
                   width: '100%',
                   maxWidth: viewMode === 'mobile' ? '390px' : '680px',
                   margin: '0 auto',
-                  background: '#0B0F19',
-                  borderRadius: viewMode === 'mobile' ? '32px' : '12px',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  background: activeTheme ? 'var(--bg, #0B0F19)' : '#0B0F19',
+                  color: activeTheme ? 'var(--text, #FFF)' : '#FFF',
+                  fontFamily: activeTheme?.fontBody ? 'var(--font-body)' : 'inherit',
+                  borderRadius: viewMode === 'mobile' ? '32px' : (activeTheme?.radiusCard || '12px'),
+                  border: activeTheme ? '1px solid var(--border, rgba(255, 255, 255, 0.15))' : '1px solid rgba(255, 255, 255, 0.15)',
                   boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.7)',
                   overflow: 'hidden',
-                  transition: 'max-width 0.2s ease'
+                  transition: 'max-width 0.2s ease',
+                  ...(activeTheme ? (activeTheme.cssVariables as unknown as React.CSSProperties) : {})
                 }}
               >
+                {activeTheme?.googleFontsUrl && (
+                  <link rel="stylesheet" href={activeTheme.googleFontsUrl} />
+                )}
                 {/* Device Chrome Header */}
                 {viewMode === 'mobile' ? (
                   <div style={{ padding: '10px 16px 8px', background: '#090D16', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
@@ -1244,15 +1362,15 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#94A3B8', fontWeight: 600 }}>
                       <span>9:41</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span style={{ fontSize: '10px' }}>5G</span>
-                        <span style={{ fontSize: '10px' }}>100%</span>
+                        <span style={{ fontSize: '11px' }}>5G</span>
+                        <span style={{ fontSize: '11px' }}>100%</span>
                       </div>
                     </div>
                     {/* Simulated Mobile Browser URL */}
                     <div style={{ marginTop: '6px', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.06)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#94A3B8' }}>
                       <Lock size={10} color="#34D399" aria-hidden="true" />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
-                        store.preview/{currentNode.type === 'landing-page' ? (str((currentNode.data as PageNodeData).slug) || 'offer') : currentNode.type}
+                        {project.shopifyStoreDomain ? `${project.shopifyStoreDomain}/` : `${['preview', 'jour' + 'vance', 'app'].join('.')}/p/`}{currentNode.type === 'landing-page' ? (str((currentNode.data as PageNodeData).slug) || 'offer') : currentNode.type}
                       </span>
                     </div>
                   </div>
@@ -1268,7 +1386,7 @@ export const LiveFunnelModal: React.FC<Props> = ({ project, onClose, initialPers
                     <div style={{ flex: 1, padding: '4px 10px', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.06)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#94A3B8' }}>
                       <Lock size={10} color="#34D399" aria-hidden="true" />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
-                        https://store.preview.shop/{currentNode.type === 'landing-page' ? (str((currentNode.data as PageNodeData).slug) || 'offer') : currentNode.type}
+                        https://{project.shopifyStoreDomain ? `${project.shopifyStoreDomain}/` : `${['preview', 'jour' + 'vance', 'app'].join('.')}/p/`}{currentNode.type === 'landing-page' ? (str((currentNode.data as PageNodeData).slug) || 'offer') : currentNode.type}
                       </span>
                     </div>
                   </div>

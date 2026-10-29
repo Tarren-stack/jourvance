@@ -1009,7 +1009,7 @@ export const SCENARIOS = [
     sections: ['drawers', 'overflow', 'a11y'],
     open: async page => {
       // The Audit's header button is "Check design" since #10, and its name carries the count.
-      await page.click('button[aria-label^="Check design"]');
+      await page.click('[aria-label="Journey tools"] button[aria-label^="Check design"]');
       await page.waitForSelector('.jv-utility', { timeout: 3000 });
     }
   },
@@ -1091,7 +1091,7 @@ export const SCENARIOS = [
     sections: ['overflow', 'a11y'],
     open: async page => {
       await page.keyboard.press('Shift');
-      await page.locator('button[aria-label^="Check design"]').focus();
+      await page.locator('[aria-label="Journey tools"] button[aria-label^="Check design"]').focus();
       await page.keyboard.press('Enter');
       await page.waitForSelector('[role="dialog"][aria-modal="true"]', { timeout: 3000 });
       await page.keyboard.press('Escape');

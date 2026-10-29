@@ -34,6 +34,7 @@ interface Props {
   onConfigureOffer: () => void;
   onOpenAudit: () => void;
   onOpenPublish: () => void;
+  onOpenWelcomeTour?: () => void;
 }
 
 export const LaunchPlaybookModal: React.FC<Props> = ({
@@ -52,20 +53,21 @@ export const LaunchPlaybookModal: React.FC<Props> = ({
   onOpenBlueprints,
   onConfigureOffer,
   onOpenAudit,
-  onOpenPublish
+  onOpenPublish,
+  onOpenWelcomeTour
 }) => {
   if (!isOpen) return null;
 
   const steps = [
     {
       id: 'store',
-      title: '1. Connect Shopify Store',
+      title: '1. Connect Shopify Store, WooCommerce, or Booking Link',
       description: isStoreConnected
-        ? `Connected to ${storeName || 'Shopify store'}. Catalog and checkout links are active.`
-        : 'Link your store to sync products, enable 1-click checkouts, and track live orders.',
+        ? `Connected to ${storeName || 'store or booking destination'}. Checkout and booking links are active.`
+        : 'Link Shopify, WooCommerce, or paste a direct Stripe / Google Calendar link to enable customer checkout.',
       passed: isStoreConnected,
       badgeText: isStoreConnected ? 'Connected' : 'Action Needed',
-      actionLabel: isStoreConnected ? 'Manage Store' : 'Connect Shopify',
+      actionLabel: isStoreConnected ? 'Manage Store' : 'Connect Store or Link',
       action: onOpenShopifyConnect,
       icon: ShoppingBag
     },
@@ -384,24 +386,45 @@ export const LaunchPlaybookModal: React.FC<Props> = ({
           <span style={{ fontSize: '12px', color: '#64748B' }}>
             All checks update in real time as you edit your funnel.
           </span>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              minHeight: '44px',
-              padding: '0 16px',
-              borderRadius: '8px',
-              backgroundColor: 'rgba(255, 255, 255, 0.06)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              color: '#E2E8F0',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            Close
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onOpenWelcomeTour && (
+              <button
+                type="button"
+                onClick={onOpenWelcomeTour}
+                style={{
+                  minHeight: '44px',
+                  padding: '0 14px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(236, 72, 153, 0.1)',
+                  border: '1px solid rgba(236, 72, 153, 0.3)',
+                  color: '#F472B6',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Replay 60s Tour
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                minHeight: '44px',
+                padding: '0 16px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: '#E2E8F0',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </ModalDialog>

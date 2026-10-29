@@ -17,7 +17,7 @@ import {
   AlertCircle,
   Loader2
 } from 'lucide-react';
-import { ECOM_BLUEPRINTS, type EcomBlueprint } from '../../data/ecomBlueprints';
+import { ECOM_BLUEPRINTS, type EcomBlueprint, getBlueprintUniversalCategory } from '../../data/ecomBlueprints';
 import type { Workspace, ShopifyProduct, JourneyNode, JourneyEdge, CustomBlueprint } from '../../types/journey';
 import { fetchShopifyProducts } from '../../lib/shopifyClient';
 import { zeroBlueprintMetrics } from '../../lib/liveStats';
@@ -41,6 +41,7 @@ interface GenericBlueprintSelection {
   id: string;
   title: string;
   category?: string;
+  businessType?: string;
   nodes: JourneyNode[];
   edges: JourneyEdge[];
   isCustom?: boolean;
@@ -52,6 +53,7 @@ interface Props {
   onLoadBlueprint: (
     preparedBlueprint: {
       name: string;
+      businessType?: string;
       nodes: JourneyNode[];
       edges: JourneyEdge[];
     },
@@ -262,6 +264,7 @@ export const BlueprintModal: React.FC<Props> = ({
     const blank = zeroBlueprintMetrics(clonedNodes, repairEdgeHandles(clonedNodes, clonedEdges));
     return {
       name: `${blueprint.title}`,
+      businessType: blueprint.businessType || getBlueprintUniversalCategory(blueprint.id, blueprint.category),
       nodes: blank.nodes,
       edges: blank.edges
     };
@@ -272,6 +275,7 @@ export const BlueprintModal: React.FC<Props> = ({
       id: bp.id,
       title: bp.title,
       category: bp.category,
+      businessType: bp.businessType || getBlueprintUniversalCategory(bp.id, bp.category),
       nodes: bp.nodes,
       edges: bp.edges,
       isCustom: false
@@ -284,6 +288,7 @@ export const BlueprintModal: React.FC<Props> = ({
       id: cb.id,
       title: cb.name,
       category: cb.category,
+      businessType: getBlueprintUniversalCategory(cb.id, cb.category),
       nodes: cb.nodes,
       edges: cb.edges,
       isCustom: true
@@ -713,6 +718,19 @@ export const BlueprintModal: React.FC<Props> = ({
                         }}
                       >
                         {bp.badge}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: '#94A3B8',
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(255, 255, 255, 0.08)'
+                        }}
+                      >
+                        {bp.businessType || getBlueprintUniversalCategory(bp.id, bp.category)}
                       </span>
                       {bp.nodes.some(n => (n.data as any)?.isRetentionBranch) && (
                         <span

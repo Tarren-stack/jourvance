@@ -72,6 +72,7 @@ const SaveBlueprintModal = lazy(() => import('./components/modals/SaveBlueprintM
 const JourneyLibraryDialog = lazy(() => import('./components/modals/JourneyLibraryDialog').then(m => ({ default: m.JourneyLibraryDialog })));
 const AiJourneyBuilder = lazy(() => import('./components/modals/AiJourneyBuilder').then(m => ({ default: m.AiJourneyBuilder })));
 const LaunchPlaybookModal = lazy(() => import('./components/modals/LaunchPlaybookModal').then(m => ({ default: m.LaunchPlaybookModal })));
+const WelcomeTourModal = lazy(() => import('./components/modals/WelcomeTourModal').then(m => ({ default: m.WelcomeTourModal })));
 const AskJourvance = lazy(() => import('./components/assistant/AskJourvance'));
 
 const SuspenseLoader: React.FC<{ label?: string }> = ({ label = 'Loading studio...' }) => (
@@ -214,6 +215,17 @@ export const App: React.FC = () => {
   const [showSimulatorDrawer, setShowSimulatorDrawer] = useState(false);
   const [showAuditDrawer, setShowAuditDrawer] = useState(false);
   const [showLaunchPlaybook, setShowLaunchPlaybook] = useState(false);
+  const [showWelcomeTour, setShowWelcomeTour] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get('tour') === 'true') return true;
+      if (p.get('simulate') === 'true' || p.get('pitch') === 'true') return false;
+      if (typeof navigator !== 'undefined' && navigator.webdriver) return false;
+      return localStorage.getItem('jourvance_welcome_tour_seen') !== '1';
+    } catch {
+      return false;
+    }
+  });
   // Check design opened from a card's badge scrolls to that step's rows (#10).
   const [auditFocusNodeId, setAuditFocusNodeId] = useState<string | null>(null);
   const openIssues = useCallback((id: string) => { setAuditFocusNodeId(id); setShowAuditDrawer(true); }, []);
@@ -485,6 +497,10 @@ export const App: React.FC = () => {
     setProject(p => ({ ...p, name, updatedAt: new Date().toISOString() }));
   };
 
+  const handleUpdateBusinessType = (businessType: string) => {
+    setProject(p => ({ ...p, businessType, updatedAt: new Date().toISOString() }));
+  };
+
   // Every node and line change keeps only lines with both steps still on the map (C06): with
   // Retention Flows hidden, React Flow never removes the lines into a hidden step, and it sends
   // the line removals before the step removal, so whichever of these runs second drops them.
@@ -619,7 +635,14 @@ export const App: React.FC = () => {
   // Launch Readiness Playbook milestones: computed deterministically from workspace, nodes, and audit
   const designIssuesCount = useMemo(() => checkJourneyDesign(project).issues.length, [project]);
   const currentStoreScore = useMemo(() => currentWorkspace ? storeScoreFor(project, currentWorkspace)?.overallScore ?? null : null, [project, currentWorkspace]);
-  const isStoreConnected = Boolean(currentWorkspace?.shopifyConfig?.status === 'connected');
+  const hasDirectCheckoutLink = Boolean(
+    project.nodes && project.nodes.some(n => (n.type === 'landing-page' || n.type === 'upsell') && Boolean((n.data as PageNodeData)?.checkoutUrl?.trim()))
+  );
+  const isStoreConnected = Boolean(
+    currentWorkspace?.shopifyConfig?.status === 'connected' ||
+    currentWorkspace?.woocommerceConfig?.status === 'connected' ||
+    hasDirectCheckoutLink
+  );
   const hasBlueprint = Boolean(project.nodes && project.nodes.length >= 2);
   const hasOffer = Boolean(project.nodes && project.nodes.some(n => n.type === 'landing-page' && Boolean((n.data as PageNodeData)?.headline || (n.data as PageNodeData)?.productId)));
   const isAuditPassed = designIssuesCount === 0 && (currentStoreScore === null || currentStoreScore >= 80);
@@ -723,7 +746,7 @@ export const App: React.FC = () => {
   };
 
   const handleLoadBlueprint = async (
-    prepared: { name: string; nodes: JourneyNode[]; edges: JourneyEdge[] },
+    prepared: { name: string; nodes: JourneyNode[]; edges: JourneyEdge[]; businessType?: string },
     mode: 'replace' | 'new'
   ) => {
     const revealRescue = hasRescueStep(prepared.nodes);
@@ -731,6 +754,7 @@ export const App: React.FC = () => {
       setProject(prev => ({
         ...prev,
         name: prepared.name,
+        businessType: prepared.businessType || prev.businessType || 'E-Commerce & Physical Retail',
         nodes: prepared.nodes,
         edges: prepared.edges,
         updatedAt: new Date().toISOString()
@@ -740,9 +764,9 @@ export const App: React.FC = () => {
       const newJourney: JourneyProject = {
         id: newJourneyId(Date.now(), journeyToken()),
         name: prepared.name,
-        businessType: project.businessType || 'E-Commerce Brand',
+        businessType: prepared.businessType || 'E-Commerce & Physical Retail',
         offerHeadline: prepared.name,
-        goal: 'High-converting Shopify customer acquisition funnel',
+        goal: 'High-converting customer acquisition funnel',
         workspaceId: currentWorkspace?.id,
         nodes: prepared.nodes,
         edges: prepared.edges,
@@ -942,6 +966,7 @@ export const App: React.FC = () => {
           <CanvasHeader
             project={project}
             onUpdateProjectName={handleUpdateProjectName}
+            onUpdateBusinessType={handleUpdateBusinessType}
             onSave={() => { void editing.saveNow(); }}
             canUndo={editing.canUndo}
             canRedo={editing.canRedo}
@@ -1191,6 +1216,15 @@ export const App: React.FC = () => {
                       returnFocusNodeId={returnFocusNodeId}
                       onAddStepBefore={handleAddStepBefore}
                       onAddStepAfter={handleAddStepAfter}
+                      onOpenBlueprints={() => {
+                        setBlueprintModalTab('turnkey');
+                        setShowBlueprintModal(true);
+                      }}
+                      onTestJourney={() => setShowLiveModal(true)}
+                      onOpenWelcomeTour={() => setShowWelcomeTour(true)}
+                      onOpenLaunchPlaybook={() => setShowLaunchPlaybook(true)}
+                      launchCompleted={launchCompleted}
+                      launchTotal={5}
                     />
                   </main>
                   </PublishStatusContext.Provider>
@@ -1472,7 +1506,13 @@ export const App: React.FC = () => {
           hasOffer={hasOffer}
           isAuditPassed={isAuditPassed}
           isPublished={isPublished}
-          storeName={currentWorkspace?.shopifyConfig?.shopName || currentWorkspace?.shopifyConfig?.storeDomain || currentWorkspace?.name}
+          storeName={
+            currentWorkspace?.shopifyConfig?.shopName ||
+            currentWorkspace?.shopifyConfig?.storeDomain ||
+            currentWorkspace?.woocommerceConfig?.storeName ||
+            currentWorkspace?.woocommerceConfig?.storeUrl ||
+            (hasDirectCheckoutLink ? 'Direct Checkout or Booking Link' : currentWorkspace?.name)
+          }
           designCount={designIssuesCount}
           storeScore={currentStoreScore}
           publishedUrl={publishedUrl}
@@ -1504,6 +1544,30 @@ export const App: React.FC = () => {
               handlePublishFunnel();
             }
           }}
+          onOpenWelcomeTour={() => {
+            setShowLaunchPlaybook(false);
+            setShowWelcomeTour(true);
+          }}
+        />
+
+        {/* First-Visit & Replayable Welcome Tour Modal */}
+        <WelcomeTourModal
+          isOpen={showWelcomeTour && activePage === 'canvas'}
+          onClose={() => setShowWelcomeTour(false)}
+          onOpenBlueprints={() => {
+            setBlueprintModalTab('turnkey');
+            setShowBlueprintModal(true);
+          }}
+          onOpenAiBuilder={() => setShowAiBuilder(true)}
+          onSelectLandingPage={() => {
+            const lp = project.nodes?.find(n => n.type === 'landing-page');
+            if (lp) {
+              openStep(lp.id);
+            }
+          }}
+          onOpenStoreConnect={() => setShowShopifyModal(true)}
+          onOpenSimulator={() => setShowLiveModal(true)}
+          onOpenLaunchPlaybook={() => setShowLaunchPlaybook(true)}
         />
       </ChunkBoundary>
     </div>

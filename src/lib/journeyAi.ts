@@ -799,7 +799,7 @@ export function buildJourneyFromPlan(plan: JourneyAiPlan, brief: JourneyAiBrief,
   const project: JourneyProject = {
     id: `journey_ai_${id}`,
     name: plan.name,
-    businessType: brief.businessType.trim() || 'Business',
+    businessType: brief.businessType.trim() || 'E-Commerce & Physical Retail',
     offerHeadline: (brief.offer.split('\n').find(l => l.trim()) || '').trim().slice(0, 120),
     goal: sales ? 'Turn visitors into customers' : 'Turn visitors into leads',
     nodes,

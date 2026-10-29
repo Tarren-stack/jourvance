@@ -1121,8 +1121,12 @@ export async function checkHeaderFits(browser, { base }) {
       }
       for (const mode of ['edit', 'ad return']) {
         if (mode === 'ad return') {
-          const toggle = await page.$('button[aria-label="Show ad return"]');
-          if (toggle && (await toggle.getAttribute('aria-pressed')) !== 'true') {
+          const toggle = page.locator('button[aria-label="Show ad return"]');
+          if (!(await toggle.isVisible())) {
+            const tools = page.locator('button[aria-controls="jv-map-tools jv-map-legend"][aria-expanded="false"]');
+            if (await tools.count()) await tools.click();
+          }
+          if ((await toggle.count()) && (await toggle.getAttribute('aria-pressed')) !== 'true') {
             await toggle.click();
             await page.waitForTimeout(250);
           }
@@ -1412,20 +1416,28 @@ export async function checkStepAddClear(browser, { base, seed }) {
       const viewport = { width, height: { 1280: 720, 1440: 900, 1920: 1080 }[width] };
       await withApp(browser, { base, viewport, seed: map.seed }, async page => {
         const ids = await page.$$eval('.react-flow__node', ns => ns.map(n => n.dataset.id));
+        let drawnRows = 0;
+        let clickedSteps = 0;
         for (const id of ids) {
           await part(f, `${map.id} ${width}px ${id}`, async () => {
             // A step behind the header, the step panel or off the map cannot be clicked where it is drawn.
             const box = await page.locator(stepSel(id)).boundingBox();
             if (!box || box.y < 110 || box.x < 0 || box.x + box.width > width - 20) return;
+            clickedSteps++;
             await page.mouse.click(box.x + box.width / 2, box.y + Math.min(box.height / 2, 40));
             await page.waitForTimeout(300);
-            const hits = await page.evaluate(id => {
+            const res = await page.evaluate(id => {
               const out = [];
               const rect = e => e.getBoundingClientRect();
               const meets = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
               const gap = (a, b) => Math.hypot(Math.max(0, b.left - a.right, a.left - b.right), Math.max(0, b.top - a.bottom, a.top - b.bottom));
+              const slot = document.querySelector('[data-step-add]');
               const adds = [...document.querySelectorAll('[data-step-add] button')];
-              if (adds.length === 0) return ['no + Before / + Next'];
+              if (adds.length === 0) return { drawn: false, hits: ['no + Before / + Next'] };
+              // U10: a row with no clear spot near its own card sets data-step-add-hidden (opacity 0, scale 0)
+              // so nothing is drawn over another card, caption or overlay, while staying in the tab order.
+              const drawn = !slot?.hasAttribute('data-step-add-hidden') && adds.some(a => a.checkVisibility({ opacityProperty: true, visibilityProperty: true }));
+              if (!drawn) return { drawn: false, hits: out };
               const captions = [...document.querySelectorAll('[data-jv-edge-label], [data-jv-edge-label] .jv-add-next')];
               const cards = [...document.querySelectorAll('.react-flow__node')];
               const own = cards.find(c => c.dataset.id === id);
@@ -1449,12 +1461,14 @@ export async function checkStepAddClear(browser, { base, seed }) {
               const row = { left: Math.min(...adds.map(a => rect(a).left)), right: Math.max(...adds.map(a => rect(a).right)), top: Math.min(...adds.map(a => rect(a).top)), bottom: Math.max(...adds.map(a => rect(a).bottom)) };
               const mine = gap(row, rect(own));
               for (const c of cards) if (c !== own && gap(row, rect(c)) <= mine) out.push(`the row sits nearer the ${c.dataset.id} card than its own`);
-              return out;
+              return { drawn: true, hits: out };
             }, id);
-            for (const h of hits) f.push(`${map.id}, ${width}px, ${id} selected: ${h}`);
-            if (hits.length && SHOTS_DIR) await page.screenshot({ path: path.join(SHOTS_DIR, `step-add-${map.id.replace(/\W+/g, '-')}-${width}-${id}.png`) });
+            if (res.drawn) drawnRows++;
+            for (const h of res.hits) f.push(`${map.id}, ${width}px, ${id} selected: ${h}`);
+            if (res.hits.length && SHOTS_DIR) await page.screenshot({ path: path.join(SHOTS_DIR, `step-add-${map.id.replace(/\W+/g, '-')}-${width}-${id}.png`) });
           }, page);
         }
+        if (clickedSteps > 0 && drawnRows === 0) f.push(`${map.id}, ${width}px: every selected step hid its + Before / + Next row`);
       });
     }
   }

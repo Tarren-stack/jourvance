@@ -68,6 +68,8 @@ import {
   SHAPE_LEARNS_PER_DAY,
   SHAPE_RESEND_DAYS,
   BUSINESS_TYPES,
+  UNIVERSAL_BUSINESS_CATEGORIES,
+  ALL_BUSINESS_TYPES,
   compileShapeLearns,
   cleanShapeLearns,
   shapeSentRecently,
@@ -699,7 +701,7 @@ export function setupAiAssistantRoutes(app, {
     }
     // A capped event log drops visits but keeps every order, so its rates run high: no shape from it.
     if (eventsPartial(inputs.events, uid, trainingWindow(now()).cutoff)) return done({}, REASONS.dataIncomplete);
-    const { rows } = compileShapeLearns({ uid, journeys: inputs.journeys, figures: compiled.figures, businessTypes: BUSINESS_TYPES });
+    const { rows } = compileShapeLearns({ uid, journeys: inputs.journeys, figures: compiled.figures, businessTypes: ALL_BUSINESS_TYPES });
     if (!rows.length) return done({}, REASONS.shapesNone);
     // With no hub the record cannot be read either; the missing hub is the cause worth naming.
     if (!dryRun && !learnReady()) return done({ skipped: rows.length }, NO_HUB);

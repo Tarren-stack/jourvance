@@ -915,21 +915,21 @@ function jsString(value) {
 }
 
 /**
- * High-converting baseline luxury beauty reviews for new merchants
- * before they collect their first live order submissions.
+ * Baseline curated verified reviews across physical products, professional
+ * services, and software before new merchants collect their first live order submissions.
  */
-export const CURATED_UGC_PHOTO_1 = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><defs><radialGradient id="g1" cx="40%" cy="35%" r="65%"><stop offset="0%" stop-color="%23fce7f3"/><stop offset="45%" stop-color="%23f472b6"/><stop offset="85%" stop-color="%23db2777"/><stop offset="100%" stop-color="%23831843"/></radialGradient></defs><rect width="400" height="400" rx="24" fill="%23181824"/><circle cx="200" cy="190" r="110" fill="url(%23g1)"/><ellipse cx="170" cy="150" rx="35" ry="20" fill="%23ffffff" opacity="0.45" transform="rotate(-25 170 150)"/><text x="200" y="340" fill="%23f9a8d4" font-family="system-ui,sans-serif" font-size="13" font-weight="700" letter-spacing="1.5" text-anchor="middle">ROSEWATER ELIXIR TEXTURE</text></svg>`;
+export const CURATED_UGC_PHOTO_1 = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><defs><radialGradient id="g1" cx="40%" cy="35%" r="65%"><stop offset="0%" stop-color="%23fce7f3"/><stop offset="45%" stop-color="%23f472b6"/><stop offset="85%" stop-color="%23db2777"/><stop offset="100%" stop-color="%23831843"/></radialGradient></defs><rect width="400" height="400" rx="24" fill="%23181824"/><circle cx="200" cy="190" r="110" fill="url(%23g1)"/><ellipse cx="170" cy="150" rx="35" ry="20" fill="%23ffffff" opacity="0.45" transform="rotate(-25 170 150)"/><text x="200" y="340" fill="%23f9a8d4" font-family="system-ui,sans-serif" font-size="13" font-weight="700" letter-spacing="1.5" text-anchor="middle">VERIFIED CLIENT DETAIL</text></svg>`;
 
-export const CURATED_UGC_PHOTO_2 = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><defs><radialGradient id="g2" cx="35%" cy="30%" r="70%"><stop offset="0%" stop-color="%23fef3c7"/><stop offset="50%" stop-color="%23f59e0b"/><stop offset="85%" stop-color="%23d97706"/><stop offset="100%" stop-color="%2378350f"/></radialGradient></defs><rect width="400" height="400" rx="24" fill="%23181824"/><circle cx="200" cy="190" r="105" fill="url(%23g2)"/><ellipse cx="165" cy="155" rx="30" ry="16" fill="%23ffffff" opacity="0.5" transform="rotate(-20 165 155)"/><text x="200" y="340" fill="%23fcd34d" font-family="system-ui,sans-serif" font-size="13" font-weight="700" letter-spacing="1.5" text-anchor="middle">GOLDEN PEPTIDE GLOW</text></svg>`;
+export const CURATED_UGC_PHOTO_2 = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400"><defs><radialGradient id="g2" cx="35%" cy="30%" r="70%"><stop offset="0%" stop-color="%23fef3c7"/><stop offset="50%" stop-color="%23f59e0b"/><stop offset="85%" stop-color="%23d97706"/><stop offset="100%" stop-color="%2378350f"/></radialGradient></defs><rect width="400" height="400" rx="24" fill="%23181824"/><circle cx="200" cy="190" r="105" fill="url(%23g2)"/><ellipse cx="165" cy="155" rx="30" ry="16" fill="%23ffffff" opacity="0.5" transform="rotate(-20 165 155)"/><text x="200" y="340" fill="%23fcd34d" font-family="system-ui,sans-serif" font-size="13" font-weight="700" letter-spacing="1.5" text-anchor="middle">PREMIUM QUALITY FINISH</text></svg>`;
 
 export const DEFAULT_CURATED_REVIEWS = [
   {
     id: 'curated_1',
     customerName: 'Elena V.',
     rating: 5,
-    reviewTitle: 'My skin hasn’t felt this supple in years',
-    reviewText: 'The texture is weightless yet deeply nourishing. Absorbed within seconds and left my morning routine glowing without any greasy residue.',
-    tags: ['Glowing Results', 'Luxury Texture'],
+    reviewTitle: 'Exceeded our expectations from day one',
+    reviewText: 'The quality and attention to detail are remarkable. Setup was seamless and it delivered immediate value for our team.',
+    tags: ['Great Quality', 'Fast Delivery'],
     photos: [CURATED_UGC_PHOTO_1],
     verifiedBuyer: true,
     createdAt: new Date(Date.now() - 86400000 * 3).toISOString()
@@ -938,9 +938,9 @@ export const DEFAULT_CURATED_REVIEWS = [
     id: 'curated_2',
     customerName: 'Camilla R.',
     rating: 5,
-    reviewTitle: 'Replaced my entire morning serum lineup',
-    reviewText: 'Visible reduction in fine dehydration lines within 10 days. Soft, calm, and exquisitely formulated. Worth every single penny.',
-    tags: ['Fast Absorption', 'Daily Essential'],
+    reviewTitle: 'Saved us hours every single week',
+    reviewText: 'Intuitive, beautifully executed, and worth every penny. Our entire workflow feels smoother and noticeably faster.',
+    tags: ['Good Value', 'Would Buy Again'],
     photos: [CURATED_UGC_PHOTO_2],
     verifiedBuyer: true,
     createdAt: new Date(Date.now() - 86400000 * 7).toISOString()
@@ -949,9 +949,9 @@ export const DEFAULT_CURATED_REVIEWS = [
     id: 'curated_3',
     customerName: 'Marcus L.',
     rating: 5,
-    reviewTitle: 'Noticeable morning clarity in under two weeks',
-    reviewText: 'Gentle on sensitive skin with noticeable morning clarity. My partner commented on how radiant my complexion looked before I even mentioned switching formulas.',
-    tags: ['Gentle & Hydrating', 'Glowing Results'],
+    reviewTitle: 'Exceptional customer care and flawless execution',
+    reviewText: 'Clear communication throughout and delivered exactly as promised. Rare to find this level of consistency and care.',
+    tags: ['As Described', 'Great Quality'],
     photos: [],
     verifiedBuyer: true,
     createdAt: new Date(Date.now() - 86400000 * 12).toISOString()

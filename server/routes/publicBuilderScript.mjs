@@ -62,8 +62,8 @@ export function fontsLinkHtml(fonts) {
     + `  <link href="https://fonts.googleapis.com/css?family=${family}&display=swap" rel="stylesheet">`;
 }
 
-/** The three pixel loaders, the same text the legacy head carries. An empty id writes nothing. */
-export function pixelsHtml({ metaPixelId = '', tiktokPixelId = '', ga4TrackingId = '' } = {}) {
+/** The pixel loaders, the same text the legacy head carries. An empty id writes nothing. */
+export function pixelsHtml({ metaPixelId = '', tiktokPixelId = '', ga4TrackingId = '', gtmContainerId = '' } = {}) {
   return `${metaPixelId ? `
   <!-- Meta Pixel Code -->
   <script>
@@ -102,6 +102,18 @@ export function pixelsHtml({ metaPixelId = '', tiktokPixelId = '', ga4TrackingId
     gtag('config', ${lit(str(ga4TrackingId))});
   </script>
   <!-- End Google Analytics -->
+  ` : ''}${gtmContainerId ? `
+  <!-- Google Tag Manager -->
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
+    (function(w,d,s,l,i){var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer',${lit(str(gtmContainerId))});
+  </script>
+  <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${esc(gtmContainerId)}" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+  <!-- End Google Tag Manager -->
   ` : ''}`;
 }
 

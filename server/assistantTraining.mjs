@@ -77,6 +77,26 @@ export const SHAPE_GENERAL_NICHE = 'general';
  */
 export const BUSINESS_TYPES = Object.freeze(['E-Commerce Store']);
 
+/**
+ * Universal business categories supported across Jourvance.
+ */
+export const UNIVERSAL_BUSINESS_CATEGORIES = Object.freeze([
+  'E-Commerce & Physical Retail',
+  'Local & Client Services',
+  'B2B, Agencies & Consulting',
+  'Digital Products, Courses & Creators',
+  'SaaS, Tech & Events'
+]);
+
+/**
+ * All business types recognized by assistant training: legacy business types plus
+ * the 5 universal categories.
+ */
+export const ALL_BUSINESS_TYPES = Object.freeze([
+  ...BUSINESS_TYPES,
+  ...UNIVERSAL_BUSINESS_CATEGORIES
+]);
+
 const DAY_MS = 86400000;
 /** The date in the window line. The sha is taken with this token in place, so a day passing alone never re-sends. */
 const DATE_TOKEN = '{{AS_OF_DATE}}';
@@ -684,7 +704,7 @@ const orderRateOf = (f) => (Math.min(f.orders, f.visits) / f.visits) * 100;
  * sha: sha256 of kind, niche and prompt, one per line; two journeys of the same shape are one row.
  * Rows come highest rating first, then highest order rate, then journey id.
  */
-export function compileShapeLearns({ uid, journeys, figures, businessTypes = BUSINESS_TYPES } = {}) {
+export function compileShapeLearns({ uid, journeys, figures, businessTypes = ALL_BUSINESS_TYPES } = {}) {
   const skipped = { fewVisits: 0, fewOrders: 0, noShape: 0 };
   const byId = figures instanceof Map ? figures : new Map();
   const allowed = new Set((Array.isArray(businessTypes) ? businessTypes : []).filter((t) => typeof t === 'string' && t));

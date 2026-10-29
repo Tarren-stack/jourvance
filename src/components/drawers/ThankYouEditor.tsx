@@ -267,8 +267,56 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#FFFFFF', fontSize: '12px' }}
                 />
               </div>
-              <div>
-                <label htmlFor={fid('community-invite-text')} style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>VIP Community Invite Text</label>
+              <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.06)', paddingTop: '10px', marginTop: '2px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
+                  <label htmlFor={fid('community-invite-text')} style={{ display: 'block', fontSize: '11px', color: '#94A3B8', margin: 0 }}>VIP Community / Review Button Text</label>
+                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChange({
+                          ...data,
+                          communityInviteText: 'Leave Us a 5-Star Google Review'
+                        });
+                        setTimeout(() => document.getElementById('jv-ty-community-url')?.focus(), 0);
+                      }}
+                      style={{
+                        background: 'rgba(250, 204, 21, 0.12)',
+                        border: '1px solid rgba(250, 204, 21, 0.35)',
+                        color: '#FDE047',
+                        borderRadius: '5px',
+                        padding: '3px 7px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      5-Star Google Review Preset
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChange({
+                          ...data,
+                          communityInviteText: 'Questions? Chat with Us on WhatsApp'
+                        });
+                        setTimeout(() => document.getElementById('jv-ty-community-url')?.focus(), 0);
+                      }}
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.12)',
+                        border: '1px solid rgba(16, 185, 129, 0.35)',
+                        color: '#6EE7B7',
+                        borderRadius: '5px',
+                        padding: '3px 7px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      WhatsApp Concierge Preset
+                    </button>
+                  </div>
+                </div>
                 <input
                   id={fid('community-invite-text')}
                   type="text"
@@ -279,12 +327,12 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
                 />
               </div>
               <div>
-                <label htmlFor="jv-ty-community-url" style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>Community Link</label>
+                <label htmlFor="jv-ty-community-url" style={{ display: 'block', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>Community / Google Review / WhatsApp Link</label>
                 <input
                   id="jv-ty-community-url"
                   type="url"
                   value={data.communityInviteUrl || ''}
-                  placeholder="No community link"
+                  placeholder="https://g.page/r/.../review or https://wa.me/1555..."
                   onChange={e => handleFieldChange('communityInviteUrl', e.target.value.trim())}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(255, 255, 255, 0.12)', color: '#FFFFFF', fontSize: '12px' }}
                 />

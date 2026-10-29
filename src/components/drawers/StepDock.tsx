@@ -68,6 +68,12 @@ interface Props {
   returnFocusNodeId?: string | null;
   onAddStepBefore?: (nodeId: string) => void;
   onAddStepAfter?: (nodeId: string) => void;
+  onOpenBlueprints?: () => void;
+  onTestJourney?: () => void;
+  onOpenWelcomeTour?: () => void;
+  onOpenLaunchPlaybook?: () => void;
+  launchCompleted?: number;
+  launchTotal?: number;
 }
 
 /** Smooth unless the person asked for reduced motion. */
@@ -109,7 +115,13 @@ export const StepDock: React.FC<Props> = ({
   openingEmailStudio,
   returnFocusNodeId,
   onAddStepBefore,
-  onAddStepAfter
+  onAddStepAfter,
+  onOpenBlueprints,
+  onTestJourney,
+  onOpenWelcomeTour,
+  onOpenLaunchPlaybook,
+  launchCompleted = 0,
+  launchTotal = 5
 }) => {
   const [jumpTick, setJumpTick] = useState(0);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -293,11 +305,193 @@ export const StepDock: React.FC<Props> = ({
         ) : nodes.length === 0 ? null : (
           // With no steps at all the finder's own message says what to do, and this hint would
           // point at a list and a map that are both empty.
-          <div style={{ padding: '20px 16px' }}>
-            <p style={{ margin: '0 0 6px', fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>No step selected.</p>
-            <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.5, color: 'var(--color-text-muted)' }}>
-              Choose one above, or click a step on the map. With a keyboard, press Tab to reach a step and Enter to open it.
-            </p>
+          <div style={{ padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: '14px', fontWeight: 600, color: 'var(--color-text-main)' }}>No step selected.</p>
+              <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.5, color: 'var(--color-text-muted)' }}>
+                Choose one above, or click a step on the map. With a keyboard, press Tab to reach a step and Enter to open it.
+              </p>
+            </div>
+
+            <section
+              aria-label="Quick-start guide"
+              style={{
+                padding: '14px',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#F8FAFC' }}>
+                  Quick-Start & New Features
+                </span>
+                {onOpenWelcomeTour && (
+                  <button
+                    type="button"
+                    onClick={onOpenWelcomeTour}
+                    style={{
+                      minHeight: '28px',
+                      padding: '4px 10px',
+                      borderRadius: '9999px',
+                      backgroundColor: 'rgba(236, 72, 153, 0.14)',
+                      border: '1px solid rgba(236, 72, 153, 0.35)',
+                      color: '#F472B6',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    Take 60s Tour
+                  </button>
+                )}
+              </div>
+
+              {onOpenLaunchPlaybook && (
+                <button
+                  type="button"
+                  onClick={onOpenLaunchPlaybook}
+                  style={{
+                    width: '100%',
+                    padding: '9px 11px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                    border: '1px solid rgba(139, 92, 246, 0.28)',
+                    color: '#E2E8F0',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    textAlign: 'left'
+                  }}
+                >
+                  <span>Launch Playbook Progress</span>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#C4B5FD' }}>
+                    {launchCompleted}/{launchTotal} Ready
+                  </span>
+                </button>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                {onOpenBlueprints && (
+                  <button
+                    type="button"
+                    onClick={onOpenBlueprints}
+                    style={{
+                      width: '100%',
+                      padding: '9px 11px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      color: '#F8FAFC',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
+                    }}
+                  >
+                    <span>1. Pick a Business Blueprint</span>
+                    <span style={{ fontSize: '11px', fontWeight: 400, color: '#CBD5E1' }}>
+                      E-commerce, client services, consulting, digital products, or SaaS
+                    </span>
+                  </button>
+                )}
+
+                {nodes.some(n => n.type === 'landing-page') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const lp = nodes.find(n => n.type === 'landing-page');
+                      if (lp) jump(lp.id);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '9px 11px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      color: '#F8FAFC',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
+                    }}
+                  >
+                    <span>2. Edit Landing Page & Offer</span>
+                    <span style={{ fontSize: '11px', fontWeight: 400, color: '#CBD5E1' }}>
+                      Customize your headline, benefits, and checkout destination
+                    </span>
+                  </button>
+                )}
+
+                {onOpenShopifyConnect && (
+                  <button
+                    type="button"
+                    onClick={onOpenShopifyConnect}
+                    style={{
+                      width: '100%',
+                      padding: '9px 11px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      color: '#F8FAFC',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
+                    }}
+                  >
+                    <span>3. Connect Store or Booking Link</span>
+                    <span style={{ fontSize: '11px', fontWeight: 400, color: '#CBD5E1' }}>
+                      Link Shopify, WooCommerce, Stripe, or Google Calendar
+                    </span>
+                  </button>
+                )}
+
+                {onTestJourney && (
+                  <button
+                    type="button"
+                    onClick={onTestJourney}
+                    style={{
+                      width: '100%',
+                      padding: '9px 11px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      color: '#F8FAFC',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
+                    }}
+                  >
+                    <span>4. Simulate Lead vs. Buyer Flow</span>
+                    <span style={{ fontSize: '11px', fontWeight: 400, color: '#CBD5E1' }}>
+                      Walk through your funnel & copy a shareable client pitch link
+                    </span>
+                  </button>
+                )}
+              </div>
+            </section>
           </div>
         )}
       </div>

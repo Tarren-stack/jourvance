@@ -32,6 +32,8 @@ import {
   stepCountWord,
   STEP_VARIANTS,
   BUSINESS_TYPES,
+  UNIVERSAL_BUSINESS_CATEGORIES,
+  ALL_BUSINESS_TYPES,
   SHAPE_KIND,
   SHAPE_MIN_VISITS,
   SHAPE_MIN_ORDERS,
@@ -575,6 +577,28 @@ test('niche is the journey’s business type only when it is on the app’s list
   assert.equal(niche('  E-Commerce Store '), 'E-Commerce Store');
   for (const other of ['e-commerce store', 'E-Commerce Brand', 'Pottery studio', '', undefined, 42]) assert.equal(niche(other), 'general', String(other));
   assert.equal(niche('Pottery studio', ['Pottery studio']), 'Pottery studio');
+});
+
+test('universal business categories are exported and recognized in shape learns', () => {
+  assert.deepEqual(UNIVERSAL_BUSINESS_CATEGORIES, [
+    'E-Commerce & Physical Retail',
+    'Local & Client Services',
+    'B2B, Agencies & Consulting',
+    'Digital Products, Courses & Creators',
+    'SaaS, Tech & Events'
+  ]);
+  assert.ok(Object.isFrozen(UNIVERSAL_BUSINESS_CATEGORIES));
+  assert.deepEqual(ALL_BUSINESS_TYPES, ['E-Commerce Store', ...UNIVERSAL_BUSINESS_CATEGORIES]);
+  assert.ok(Object.isFrozen(ALL_BUSINESS_TYPES));
+
+  for (const cat of UNIVERSAL_BUSINESS_CATEGORIES) {
+    const res = compileShapeLearns({
+      uid: 'u1',
+      journeys: [shapeJourney({ businessType: cat })],
+      figures: new Map([[`jrn_${TOKEN}_77`, fig(1000, 100)]])
+    });
+    assert.equal(res.rows[0].niche, cat);
+  }
 });
 
 test('the server’s step variants equal stepVariant in src/lib/stepKinds.ts over every node type and every sequenceType', async () => {

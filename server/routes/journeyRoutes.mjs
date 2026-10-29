@@ -156,6 +156,22 @@ export function setupJourneyRoutes(app, ctx) {
       : { storeDomain: '', status: 'disconnected' };
   };
 
+  // The WooCommerce config a page is published with: public store metadata only, never credentials.
+  const publishWooCommerceConfig = (ws) => {
+    const woo = ws?.woocommerceConfig;
+    const storeUrl = woo?.status === 'connected' && typeof woo.storeUrl === 'string' && /^https:\/\//i.test(woo.storeUrl.trim())
+      ? woo.storeUrl.trim().replace(/\/+$/, '')
+      : '';
+    return storeUrl
+      ? {
+          storeUrl,
+          status: 'connected',
+          storeName: String(woo.storeName || ''),
+          currency: String(woo.currency || 'USD')
+        }
+      : undefined;
+  };
+
   const domainVerifiedFor = (customDomain, uid) => {
     if (!customDomain) return false;
     reloadDomainRegistry();
@@ -193,11 +209,22 @@ export function setupJourneyRoutes(app, ctx) {
     return rest;
   };
 
-  const upsellRecordData = (data, d) => ({
-    ...data,
-    upsell: d.offerType !== 'downsell' ? data : undefined,
-    downsell: d.offerType === 'downsell' ? data : undefined
-  });
+  const inheritedJourneyTheme = (nodes, journey) => {
+    const landingTheme = nodes.find(
+      n => n?.type === 'landing-page' && typeof n.data?.theme === 'string' && n.data.theme.trim()
+    )?.data?.theme;
+    if (landingTheme) return landingTheme.trim();
+    return typeof journey?.theme === 'string' && journey.theme.trim() ? journey.theme.trim() : undefined;
+  };
+
+  const upsellRecordData = (data, d, inheritedTheme) => {
+    const withTheme = (!data.theme && inheritedTheme) ? { ...data, theme: inheritedTheme } : data;
+    return {
+      ...withTheme,
+      upsell: d.offerType !== 'downsell' ? withTheme : undefined,
+      downsell: d.offerType === 'downsell' ? withTheme : undefined
+    };
+  };
 
   // Real-time pre-flight slug check endpoint. The answer is advisory: publish runs the same
   // validator again, so a pass here never reserves the address.
@@ -436,6 +463,7 @@ export function setupJourneyRoutes(app, ctx) {
     const nodes = Array.isArray(journey.nodes) ? journey.nodes : [];
     const edges = Array.isArray(journey.edges) ? journey.edges : [];
     const shopifyConfig = publishShopifyConfig(ws);
+    const woocommerceConfig = publishWooCommerceConfig(ws);
 
     // A landing page that carries a builder document (LANDING_BUILDER_PLAN.md) is validated before
     // anything else happens, and a document with problems refuses the whole publish: a broken page
@@ -505,6 +533,7 @@ export function setupJourneyRoutes(app, ctx) {
       return a && (a.type === 'landing-page' || a.type === 'upsell') ? a.slug : '';
     };
     const parts = funnelParts(nodes);
+    const fallbackTheme = inheritedJourneyTheme(nodes, journey);
     const servedThankYou = parts.thankYouNode
       ? { nodeId: parts.thankYouNode.id, fingerprint: stepFingerprint(parts.thankYouNode, edges) }
       : null;
@@ -544,6 +573,7 @@ export function setupJourneyRoutes(app, ctx) {
             // when the design does.
             data: withoutBuilder(data),
             shopifyConfig,
+            ...(woocommerceConfig ? { woocommerceConfig } : {}),
             customDomain: customDomain || undefined,
             customDomainVerified: isDomainVerified,
             ...(d.builder ? { builder: d.builder } : {}),
@@ -575,7 +605,7 @@ export function setupJourneyRoutes(app, ctx) {
           nodeId: node.id,
           key: a.key,
           url: a.url,
-          record: { ...base, data: upsellRecordData(data, d), shopifyConfig, ...stamp(data) }
+          record: { ...base, data: upsellRecordData(data, d, fallbackTheme), shopifyConfig, ...(woocommerceConfig ? { woocommerceConfig } : {}), ...stamp(data) }
         });
         steps.push({ nodeId: node.id, type: a.type, slug: a.slug, url: a.url, publishedAt });
         return { ...node, data };
@@ -999,6 +1029,7 @@ export function setupJourneyRoutes(app, ctx) {
     const wsId = journey.workspaceId || req.body?.workspaceId;
     const ws = wsId ? await loadWorkspace(uid, wsId) : null;
     const shopifyConfig = publishShopifyConfig(ws);
+    const woocommerceConfig = publishWooCommerceConfig(ws);
     const slug = publishKey(node);
     const url = `/p/${slug}`;
     const publishedAt = isoNow();
@@ -1014,13 +1045,15 @@ export function setupJourneyRoutes(app, ctx) {
         ...base,
         data: withoutBuilder(data),
         shopifyConfig,
+        ...(woocommerceConfig ? { woocommerceConfig } : {}),
         customDomain: customDomain || undefined,
         customDomainVerified: isDomainVerified,
         ...(d.builder ? { builder: d.builder } : {})
       };
     } else {
+      const fallbackTheme = inheritedJourneyTheme(nodes, journey);
       const data = { ...d, slug, published: true, publishedAt, publishedUrl: url };
-      record = { ...base, data: upsellRecordData(data, d), shopifyConfig };
+      record = { ...base, data: upsellRecordData(data, d, fallbackTheme), shopifyConfig, ...(woocommerceConfig ? { woocommerceConfig } : {}) };
     }
     // A copy, so a later edit to the saved journey never changes a link already handed out.
     record = blankPixelIds(structuredClone(record));

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, WandSparkles, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import type { JourneyProject } from '../../types/journey';
+import { UNIVERSAL_BUSINESS_CATEGORIES, type JourneyProject } from '../../types/journey';
 import { useDialogFocus } from '../../lib/a11yHooks';
 import { FOCUSABLE_SELECTOR, nextTrapIndex } from '../../lib/a11y';
 import { requestJourneyPlan } from '../../lib/hubClient';
@@ -195,9 +195,14 @@ export const AiJourneyBuilder: React.FC<AiJourneyBuilderProps> = ({
   onClose,
   createMode = 'replace'
 }) => {
-  const initialBrief = useMemo<JourneyAiBrief>(() => ({ ...DEFAULT_BRIEF, businessType: (businessType || '').slice(0, BRIEF_LIMITS.businessType) }), [businessType]);
+  const initialBrief = useMemo<JourneyAiBrief>(() => ({ ...DEFAULT_BRIEF, businessType: (businessType || UNIVERSAL_BUSINESS_CATEGORIES[0]).slice(0, BRIEF_LIMITS.businessType) }), [businessType]);
   const [saved] = useState(() => readSavedAiDraft(draftStorage()));
   const [brief, setBrief] = useState<JourneyAiBrief>(saved?.editedBrief ?? saved?.brief ?? initialBrief);
+  const categoryOptions = useMemo(() => {
+    const current = brief.businessType;
+    const custom = current && !UNIVERSAL_BUSINESS_CATEGORIES.includes(current as any);
+    return custom ? [current, ...UNIVERSAL_BUSINESS_CATEGORIES] : [...UNIVERSAL_BUSINESS_CATEGORIES];
+  }, [brief.businessType]);
   // The brief the current plan was drafted for. The review reads this one, so editing the brief
   // screen after going back never changes what the plan is checked against.
   const [planBrief, setPlanBrief] = useState<JourneyAiBrief | null>(saved?.plan ? saved.brief : null);
@@ -548,10 +553,46 @@ export const AiJourneyBuilder: React.FC<AiJourneyBuilderProps> = ({
           <label htmlFor="ai-brief-audience" style={labelStyle}>Who is it for?</label>
           <input id="ai-brief-audience" type="text" maxLength={BRIEF_LIMITS.audience} value={brief.audience} onChange={e => updateBrief({ audience: e.target.value })} style={inputStyle} />
         </div>
-        <div style={{ ...fieldWrap, flex: '1 1 200px' }}>
-          <label htmlFor="ai-brief-business" style={labelStyle}>Business type</label>
-          <input id="ai-brief-business" type="text" maxLength={BRIEF_LIMITS.businessType} value={brief.businessType} onChange={e => updateBrief({ businessType: e.target.value })} style={inputStyle} />
+        <div style={{ ...fieldWrap, flex: '1 1 240px' }}>
+          <label htmlFor="ai-brief-business" style={labelStyle}>Business category</label>
+          <select
+            id="ai-brief-business"
+            value={brief.businessType || UNIVERSAL_BUSINESS_CATEGORIES[0]}
+            onChange={e => updateBrief({ businessType: e.target.value })}
+            style={inputStyle}
+          >
+            {categoryOptions.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
         </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px', marginTop: '-4px' }}>
+        {UNIVERSAL_BUSINESS_CATEGORIES.map(category => {
+          const active = (brief.businessType || UNIVERSAL_BUSINESS_CATEGORIES[0]) === category;
+          return (
+            <button
+              key={category}
+              type="button"
+              onClick={() => updateBrief({ businessType: category })}
+              aria-pressed={active}
+              style={{
+                padding: '5px 12px',
+                borderRadius: '9999px',
+                fontSize: '12px',
+                fontWeight: active ? 700 : 500,
+                cursor: 'pointer',
+                border: active ? '1px solid rgba(99, 102, 241, 0.6)' : `1px solid ${C.border}`,
+                backgroundColor: active ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                color: active ? '#FFFFFF' : C.text,
+                transition: 'all 0.15s ease'
+              }}
+            >
+              {category}
+            </button>
+          );
+        })}
       </div>
 
       <div style={fieldWrap}>

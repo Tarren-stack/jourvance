@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { ECOM_BLUEPRINTS } from './src/data/ecomBlueprints.ts';
+import { ECOM_BLUEPRINTS, BLUEPRINT_CATEGORY_MAP } from './src/data/ecomBlueprints.ts';
 import { layoutPreview, rankNodes, describePreview, previewLabel, PREVIEW_TYPE_COLORS, PREVIEW_TYPE_NAMES } from './src/lib/blueprintPreview.ts';
 
 const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -68,4 +68,18 @@ test('the confirm prompt draws the map above the Replace and Create new choices'
   assert.match(comp, /data-testid="blueprint-preview"/);
   assert.match(comp, /role="img"/);
   assert.match(comp, /<title>\{words\}<\/title>/);
+});
+
+test('every shipped blueprint has a canonical universal category', () => {
+  const CANONICAL = [
+    'E-Commerce & Physical Retail',
+    'Local & Client Services',
+    'B2B, Agencies & Consulting',
+    'Digital Products, Courses & Creators',
+    'SaaS, Tech & Events'
+  ];
+  for (const bp of ECOM_BLUEPRINTS) {
+    const cat = bp.businessType || BLUEPRINT_CATEGORY_MAP[bp.id];
+    assert.ok(CANONICAL.includes(cat), `${bp.id} has valid category ${cat}`);
+  }
 });
