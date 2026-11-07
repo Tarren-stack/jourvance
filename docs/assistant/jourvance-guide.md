@@ -133,7 +133,7 @@ You can disconnect a store from the connect window. People already imported stay
 
 ## Blueprints and the library
 
-A blueprint is a ready-made journey layout for any business model. Open `Blueprints` from the sidebar. Filter blueprints by category: `Lead Capture`, `Consultations & Services`, `Digital & Subscriptions`, `E-Commerce & Orders`, or `Retention & Recovery`.
+A blueprint is a ready-made journey layout for any business model. Open `Blueprints` from the sidebar. Filter blueprints by category: `All Categories`, `E-Commerce & Orders`, `Consultations & Services`, `Digital & Subscriptions`, `B2B & High-Ticket`, or `Events & Local`.
 - `Turnkey Library` holds the starter blueprints. `Use Blueprint` loads one onto your canvas, and it replaces the journey you have open. If you have a Shopify catalog loaded, the blueprint links your products. If not, it starts with clean layouts.
 - `My Team Blueprints` holds blueprints you saved. They are shared across your workspaces.
 - `Save as Blueprint` saves the open journey as a blueprint. You give it a name, a type and notes. After saving you get a share link.

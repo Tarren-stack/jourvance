@@ -145,6 +145,65 @@ export function buildChatConciergeHref(data?: Partial<PageNodeData> | null): str
   return msg ? `https://wa.me/${digits}?text=${encodeURIComponent(msg)}` : `https://wa.me/${digits}`;
 }
 
+// Converts Google Drive share links (drive.google.com/file/d/<ID>/view or drive.google.com/open?id=<ID>)
+// into direct fast-loading image URLs (https://lh3.googleusercontent.com/d/<ID>).
+export function normalizeGoogleDriveImageUrl(raw?: string | null): string {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return '';
+  const fileMatch = /^https?:\/\/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]{10,})(?:\/.*|\?.*)?$/i.exec(trimmed);
+  if (fileMatch) return `https://lh3.googleusercontent.com/d/${fileMatch[1]}`;
+  const openMatch = /^https?:\/\/drive\.google\.com\/(?:open|uc|thumbnail)\?(?:[^#]*&)?id=([A-Za-z0-9_-]{10,})(?:[&#].*)?$/i.exec(trimmed);
+  if (openMatch) return `https://lh3.googleusercontent.com/d/${openMatch[1]}`;
+  return trimmed;
+}
+
+export function isConvertedGoogleDriveImageUrl(raw?: string | null): boolean {
+  const trimmed = String(raw || '').trim();
+  return /^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]{10,}$/i.test(trimmed);
+}
+
+export function buildGoogleCalendarPresetUrl(title?: string | null, details?: string | null): string {
+  const cleanTitle = String(title || '').trim() || 'Onboarding & Strategy Session';
+  const cleanDetails = String(details || '').trim() || 'Confirmed session booked through our official page.';
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(cleanTitle)}&details=${encodeURIComponent(cleanDetails)}`;
+}
+
+export interface DirectCheckoutValidation {
+  valid: boolean;
+  normalized: string;
+  message: string;
+}
+
+export function validateDirectCheckoutUrl(raw?: string | null): DirectCheckoutValidation {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return { valid: true, normalized: '', message: '' };
+  if (/[\s\u0000-\u001f\u007f\\]/.test(trimmed)) {
+    return {
+      valid: false,
+      normalized: trimmed,
+      message: 'Remove spaces or line breaks from the destination URL.'
+    };
+  }
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+    return { valid: true, normalized: trimmed, message: '' };
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.hostname && (parsed.hostname.includes('.') || parsed.hostname === 'localhost')) {
+        return { valid: true, normalized: trimmed, message: '' };
+      }
+    } catch {
+      // Fall through to invalid message below
+    }
+  }
+  return {
+    valid: false,
+    normalized: trimmed,
+    message: 'Enter a full https:// checkout link (such as Stripe, Calendly, or Square) or a site path starting with /.'
+  };
+}
+
 export const GOOGLE_SHEETS_APPS_SCRIPT = `function doPost(e) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var p = JSON.parse(e.postData.contents || '{}');

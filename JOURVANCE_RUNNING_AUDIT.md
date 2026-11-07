@@ -2,7 +2,261 @@
 
 Living notes. Newest pass is at the top. Add a dated section when something is checked again. Do not mark an item fixed unless the code or a test run shows it.
 
-Checked: 2026-10-29. Multi-Industry Universal Themes (3 Light + 2 Dark), Cross-Engine Wiring, Standalone Upsell Theme Inheritance, Sidebar Contrast & Focus Hardening, and Universal Copy Neutralization (R1 Universal Categories & Smart Focus, R2 5 Page Themes & Zero-Drift Legacy Snapshots, R3 Cross-Engine Wiring & Previews, R4 Copy Neutralization).
+Checked: 2026-11-07. P1 + P2 High-Impact Pack Implemented & Verified: Modern Builder Click-to-Chat & GTM dataLayer Parity, Mobile Nav Check Fix, Google Drive Image Link Auto-Converter, Google Calendar Thank-You Preset, Harmonized Blueprint Categories, Progressive Disclosure Extras, Direct Checkout Link Validator, and Journey-Level Global Theme Selector.
+
+## 2026-11-07: P1 + P2 High-Impact Pack Implementation & Comprehensive App-Wide Audit
+
+**Limits first.** 3 tests skipped in `npm test` (`tests/custom-domain-verification.test.mjs`, `tests/funnel-export.test.mjs`, `tests/slug-protection.test.mjs`), each gated on `JOURVANCE_LIVE_TEST_URL` [VERIFIED]; `npm run check:canvas` reports 62 unmeasured contrast elements (`backdrop-filter 41, gradient 17, opacity 4`) honestly as non-passes [VERIFIED]; zero live paid API calls were made. All 9 P1 + P2 Option A improvements are implemented and verified: `npx tsc --noEmit` and `npm run build` exited 0 (`2,265 modules transformed`) [VERIFIED]; `npm test` (`node --test`) passed 3,250 of 3,253 tests across 137 suites (`0 failed, 3 skipped`), including `tests/p1-p2-improvements.test.mjs` (`10/10` passed, planted fault tested RED `2 fail` -> GREEN `10 pass`), `assistant-guide.test.mjs` (`6/6`), `page-builder-legacy-snapshot.test.mjs` (`9/9`), `page-editor-layout.test.mjs` (`18/18`), `header-row-fit.test.mjs` (`10/10`), and `tests/m4-challenger-repo.test.mjs` (`31/31`) [VERIFIED]; headless Chrome browser check scripts `npm run check:email-draft` (`Assertions: 69. Findings: 0.`, including mobile viewports `768px`, `390px`, `320px`), `npm run check:a11y` (`22/22` checks passed), `npm run check:overlaps` (`Assertions: 102. Findings: 0.`), and `npm run check:canvas` (`overflow: PASS, drawers: PASS, save: PASS, a11y: PASS, runtime: PASS`, `24 of 24` keyboard checks with `0 findings`) all exited 0 [VERIFIED]; live server boot (`PORT=4789 node server.mjs`) and headless Chromium DOM verification confirmed HTTP 200 on `/api/health`, `#jv-chat-concierge-btn` rendering (`https://wa.me/15551234567?text=...`), GTM `begin_checkout`/`generate_lead` `dataLayer.push` events, and Google Drive share link conversion (`https://lh3.googleusercontent.com/d/...`) in both legacy and modern builder pages [VERIFIED]; zero em dashes across all modified files [VERIFIED].
+
+### Implemented P1 + P2 High-Impact Pack Summary (2026-11-07)
+
+- **P1.1 Modern Builder Click-to-Chat Parity (`server/routes/publicRoutes.mjs`)**: Wired `buildChatConciergeHref(rawData)` into `renderBuilderPage` so modern page-builder funnels render `<a id="jv-chat-concierge-btn">` when WhatsApp or SMS Click-to-Chat is enabled, while emitting 0 extra bytes when disabled to preserve legacy snapshot fixtures (`page-builder-legacy-snapshot.test.mjs` 9/9).
+- **P1.2 GTM `dataLayer.push` Conversion Events (`server/routes/publicRoutes.mjs`, `server/routes/publicBuilderScript.mjs`)**: Wired `window.dataLayer.push({ event: 'begin_checkout', ... })` inside `fireInitiateCheckout` and `window.dataLayer.push({ event: 'generate_lead' })` inside `fireLeadEvent` when `gtmContainerId` is configured on both legacy and modern page-builder funnels.
+- **P1.3 Mobile Nav Trigger in `scripts/email-draft-browser-check.mjs` & Dynamic Audit Date in `tests/m4-challenger-repo.test.mjs`**: Updated `openComposer` in `scripts/email-draft-browser-check.mjs` to click `.jv-mobile-nav-trigger` when `Email Studio` is hidden at `<= 768px` (`npm run check:email-draft` now passes `69/69` assertions with `0 findings`), and updated `tests/m4-challenger-repo.test.mjs` Section 3 to validate the newest dated header dynamically while still verifying that the `2026-10-29` Milestone 4 section and `R1`..`R4` remain documented.
+- **P2.1 Google Drive Image Share Link Auto-Converter (`src/lib/pageEditorSections.ts`, `src/lib/pageBuilder/model.mjs`, `server/routes/publicRoutes.mjs`, `src/components/drawers/PageEditor.tsx`)**: Added `normalizeGoogleDriveImageUrl` and `isConvertedGoogleDriveImageUrl` to convert `drive.google.com/file/d/<id>/view` and `drive.google.com/open?id=<id>` share links into direct `https://lh3.googleusercontent.com/d/<id>` image URLs automatically across the page editor (`Hero Image or Google Drive Share Link (Optional)` with status badge `"Converted Google Drive link for fast image loading"`), page builder (`linkOrEmpty`), and public SSR routes.
+- **P2.2 1-Click `"Add to Google Calendar Preset"` (`src/lib/pageEditorSections.ts`, `src/components/drawers/ThankYouEditor.tsx`)**: Added `buildGoogleCalendarPresetUrl(title, details)` and a 1-click `Add to Google Calendar Preset` button alongside the Google Review and WhatsApp Concierge presets in `ThankYouEditor.tsx`.
+- **P2.3 Harmonized Blueprint Modal Filter Pills (`src/components/modals/BlueprintModal.tsx`, `docs/assistant/jourvance-guide.md`)**: Replaced the 6 ad-hoc filter tabs in `BlueprintModal.tsx` with `All Categories` + `UNIVERSAL_BUSINESS_CATEGORIES` (`E-Commerce & Orders`, `Consultations & Services`, `Digital & Subscriptions`, `B2B & High-Ticket`, `Events & Local`) and updated `docs/assistant/jourvance-guide.md` (`assistant-guide.test.mjs` 6/6).
+- **P2.4 Progressive Disclosure Sub-Groups in `PageEditor.tsx` (`extras`)**: Grouped the conversion tools in Section 3 (`extras`) into 3 native `<details>` + `<summary>` progressive disclosure sub-groups (`Urgency & Scarcity` open by default, `Exit & Retention`, and `Social Proof & Reviews`) with active count badges.
+- **P2.5 Direct Checkout Link Validator, `"Test Link"` Button & Order Bump Notice (`src/lib/pageEditorSections.ts`, `src/components/drawers/PageEditor.tsx`)**: Added `validateDirectCheckoutUrl`, on-blur validation with immediate clear-on-input, mobile text-transformation suppression (`autoCorrect="off" autoCapitalize="off" spellCheck={false}`), a 1-click `Test Link` anchor, and a `Direct Link + Order Bump Notice:` when both `checkoutUrl` and `orderBumpEnabled` are active.
+- **P2.6 Journey-Level Global Theme Selector & Single-Page Variants vs. Canvas Route Split Callouts (`src/App.tsx`, `src/components/toolbar/CanvasHeader.tsx`, `src/components/drawers/PageEditor.tsx`, `src/components/drawers/AbSplitEditor.tsx`, `src/components/drawers/NodeInspector.tsx`, `src/components/drawers/StepDock.tsx`)**: Added `handleUpdateJourneyTheme` cascading a chosen theme across all `landing-page`, `upsell`, and `thank-you` steps in the journey, exposed via `<select aria-label="Journey theme">` in `CanvasHeader.tsx` and `"Apply to all steps"` in `PageEditor.tsx`, plus disambiguation callouts in `PageEditor.tsx` and `AbSplitEditor.tsx`.
+
+---
+
+### Initial Baseline Audit Log (Prior to P1 + P2 Implementation)
+
+### Section 1: Verification, Test Execution & Error Logging
+
+#### 1.1 Test Suite Status & Discovered Failures (npm test & check:email-draft)
+
+##### Automated Unit & Integration Test Suite (`npm test`) Discovered Failures
+- **Command**: `npm test` (`node --test`) [VERIFIED]
+- **Exit Code**: `1` (FAIL)
+- **Execution Metrics**:
+  - Suites: 130 suites
+  - Tests: 3,243 total
+  - Passed: 3,238 passed
+  - Failed: 2 failed
+  - Cancelled: 0 cancelled
+  - Skipped: 3 skipped (all 3 gated conditionally on live server presence)
+  - Todo: 0
+  - Duration: ~7.9 to 18.8 seconds
+- **Failing Tests (Quoted Verbatim)**:
+  1. `test at tests/m4-challenger-repo.test.mjs:218:3`
+     `✖ line 5 contains the updated summary for Milestone 4 (0.509083ms)`
+     ```text
+     AssertionError [ERR_ASSERTION]: The input did not match the regular expression /^Checked: 2026-10-29\. Multi-Industry Universal Themes/. Input:
+
+     'Checked: 2026-11-07. Comprehensive App-Wide Audit: Verification Failures & Error Logging, UX & Core Flows (Canvas, Categories, Themes, Cross-Engine Checkout), Google Workspace Integrations & Cost-Aware Architecture.'
+     ```
+  2. `test at tests/m4-challenger-repo.test.mjs:230:3`
+     `✖ newest audit entry begins with dated section ## 2026-10-29 (0.304208ms)`
+     ```text
+     AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+     + actual - expected
+
+     + '## 2026-11-07: Comprehensive App-Wide Audit, Verification Log & Prioritized Improvements'
+     - '## 2026-10-29: Multi-Industry Universal Themes, Cross-Engine Wiring, and Universal Copy Neutralization'
+     ```
+- **Architectural Root Cause & Preserved Test File Rationale**:
+  - In `tests/m4-challenger-repo.test.mjs:218-237`, Milestone 4 included two rigid challenger assertions requiring line 5 of `JOURVANCE_RUNNING_AUDIT.md` to begin with `Checked: 2026-10-29` and the newest section heading to begin with `## 2026-10-29`.
+  - Repository documentation policy in `AGENTS.md` explicitly mandates: `Document in the same commit. JOURVANCE_RUNNING_AUDIT.md gets a dated section at the top for every pass, newest first, with what was run and what was not.`
+  - Prepending any new dated audit entry causes those 2 historical snapshot tests to fail until `tests/m4-challenger-repo.test.mjs` is updated in a subsequent milestone pass.
+  - In strict compliance with this audit's Absolute Constraints forbidding modification of project test files under Requirement R2, `tests/m4-challenger-repo.test.mjs` was preserved without modification.
+  - The test runner truthfully exits with code 1.
+
+##### Headless Browser Check Script Discovered Failure (`npm run check:email-draft`)
+- **Command**: `npm run check:email-draft` (`node scripts/email-draft-browser-check.mjs`) [VERIFIED]
+- **Exit Code**: `1` (FAIL)
+- **Verbatim Error Log**:
+  ```text
+  Assertions: 57. Findings: 3.
+    finding: browser B 768: could run (locator.click: Timeout 15000ms exceeded.)
+    finding: browser B 390: could run (locator.click: Timeout 15000ms exceeded.)
+    finding: browser B 320: could run (locator.click: Timeout 15000ms exceeded.)
+  ```
+- **Affected File & Line**: `scripts/email-draft-browser-check.mjs:167` vs `src/index.css:710-713` [VERIFIED]
+- **Root Cause Analysis**:
+  1. `openComposer(page, base)` calls `await page.getByRole('button', { name: /Email Studio/ }).first().click()`.
+  2. In `src/index.css:710-713`, responsive styles enforce:
+     `@media (max-width: 768px) { .jv-sidebar-container:not(.jv-sidebar-mobile-open) { display: none; } }`
+  3. On mobile viewports (768px, 390px, 320px), the sidebar container is hidden (`display: none`).
+  4. The navigation button cannot be clicked until the mobile navigation trigger button (`.jv-mobile-nav-trigger` / `aria-label="Open navigation menu"` in `src/App.tsx:1240-1260`) is clicked to set `mobileSidebarOpen = true`.
+  5. Playwright waits for the button to become visible and action-ready, exceeding the 15,000ms timeout on each mobile viewport.
+- **Reproduction & Fix Proof**: When a Playwright script executes `await page.getByRole('button', { name: /Open navigation menu/i }).click()` prior to clicking `"Email Studio"`, the sidebar opens and the test completes immediately without error.
+
+##### Drip Store Live Test Side-Effect & Resolution (`drips.json` & `boot-safety.test.mjs`)
+- **Incident Mechanism**: During iteration 1 live server testing of `/api/public/lead`, the endpoint enrolled `unit-cors-1794016248429@example.com` into `drips.json` with status `active`.
+- **Impact**: Because `drips.json` is listed in `.gitignore` (line 18), `git status` did not flag modifications. Subsequent execution of `boot-safety.test.mjs:59:1` failed with `AssertionError: 1 !== 0` because it asserts 0 active enrollments.
+- **Resolution**: `drips.json` active enrollments were inspected and restored (63 stopped with `stoppedReason: 'fixture'`, 9 converted_exit, 0 active).
+- **Verified Execution**: `node --test boot-safety.test.mjs` passes unconditionally (6/6 checks passed, 0 failures) [VERIFIED].
+
+#### 1.2 Passing Test Suites & Conditional Skips
+- **Unconditional Passes**: 129 out of 130 test suites (3,238 tests) pass completely with 0 errors [VERIFIED].
+- **Skipped Tests Quoted Verbatim**:
+  1. `tests/custom-domain-verification.test.mjs:11`:
+     `Live Server Verification: GET /api/domain/token and /api/domain/verify require authentication # set JOURVANCE_LIVE_TEST_URL to run against a test server`
+  2. `tests/funnel-export.test.mjs:8`:
+     `POST and OPTIONS /api/public/lead provide valid CORS headers for self-hosted funnels # set JOURVANCE_LIVE_TEST_URL to run against a test server`
+  3. `tests/slug-protection.test.mjs:9`:
+     `Live Pre-Flight Check Endpoint: GET /api/journey/check-slug responds accurately # set JOURVANCE_LIVE_TEST_URL to run against a test server`
+
+#### 1.3 Static Typecheck (`npx tsc --noEmit`)
+- **Command**: `npx tsc --noEmit` [VERIFIED]
+- **Exit Code**: `0`
+- **Output**: Empty (0 type errors). The entire TypeScript codebase across `src/` compiles cleanly with zero diagnostic warnings.
+
+#### 1.4 Live Server Boot & HTTP Endpoint Inspection
+- **Boot Command**: `PORT=3491 HUB_API_KEY="" HUB_URL="" node server.mjs` [VERIFIED]
+- **Observed Behavior**: Express boots cleanly in local fallback mode (`hubConfigured: false`, `durable: false`). Security Sentinel initializes with address CIDR proxy trust and the prose shield active.
+- **Endpoint Responses Tested**:
+  - `GET /api/health` -> HTTP 200, `{"status":"ok","app":"jourvance","version":"0.1.0","hubConfigured":false}` [VERIFIED]
+  - `GET /` -> HTTP 200 (HTML document served) [VERIFIED]
+  - `GET /p/preview/notavalidtoken` -> HTTP 410 (honest expired link card) [VERIFIED]
+  - `POST /api/public/webhook-test` (loopback SSRF probe to `http://127.0.0.1:3000/webhook`) -> HTTP 400 `{"success":false,"error":"Enter a valid public https:// webhook or Google Apps Script URL."}` [VERIFIED]
+  - `POST /api/public/webhook-test` (public https URL probe) -> HTTP 502 `{"success":false,"status":405,"error":"Webhook endpoint returned HTTP 405..."}` [VERIFIED]
+  - `POST /api/public/lead` (empty body) -> HTTP 400 `{"success":false,"error":"A valid email address is required."}` [VERIFIED]
+  - `OPTIONS /api/public/lead` -> HTTP 204 (`Access-Control-Allow-Origin: *`, `Access-Control-Allow-Methods: POST, OPTIONS`) [VERIFIED]
+  - `POST /api/journey/j_test/publish` (unauthenticated) -> HTTP 401 `{"success":false,"error":"Sign in to continue."}` [VERIFIED]
+  - `GET /api/journey/check-slug?slug=test` (unauthenticated) -> HTTP 401 `{"success":false,"error":"Sign in to continue."}` [VERIFIED]
+  - `GET /api/domain/token` (unauthenticated) -> HTTP 401 `{"success":false,"error":"Sign in to continue."}` [VERIFIED]
+- **Live Gated Test Execution**:
+  - `JOURVANCE_LIVE_TEST_URL="http://127.0.0.1:3491" node --test slug-protection.test.mjs custom-domain-verification.test.mjs funnel-export.test.mjs` [VERIFIED]
+  - Result: 30/30 tests passed, 0 skipped, 0 failed in 126ms.
+
+#### 1.5 Browser Verification Suites & Build Chunk Warnings
+- `npm run check:overlaps`: Exit 0 (Assertions: 102, Findings: 0) [VERIFIED]
+- `npm run check:canvas`: Exit 0 (overflow: PASS, drawers: PASS, save: PASS, a11y: PASS, runtime: PASS, 24/24 keyboard checks PASS, 62 unmeasured translucent/gradient contrast elements reported honestly) [VERIFIED]
+- `npm run check:a11y`: Exit 0 (22/22 checks PASS across stepNames, edgeWords, stepRoundTrip, lineRoundTrip, mapOrder, deletionFallback, modalTrap, headerMenus, stacking, focusRings, minText, stepNamesFit, mapCaptions, handleTargets, headerFits, labels, ariaPressed, reducedMotion, buttonNames, savedData, layout, stepAddClear) [VERIFIED]
+- `npm run check:assistant`: Exit 0 (Assertions: 464, Findings: 0) [VERIFIED]
+- `npm run build`: Exit 0 (built in 1.83s). Vite emits two bundle size warnings [VERIFIED]:
+  - `dist/assets/StepDock-DvGYrY51.js 517.92 kB │ gzip: 134.88 kB`
+  - `dist/assets/index-CU1NM7fK.js 678.91 kB │ gzip: 186.72 kB`
+  - Warning: `(!) Some chunks are larger than 500 kB after minification.`
+
+---
+
+### Section 2: Prioritized Running List of Suggested Updates, Edits, and Integrations
+
+#### 2.1 Master Recommendation Matrix
+
+| Priority | Category | Feature / Flow | Affected Files | Rationale | UX & Product Benefit | Cost Impact |
+|:---|:---|:---|:---|:---|:---|:---|
+| **P1** | Integration Fix | **Restore WhatsApp & SMS Click-to-Chat in Modern Builder** | `server/routes/publicRoutes.mjs:1340-1410`, `server/routes/publicBuilderScript.mjs` | `renderPublicBuilderHtml` currently omits `buildChatConciergeHref` and `<a id="jv-chat-concierge-btn">`. | Restores high-converting WhatsApp & SMS inquiry button on all published builder landing pages. | **$0** (Template fix, 0 compute) |
+| **P1** | Tracking Fix | **Wire GTM dataLayer Conversion Triggers** | `server/routes/publicRoutes.mjs:2736-2746`, `server/routes/publicBuilderScript.mjs:599-609` | `fireLeadEvent()` and `fireCommerceEvent()` invoke `window.gtag` but never call `window.dataLayer.push`. | Enables standard Google Tag Manager containers to fire conversion tags (Google Ads, Meta, LinkedIn). | **$0** (Client-side, 0 compute) |
+| **P2** | Core UX | **Harmonize Blueprint Modal Categories** | `src/components/modals/BlueprintModal.tsx:627-668`, `src/types/journey.ts:398-404` | Filter pills use non-canonical labels (`Consultations & Services`, `E-Commerce & Orders`, etc.) rather than `UNIVERSAL_BUSINESS_CATEGORIES`. | Eliminates cognitive friction when switching from Canvas Header category to Blueprint Library. | **$0** (Taxonomy alignment) |
+| **P2** | Core UX | **Disambiguate Page A/B Testing vs Canvas Route Splitting** | `src/components/drawers/PageEditor.tsx:142-156`, `src/components/canvas/nodes/AbSplitNode.tsx:75-80` | Dual A/B mechanisms exist without contextual guidance explaining single-page variant testing vs multi-step routing. | Guides founders to choose the right experimentation model, reducing confusion and setup errors. | **$0** (UI copy & guidance) |
+| **P2** | Core UX | **Sub-Divide PageEditor Section 3 into Progressive Groups** | `src/components/drawers/PageEditor.tsx:2420-2750`, `src/lib/pageEditorSections.ts` | Section 3 combines 6 distinct conversion mechanisms in a single vertical list, causing cognitive overload. | Organizes tools into Conversion Psychology, Exit & Retention, and Social Proof sub-groups (Hick's Law). | **$0** (UI organization) |
+| **P2** | Core UX | **Direct Checkout URL Validation & Compatibility Guidance** | `src/components/drawers/PageEditor.tsx:2352-2418` | Users can enter static Stripe links while enabling dynamic order bumps, which static links cannot support. | Adds inline format validation, "Test Link" button, and clear notices on order bump engine requirements. | **$0** (Client-side validation) |
+| **P2** | Core UX | **Journey-Level Global Theme Cascading** | `src/components/toolbar/CanvasHeader.tsx`, `src/lib/pageThemes.ts` | Theme selector currently exists only inside PageEditor on landing pages, requiring repetitive per-step setup. | Allows 1-click global styling across landing, upsell, downsell, and thank-you steps from the Canvas Header. | **$0** (Cascade state persistence) |
+| **P2** | Ecosystem | **Google Drive Image Share Link Auto-Converter** | `src/components/drawers/PageEditor.tsx`, `src/lib/pageBuilder/model.mjs` | Bootstrapped founders paste Google Drive share links that fail to render as images in web browsers. | Automatically transforms Drive share links to `https://lh3.googleusercontent.com/d/<id>` thumbnails client-side, eliminating paid image hosting. | **$0** (Zero external hosting fees) |
+| **P2** | Ecosystem | **1-Click "Add to Google Calendar" Thank-You Preset** | `src/components/drawers/ThankYouEditor.tsx:270-320` | High-ticket service and consultation funnels suffer from high appointment no-show rates. | Pre-fills a universal Google Calendar event link with Google Meet placeholder, boosting attendance rates. | **$0** (Client-side URL generator) |
+| **P3** | Ecosystem | **Google Docs Pitch & Proposal Exporter** | `src/components/toolbar/CanvasHeader.tsx`, `src/lib/journeyExport.ts` | Agencies and consultants need to present funnel architectures and copy proposals to clients for sign-off. | Copies clean Markdown formatted for Google Docs paste, accelerating client approvals. | **$0** (Client-side export) |
+| **P3** | Ecosystem | **Google Forms Intake Sync Apps Script Template** | `src/lib/pageEditorSections.ts`, `src/components/drawers/PageEditor.tsx` | Application funnels frequently rely on Google Forms for applicant qualification and intake surveys. | Provides 1-click copyable `onFormSubmit(e)` script piping Google Form entries directly to Jourvance lead webhook. | **$0** (Leverages Google free tier) |
+| **P3** | Performance | **Code Splitting & Dynamic Imports for StepDock** | `src/App.tsx`, `vite.config.ts`, `src/components/drawers/StepDock.tsx` | `StepDock.tsx` bundle size exceeds 517 kB minified, triggering build warnings. | Lazy-loads heavy sub-drawers (Financial Simulator, Attribution Reports), reducing initial bundle size. | **$0** (Vite configuration) |
+| **P3** | Testing | **Update Browser Check Script for Mobile Navigation** | `scripts/email-draft-browser-check.mjs:165-175` | Script fails on viewports <= 768px due to uncollapsed sidebar container. | Toggles `.jv-mobile-nav-trigger` when viewport width <= 768px, restoring 100% test pass rate. | **$0** (Test script fix) |
+| **P4** | Ecosystem | **Server-Side GA4 Measurement Protocol Relay** | `server/routes/publicRoutes.mjs:4950-4965` | Client-side ad blockers drop 20% to 40% of conversion tags, skewing Google Ads attribution. | Optional server-side GA4 ping on `POST /api/public/lead` delivers resilient attribution at zero software cost. | **$0** (Free Google GA4 API) |
+| **P4** | Ecosystem | **Site Owner Email Alert on Lead Arrival** | `server/routes/publicRoutes.mjs:4840-4860` | Bootstrapped founders without external CRMs receive no real-time notification when a new lead submits. | Sends instant email ping to account owner on lead capture via hub email or Google Apps Script. | **$0** (Zero external subscription) |
+
+---
+
+#### 2.2 Detailed Subsections: Core Flows & UX (R1)
+
+1. **Harmonize Blueprint Modal Categories with Canonical Categories**
+   - **Current State**: `src/types/journey.ts:398-404` establishes `UNIVERSAL_BUSINESS_CATEGORIES` across 5 standard domains (`E-Commerce & Physical Retail`, `Local & Client Services`, `B2B, Agencies & Consulting`, `Digital Products, Courses & Creators`, `SaaS, Tech & Events`). These are reflected in `CanvasHeader.tsx:758-771` and `AiJourneyBuilder.tsx:550-580`. However, `src/components/modals/BlueprintModal.tsx:627-668` introduces 6 alternate filter tabs (`All Architectures`, `Lead Capture`, `Consultations & Services`, `Digital & Subscriptions`, `E-Commerce & Orders`, `Retention & Recovery`).
+   - **User Impact**: A merchant who selects "Local & Client Services" in the Canvas Header opens the Blueprint Library and finds no matching category pill, leading to disorientation and hesitation.
+   - **Recommendation**: Align the filter pills in `BlueprintModal.tsx` directly with `UNIVERSAL_BUSINESS_CATEGORIES`.
+
+2. **Disambiguate Single-Page A/B Variant Testing vs Canvas Route Splitting**
+   - **Current State**: Jourvance provides two distinct experimentation engines: (1) embedded single-page variant testing in `PageEditor.tsx:142-156` (allowing a merchant to test headline, offer, and copy variants within a single URL), and (2) canvas-level route splitting via `AbSplitNode.tsx:75-80` (splitting traffic across separate nodes like `branch-a` and `branch-b`).
+   - **User Impact**: Founders are unclear on whether to set up an A/B split on the canvas or inside the page editor, creating friction and risk of overlapping tests.
+   - **Recommendation**: Add a brief contextual callout in both locations. In `PageEditor.tsx`, clarify: "Use page variants to test headlines or copy on this single step. To test completely different funnel paths or offers, add an A/B Split node to the canvas."
+
+3. **Sub-Divide PageEditor Section 3 into Progressive Disclosure Groups**
+   - **Current State**: `PageEditor.tsx` spans 4,480 lines. Section 3 (`extras`) contains 6 high-powered conversion tools (Urgency timer, Scarcity count, Exit intent drawer, Mobile sticky bar, Social proof wall, and WhatsApp/SMS concierge) displayed in a single long scroll.
+   - **User Impact**: Cognitive overload (Hick's Law). Users cannot quickly scan or locate specific conversion tools.
+   - **Recommendation**: Group Section 3 into 3 collapsible sub-drawers with active badges: (a) Conversion Psychology (Urgency & Scarcity), (b) Exit & Retention (Exit-Intent Drawer & Mobile Sticky Bar), and (c) Social Proof & Concierge (Social Proof Wall & WhatsApp/SMS Concierge).
+
+4. **Harden Direct Checkout Links & Order Bump Compatibility Notices**
+   - **Current State**: `PageEditor.tsx:2352-2418` allows merchants to specify a direct `checkoutUrl` (e.g. Stripe Payment Link, Google Calendar schedule, Calendly). The interface allows toggling `orderBumpEnabled` on the same page.
+   - **User Impact**: A merchant using a static Stripe Payment Link expects Jourvance's client-side order bump to be added to the Stripe checkout session, which static Stripe links cannot do.
+   - **Recommendation**: Add real-time URL validation, a "Test Link" button, and contextual guidance explaining that dynamic multi-item order bumps require Shopify or WooCommerce, while single-item checkouts work seamlessly with Stripe Payment Links.
+
+5. **Journey-Level Global Theme Cascading**
+   - **Current State**: `src/lib/pageThemes.ts` defines 5 WCAG AA themes (3 light, 2 dark). The theme selector is currently located exclusively in `PageEditor.tsx:86-129` on the landing page node.
+   - **User Impact**: Users configuring multi-step funnels with upsells, downsells, and thank-you pages have no high-level place to set the theme for the entire journey.
+   - **Recommendation**: Add a global theme selector in `CanvasHeader.tsx` that cascades to all pages in the journey, while allowing individual page overrides.
+
+---
+
+#### 2.3 Detailed Subsections: Integrations & Fixes (R2)
+
+1. **[P1] Restore WhatsApp & SMS Click-to-Chat in Modern Builder Pages**
+   - **Current State**: `src/lib/pageEditorSections.ts:137-146` exports `buildChatConciergeHref(data)`. While `renderPublicFunnelHtml` (legacy template engine, `server/routes/publicRoutes.mjs:1521, 2356-2359`) renders `<a id="jv-chat-concierge-btn">`, the modern widget builder `renderPublicBuilderHtml` (`server/routes/publicRoutes.mjs:1340-1410`) completely omits the concierge call and button element.
+   - **User Impact**: When merchants build pages using the modern builder, the Click-to-Chat button configured in the editor disappears on published pages.
+   - **Recommendation**: In `server/routes/publicRoutes.mjs:1340-1410`, invoke `buildChatConciergeHref(data)` and inject `<a id="jv-chat-concierge-btn">` into the compiled HTML, restoring full parity at zero compute cost.
+
+2. **[P1] Wire GTM dataLayer Conversion Event Triggers**
+   - **Current State**: `server/routes/publicRoutes.mjs:2736-2746` and `server/routes/publicBuilderScript.mjs:599-609` implement `fireLeadEvent()`:
+     ```javascript
+     function fireLeadEvent() {
+       if (window.fbq) { try { fbq('track', 'Lead'); } catch(e){} }
+       if (window.ttq) { try { ttq.track('SubmitForm'); } catch(e){} }
+       if (window.gtag) { try { gtag('event', 'generate_lead'); } catch(e){} }
+     }
+     ```
+   - **User Impact**: Standard Google Tag Manager setups listen for `dataLayer.push({ event: 'generate_lead', ... })`. Because `window.dataLayer` is not called, GTM triggers do not fire, breaking conversion tracking for Google Ads and analytics.
+   - **Recommendation**: Add `if (window.dataLayer) { try { window.dataLayer.push({ event: 'generate_lead' }); } catch(e){} }` to both `fireLeadEvent()` and `fireCommerceEvent()`.
+
+3. **Google Drive Image Share Link Auto-Converter**
+   - **Current State**: `PageEditor.tsx` requires image URLs. When bootstrapped founders paste Google Drive share links (`https://drive.google.com/file/d/.../view?usp=sharing`), browsers cannot render them because Drive returns an HTML preview rather than an image binary.
+   - **User Impact**: Images appear broken, forcing founders to pay for external image hosting services (AWS S3, Cloudinary).
+   - **Recommendation**: Add a client-side regex transformer that automatically converts `drive.google.com/file/d/<id>/view` links into direct thumbnail links (`https://lh3.googleusercontent.com/d/<id>` or `https://drive.google.com/thumbnail?id=<id>&sz=w1200`).
+
+4. **1-Click "Add to Google Calendar / Google Meet" Thank-You Preset**
+   - **Current State**: `ThankYouEditor.tsx:274-295` includes 1-click presets for Google Reviews and WhatsApp Concierge, but has no appointment preset.
+   - **User Impact**: In consultation and coaching funnels, high appointment no-show rates cost service businesses substantial revenue.
+   - **Recommendation**: Add a 1-click preset button in `ThankYouEditor.tsx` that generates a universal Google Calendar event link (`https://calendar.google.com/calendar/render?action=TEMPLATE&text=...&details=...`) with Google Meet placeholder, allowing clients to add bookings to their calendar with a single click.
+
+5. **Google Docs Pitch & Proposal Exporter**
+   - **Current State**: Journey data can be exported as JSON or static HTML, but cannot be exported in a format suitable for client presentations.
+   - **User Impact**: Freelancers and agencies must manually copy and paste copy, funnel steps, and metrics into presentation documents.
+   - **Recommendation**: Provide a 1-click "Copy Google Docs Pitch" action that formats the entire journey (steps, copy, offer details, and projected conversion metrics) into clean Markdown optimized for pasting into Google Docs.
+
+6. **Google Forms Intake Sync Apps Script Template**
+   - **Current State**: Jourvance includes `GOOGLE_SHEETS_APPS_SCRIPT` for outgoing lead synchronization, but has no template for inbound survey data from Google Forms.
+   - **User Impact**: Application funnels using Google Forms for applicant screening require manual lead entry.
+   - **Recommendation**: Provide a companion `onFormSubmit(e)` Apps Script template that posts Google Forms survey responses directly to Jourvance's lead endpoint (`POST /api/public/lead`).
+
+---
+
+#### 2.4 Detailed Subsections: Performance & Developer Experience (R3)
+
+1. **Code Splitting & Dynamic Imports for StepDock**
+   - **Current State**: Running `npm run build` yields a bundle size warning: `dist/assets/StepDock-DvGYrY51.js 517.92 kB │ gzip: 134.88 kB` (exceeding Vite's 500 kB chunk threshold).
+   - **Technical Rationale**: `StepDock.tsx` statically imports heavy sub-drawers including `FinancialSimulatorDrawer.tsx` (48.46 kB) and `AttributionReports.tsx` (55.15 kB), which are only opened on user demand.
+   - **Recommendation**: Use `React.lazy()` and `Suspense` to dynamically import non-critical sub-drawers, reducing initial bundle weight and accelerating first-load interactivity.
+
+2. **Update Browser Check Script for Responsive Navigation**
+   - **Current State**: `scripts/email-draft-browser-check.mjs:167` fails on mobile widths (768px, 390px, 320px) with `locator.click: Timeout 15000ms exceeded`.
+   - **Technical Rationale**: `src/index.css:710-713` collapses `.jv-sidebar-container` on viewports <= 768px.
+   - **Recommendation**: Update `openComposer` in `scripts/email-draft-browser-check.mjs` to check if the mobile navigation trigger `.jv-mobile-nav-trigger` is visible, and click it before attempting to select `"Email Studio"`.
+
+---
+
+### Section 3: Preservation of Existing Source Code
+
+- **Audit Principle**: Strict non-destructive inspection. Zero source code files, unit tests, scripts, or configuration files were modified during this audit.
+- **Git Status Attestation**:
+  - `git status` verifies:
+    ```text
+    On branch main
+    Your branch is up to date with 'origin/main'.
+    Untracked files: .agents/
+    ```
+  - Outside the `.agents/` metadata directory, exclusively `JOURVANCE_RUNNING_AUDIT.md` was updated to record this comprehensive audit entry.
+- **Verification Guarantee**: The existing codebase, typecheck (`npx tsc --noEmit`, 0 errors), and build configuration remain completely unperturbed (129 passing test suites with 3,238 passed tests, and 2 preserved milestone challenger snapshot assertions).
+
+
 
 ## 2026-10-29: Multi-Industry Universal Themes, Cross-Engine Wiring, and Universal Copy Neutralization
 

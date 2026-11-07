@@ -215,23 +215,24 @@ describe('Empirical Challenge: Running Audit Log Compliance', () => {
   const auditContent = fs.readFileSync(auditPath, 'utf8');
   const auditLines = auditContent.split(/\r?\n/);
 
-  it('line 5 contains the updated summary for Milestone 4', () => {
+  it('line 5 contains a dated summary and Milestone 4 R1-R4 entries remain documented', () => {
     const line5 = auditLines[4] || '';
     assert.match(
       line5,
-      /^Checked: 2026-10-29\. Multi-Industry Universal Themes/
+      /^Checked: 2026-\d{2}-\d{2}\./
     );
-    assert.ok(line5.includes('R1 Universal Categories & Smart Focus'), 'summary contains R1');
-    assert.ok(line5.includes('R2 5 Page Themes & Zero-Drift Legacy Snapshots'), 'summary contains R2');
-    assert.ok(line5.includes('R3 Cross-Engine Wiring & Previews'), 'summary contains R3');
-    assert.ok(line5.includes('R4 Copy Neutralization'), 'summary contains R4');
+    assert.ok(auditContent.includes('R1: Universal Business Categories'), 'audit retains R1');
+    assert.ok(auditContent.includes('R2: 5 All-Industry Published Page Themes'), 'audit retains R2');
+    assert.ok(auditContent.includes('R3: Cross-Engine Wiring'), 'audit retains R3');
+    assert.ok(auditContent.includes('R4: Universal Copy Neutralization'), 'audit retains R4');
   });
 
-  it('newest audit entry begins with dated section ## 2026-10-29', () => {
-    const firstSectionHeading = auditLines.find(l => l.startsWith('## '));
-    assert.equal(
-      firstSectionHeading,
-      '## 2026-10-29: Multi-Industry Universal Themes, Cross-Engine Wiring, and Universal Copy Neutralization'
+  it('newest audit entry begins with a dated section ## 2026-MM-DD and retains ## 2026-10-29', () => {
+    const firstSectionHeading = auditLines.find(l => l.startsWith('## ')) || '';
+    assert.match(firstSectionHeading, /^## 2026-\d{2}-\d{2}: /);
+    assert.ok(
+      auditLines.includes('## 2026-10-29: Multi-Industry Universal Themes, Cross-Engine Wiring, and Universal Copy Neutralization'),
+      'retains 2026-10-29 Milestone 4 heading'
     );
   });
 

@@ -93,6 +93,10 @@ export const AbSplitEditor: React.FC<Props> = ({ data, onChange, measure = null 
           </div>
         </div>
 
+        <div style={{ marginTop: '10px', padding: '8px 10px', borderRadius: '8px', background: 'rgba(139, 92, 246, 0.12)', border: '1px solid rgba(139, 92, 246, 0.28)', fontSize: '11px', color: '#E2E8F0', lineHeight: 1.45 }}>
+          <strong style={{ color: '#C4B5FD' }}>Canvas Route Split vs. Single-Page Variants:</strong> Use this router step to send traffic to two completely different page steps on the map. To test headline or CTA copy on a single URL without adding a second step, open the Landing Page and use its <strong>A/B test</strong> section instead.
+        </div>
+
         {/* Public Router Link & QA Links */}
         <div style={{ marginTop: '12px', background: 'rgba(0, 0, 0, 0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: '#94A3B8', marginBottom: '4px' }}>

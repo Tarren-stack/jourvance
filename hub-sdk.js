@@ -950,6 +950,11 @@ export function createHubClient(config = {}) {
       //   Optional { attachments:[{ filename, content (base64), type? }] } — file
       //   attachments (e.g. a signed PDF); sanitized + size-capped (~20MB total) hub-side.
       // Injects a CAN-SPAM List-Unsubscribe header + suppression automatically.
+      // Warm-up ramp (see readiness() and sendGate() below): over today's ceiling for the From
+      //   domain it answers 429 { code:"ramp_ceiling", ramp }, and while that domain's breaker has
+      //   it paused or halted, 409 { code:"ramp_breaker" }; neither is billed. Pass
+      //   { scheduleRemainder:true } to send what fits now and queue the rest. Observe mode (the
+      //   default) refuses nothing.
       send: (opts = {}) => post("/api/email/send", { appId: appId, ...opts }),
       // Compose (metered): AI writes subject + responsive HTML from a brief.
       // { brief, appName, characterId? (write in that brand character's voice —
@@ -1010,6 +1015,30 @@ export function createHubClient(config = {}) {
       // Pre-send deliverability/compliance check (spam words, links, unsubscribe). (free)
       //   { subject, html } → { score, warnings, checks:[{ id, label, level, detail }] }
       lint: (opts = {}) => post("/api/email/lint", { appId: appId, ...opts }),
+      // Warm-up and the send gate: read-only, and no keyed route ever touches a mailbox. (free)
+      // A null anywhere in these answers means NOT MEASURED: never read it as 0 or as a pass.
+      // Check status().rampGate === 1 first; a hub without it has none of these three routes.
+      // Readiness per domain this app sends from. { senderId?, accountId?, domain? } →
+      //   { restored, readiness:[{ domain, sources, domainAuth, ramp, health, placement, blocklists, phase?, launchGate }] }
+      //   A domain this app does not send from is 404 "That domain is not one this app sends from."
+      readiness: (opts = {}) => get("/api/email/readiness?appId=" + encodeURIComponent(appId) +
+        (opts.senderId ? "&senderId=" + encodeURIComponent(opts.senderId) : "") +
+        (opts.accountId ? "&accountId=" + encodeURIComponent(opts.accountId) : "") +
+        (opts.domain ? "&domain=" + encodeURIComponent(opts.domain) : "")),
+      // Would a send to `count` recipients fit today's ceiling? The same decision send() makes,
+      //   with no side effects. (count, { senderId?, accountId? }) (free)
+      //   Over the ceiling send() answers 429 { code:"ramp_ceiling", ramp }; while the domain is
+      //   paused or halted, 409 { code:"ramp_breaker" }. Pass { scheduleRemainder:true } to send()
+      //   to send what fits and queue the rest (billed once up front; a remainder dropped after
+      //   14 days is refunded, never more than was billed).
+      sendGate: (count, opts = {}) => get("/api/email/readiness/gate?appId=" + encodeURIComponent(appId) +
+        "&count=" + encodeURIComponent(count) +
+        (opts.senderId ? "&senderId=" + encodeURIComponent(opts.senderId) : "") +
+        (opts.accountId ? "&accountId=" + encodeURIComponent(opts.accountId) : "")),
+      // The warm-up mailboxes the operator assigned to your app (address, domain, band, score,
+      //   phase, launchReady). → { pool } (free). { pool:null } until the mailbox engine ships:
+      //   null is not an empty pool.
+      warmupPool: () => get("/api/email/readiness/pool?appId=" + encodeURIComponent(appId)),
       // Sender identities — let YOUR customers connect & send from their own domains.
       // Domain authentication (SPF/DKIM) runs on the Hub's SendGrid account; the key
       // stays hidden. All scoped to your appId; accountId identifies one of your users.

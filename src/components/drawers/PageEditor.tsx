@@ -30,6 +30,9 @@ import {
   OPEN_SECTIONS_STORAGE_KEY,
   GOOGLE_SHEETS_APPS_SCRIPT,
   buildChatConciergeHref,
+  normalizeGoogleDriveImageUrl,
+  isConvertedGoogleDriveImageUrl,
+  validateDirectCheckoutUrl,
   type SectionId
 } from '../../lib/pageEditorSections';
 import { getPageTheme, getThemeCssVariables } from '../../lib/pageThemes';
@@ -71,6 +74,7 @@ interface Props {
   // The journey this page belongs to. Check DNS names it, so a verified domain goes to this
   // journey's page and never to another journey of the same account asking for it (R26).
   journeyId?: string;
+  onApplyJourneyTheme?: (theme: PageThemeId | 'default') => void;
 }
 
 const sectionTitle = (id: SectionId) => PAGE_EDITOR_SECTIONS.find(s => s.id === id)?.title ?? id;
@@ -136,7 +140,8 @@ export const PageEditor: React.FC<Props> = ({
   workspace,
   onOpenShopifyConnect,
   nodeId,
-  journeyId
+  journeyId,
+  onApplyJourneyTheme
 }) => {
   const [loadingAI, setLoadingAI] = useState(false);
   const [editorTab, setEditorTab] = useState<'settings' | 'preview'>('settings');
@@ -151,6 +156,8 @@ export const PageEditor: React.FC<Props> = ({
   const [activeVariantTab, setActiveVariantTab] = useState<'a' | 'b'>('a');
   const [previewVariant, setPreviewVariant] = useState<'a' | 'b'>('a');
   const [moreCommerceOpen, setMoreCommerceOpen] = useState(false);
+  const [checkoutUrlTouched, setCheckoutUrlTouched] = useState(false);
+  const [journeyThemeApplied, setJourneyThemeApplied] = useState(false);
   // Version B is only editable while the test is on. The tab state alone would keep editing a
   // hidden version B after A/B was turned off.
   const editingB = Boolean(data.abTestingEnabled) && activeVariantTab === 'b';
@@ -189,6 +196,7 @@ export const PageEditor: React.FC<Props> = ({
     setAiNotice('');
     setLoadingAI(false);
     setActiveVariantTab('a');
+    setCheckoutUrlTouched(false);
     return () => {
       aiRequest.current++;
     };
@@ -1458,19 +1466,43 @@ export const PageEditor: React.FC<Props> = ({
                   Page theme
                 </div>
               </div>
-              <span
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: '#94A3B8',
-                  backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                  padding: '2px 8px',
-                  borderRadius: '9999px',
-                  border: '1px solid rgba(255, 255, 255, 0.08)'
-                }}
-              >
-                {PAGE_THEME_OPTIONS.find(t => t.id === currentThemeId)?.name || 'Original (Default)'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: '#94A3B8',
+                    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                    padding: '2px 8px',
+                    borderRadius: '9999px',
+                    border: '1px solid rgba(255, 255, 255, 0.08)'
+                  }}
+                >
+                  {PAGE_THEME_OPTIONS.find(t => t.id === currentThemeId)?.name || 'Original (Default)'}
+                </span>
+                {onApplyJourneyTheme && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onApplyJourneyTheme(currentThemeId);
+                      setJourneyThemeApplied(true);
+                      setTimeout(() => setJourneyThemeApplied(false), 2000);
+                    }}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: journeyThemeApplied ? '#34D399' : '#F472B6',
+                      backgroundColor: journeyThemeApplied ? 'rgba(16, 185, 129, 0.14)' : 'rgba(236, 72, 153, 0.12)',
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      border: journeyThemeApplied ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(236, 72, 153, 0.3)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {journeyThemeApplied ? 'Applied to all steps' : 'Apply to all steps'}
+                  </button>
+                )}
+              </div>
             </div>
 
             <p style={{ margin: 0, fontSize: '11px', color: '#94A3B8', lineHeight: 1.45 }}>
@@ -1910,6 +1942,49 @@ export const PageEditor: React.FC<Props> = ({
                 }}
               />
             </div>
+
+            {/* Hero Image or Google Drive Share Link */}
+            <div>
+              <label htmlFor={fid('hero-image-url')} style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#E2E8F0', marginBottom: '6px' }}>
+                Hero Image or Google Drive Share Link (Optional) {data.abTestingEnabled ? `(${editingB ? 'Variant B' : 'Variant A'})` : ''}
+              </label>
+              <input
+                id={fid('hero-image-url')}
+                type="url"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                value={editingB ? (data.variantB?.heroImageUrl ?? '') : (data.heroImageUrl ?? '')}
+                onChange={e => {
+                  const normalized = normalizeGoogleDriveImageUrl(e.target.value);
+                  if (editingB) {
+                    handleVariantBFieldChange('heroImageUrl', normalized);
+                  } else {
+                    handleFieldChange('heroImageUrl', normalized);
+                  }
+                }}
+                placeholder="https://... or paste a Google Drive file share link"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#FFFFFF',
+                  fontSize: '13px'
+                }}
+              />
+              {isConvertedGoogleDriveImageUrl(editingB ? data.variantB?.heroImageUrl : data.heroImageUrl) ? (
+                <div role="status" style={{ marginTop: '5px', fontSize: '11px', color: '#34D399', fontWeight: 600 }}>
+                  Converted Google Drive link for fast image loading
+                </div>
+              ) : (
+                <p style={{ margin: '5px 0 0', fontSize: '11px', color: '#94A3B8', lineHeight: 1.35 }}>
+                  Paste any direct image URL or a public Google Drive share link (`drive.google.com/file/d/.../view`), which converts automatically for fast loading.
+                </p>
+              )}
+            </div>
           </section>
 
           {/* SETTINGS SECTIONS: collapsible, closed by default */}
@@ -2336,12 +2411,15 @@ export const PageEditor: React.FC<Props> = ({
                   </div>
                 );
 
+                const checkoutValidation = validateDirectCheckoutUrl(data.checkoutUrl);
+                const showCheckoutError = checkoutUrlTouched && !checkoutValidation.valid;
+
                 const directDestinationBlock = (
                   <div
                   key="block-direct-destination"
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    border: showCheckoutError ? '1px solid rgba(248, 113, 113, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)',
                     borderRadius: '8px',
                     padding: '12px',
                     display: 'flex',
@@ -2349,14 +2427,49 @@ export const PageEditor: React.FC<Props> = ({
                     gap: '8px'
                   }}
                 >
-                  <label htmlFor={fid('checkout-url')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af' }}>
-                    Direct Checkout or Booking Destination Link (Optional):
-                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                    <label htmlFor={fid('checkout-url')} style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#9ca3af' }}>
+                      Direct Checkout or Booking Destination Link (Optional):
+                    </label>
+                    {Boolean(data.checkoutUrl && checkoutValidation.valid) && (
+                      <a
+                        href={checkoutValidation.normalized}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: '#38bdf8',
+                          textDecoration: 'none',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <span>Test Link</span>
+                        <ExternalLink size={11} />
+                      </a>
+                    )}
+                  </div>
                   <input
                     id={fid('checkout-url')}
                     type="url"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    aria-invalid={showCheckoutError ? 'true' : undefined}
+                    aria-describedby={showCheckoutError ? fid('checkout-url-error') : undefined}
                     value={data.checkoutUrl || ''}
-                    onChange={e => handleFieldChange('checkoutUrl', e.target.value)}
+                    onChange={e => {
+                      setCheckoutUrlTouched(false);
+                      handleFieldChange('checkoutUrl', e.target.value);
+                    }}
+                    onBlur={() => {
+                      setCheckoutUrlTouched(true);
+                      if (data.checkoutUrl && data.checkoutUrl !== data.checkoutUrl.trim()) {
+                        handleFieldChange('checkoutUrl', data.checkoutUrl.trim());
+                      }
+                    }}
                     placeholder="https://buy.stripe.com/... or https://calendar.google.com/..."
                     style={{
                       width: '100%',
@@ -2364,12 +2477,32 @@ export const PageEditor: React.FC<Props> = ({
                       padding: '8px 10px',
                       borderRadius: '6px',
                       backgroundColor: '#0a0a0f',
-                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      border: showCheckoutError ? '1px solid #ef4444' : '1px solid rgba(255, 255, 255, 0.15)',
                       color: '#ffffff',
-                      fontSize: '12px',
-                      outline: 'none'
+                      fontSize: '12px'
                     }}
                   />
+                  {showCheckoutError && (
+                    <div id={fid('checkout-url-error')} role="alert" style={{ fontSize: '11px', color: '#FCA5A5', lineHeight: 1.35 }}>
+                      {checkoutValidation.message}
+                    </div>
+                  )}
+                  {Boolean(data.checkoutUrl && data.orderBumpEnabled) && (
+                    <div
+                      role="status"
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: '6px',
+                        backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                        border: '1px solid rgba(245, 158, 11, 0.3)',
+                        fontSize: '11px',
+                        color: '#FDE68A',
+                        lineHeight: 1.4
+                      }}
+                    >
+                      <strong>Direct Link + Order Bump Notice:</strong> Direct checkout links route visitors straight to your external payment or booking page. Multi-item cart bundling only applies to connected Shopify products.
+                    </div>
+                  )}
                   <p style={{ margin: 0, fontSize: '11px', color: '#64748b', lineHeight: 1.35 }}>
                     Connects your call-to-action button to a Stripe Payment Link, Calendly, Google Calendar appointment, or custom intake URL with zero server costs.
                   </p>
@@ -3223,6 +3356,20 @@ export const PageEditor: React.FC<Props> = ({
                   </label>
                 </div>
 
+                <div
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: 'rgba(139, 92, 246, 0.10)',
+                    border: '1px solid rgba(139, 92, 246, 0.25)',
+                    fontSize: '11px',
+                    color: '#E2E8F0',
+                    lineHeight: 1.45
+                  }}
+                >
+                  <strong style={{ color: '#C4B5FD' }}>Single-Page Variants vs. Canvas Route Split:</strong> This setting tests Variant A vs. Variant B copy (headline, subheadline, benefits, and button text) on this single URL. To split visitors between two separate page steps on your map, add an <strong>A/B Split</strong> router step from the canvas toolbar.
+                </div>
+
                 {data.abTestingEnabled && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
                     <div>
@@ -3268,6 +3415,44 @@ export const PageEditor: React.FC<Props> = ({
               open={openSections.includes('extras')}
               onToggle={() => setOpenSections(o => toggleSection(o, 'extras'))}
             >
+              {/* Sub-group 1: Urgency & Scarcity (open by default) */}
+              <details
+                open
+                style={{
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                  padding: '10px'
+                }}
+              >
+                <summary
+                  style={{
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: '#F8FAFC',
+                    listStyle: 'none'
+                  }}
+                >
+                  <span>Urgency &amp; Scarcity</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: (data.urgencyTimerEnabled || data.scarcityBatchEnabled) ? '#F472B6' : '#94A3B8',
+                      backgroundColor: (data.urgencyTimerEnabled || data.scarcityBatchEnabled) ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+                      padding: '2px 8px',
+                      borderRadius: '9999px'
+                    }}
+                  >
+                    {[data.urgencyTimerEnabled, data.scarcityBatchEnabled].filter(Boolean).length} of 2 active
+                  </span>
+                </summary>
+                <div style={{ marginTop: '10px' }}>
               {/* SECTION 1.7: ON-BRAND URGENCY & SCARCITY BOOSTERS */}
               <div
                 style={{
@@ -3437,7 +3622,46 @@ export const PageEditor: React.FC<Props> = ({
                   )}
                 </div>
               </div>
+                </div>
+              </details>
 
+              {/* Sub-group 2: Exit & Retention */}
+              <details
+                style={{
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                  padding: '10px'
+                }}
+              >
+                <summary
+                  style={{
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: '#F8FAFC',
+                    listStyle: 'none'
+                  }}
+                >
+                  <span>Exit &amp; Retention</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: (data.exitIntentEnabled || data.mobileStickyBarEnabled !== false) ? '#38BDF8' : '#94A3B8',
+                      backgroundColor: (data.exitIntentEnabled || data.mobileStickyBarEnabled !== false) ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+                      padding: '2px 8px',
+                      borderRadius: '9999px'
+                    }}
+                  >
+                    {[data.exitIntentEnabled, data.mobileStickyBarEnabled !== false].filter(Boolean).length} of 2 active
+                  </span>
+                </summary>
+                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {/* SECTION 1.8: EXIT-INTENT CONVERSION RESCUE */}
               <div
                 style={{
@@ -3641,7 +3865,46 @@ export const PageEditor: React.FC<Props> = ({
                   </span>
                 </label>
               </div>
+                </div>
+              </details>
 
+              {/* Sub-group 3: Social Proof & Reviews */}
+              <details
+                style={{
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                  padding: '10px'
+                }}
+              >
+                <summary
+                  style={{
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: '#F8FAFC',
+                    listStyle: 'none'
+                  }}
+                >
+                  <span>Social Proof &amp; Reviews</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: data.socialProofWallEnabled !== false ? '#F472B6' : '#94A3B8',
+                      backgroundColor: data.socialProofWallEnabled !== false ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+                      padding: '2px 8px',
+                      borderRadius: '9999px'
+                    }}
+                  >
+                    {data.socialProofWallEnabled !== false ? 'Enabled' : 'Off'}
+                  </span>
+                </summary>
+                <div style={{ marginTop: '10px' }}>
               {/* SECTION: LIVE VERIFIED UGC SOCIAL PROOF WALL (PHASE 13) */}
               <div
                 style={{
@@ -3778,6 +4041,8 @@ export const PageEditor: React.FC<Props> = ({
                   </div>
                 )}
               </div>
+                </div>
+              </details>
             </EditorSection>
             <EditorSection
               title={sectionTitle('privacy')}

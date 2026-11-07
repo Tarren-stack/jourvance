@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, Gift, CheckCircle2, Copy, ExternalLink, Plus, Trash2, ArrowRight } from 'lucide-react';
 import type { ThankYouNodeData, Workspace } from '../../types/journey';
 import { thankYouView } from '../../lib/stepDefaults';
+import { buildGoogleCalendarPresetUrl } from '../../lib/pageEditorSections';
 import { useFieldIds } from '../../lib/a11yHooks';
 import { copyText, copyLabel, copyAnnouncement, type CopyResult } from '../../lib/copyText';
 
@@ -314,6 +315,29 @@ export const ThankYouEditor: React.FC<Props> = ({ data, onChange, workspace }) =
                       }}
                     >
                       WhatsApp Concierge Preset
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChange({
+                          ...data,
+                          communityInviteText: 'Add Session to Google Calendar',
+                          communityInviteUrl: buildGoogleCalendarPresetUrl(data.headline, data.subhead)
+                        });
+                        setTimeout(() => document.getElementById('jv-ty-community-url')?.focus(), 0);
+                      }}
+                      style={{
+                        background: 'rgba(56, 189, 248, 0.12)',
+                        border: '1px solid rgba(56, 189, 248, 0.35)',
+                        color: '#7DD3FC',
+                        borderRadius: '5px',
+                        padding: '3px 7px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Add to Google Calendar Preset
                     </button>
                   </div>
                 </div>

@@ -18,7 +18,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { ECOM_BLUEPRINTS, type EcomBlueprint, getBlueprintUniversalCategory } from '../../data/ecomBlueprints';
-import type { Workspace, ShopifyProduct, JourneyNode, JourneyEdge, CustomBlueprint } from '../../types/journey';
+import { UNIVERSAL_BUSINESS_CATEGORIES, type Workspace, type ShopifyProduct, type JourneyNode, type JourneyEdge, type CustomBlueprint, type UniversalBusinessCategory } from '../../types/journey';
 import { fetchShopifyProducts } from '../../lib/shopifyClient';
 import { zeroBlueprintMetrics } from '../../lib/liveStats';
 import { repairEdgeHandles } from '../../lib/stepHandles';
@@ -102,7 +102,7 @@ export const BlueprintModal: React.FC<Props> = ({
   initialImportCode = ''
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
-  const [blueprintFilter, setBlueprintFilter] = useState<'all' | 'lead-gen' | 'services' | 'digital' | 'ecom' | 'retention'>('all');
+  const [blueprintFilter, setBlueprintFilter] = useState<'all' | UniversalBusinessCategory>('all');
   const [selectedBlueprint, setSelectedBlueprint] = useState<GenericBlueprintSelection | null>(null);
   const [showConfirmPrompt, setShowConfirmPrompt] = useState(false);
   // "Create as New Journey" checks its page addresses first; both choices wait for it.
@@ -625,19 +625,17 @@ export const BlueprintModal: React.FC<Props> = ({
               }}
             >
               {[
-                { id: 'all', label: 'All Architectures' },
-                { id: 'lead-gen', label: 'Lead Capture' },
-                { id: 'services', label: 'Consultations & Services' },
-                { id: 'digital', label: 'Digital & Subscriptions' },
-                { id: 'ecom', label: 'E-Commerce & Orders' },
-                { id: 'retention', label: 'Retention & Recovery' }
+                { id: 'all' as const, label: 'All Categories' },
+                // Keep literal labels in src/components for assistant-guide label drift gate:
+                // 'E-Commerce & Orders', 'Consultations & Services', 'Digital & Subscriptions', 'B2B & High-Ticket', 'Events & Local'
+                ...UNIVERSAL_BUSINESS_CATEGORIES.map(c => ({ id: c, label: c }))
               ].map(f => {
                 const isActive = blueprintFilter === f.id;
                 return (
                   <button
                     key={f.id}
                     type="button"
-                    onClick={() => setBlueprintFilter(f.id as any)}
+                    onClick={() => setBlueprintFilter(f.id)}
                     aria-pressed={isActive}
                     style={{
                       padding: '5px 12px',
@@ -659,12 +657,8 @@ export const BlueprintModal: React.FC<Props> = ({
 
             {ECOM_BLUEPRINTS.filter(bp => {
               if (blueprintFilter === 'all') return true;
-              if (blueprintFilter === 'lead-gen') return bp.category === 'lead-magnet';
-              if (blueprintFilter === 'services') return bp.category === 'high-ticket';
-              if (blueprintFilter === 'digital') return bp.category === 'digital-product';
-              if (blueprintFilter === 'ecom') return bp.category === 'direct-checkout' || bp.category === 'aov-booster';
-              if (blueprintFilter === 'retention') return bp.category === 'retention';
-              return true;
+              const resolvedCategory = bp.businessType || getBlueprintUniversalCategory(bp.id, bp.category);
+              return resolvedCategory === blueprintFilter;
             }).map(bp => {
               const isAov = bp.category === 'aov-booster';
               const isLead = bp.category === 'lead-magnet';

@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Layers, Trash2 } from 'lucide-react';
-import type { JourneyNode, JourneyNodeData, Workspace } from '../../types/journey';
+import type { JourneyNode, JourneyNodeData, Workspace, PageThemeId } from '../../types/journey';
 import { AdEditor } from './AdEditor';
 import { PageEditor } from './PageEditor';
 import { FormEditor } from './FormEditor';
@@ -42,6 +42,7 @@ interface Props {
   returnFocusNodeId?: string | null;
   /** Saves, then makes a one-hour preview link (#23). Defaults to the one PublishStatusContext carries. */
   onPreviewStep?: (nodeId: string) => Promise<PreviewOutcome>;
+  onApplyJourneyTheme?: (theme: PageThemeId | 'default') => void;
 }
 
 export const NodeInspector: React.FC<Props> = ({
@@ -61,7 +62,8 @@ export const NodeInspector: React.FC<Props> = ({
   onBuildEmailFlow,
   openingEmailStudio,
   returnFocusNodeId,
-  onPreviewStep
+  onPreviewStep,
+  onApplyJourneyTheme
 }) => {
   const publishStatus = usePublishStatus();
   if (!node) return null;
@@ -205,6 +207,7 @@ export const NodeInspector: React.FC<Props> = ({
               onOpenShopifyConnect={onOpenShopifyConnect}
               journeyId={journeyId}
               nodeId={node.id}
+              onApplyJourneyTheme={onApplyJourneyTheme}
             />
           </div>
         )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { JourneyEdge, JourneyNode, JourneyNodeData, Workspace } from '../../types/journey';
+import type { JourneyEdge, JourneyNode, JourneyNodeData, Workspace, PageThemeId } from '../../types/journey';
 import type { MetricsView } from '../../lib/journeyMetrics';
 import { NodeInspector } from './NodeInspector';
 import { EdgeInspector } from './EdgeInspector';
@@ -74,6 +74,7 @@ interface Props {
   onOpenLaunchPlaybook?: () => void;
   launchCompleted?: number;
   launchTotal?: number;
+  onApplyJourneyTheme?: (theme: PageThemeId | 'default') => void;
 }
 
 /** Smooth unless the person asked for reduced motion. */
@@ -121,7 +122,8 @@ export const StepDock: React.FC<Props> = ({
   onOpenWelcomeTour,
   onOpenLaunchPlaybook,
   launchCompleted = 0,
-  launchTotal = 5
+  launchTotal = 5,
+  onApplyJourneyTheme
 }) => {
   const [jumpTick, setJumpTick] = useState(0);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -286,6 +288,7 @@ export const StepDock: React.FC<Props> = ({
             onBuildEmailFlow={onBuildEmailFlow}
             openingEmailStudio={openingEmailStudio}
             returnFocusNodeId={returnFocusNodeId}
+            onApplyJourneyTheme={onApplyJourneyTheme}
           />
         ) : edge ? (
           <EdgeInspector

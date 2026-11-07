@@ -164,7 +164,12 @@ async function openContext(browser, base, viewport, { draft = null, delay = 0, p
 
 async function openComposer(page, base) {
   await page.goto(`${base}/canvas`);
-  await page.getByRole('button', { name: /Email Studio/ }).first().click();
+  const emailStudioBtn = page.getByRole('button', { name: /Email Studio/ }).first();
+  if (!(await emailStudioBtn.isVisible())) {
+    const mobileNavBtn = page.locator('.jv-mobile-nav-trigger').first();
+    if (await mobileNavBtn.isVisible()) await mobileNavBtn.click();
+  }
+  await emailStudioBtn.click();
   await page.getByRole('tab', { name: /Broadcasts/ }).first().click();
   const newTab = page.getByRole('tab', { name: 'New broadcast', exact: true });
   if (await newTab.count()) await newTab.click();

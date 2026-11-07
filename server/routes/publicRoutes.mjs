@@ -39,7 +39,7 @@ import {
   detectVisitorCurrency,
   buildLocalizedShopifyCartUrl
 } from '../../src/lib/geoCurrency.ts';
-import { buildChatConciergeHref } from '../../src/lib/pageEditorSections.ts';
+import { buildChatConciergeHref, normalizeGoogleDriveImageUrl } from '../../src/lib/pageEditorSections.ts';
 // Instructions older defaults stored as copy ("Describe what the visitor gets.") are never published (R19).
 import { ownCopy, ownCopyList } from '../../src/lib/stepDefaults.ts';
 import { renderThemeHeadAssets } from '../../src/lib/pageThemes.ts';
@@ -1345,7 +1345,7 @@ function renderBuilderPage(page, req) {
     const firstHeading = builderFirst(doc, 'heading');
     const headline = String(rawData.headline || '').trim() || String(firstHeading?.props?.text || '').trim() || 'Offer';
     const subhead = ownCopy(rawData.subhead) || '';
-    const heroImage = (hero && ((!heroPlaceholder && hero.productImage) || hero.imageUrl)) || rawData.heroImageUrl || '';
+    const heroImage = (hero && ((!heroPlaceholder && hero.productImage) || hero.imageUrl)) || normalizeGoogleDriveImageUrl(rawData.heroImageUrl) || '';
     const productTitle = (hero && !heroPlaceholder && String(hero.title || '').trim()) || headline;
     const productPrice = hero && !heroPlaceholder ? savedPrice(hero.price) : '';
 
@@ -1366,6 +1366,8 @@ function renderBuilderPage(page, req) {
     const tiktokPixelId = realTrackingId(rawData.tiktokPixelId);
     const ga4TrackingId = realTrackingId(rawData.ga4TrackingId);
     const gtmContainerId = realTrackingId(rawData.gtmContainerId);
+    const chatConciergeHref = buildChatConciergeHref(rawData);
+    const chatConciergeText = String(rawData.chatConciergeText || '').trim() || (rawData.chatConciergeChannel === 'sms' ? 'Have a question? Text our specialist' : 'Have a question? Chat on WhatsApp');
 
     const script = builderFrameScript({
       slug,
@@ -1379,6 +1381,7 @@ function renderBuilderPage(page, req) {
       leadHasCode,
       initialCurrency,
       productTitle,
+      gtmContainerId,
       exitDrawer: exitDrawerOn ? { code: exitCode } : null,
       sticky: stickyOn,
       lightbox
@@ -1411,7 +1414,8 @@ ${css}
     <span style="font-weight: 800; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 9999px; background: rgba(236, 72, 153, 0.28); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.45);">VIP Friend Invitation</span>
     <span>Your friend's code <strong>GIVE15</strong>${referralAmount ? ` (${escapeHtml(referralAmount)})` : ''} is applied at checkout</span>
   </div>` : ''}
-  ${out.html}
+  ${out.html}${chatConciergeHref ? `
+  <div style="max-width:840px;margin:12px auto 24px;padding:0 16px;box-sizing:border-box;"><a id="jv-chat-concierge-btn" href="${escapeHtml(chatConciergeHref)}" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:11px 16px;border-radius:10px;background:rgba(16, 185, 129, 0.1);border:1px solid rgba(16, 185, 129, 0.3);color:#34D399;font-size:13px;font-weight:700;text-decoration:none;text-align:center;"><span>${escapeHtml(chatConciergeText)}</span></a></div>` : ''}
   ${needsModal ? builderLeadModalHtml({ leadOnly, leadHasCode, code: effectiveCode }) : ''}
   ${exitDrawerOn ? builderExitDrawerHtml({
     headline: exitHeadline,
@@ -1497,7 +1501,7 @@ function renderPublicFunnelHtml(page, req, res) {
   const trustBadge = /4\.9\/5|verified (beauty lovers|customers|buyers|clients)/i.test(String(data.trustBadge || '')) ? '' : (data.trustBadge || '');
   const productTitle = (!placeholderProduct && data.shopifyProductTitle) || headline;
   const productPrice = placeholderProduct ? '' : (data.shopifyProductPrice || '');
-  const heroImage = (!placeholderProduct && data.shopifyProductImage) || data.heroImageUrl || '';
+  const heroImage = (!placeholderProduct && data.shopifyProductImage) || normalizeGoogleDriveImageUrl(data.heroImageUrl) || '';
   const isLeadGate = data.checkoutMode === 'lead-gate';
   const buttonText = data.buttonText || 'Continue';
   // The exit drawer carries only what the user wrote: it is published once it has their headline,
@@ -2729,7 +2733,10 @@ ${themeHeadAssets}</head>
         }
         if (window.gtag) {
           try { gtag('event', 'begin_checkout', { items: [{ item_name: ${scriptStr(productTitle)} }], currency: activeCurrency || 'USD' }); } catch(e){}
-        }
+        }${gtmContainerId ? `
+        if (window.dataLayer && Array.isArray(window.dataLayer)) {
+          try { window.dataLayer.push({ event: 'begin_checkout', ecommerce: { items: [{ item_name: ${scriptStr(productTitle)} }], currency: activeCurrency || 'USD' } }); } catch(e){}
+        }` : ''}
         ${commerceBeaconCall(cartAction)}
       }
 
@@ -2742,7 +2749,10 @@ ${themeHeadAssets}</head>
         }
         if (window.gtag) {
           try { gtag('event', 'generate_lead'); } catch(e){}
-        }
+        }${gtmContainerId ? `
+        if (window.dataLayer && Array.isArray(window.dataLayer)) {
+          try { window.dataLayer.push({ event: 'generate_lead' }); } catch(e){}
+        }` : ''}
       }
 
       // The lead form is a modal dialog, like the exit drawer: opening it moves focus to the email

@@ -299,6 +299,7 @@ export function lightboxHtml() {
  * @param {boolean} [c.leadHasCode]
  * @param {string} [c.initialCurrency]
  * @param {string} [c.productTitle]
+ * @param {string} [c.gtmContainerId]
  * @param {{ code: string } | null} [c.exitDrawer]
  * @param {boolean} [c.sticky]
  * @param {boolean} [c.lightbox]
@@ -588,7 +589,10 @@ export function builderFrameScript(c) {
         }
         if (window.gtag) {
           try { gtag('event', 'begin_checkout', { items: [{ item_name: ${title} }], currency: activeCurrency || 'USD' }); } catch(e){}
-        }
+        }${c.gtmContainerId ? `
+        if (window.dataLayer && Array.isArray(window.dataLayer)) {
+          try { window.dataLayer.push({ event: 'begin_checkout', ecommerce: { items: [{ item_name: ${title} }], currency: activeCurrency || 'USD' } }); } catch(e){}
+        }` : ''}
         if (action === 'add') {
           ${commerceBeaconCall('add')}
         } else {
@@ -605,7 +609,10 @@ export function builderFrameScript(c) {
         }
         if (window.gtag) {
           try { gtag('event', 'generate_lead'); } catch(e){}
-        }
+        }${c.gtmContainerId ? `
+        if (window.dataLayer && Array.isArray(window.dataLayer)) {
+          try { window.dataLayer.push({ event: 'generate_lead' }); } catch(e){}
+        }` : ''}
       }
 
       // The lead modal: a dialog like the exit drawer. Opening it moves focus to the email field,

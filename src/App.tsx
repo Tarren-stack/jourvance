@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Suspense, lazy, useMemo, useCallback } from 'react';
-import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, PageNodeData, NodeType, Workspace, CanvasViewMode, ActiveAppView } from './types/journey';
+import type { JourneyProject, JourneyNode, JourneyEdge, JourneyNodeData, PageNodeData, NodeType, Workspace, CanvasViewMode, ActiveAppView, PageThemeId } from './types/journey';
 import { loadInitialJourney, saveCurrentJourney, keepJourney, parkJourney, readParkedJourney } from './lib/journeyStorage';
 import { adoptChangesNothing, chooseOnLoad, forgetOtherAccounts, isSaveConflict, readSyncRecord, recordAfterConflict, writeSyncRecord, setAsideName, setAsideNotice, LOAD_FAILED, LOAD_PENDING, SAVE_CONFLICT, SET_ASIDE_FAILED, type SyncRecord } from './lib/accountSync';
 import { parseAppLocation, type AppPage } from './lib/journeyRoute';
@@ -397,6 +397,7 @@ export const App: React.FC = () => {
         ...cur,
         name: remote.name || cur.name,
         businessType: remote.businessType || cur.businessType,
+        theme: remote.theme || cur.theme,
         offerHeadline: remote.offerHeadline || cur.offerHeadline,
         goal: remote.goal || cur.goal,
         workspaceId: remote.workspaceId || cur.workspaceId,
@@ -499,6 +500,27 @@ export const App: React.FC = () => {
 
   const handleUpdateBusinessType = (businessType: string) => {
     setProject(p => ({ ...p, businessType, updatedAt: new Date().toISOString() }));
+  };
+
+  const handleUpdateJourneyTheme = (theme: PageThemeId | 'default') => {
+    const nextTheme = theme === 'default' ? undefined : theme;
+    setProject(p => ({
+      ...p,
+      theme: nextTheme,
+      nodes: p.nodes.map(n => {
+        if (n.type === 'landing-page' || n.type === 'upsell' || n.type === 'thank-you') {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              theme: nextTheme
+            }
+          };
+        }
+        return n;
+      }),
+      updatedAt: new Date().toISOString()
+    }));
   };
 
   // Every node and line change keeps only lines with both steps still on the map (C06): with
@@ -967,6 +989,7 @@ export const App: React.FC = () => {
             project={project}
             onUpdateProjectName={handleUpdateProjectName}
             onUpdateBusinessType={handleUpdateBusinessType}
+            onUpdateJourneyTheme={handleUpdateJourneyTheme}
             onSave={() => { void editing.saveNow(); }}
             canUndo={editing.canUndo}
             canRedo={editing.canRedo}
@@ -1225,6 +1248,7 @@ export const App: React.FC = () => {
                       onOpenLaunchPlaybook={() => setShowLaunchPlaybook(true)}
                       launchCompleted={launchCompleted}
                       launchTotal={5}
+                      onApplyJourneyTheme={handleUpdateJourneyTheme}
                     />
                   </main>
                   </PublishStatusContext.Provider>

@@ -1288,8 +1288,20 @@ const placeholderVariant = v => {
   const id = anId(v).trim();
   return id !== '' && LEGACY_PLACEHOLDER_VARIANT_IDS.includes(id);
 };
+const normalizeDriveLink = v => {
+  if (typeof v !== 'string') return '';
+  const trimmed = v.trim();
+  const fileMatch = /^https?:\/\/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]{10,})(?:\/.*|\?.*)?$/i.exec(trimmed);
+  if (fileMatch) return `https://lh3.googleusercontent.com/d/${fileMatch[1]}`;
+  const openMatch = /^https?:\/\/drive\.google\.com\/(?:open|uc|thumbnail)\?(?:[^#]*&)?id=([A-Za-z0-9_-]{10,})(?:[&#].*)?$/i.exec(trimmed);
+  if (openMatch) return `https://lh3.googleusercontent.com/d/${openMatch[1]}`;
+  return v;
+};
 /** A link the builder accepts, or '' for one it refuses. The flat field keeps the original. */
-const linkOrEmpty = v => (typeof v === 'string' && v !== '' && urlProblem(v) === null ? v : '');
+const linkOrEmpty = v => {
+  const candidate = normalizeDriveLink(v);
+  return typeof candidate === 'string' && candidate !== '' && urlProblem(candidate) === null ? candidate : '';
+};
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
 function legacyWidget(id, type, props, style) {

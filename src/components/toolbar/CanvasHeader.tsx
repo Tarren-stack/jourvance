@@ -3,9 +3,11 @@ import { Save, CheckCircle2, Plus, Compass, Globe, Circle, AlertTriangle, Loader
 import {
   UNIVERSAL_BUSINESS_CATEGORIES,
   isUniversalBusinessCategory,
-  normalizeBusinessCategory
+  normalizeBusinessCategory,
+  PAGE_THEME_IDS,
+  isPageThemeId
 } from '../../types/journey';
-import type { JourneyProject, Workspace, CanvasViewMode, NodeType, ActiveAppView } from '../../types/journey';
+import type { JourneyProject, Workspace, CanvasViewMode, NodeType, ActiveAppView, PageThemeId } from '../../types/journey';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { checkJourneyDesign } from '../../lib/designChecks';
 import { storeScoreFor } from '../../lib/funnelAuditor';
@@ -96,6 +98,7 @@ interface Props {
   project: JourneyProject;
   onUpdateProjectName: (name: string) => void;
   onUpdateBusinessType?: (category: string) => void;
+  onUpdateJourneyTheme?: (theme: PageThemeId | 'default') => void;
   onSave: () => void;
   onAddNode: (type: NodeType) => void;
   onOpenWebsite?: () => void;
@@ -148,6 +151,7 @@ export const CanvasHeader: React.FC<Props> = ({
   project,
   onUpdateProjectName,
   onUpdateBusinessType,
+  onUpdateJourneyTheme,
   onSave,
   onAddNode,
   onOpenWebsite,
@@ -455,6 +459,55 @@ export const CanvasHeader: React.FC<Props> = ({
               onOpenBilling={onOpenBilling}
             />
           )}
+
+          {/* Global Journey Theme Selector */}
+          {activeView === 'canvas' && !narrow && (
+            <select
+              value={isPageThemeId(project.theme) ? project.theme : 'default'}
+              onChange={e => onUpdateJourneyTheme?.(e.target.value as PageThemeId | 'default')}
+              aria-label="Journey theme"
+              title="Journey theme"
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#CBD5E1',
+                background: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                borderRadius: '8px',
+                padding: '5px 8px',
+                cursor: 'pointer',
+                height: '30px',
+                maxWidth: '140px',
+                flexShrink: 0
+              }}
+            >
+              <option value="default" style={{ background: '#0B0F19', color: '#F8FAFC', fontSize: '12px' }}>
+                Theme: Original
+              </option>
+              {PAGE_THEME_IDS.map(themeId => {
+                const labels: Record<PageThemeId, string> = {
+                  'clean-executive': 'Theme: Clean Executive',
+                  'bold-commerce': 'Theme: Bold Commerce',
+                  'warm-editorial': 'Theme: Warm Editorial',
+                  'creator-minimal': 'Theme: Creator Minimal',
+                  'midnight-modern': 'Theme: Midnight Modern'
+                };
+                return (
+                  <option
+                    key={themeId}
+                    value={themeId}
+                    style={{
+                      background: '#0B0F19',
+                      color: '#F8FAFC',
+                      fontSize: '12px'
+                    }}
+                  >
+                    {labels[themeId]}
+                  </option>
+                );
+              })}
+            </select>
+          )}
         </div>
 
         {/* Right: Account. The place switcher lives in the rail, so this row is the account only. */}
@@ -751,7 +804,7 @@ export const CanvasHeader: React.FC<Props> = ({
                 padding: '5px 8px',
                 cursor: 'pointer',
                 height: '30px',
-                maxWidth: smallPhone ? '100px' : phone ? '120px' : '160px',
+                maxWidth: smallPhone ? '88px' : phone ? '100px' : compact ? '120px' : '140px',
                 flexShrink: 0
               }}
             >

@@ -243,7 +243,8 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
                   aria-pressed={f.required}
                   aria-label={`${f.label} required`}
                   style={{
-                    padding: '3px 8px',
+                    minHeight: '24px',
+                    padding: '4px 8px',
                     borderRadius: '4px',
                     border: 'none',
                     background: f.required ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.05)',
