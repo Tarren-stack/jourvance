@@ -1119,3 +1119,144 @@ ${utmGoogle}
 ${utmTikTok}
 `;
 }
+
+/**
+ * Generates a structured, client-ready Google Docs Pitch & Proposal Brief (.md / plain text).
+ * Zero server cost: runs 100% in the browser and formats only the copy and steps present in the journey.
+ */
+export function generateGoogleDocsPitchBrief({
+  journeyTitle,
+  pageNode,
+  adNode,
+  formNode,
+  sequenceNode,
+  upsellNodes = [],
+  thankYouNode,
+  splitNode,
+  storeDomain = ''
+}: {
+  journeyTitle?: string;
+  pageNode?: Partial<PageNodeData>;
+  adNode?: Partial<AdNodeData>;
+  formNode?: Partial<FormNodeData>;
+  sequenceNode?: Partial<SequenceNodeData>;
+  upsellNodes?: Partial<UpsellNodeData>[];
+  thankYouNode?: Partial<ThankYouNodeData>;
+  splitNode?: Partial<AbSplitNodeData>;
+  storeDomain?: string;
+}): string {
+  const title = (journeyTitle || '').trim() || 'Client Funnel Proposal';
+  const clean = (v: unknown, fallback: string) => (typeof v === 'string' && v.trim() ? v.trim() : fallback);
+
+  const pageHeadline = clean(pageNode?.headline, '(No headline written yet)');
+  const pageSubhead = clean(ownCopy(pageNode?.subhead), '(No subheadline written yet)');
+  const pageButton = clean(pageNode?.buttonText, 'Continue');
+  const pageSlug = clean(pageNode?.slug, 'offer');
+  const pageTheme = clean(pageNode?.pageTheme, 'default');
+  const checkoutMode = pageNode?.checkoutMode === 'direct' ? 'Direct Checkout / Booking Link' : 'Lead Capture & Qualification';
+  const checkoutDest = clean(pageNode?.checkoutRedirectUrl, '(Handled by built-in lead form or connected store)');
+  const bullets = ownCopyList(pageNode?.bullets);
+
+  const splitSummary = splitNode
+    ? `- A/B Split Router: /p/${clean(splitNode.slug, 'split-test')} (${typeof splitNode.splitRatio === 'number' ? splitNode.splitRatio : 50}/${100 - (typeof splitNode.splitRatio === 'number' ? splitNode.splitRatio : 50)} traffic split between ${clean(splitNode.branchALabel, 'Variant A')} and ${clean(splitNode.branchBLabel, 'Variant B')})`
+    : '- A/B Split Router: Single primary path (no standalone traffic splitter step)';
+
+  const adPlatform = clean(adNode?.platform, 'meta').toUpperCase();
+  const adHeadline = clean(adNode?.headline, '(No ad headline written yet)');
+  const adBody = clean(ownCopy(adNode?.body), '(No ad copy written yet)');
+  const adCta = clean(adNode?.ctaText, '(No button text written yet)');
+  const adCampaign = clean(adNode?.utmCampaign, '(No utm_campaign tag set yet)');
+
+  const activeFields = Array.isArray(formNode?.fields)
+    ? formNode.fields.filter(f => f && f.enabled !== false)
+    : [];
+
+  const upsellLines = upsellNodes.length
+    ? upsellNodes
+        .map((u, idx) => {
+          const kind = u?.offerType === 'downsell' ? 'Downsell Offer' : 'Upsell Offer';
+          const uHeadline = clean(u?.headline, '(No headline written yet)');
+          const uProduct = clean(u?.productTitle, '(No product selected yet)');
+          const uPrice = clean(u?.productPrice, '(No price set)');
+          const uBenefits = ownCopyList(u?.benefits);
+          return [
+            `### ${idx + 1}. ${kind}: ${uHeadline}`,
+            `- Product / Package: ${uProduct}`,
+            `- Offer Price: ${uPrice}`,
+            uBenefits.length ? `- Value Points:\n${uBenefits.map(b => `  * ${b}`).join('\n')}` : '- Value Points: (None added yet)'
+          ].join('\n');
+        })
+        .join('\n\n')
+    : '(No upsell or downsell steps configured in this journey)';
+
+  const seqSteps: SequenceStep[] = Array.isArray(sequenceNode?.steps) ? sequenceNode.steps : [];
+  const seqLines = seqSteps.length
+    ? seqSteps
+        .map((s, idx) => {
+          const timing = clean(s.delay, 'Not set');
+          const subj = clean(s.subject, '(No subject written yet)');
+          const preview = clean(s.previewText, '(No preview text)');
+          const body = clean(s.body, '(No body written yet)');
+          return [
+            `### Email #${idx + 1} (${timing})`,
+            `- Subject: ${subj}`,
+            `- Preview Text: ${preview}`,
+            `- Message Body:\n${body}`
+          ].join('\n');
+        })
+        .join('\n\n')
+    : '(No automated follow-up emails configured yet)';
+
+  const tyView = thankYouView(thankYouNode ?? {}, storeDomain);
+  const tyLines = [
+    `- Confirmation Headline: ${clean(tyView.headline, 'Thank you')}`,
+    tyView.subhead ? `- Confirmation Subheadline: ${tyView.subhead}` : '- Confirmation Subheadline: (None set)',
+    tyView.voucher ? `- Next-Order Incentive: ${tyView.voucher.title} (Code: ${tyView.voucher.code})` : '- Next-Order Incentive: (None set)',
+    tyView.guide && tyView.guide.steps.length
+      ? `- Next Steps Guide (${clean(tyView.guide.title, 'Next steps')}):\n${tyView.guide.steps.map((st, i) => `  ${i + 1}. ${st}`).join('\n')}`
+      : '- Next Steps Guide: (None set)'
+  ].join('\n');
+
+  return `# JOURNEY STRATEGY & PROPOSAL BRIEF: ${title}
+
+## 1. Executive Summary & Traffic Routing
+- Primary Landing Page Path: /p/${pageSlug}
+- Visual Theme Preset: ${pageTheme}
+- Conversion Flow Mode: ${checkoutMode}
+- Checkout / Booking Destination: ${checkoutDest}
+${splitSummary}
+
+## 2. Paid & Organic Traffic Hook (${adPlatform})
+- Ad Headline: ${adHeadline}
+- Primary Ad Copy:
+${adBody}
+- Call to Action Button: ${adCta}
+- UTM Campaign Tag: ${adCampaign}
+
+## 3. Landing Page Offer & Copy
+- Primary Headline: ${pageHeadline}
+- Subheadline: ${pageSubhead}
+- Primary Action Button: ${pageButton}
+${bullets.length ? `- Key Value Points:\n${bullets.map(b => `  * ${b}`).join('\n')}` : '- Key Value Points: (No bullet points added yet)'}
+${pageNode?.abTestingEnabled && pageNode?.variantB ? `- In-Page Variant B Headline: ${clean(pageNode.variantB.headline, '(Same as Variant A)')}\n- In-Page Variant B CTA: ${clean(pageNode.variantB.buttonText, '(Same as Variant A)')}` : ''}
+${pageNode?.orderBumpEnabled ? `- Checkout Order Bump: ${clean(pageNode.orderBumpTitle, '(No title set)')} (${clean(pageNode.orderBumpPrice, 'Price not set')})` : ''}
+
+## 4. Lead Capture & Intake Specification
+- Form Heading: ${clean(formNode?.formTitle, '(Default intake heading)')}
+- Submit Button Label: ${clean(formNode?.submitButtonText, 'Continue')}
+- Active Intake Fields:
+${activeFields.length ? activeFields.map(f => `  * ${f.label} (${f.type}, ${f.required ? 'Required' : 'Optional'})`).join('\n') : '  * Full Name (text, Required)\n  * Work Email (email, Required)'}
+
+## 5. Post-Purchase Upsell & Downsell Offers
+${upsellLines}
+
+## 6. Automated Email Follow-Up Sequence (${clean(sequenceNode?.sequenceTitle, 'Nurture Sequence')})
+${seqLines}
+
+## 7. Confirmation & Thank-You Experience
+${tyLines}
+
+---
+Google Docs Tip: Click "Copy Code" and paste directly into a new Google Doc (https://docs.new), or click "Download" and open the .md brief in Google Drive.
+`;
+}

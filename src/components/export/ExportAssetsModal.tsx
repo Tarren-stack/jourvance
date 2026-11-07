@@ -34,7 +34,8 @@ import {
   generateThankYouHtml,
   generateUpsellHtml,
   generateEmailSequenceText,
-  generateAdCopyText
+  generateAdCopyText,
+  generateGoogleDocsPitchBrief
 } from '../../lib/funnelExportGenerators';
 import { ModalDialog } from '../modals/ModalDialog';
 import { useFieldIds } from '../../lib/a11yHooks';
@@ -72,7 +73,7 @@ export const ExportAssetsModal: React.FC<Props> = ({
   workspaceId,
   journeyId
 }) => {
-  const [activeTab, setActiveTab] = useState<'page' | 'emails' | 'ads' | 'json'>('page');
+  const [activeTab, setActiveTab] = useState<'page' | 'emails' | 'ads' | 'pitch' | 'json'>('page');
   const [copied, setCopied] = useState(false);
   const fid = useFieldIds();
   const [targetAUrl, setTargetAUrl] = useState<string>('');
@@ -380,6 +381,17 @@ export const ExportAssetsModal: React.FC<Props> = ({
           adNode,
           destinationUrl: primaryPageNode?.publishedUrl || (splitNode ? './split-router.html' : './variant-a.html')
         });
+      case 'pitch':
+        return generateGoogleDocsPitchBrief({
+          journeyTitle,
+          pageNode: primaryPageNode,
+          adNode,
+          formNode,
+          sequenceNode,
+          upsellNodes: upsellNodes.map(n => n.data as UpsellNodeData),
+          thankYouNode,
+          splitNode
+        });
       case 'json':
         return JSON.stringify({ title: journeyTitle, exportedAt: new Date().toISOString(), nodes }, null, 2);
     }
@@ -415,6 +427,9 @@ export const ExportAssetsModal: React.FC<Props> = ({
       filename += '-email-sequence.txt';
     } else if (activeTab === 'ads') {
       filename += '-ad-copy-utms.txt';
+    } else if (activeTab === 'pitch') {
+      filename += '-google-docs-brief.md';
+      mimeType = 'text/markdown';
     } else if (activeTab === 'json') {
       filename += '-blueprint.json';
       mimeType = 'application/json';
@@ -576,6 +591,27 @@ export const ExportAssetsModal: React.FC<Props> = ({
           >
             <Share2 size={15} />
             <span>Ad Copy + UTMs</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('pitch')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              border: 'none',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              backgroundColor: activeTab === 'pitch' ? '#6366F1' : 'transparent',
+              color: activeTab === 'pitch' ? '#FFFFFF' : '#94A3B8'
+            }}
+          >
+            <FileText size={15} />
+            <span>Google Docs Brief</span>
           </button>
 
           <button

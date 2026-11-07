@@ -9,8 +9,10 @@ import {
   isConvertedGoogleDriveImageUrl,
   buildGoogleCalendarPresetUrl,
   validateDirectCheckoutUrl,
-  buildChatConciergeHref
+  buildChatConciergeHref,
+  GOOGLE_FORMS_APPS_SCRIPT
 } from '../src/lib/pageEditorSections.ts';
+import { generateGoogleDocsPitchBrief } from '../src/lib/funnelExportGenerators.ts';
 import { migrateLegacyPage } from '../src/lib/pageBuilder/model.mjs';
 import { builderFrameScript } from '../server/routes/publicBuilderScript.mjs';
 
@@ -170,5 +172,78 @@ describe('P2.6: Journey-Level Global Theme Selector & Single-Page Variants vs. C
     assert.ok(pageEditorSrc.includes('Apply to all steps'), 'PageEditor renders Apply to all steps button');
     assert.ok(pageEditorSrc.includes('Single-Page Variants vs. Canvas Route Split:'), 'PageEditor explains Single-Page Variants vs. Canvas Route Split');
     assert.ok(abSplitSrc.includes('Canvas Route Split vs. Single-Page Variants:'), 'AbSplitEditor explains Canvas Route Split vs. Single-Page Variants');
+  });
+});
+
+describe('P3.1: Google Docs Pitch & Proposal Brief Exporter', () => {
+  it('generateGoogleDocsPitchBrief formats journey steps honestly with zero invented claims or em dashes, and ExportAssetsModal wires the Google Docs Brief tab', () => {
+    const emptyBrief = generateGoogleDocsPitchBrief({ journeyTitle: 'Empty Draft' });
+    assert.ok(emptyBrief.includes('# JOURNEY STRATEGY & PROPOSAL BRIEF: Empty Draft'));
+    assert.ok(emptyBrief.includes('(No headline written yet)'));
+    assert.ok(emptyBrief.includes('(No automated follow-up emails configured yet)'));
+    assert.ok(!emptyBrief.includes('\u2014'), 'no em dash in empty brief');
+
+    const populatedBrief = generateGoogleDocsPitchBrief({
+      journeyTitle: 'B2B Advisory Funnel',
+      pageNode: {
+        slug: 'advisory-retainer',
+        pageTheme: 'executive-slate',
+        checkoutMode: 'direct',
+        checkoutRedirectUrl: 'https://buy.stripe.com/test_advisory',
+        headline: 'Scale Your Operations With Weekly Executive Advisory',
+        subhead: 'Direct access to senior operators and weekly KPI reviews.',
+        buttonText: 'Book Discovery Call',
+        bullets: ['Weekly 1-on-1 strategy session', 'Custom KPI scorecard']
+      },
+      adNode: {
+        platform: 'google',
+        headline: 'Executive Operations Advisory',
+        body: 'Built for founders scaling past 10M ARR.',
+        ctaText: 'Apply Now',
+        utmCampaign: 'q4_b2b_advisory'
+      },
+      sequenceNode: {
+        sequenceTitle: 'Executive Follow-Up',
+        steps: [
+          {
+            id: 's1',
+            delay: 'Immediate',
+            subject: 'Your Executive Advisory Overview',
+            previewText: 'Here is what we cover on our call',
+            body: 'Thanks for requesting our advisory overview.'
+          }
+        ]
+      }
+    });
+    assert.ok(populatedBrief.includes('Scale Your Operations With Weekly Executive Advisory'));
+    assert.ok(populatedBrief.includes('https://buy.stripe.com/test_advisory'));
+    assert.ok(populatedBrief.includes('q4_b2b_advisory'));
+    assert.ok(populatedBrief.includes('Your Executive Advisory Overview'));
+    assert.ok(!populatedBrief.includes('\u2014'), 'no em dash in populated brief');
+
+    const exportModalSrc = fs.readFileSync(path.join(ROOT, 'src/components/export/ExportAssetsModal.tsx'), 'utf8');
+    assert.ok(exportModalSrc.includes('Google Docs Brief'), 'ExportAssetsModal renders Google Docs Brief tab');
+    assert.ok(exportModalSrc.includes('generateGoogleDocsPitchBrief'), 'ExportAssetsModal calls generateGoogleDocsPitchBrief');
+  });
+});
+
+describe('P3.2: Google Forms Intake Sync Apps Script Template in FormEditor', () => {
+  it('GOOGLE_FORMS_APPS_SCRIPT posts Google Forms responses to /api/public/lead and FormEditor renders the disclosure card', () => {
+    assert.ok(GOOGLE_FORMS_APPS_SCRIPT.includes('function onFormSubmit(e)'));
+    assert.ok(GOOGLE_FORMS_APPS_SCRIPT.includes('/api/public/lead'));
+    assert.ok(GOOGLE_FORMS_APPS_SCRIPT.includes("utm_source: 'google_forms'"));
+
+    const formEditorSrc = fs.readFileSync(path.join(ROOT, 'src/components/drawers/FormEditor.tsx'), 'utf8');
+    assert.ok(formEditorSrc.includes('Google Forms Intake Sync (Free Apps Script)'), 'FormEditor renders Google Forms Intake Sync summary');
+    assert.ok(formEditorSrc.includes('Copy Google Forms Script'), 'FormEditor renders Copy Google Forms Script button');
+  });
+});
+
+describe('P3.3: Vite Manual Chunks Code-Splitting', () => {
+  it('vite.config.ts splits vendor-firebase, vendor-xyflow, vendor-icons, vendor-react, editor-page, and campaign-suite chunks', () => {
+    const viteSrc = fs.readFileSync(path.join(ROOT, 'vite.config.ts'), 'utf8');
+    for (const chunkName of ['vendor-firebase', 'vendor-xyflow', 'vendor-icons', 'vendor-react', 'editor-page', 'campaign-suite']) {
+      assert.ok(viteSrc.includes(`'${chunkName}'`), `vite.config.ts defines manual chunk ${chunkName}`);
+    }
   });
 });

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Plus, Check, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Plus, Check, ShieldCheck, CheckCircle2, Copy } from 'lucide-react';
 import type { FormNodeData, FormFieldConfig } from '../../types/journey';
 import { useFieldIds } from '../../lib/a11yHooks';
+import { GOOGLE_FORMS_APPS_SCRIPT } from '../../lib/pageEditorSections';
 
 interface Props {
   data: FormNodeData;
@@ -11,6 +12,7 @@ interface Props {
 export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
   const [editorTab, setEditorTab] = useState<'settings' | 'preview'>('settings');
   const [submitted, setSubmitted] = useState(false);
+  const [copiedFormsScript, setCopiedFormsScript] = useState(false);
   // Ties each label to its control, unique per mounted editor.
   const fid = useFieldIds();
 
@@ -313,6 +315,80 @@ export const FormEditor: React.FC<Props> = ({ data, onChange }) => {
 
       {/* No notification email field: nothing on the server reads notifyEmail, so the field implied
           that submissions were emailed to an address nobody sends to (T10). A saved value is kept. */}
+
+      {/* Google Forms Intake Sync (Free Apps Script) */}
+      <details
+        style={{
+          backgroundColor: 'rgba(15, 23, 42, 0.6)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '10px',
+          padding: '10px 12px'
+        }}
+      >
+        <summary
+          style={{
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 700,
+            color: '#E2E8F0',
+            userSelect: 'none'
+          }}
+        >
+          Google Forms Intake Sync (Free Apps Script)
+        </summary>
+        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <p style={{ margin: 0, fontSize: '11px', color: '#94A3B8', lineHeight: 1.5 }}>
+            Using a free Google Form for intake or applications? Paste this script in Google Forms (Extensions &gt; Apps Script) and add an On Form Submit trigger to pipe responses straight into your Jourvance CRM and follow-up sequence.
+          </p>
+          <pre
+            style={{
+              margin: 0,
+              padding: '8px 10px',
+              borderRadius: '6px',
+              backgroundColor: '#070A12',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              color: '#E2E8F0',
+              fontSize: '11px',
+              fontFamily: "'JetBrains Mono', monospace",
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              maxHeight: '150px',
+              overflowY: 'auto'
+            }}
+          >
+            {GOOGLE_FORMS_APPS_SCRIPT}
+          </pre>
+          <button
+            type="button"
+            aria-label="Copy Google Forms Script"
+            onClick={() => {
+              if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                navigator.clipboard.writeText(GOOGLE_FORMS_APPS_SCRIPT);
+              }
+              setCopiedFormsScript(true);
+              setTimeout(() => setCopiedFormsScript(false), 2000);
+            }}
+            style={{
+              alignSelf: 'flex-start',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              minHeight: '28px',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              backgroundColor: 'rgba(99, 102, 241, 0.18)',
+              border: '1px solid rgba(99, 102, 241, 0.4)',
+              color: '#C7D2FE',
+              fontSize: '11px',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            {copiedFormsScript ? <Check size={13} color="#34D399" /> : <Copy size={13} />}
+            <span>{copiedFormsScript ? 'Copied Google Forms Script' : 'Copy Google Forms Script'}</span>
+          </button>
+        </div>
+      </details>
       </>
       )}
     </div>

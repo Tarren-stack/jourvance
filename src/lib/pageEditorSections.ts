@@ -224,3 +224,27 @@ export const GOOGLE_SHEETS_APPS_SCRIPT = `function doPost(e) {
   ]);
   return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
 }`;
+
+export const GOOGLE_FORMS_APPS_SCRIPT = `function onFormSubmit(e) {
+  var responses = (e && e.namedValues) || {};
+  var pick = function(keys) {
+    for (var i = 0; i < keys.length; i++) {
+      var val = responses[keys[i]];
+      if (val && val[0]) return String(val[0]).trim();
+    }
+    return '';
+  };
+  var payload = {
+    email: pick(['Email', 'Email Address', 'Work Email', 'email']),
+    name: pick(['Name', 'Full Name', 'Your Name', 'name']),
+    phone: pick(['Phone', 'Phone Number', 'Mobile', 'phone']),
+    slug: 'offer',
+    utm_source: 'google_forms'
+  };
+  UrlFetchApp.fetch('https://YOUR-JOURVANCE-DOMAIN/api/public/lead', {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+}`;
